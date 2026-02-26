@@ -48,7 +48,8 @@ type MemoryConfig struct {
 }
 
 type SchedulerConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled      bool          `yaml:"enabled"`
+	PollInterval time.Duration `yaml:"poll_interval"`
 }
 
 type ToolsConfig struct {
@@ -133,6 +134,9 @@ func defaultConfig() Config {
 		Log: LogConfig{
 			Level:  "info",
 			Format: "text",
+		},
+		Scheduler: SchedulerConfig{
+			PollInterval: 30 * time.Second,
 		},
 		Tools: ToolsConfig{
 			Bash: BashToolConfig{

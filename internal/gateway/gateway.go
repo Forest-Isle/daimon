@@ -62,7 +62,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 	runtime := agent.NewRuntime(provider, tools, sessions, db, cfg.Agent, cfg.LLM)
 
 	// Scheduler
-	sched := scheduler.New(db)
+	sched := scheduler.New(db, cfg.Scheduler.PollInterval)
 
 	gw := &Gateway{
 		cfg:      cfg,
@@ -76,6 +76,17 @@ func New(cfg *config.Config) (*Gateway, error) {
 
 	// Set up approval function
 	runtime.SetApprovalFunc(gw.handleApproval)
+
+	// Set up scheduler handler — routes scheduled tasks through the normal message pipeline
+	sched.SetHandler(func(ctx context.Context, task scheduler.Task) {
+		gw.handleInbound(ctx, channel.InboundMessage{
+			Channel:   task.Channel,
+			ChannelID: task.ChannelID,
+			UserID:    "scheduler",
+			UserName:  "scheduler",
+			Text:      task.Prompt,
+		})
+	})
 
 	return gw, nil
 }
