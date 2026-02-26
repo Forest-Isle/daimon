@@ -1,0 +1,55 @@
+# IronClaw 配置示例
+
+llm:
+  provider: claude
+  api_key: "${ANTHROPIC_API_KEY}"
+  model: claude-sonnet-4-20250514
+  max_tokens: 8192
+
+telegram:
+  token: "${TELEGRAM_BOT_TOKEN}"
+  allowed_user_ids:
+    - 123456789
+
+agent:
+  max_iterations: 20
+  system_prompt: |
+    You are IronClaw, a helpful AI assistant with access to tools.
+    You can execute shell commands, read/write files, and make HTTP requests.
+    Always explain what you're about to do before using tools.
+
+store:
+  path: "./data/ironclaw.db"
+
+memory:
+  enabled: true
+  embedding_model: claude
+
+scheduler:
+  enabled: true
+
+tools:
+  bash:
+    enabled: true
+    timeout: 30s
+    requires_approval: true
+    blocked_commands:
+      - "rm -rf /"
+      - "shutdown"
+      - "reboot"
+      - "mkfs"
+  file:
+    enabled: true
+    requires_approval: false
+  http:
+    enabled: true
+    requires_approval: false
+    timeout: 30s
+
+server:
+  addr: ":8080"
+  enabled: false
+
+log:
+  level: info
+  format: text

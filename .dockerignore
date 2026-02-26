@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.claude
+.vscode
+bin
+data
+dist
+*.md
+!README.md
+LICENSE
+Makefile
+.editorconfig
+.gitignore
+.goreleaser.yml
+docker-compose.yml

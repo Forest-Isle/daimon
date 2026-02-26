@@ -1,0 +1,14 @@
+services:
+  ironclaw:
+    build: .
+    container_name: ironclaw
+    restart: unless-stopped
+    volumes:
+      - ./configs/ironclaw.yaml:/app/configs/ironclaw.yaml:ro
+      - ironclaw-data:/app/data
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+
+volumes:
+  ironclaw-data:
