@@ -6,10 +6,15 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
+	"text/tabwriter"
 
 	"github.com/punkopunko/ironclaw/internal/config"
 	"github.com/punkopunko/ironclaw/internal/gateway"
+	"github.com/punkopunko/ironclaw/internal/skill"
+	"github.com/punkopunko/ironclaw/internal/userdir"
 	"github.com/spf13/cobra"
 )
 
@@ -41,11 +46,173 @@ func main() {
 		},
 	}
 
-	root.AddCommand(startCmd, versionCmd)
+	root.AddCommand(startCmd, versionCmd, newSkillCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// skillsDir returns the path to ~/.IronClaw/skills/.
+func skillsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	dir := filepath.Join(home, ".IronClaw", "skills")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("create skills dir: %w", err)
+	}
+	return dir, nil
+}
+
+// newSkillCmd builds the `ironclaw skill` subcommand group.
+func newSkillCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "skill",
+		Short: "Manage IronClaw skills",
+	}
+	cmd.AddCommand(
+		newSkillListCmd(),
+		newSkillSearchCmd(),
+		newSkillInstallCmd(),
+		newSkillRemoveCmd(),
+	)
+	return cmd
+}
+
+func newSkillListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List installed skills",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := skillsDir()
+			if err != nil {
+				return err
+			}
+
+			mgr := skill.New()
+			if err := mgr.LoadDir(dir); err != nil {
+				return fmt.Errorf("load skills: %w", err)
+			}
+
+			skills := mgr.All()
+			if len(skills) == 0 {
+				fmt.Println("No skills installed. Use `ironclaw skill install <slug>` to install from ClawHub.")
+				return nil
+			}
+
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "NAME\tVERSION\tAUTHOR\tTAGS\tDESCRIPTION")
+			for _, s := range skills {
+				tags := strings.Join(s.Tags, ", ")
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+					s.Name, s.Version, s.Author, tags, truncate(s.Description, 50))
+			}
+			return w.Flush()
+		},
+	}
+}
+
+func newSkillSearchCmd() *cobra.Command {
+	var baseURL string
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search ClawHub for skills",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := skill.NewClawHubClient(baseURL, "")
+			results, err := client.Search(context.Background(), args[0])
+			if err != nil {
+				return fmt.Errorf("search failed: %w", err)
+			}
+
+			if len(results) == 0 {
+				fmt.Println("No skills found matching:", args[0])
+				return nil
+			}
+
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "SLUG\tNAME\tAUTHOR\tTAGS\tDESCRIPTION")
+			for _, r := range results {
+				tags := strings.Join(r.Tags, ", ")
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+					r.Slug, r.Name, r.Author, tags, truncate(r.Description, 50))
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().StringVar(&baseURL, "hub", "https://clawhub.ai", "ClawHub base URL")
+	return cmd
+}
+
+func newSkillInstallCmd() *cobra.Command {
+	var baseURL string
+	cmd := &cobra.Command{
+		Use:   "install <slug>",
+		Short: "Download and install a skill from ClawHub",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := skillsDir()
+			if err != nil {
+				return err
+			}
+
+			slug := args[0]
+			client := skill.NewClawHubClient(baseURL, "")
+			s, err := client.Download(context.Background(), slug, dir)
+			if err != nil {
+				return fmt.Errorf("install failed: %w", err)
+			}
+
+			fmt.Printf("Skill installed: %s (v%s)\n", s.Name, s.Version)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&baseURL, "hub", "https://clawhub.ai", "ClawHub base URL")
+	return cmd
+}
+
+func newSkillRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove an installed skill",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := skillsDir()
+			if err != nil {
+				return err
+			}
+
+			name := args[0]
+			skillPath := filepath.Join(dir, name)
+
+			if _, err := os.Stat(skillPath); os.IsNotExist(err) {
+				return fmt.Errorf("skill %q not found in %s", name, dir)
+			}
+
+			fmt.Printf("Remove skill %q from %s? [y/N] ", name, dir)
+			var answer string
+			fmt.Scanln(&answer)
+			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+				fmt.Println("Aborted.")
+				return nil
+			}
+
+			if err := os.RemoveAll(skillPath); err != nil {
+				return fmt.Errorf("remove skill: %w", err)
+			}
+			fmt.Printf("Skill %q removed.\n", name)
+			return nil
+		},
+	}
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -59,6 +226,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	setupLogging(cfg.Log.Level)
+
+	if err := userdir.Apply(cfg); err != nil {
+		return fmt.Errorf("load user config: %w", err)
+	}
 
 	gw, err := gateway.New(cfg)
 	if err != nil {

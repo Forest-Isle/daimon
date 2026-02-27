@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	openAIEmbeddingURL     = "https://api.openai.com/v1/embeddings"
-	openAIDefaultModel     = "text-embedding-3-small"
-	openAIDimensions       = 1536
+	openAIEmbeddingURL = "https://api.laozhang.ai/v1/embeddings"
+	openAIDefaultModel = "text-embedding-3-small"
+	openAIDimensions   = 1536
 )
 
 // OpenAIEmbedding implements EmbeddingProvider using the OpenAI Embeddings API.

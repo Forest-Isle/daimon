@@ -22,6 +22,8 @@ type ReflectionCallback func(key string, decision ReplanDecision)
 type Reflector struct {
 	provider           Provider
 	memStore           memory.Store
+	factExtractor      *memory.LLMFactExtractor
+	lifecycleMgr       *memory.LifecycleManager
 	cfg                config.CognitiveConfig
 	llmModel           string
 	pendingReflections *sync.Map
@@ -46,6 +48,16 @@ func NewReflector(
 		llmModel:           model,
 		pendingReflections: pendingReflections,
 	}
+}
+
+// SetFactExtractor injects a fact extractor for lifecycle-managed memory writes.
+func (r *Reflector) SetFactExtractor(fe *memory.LLMFactExtractor) {
+	r.factExtractor = fe
+}
+
+// SetLifecycleManager injects a lifecycle manager for ADD/UPDATE/DELETE/NOOP decisions.
+func (r *Reflector) SetLifecycleManager(lm *memory.LifecycleManager) {
+	r.lifecycleMgr = lm
 }
 
 // Run executes the REFLECT phase. Returns a Reflection (with FinalAnswer).
@@ -147,36 +159,62 @@ func (r *Reflector) RequestReplanApproval(
 	}
 }
 
-// saveExperience writes task outcome to the memory store for future retrieval.
-func (r *Reflector) saveExperience(ctx context.Context, state *CognitiveState, plan *TaskPlan, reflection *Reflection) {
+// saveExperience extracts facts and uses lifecycle management if available.
+// It runs asynchronously (fire-and-forget) to avoid blocking the main cognitive loop.
+// The incoming ctx is intentionally not forwarded to the goroutine; a fresh background
+// context is used so the write is not cancelled when the request context expires.
+func (r *Reflector) saveExperience(_ context.Context, state *CognitiveState, plan *TaskPlan, reflection *Reflection) {
 	if r.memStore == nil {
 		return
 	}
 
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("GOAL: %s\n", state.Goal.Raw))
-	sb.WriteString(fmt.Sprintf("PLAN: %s\n", plan.Summary))
-	sb.WriteString(fmt.Sprintf("OUTCOME: succeeded=%v, confidence=%.2f\n", reflection.Succeeded, reflection.OverallConfidence))
-	if len(reflection.LessonsLearned) > 0 {
-		sb.WriteString("LESSONS:\n")
-		for _, lesson := range reflection.LessonsLearned {
-			sb.WriteString("- " + lesson + "\n")
-		}
-	}
+	go func() {
+		bgCtx := context.Background()
 
-	err := r.memStore.Save(ctx, memory.Entry{
-		SessionID: state.SessionID,
-		Content:   sb.String(),
-		Metadata: map[string]string{
-			"type":       "cognitive_experience",
-			"complexity": string(state.Goal.Complexity),
-			"succeeded":  fmt.Sprintf("%v", reflection.Succeeded),
-		},
-		CreatedAt: time.Now(),
-	})
-	if err != nil {
-		slog.Warn("reflect: failed to save experience to memory", "err", err)
-	}
+		if r.factExtractor != nil && r.lifecycleMgr != nil {
+			// Extract distilled facts from the goal/outcome pair.
+			facts, err := r.factExtractor.Extract(bgCtx, state.Goal.Raw, reflection.FinalAnswer)
+			if err != nil {
+				slog.Warn("reflect: fact extraction failed", "err", err)
+			} else {
+				for _, fact := range facts {
+					if err := r.lifecycleMgr.Process(bgCtx, fact, state.SessionID, state.UserID, memory.ScopeSession); err != nil {
+						slog.Warn("reflect: lifecycle process failed", "err", err, "fact", fact.Content)
+					}
+				}
+				if len(facts) > 0 {
+					// Facts extracted and lifecycle-managed; skip raw experience save.
+					return
+				}
+			}
+		}
+
+		// Fallback: save raw cognitive experience to the legacy memories table.
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("GOAL: %s\n", state.Goal.Raw))
+		sb.WriteString(fmt.Sprintf("PLAN: %s\n", plan.Summary))
+		sb.WriteString(fmt.Sprintf("OUTCOME: succeeded=%v, confidence=%.2f\n", reflection.Succeeded, reflection.OverallConfidence))
+		if len(reflection.LessonsLearned) > 0 {
+			sb.WriteString("LESSONS:\n")
+			for _, lesson := range reflection.LessonsLearned {
+				sb.WriteString("- " + lesson + "\n")
+			}
+		}
+
+		err := r.memStore.Save(bgCtx, memory.Entry{
+			SessionID: state.SessionID,
+			Content:   sb.String(),
+			Metadata: map[string]string{
+				"type":       "cognitive_experience",
+				"complexity": string(state.Goal.Complexity),
+				"succeeded":  fmt.Sprintf("%v", reflection.Succeeded),
+			},
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			slog.Warn("reflect: failed to save experience to memory", "err", err)
+		}
+	}()
 }
 
 // buildReflectUserMessage fills in the ReflectUserPromptTemplate.

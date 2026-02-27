@@ -43,10 +43,13 @@ type Goal struct {
 // CognitiveState is the output of the PERCEIVE phase.
 type CognitiveState struct {
 	SessionID        string
+	UserID           string // identifies the user across sessions
 	UserMessage      string
 	Goal             Goal
 	RelevantMemories []memory.SearchResult
 	RecentHistory    []CompletionMessage
+	Skills           string   // injected skill prompt section (may be empty)
+	KnowledgeContext []string // relevant knowledge base snippets
 }
 
 // SubTask is a single unit of work within a TaskPlan.

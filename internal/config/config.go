@@ -15,15 +15,32 @@ type Config struct {
 	Agent     AgentConfig     `yaml:"agent"`
 	Store     StoreConfig     `yaml:"store"`
 	Memory    MemoryConfig    `yaml:"memory"`
+	Knowledge KnowledgeConfig `yaml:"knowledge"` // Phase 2 placeholder
+	Graph     GraphConfig     `yaml:"graph"`      // Phase 3 placeholder
 	Scheduler SchedulerConfig `yaml:"scheduler"`
 	Tools     ToolsConfig     `yaml:"tools"`
 	Server    ServerConfig    `yaml:"server"`
 	Log       LogConfig       `yaml:"log"`
+	Skills    SkillsConfig    `yaml:"skills"`
+}
+
+// SkillsConfig configures the skill system.
+type SkillsConfig struct {
+	Enabled   bool          `yaml:"enabled"`    // default: true
+	ExtraDirs []string      `yaml:"extra_dirs"` // additional skill directories
+	ClawHub   ClawHubConfig `yaml:"clawhub"`
+}
+
+// ClawHubConfig configures the ClawHub public skill registry client.
+type ClawHubConfig struct {
+	BaseURL string `yaml:"base_url"` // default: "https://clawhub.ai"
+	APIKey  string `yaml:"api_key"`  // optional
 }
 
 type LLMConfig struct {
 	Provider  string `yaml:"provider"`
 	APIKey    string `yaml:"api_key"`
+	BaseURL   string `yaml:"base_url"`
 	Model     string `yaml:"model"`
 	MaxTokens int    `yaml:"max_tokens"`
 }
@@ -57,9 +74,37 @@ type StoreConfig struct {
 }
 
 type MemoryConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	EmbeddingModel string `yaml:"embedding_model"`
-	OpenAIAPIKey   string `yaml:"openai_api_key"`
+	Enabled               bool          `yaml:"enabled"`
+	EmbeddingModel        string        `yaml:"embedding_model"`
+	OpenAIAPIKey          string        `yaml:"openai_api_key"`
+	FactExtraction        bool          `yaml:"fact_extraction"`         // enable LLM fact extraction
+	SimilarityThreshold   float64       `yaml:"similarity_threshold"`    // dedup threshold (default 0.85)
+	ConsolidationInterval time.Duration `yaml:"consolidation_interval"`  // session->user promotion interval
+	BM25Weight            float64       `yaml:"bm25_weight"`             // BM25 weight in RRF (default 0.4)
+	VectorWeight          float64       `yaml:"vector_weight"`           // vector weight in RRF (default 0.6)
+}
+
+// KnowledgeConfig holds configuration for the Phase 2 knowledge base package.
+type KnowledgeConfig struct {
+	Enabled      bool           `yaml:"enabled"`
+	ChunkSize    int            `yaml:"chunk_size"`
+	ChunkOverlap int            `yaml:"chunk_overlap"`
+	BM25Weight   float64        `yaml:"bm25_weight"`
+	VectorWeight float64        `yaml:"vector_weight"`
+	GraphEnabled bool           `yaml:"graph_enabled"`
+	IngestDirs   []string       `yaml:"ingest_dirs"`
+	Reranker     RerankerConfig `yaml:"reranker"`
+}
+
+// RerankerConfig configures the optional LLM-based reranker.
+type RerankerConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Provider string `yaml:"provider"` // "llm" or "none"
+}
+
+// GraphConfig holds configuration for the Phase 3 knowledge graph.
+type GraphConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type SchedulerConfig struct {
@@ -115,6 +160,18 @@ type LogConfig struct {
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 
+// ExpandEnv replaces ${VAR} placeholders in data with values from the environment.
+// Placeholders with no matching env var are left unchanged.
+func ExpandEnv(data []byte) []byte {
+	return envVarPattern.ReplaceAllFunc(data, func(match []byte) []byte {
+		varName := envVarPattern.FindSubmatch(match)[1]
+		if val, ok := os.LookupEnv(string(varName)); ok {
+			return []byte(val)
+		}
+		return match
+	})
+}
+
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -122,13 +179,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Substitute environment variables
-	expanded := envVarPattern.ReplaceAllFunc(data, func(match []byte) []byte {
-		varName := envVarPattern.FindSubmatch(match)[1]
-		if val, ok := os.LookupEnv(string(varName)); ok {
-			return []byte(val)
-		}
-		return match
-	})
+	expanded := ExpandEnv(data)
 
 	cfg := defaultConfig()
 	if err := yaml.Unmarshal(expanded, &cfg); err != nil {
@@ -187,6 +238,18 @@ func defaultConfig() Config {
 				Enabled: true,
 				Timeout: 30 * time.Second,
 			},
+		},
+		Skills: SkillsConfig{
+			Enabled: true,
+			ClawHub: ClawHubConfig{
+				BaseURL: "https://clawhub.ai",
+			},
+		},
+		Knowledge: KnowledgeConfig{
+			ChunkSize:    512,
+			ChunkOverlap: 64,
+			BM25Weight:   0.4,
+			VectorWeight: 0.6,
 		},
 	}
 }

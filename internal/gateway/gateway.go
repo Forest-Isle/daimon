@@ -3,6 +3,8 @@ package gateway
 import (
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -10,10 +12,12 @@ import (
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/channel/telegram"
 	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/punkopunko/ironclaw/internal/knowledge"
 	"github.com/punkopunko/ironclaw/internal/mcp"
 	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/scheduler"
 	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/punkopunko/ironclaw/internal/skill"
 	"github.com/punkopunko/ironclaw/internal/store"
 	"github.com/punkopunko/ironclaw/internal/tool"
 )
@@ -60,20 +64,37 @@ func New(cfg *config.Config) (*Gateway, error) {
 	}
 
 	// LLM provider
-	provider := agent.NewClaudeProvider(cfg.LLM.APIKey, cfg.LLM.Model)
+	provider := agent.NewClaudeProvider(cfg.LLM.APIKey, cfg.LLM.Model, cfg.LLM.BaseURL)
 
 	// Agent runtime
 	runtime := agent.NewRuntime(provider, tools, sessions, db, cfg.Agent, cfg.LLM)
 
 	// Memory store
 	var memStore memory.Store
+	var factExtractor *memory.LLMFactExtractor
+	var lifecycleMgr *memory.LifecycleManager
+
 	if cfg.Memory.Enabled {
 		var embedder memory.EmbeddingProvider = &memory.NoopEmbedding{}
 		if cfg.Memory.OpenAIAPIKey != "" {
 			embedder = memory.NewOpenAIEmbedding(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel)
 		}
-		memStore = memory.NewSQLiteStore(db, embedder)
+		memCfg := memory.MemoryConfig{
+			FactExtraction:        cfg.Memory.FactExtraction,
+			SimilarityThreshold:   cfg.Memory.SimilarityThreshold,
+			ConsolidationInterval: cfg.Memory.ConsolidationInterval,
+			BM25Weight:            cfg.Memory.BM25Weight,
+			VectorWeight:          cfg.Memory.VectorWeight,
+		}
+		sqliteStore := memory.NewSQLiteStore(db, embedder, memCfg)
+		memStore = sqliteStore
 		runtime.SetMemoryStore(memStore)
+
+		if cfg.Memory.FactExtraction {
+			completer := &completerAdapter{provider: provider, model: cfg.LLM.Model}
+			factExtractor = memory.NewLLMFactExtractor(completer, memCfg)
+			lifecycleMgr = memory.NewLifecycleManager(memStore, embedder, completer, memCfg)
+		}
 	}
 
 	// Optionally build cognitive agent
@@ -83,6 +104,69 @@ func New(cfg *config.Config) (*Gateway, error) {
 		if memStore != nil {
 			cognitiveAgent.SetMemoryStore(memStore)
 		}
+		if factExtractor != nil {
+			cognitiveAgent.SetFactExtractor(factExtractor)
+		}
+		if lifecycleMgr != nil {
+			cognitiveAgent.SetLifecycleManager(lifecycleMgr)
+		}
+	}
+
+	// Knowledge base (Phase 2)
+	if cfg.Knowledge.Enabled {
+		kbCfg := knowledge.Config{
+			ChunkSize:    cfg.Knowledge.ChunkSize,
+			ChunkOverlap: cfg.Knowledge.ChunkOverlap,
+			BM25Weight:   cfg.Knowledge.BM25Weight,
+			VectorWeight: cfg.Knowledge.VectorWeight,
+			IngestDirs:   cfg.Knowledge.IngestDirs,
+		}
+		var kbEmbedder knowledge.EmbeddingProvider
+		if cfg.Memory.OpenAIAPIKey != "" {
+			kbEmbedder = memory.NewOpenAIEmbedding(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel)
+		} else {
+			kbEmbedder = &noopKBEmbedder{}
+		}
+		kb := knowledge.New(db, kbEmbedder, kbCfg)
+
+		// Build reranker
+		var reranker knowledge.Reranker = &knowledge.NoopReranker{}
+		if cfg.Knowledge.Reranker.Enabled && cfg.Knowledge.Reranker.Provider == "llm" {
+			llmCompleter := &completerAdapter{provider: provider, model: cfg.LLM.Model}
+			reranker = knowledge.NewLLMReranker(llmCompleter)
+		}
+		_ = knowledge.NewHybridRetriever(kb, reranker) // retrieval goes through kb.Search() in perceiver
+
+		// Ingest configured directories at startup
+		for _, dir := range cfg.Knowledge.IngestDirs {
+			if err := kb.GetPipeline().IngestDir(context.Background(), dir); err != nil {
+				slog.Warn("gateway: failed to ingest dir", "dir", dir, "err", err)
+			}
+		}
+
+		if cognitiveAgent != nil {
+			cognitiveAgent.SetKnowledgeBase(kb)
+		}
+	}
+
+	// Skill manager — load from ~/.IronClaw/skills/ and any extra dirs
+	var skillMgr *skill.Manager
+	if cfg.Skills.Enabled {
+		skillMgr = skill.New()
+		userSkillsDir := defaultSkillsDir()
+		if err := skillMgr.LoadDir(userSkillsDir); err != nil {
+			slog.Warn("gateway: failed to load user skills", "dir", userSkillsDir, "err", err)
+		}
+		for _, dir := range cfg.Skills.ExtraDirs {
+			if err := skillMgr.LoadDir(dir); err != nil {
+				slog.Warn("gateway: failed to load extra skills dir", "dir", dir, "err", err)
+			}
+		}
+		runtime.SetSkillManager(skillMgr)
+		if cognitiveAgent != nil {
+			cognitiveAgent.SetSkillManager(skillMgr)
+		}
+		slog.Info("skill manager initialized", "skills", len(skillMgr.All()))
 	}
 
 	// Scheduler
@@ -284,6 +368,26 @@ func (gw *Gateway) handleCallback(msg channel.InboundMessage) {
 	}
 }
 
+// completerAdapter bridges agent.Provider to memory.Completer.
+type completerAdapter struct {
+	provider agent.Provider
+	model    string
+}
+
+func (a *completerAdapter) Complete(ctx context.Context, systemPrompt, userMessage string) (string, error) {
+	req := agent.CompletionRequest{
+		Model:     a.model,
+		System:    systemPrompt,
+		Messages:  []agent.CompletionMessage{{Role: "user", Content: userMessage}},
+		MaxTokens: 512,
+	}
+	resp, err := a.provider.Complete(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return resp.Text, nil
+}
+
 func parseChatID(s string) int64 {
 	var id int64
 	for _, c := range s {
@@ -295,4 +399,25 @@ func parseChatID(s string) int64 {
 		}
 	}
 	return id
+}
+
+// defaultSkillsDir returns the path to ~/.IronClaw/skills/.
+func defaultSkillsDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".IronClaw", "skills")
+}
+
+// noopKBEmbedder is a no-op EmbeddingProvider used when no OpenAI key is configured.
+// It causes the knowledge base to fall back to BM25/LIKE text search only.
+type noopKBEmbedder struct{}
+
+func (n *noopKBEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	return nil, nil
+}
+
+func (n *noopKBEmbedder) Dimensions() int {
+	return 0
 }

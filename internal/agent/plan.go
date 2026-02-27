@@ -142,6 +142,23 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 	msg = strings.ReplaceAll(msg, "{{TOOLS}}", toolsSB.String())
 	msg = strings.ReplaceAll(msg, "{{MEMORIES}}", memSB.String())
 	msg = strings.ReplaceAll(msg, "{{HISTORY}}", histSB.String())
+
+	// Knowledge section
+	var knowledgeSB strings.Builder
+	if len(state.KnowledgeContext) == 0 {
+		knowledgeSB.WriteString("(none)")
+	} else {
+		for i, k := range state.KnowledgeContext {
+			knowledgeSB.WriteString(fmt.Sprintf("[%d] %s\n\n", i+1, k))
+		}
+	}
+	msg = strings.ReplaceAll(msg, "{{KNOWLEDGE}}", knowledgeSB.String())
+
+	// Append available skills if any
+	if state.Skills != "" {
+		msg += "\n\n" + state.Skills
+	}
+
 	return msg
 }
 

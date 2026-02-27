@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/punkopunko/ironclaw/internal/knowledge"
 	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/session"
 )
@@ -12,11 +13,17 @@ import (
 // Perceiver implements the PERCEIVE phase: parse goal, retrieve memories, assess complexity.
 type Perceiver struct {
 	memStore memory.Store
+	kb       knowledge.KnowledgeBase // optional knowledge base
 }
 
 // NewPerceiver creates a new Perceiver.
 func NewPerceiver(memStore memory.Store) *Perceiver {
 	return &Perceiver{memStore: memStore}
+}
+
+// SetKnowledgeBase injects an optional knowledge base for retrieval during perception.
+func (p *Perceiver) SetKnowledgeBase(kb knowledge.KnowledgeBase) {
+	p.kb = kb
 }
 
 // complexityKeywords trigger moderate or complex classification.
@@ -33,30 +40,49 @@ var toolTriggers = []string{
 }
 
 // Run executes the PERCEIVE phase. No LLM calls — pure local heuristics.
-func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg string) (*CognitiveState, error) {
+func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, userID string) (*CognitiveState, error) {
 	lower := strings.ToLower(userMsg)
 	words := strings.Fields(lower)
 
 	complexity := assessComplexity(lower, words)
 
-	// Memory retrieval
+	// Memory retrieval — include user and session scopes for richer context.
 	var memories []memory.SearchResult
 	if p.memStore != nil {
 		var err error
 		memories, err = p.memStore.Search(ctx, memory.SearchQuery{
-			Text:  userMsg,
-			Limit: 5,
+			Text:   userMsg,
+			Limit:  5,
+			UserID: userID,
+			Scopes: []memory.MemoryScope{memory.ScopeSession, memory.ScopeUser},
 		})
 		if err != nil {
 			slog.Warn("perceive: memory search failed", "err", err)
 		}
 	}
 
-	// Build recent history for context (used in PLAN prompt)
+	// Knowledge base retrieval — fetch relevant document chunks.
+	var knowledgeContext []string
+	if p.kb != nil {
+		kResults, err := p.kb.Search(ctx, knowledge.KnowledgeQuery{
+			Text:  userMsg,
+			Limit: 5,
+		})
+		if err != nil {
+			slog.Warn("perceive: knowledge search failed", "err", err)
+		} else {
+			for _, r := range kResults {
+				knowledgeContext = append(knowledgeContext, r.Chunk.Content)
+			}
+		}
+	}
+
+	// Build recent history for context (used in PLAN prompt).
 	recentHistory := BuildMessages(sess)
 
 	state := &CognitiveState{
 		SessionID:   sess.ID,
+		UserID:      userID,
 		UserMessage: userMsg,
 		Goal: Goal{
 			Raw:        userMsg,
@@ -65,11 +91,13 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg stri
 		},
 		RelevantMemories: memories,
 		RecentHistory:    recentHistory,
+		KnowledgeContext: knowledgeContext,
 	}
 
 	slog.Info("perceive complete",
 		"complexity", complexity,
 		"memories", len(memories),
+		"knowledge_snippets", len(knowledgeContext),
 		"history_msgs", len(recentHistory),
 	)
 

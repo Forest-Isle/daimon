@@ -11,6 +11,7 @@ import (
 	"github.com/punkopunko/ironclaw/internal/config"
 	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/punkopunko/ironclaw/internal/skill"
 	"github.com/punkopunko/ironclaw/internal/store"
 	"github.com/punkopunko/ironclaw/internal/tool"
 )
@@ -29,10 +30,14 @@ type Runtime struct {
 	llmCfg       config.LLMConfig
 	approvalFunc ApprovalFunc
 	memStore     memory.Store
+	skillMgr     *skill.Manager
 }
 
 // SetMemoryStore attaches a memory store to the runtime.
 func (r *Runtime) SetMemoryStore(s memory.Store) { r.memStore = s }
+
+// SetSkillManager attaches a skill manager to the runtime.
+func (r *Runtime) SetSkillManager(m *skill.Manager) { r.skillMgr = m }
 
 func NewRuntime(
 	provider Provider,
@@ -337,27 +342,33 @@ func (r *Runtime) addToolResult(sess *session.Session, toolUseID, content string
 	})
 }
 
-// buildSystemPrompt returns the system prompt, optionally augmented with relevant memories.
+// buildSystemPrompt returns the system prompt, optionally augmented with relevant memories and skills.
 func (r *Runtime) buildSystemPrompt(ctx context.Context, userText string) string {
-	if r.memStore == nil {
-		return r.cfg.SystemPrompt
-	}
-	results, err := r.memStore.Search(ctx, memory.SearchQuery{Text: userText, Limit: 5})
-	if err != nil {
-		slog.Warn("memory search failed", "err", err)
-		return r.cfg.SystemPrompt
-	}
-	if len(results) == 0 {
-		return r.cfg.SystemPrompt
-	}
 	var sb strings.Builder
 	sb.WriteString(r.cfg.SystemPrompt)
-	sb.WriteString("\n\n## Relevant memories\n")
-	for _, res := range results {
-		sb.WriteString("- ")
-		sb.WriteString(res.Entry.Content)
-		sb.WriteString("\n")
+
+	if r.memStore != nil {
+		results, err := r.memStore.Search(ctx, memory.SearchQuery{Text: userText, Limit: 5})
+		if err != nil {
+			slog.Warn("memory search failed", "err", err)
+		} else if len(results) > 0 {
+			sb.WriteString("\n\n## Relevant memories\n")
+			for _, res := range results {
+				sb.WriteString("- ")
+				sb.WriteString(res.Entry.Content)
+				sb.WriteString("\n")
+			}
+		}
 	}
+
+	if r.skillMgr != nil {
+		if section := r.skillMgr.BuildPromptSection(userText); section != "" {
+			sb.WriteString("\n\n")
+			sb.WriteString(section)
+			slog.Debug("skills injected into system prompt", "user_text_len", len(userText))
+		}
+	}
+
 	return sb.String()
 }
 

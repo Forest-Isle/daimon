@@ -3,6 +3,7 @@
 llm:
   provider: claude
   api_key: "${ANTHROPIC_API_KEY}"
+  # base_url: "https://your-relay.example.com"  # 使用中转站时设置此项
   model: claude-sonnet-4-20250514
   max_tokens: 8192
 

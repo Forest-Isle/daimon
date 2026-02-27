@@ -16,8 +16,12 @@ type ClaudeProvider struct {
 	model  string
 }
 
-func NewClaudeProvider(apiKey, model string) *ClaudeProvider {
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
+func NewClaudeProvider(apiKey, model, baseURL string) *ClaudeProvider {
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	if baseURL != "" {
+		opts = append(opts, option.WithBaseURL(baseURL))
+	}
+	client := anthropic.NewClient(opts...)
 	return &ClaudeProvider{client: client, model: model}
 }
 

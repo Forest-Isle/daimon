@@ -9,8 +9,10 @@ import (
 
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/punkopunko/ironclaw/internal/knowledge"
 	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/punkopunko/ironclaw/internal/skill"
 	"github.com/punkopunko/ironclaw/internal/store"
 	"github.com/punkopunko/ironclaw/internal/tool"
 )
@@ -30,6 +32,7 @@ type CognitiveAgent struct {
 	cfg                config.AgentConfig
 	llmCfg             config.LLMConfig
 	memStore           memory.Store
+	skillMgr           *skill.Manager
 	pendingReflections sync.Map
 }
 
@@ -68,7 +71,12 @@ func NewCognitiveAgent(
 func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	ca.memStore = s
 	ca.runtime.SetMemoryStore(s)
+	// Preserve existing knowledge base when rebuilding the perceiver.
+	oldKB := ca.perceiver.kb
 	ca.perceiver = NewPerceiver(s)
+	if oldKB != nil {
+		ca.perceiver.SetKnowledgeBase(oldKB)
+	}
 	ca.reflector = NewReflector(
 		ca.planner.provider,
 		s,
@@ -78,10 +86,31 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	)
 }
 
+// SetKnowledgeBase injects a knowledge base into the perceiver for context retrieval.
+func (ca *CognitiveAgent) SetKnowledgeBase(kb knowledge.KnowledgeBase) {
+	ca.perceiver.SetKnowledgeBase(kb)
+}
+
+// SetFactExtractor injects a fact extractor into the reflector.
+func (ca *CognitiveAgent) SetFactExtractor(fe *memory.LLMFactExtractor) {
+	ca.reflector.SetFactExtractor(fe)
+}
+
+// SetLifecycleManager injects a lifecycle manager into the reflector.
+func (ca *CognitiveAgent) SetLifecycleManager(lm *memory.LifecycleManager) {
+	ca.reflector.SetLifecycleManager(lm)
+}
+
 // SetApprovalFunc injects the approval function into executor and runtime.
 func (ca *CognitiveAgent) SetApprovalFunc(fn ApprovalFunc) {
 	ca.executor.approvalFunc = fn
 	ca.runtime.SetApprovalFunc(fn)
+}
+
+// SetSkillManager injects a skill manager into the cognitive agent and its inner runtime.
+func (ca *CognitiveAgent) SetSkillManager(m *skill.Manager) {
+	ca.skillMgr = m
+	ca.runtime.SetSkillManager(m)
 }
 
 // ResolveReplanDecision is called by the Gateway when the user responds to a replan keyboard.
@@ -118,9 +147,14 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
 
 	// ── PERCEIVE ──────────────────────────────────────────────────────────────
-	state, err := ca.perceiver.Run(ctx, sess, msg.Text)
+	state, err := ca.perceiver.Run(ctx, sess, msg.Text, msg.UserID)
 	if err != nil {
 		return fmt.Errorf("perceive: %w", err)
+	}
+
+	// Inject skills into cognitive state for use in PLAN phase
+	if ca.skillMgr != nil {
+		state.Skills = ca.skillMgr.BuildPromptSection(msg.Text)
 	}
 
 	// Delegate simple tasks to the plain Runtime
