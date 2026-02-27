@@ -75,6 +75,11 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	// Build system prompt, augmented with relevant memories if available
 	systemPrompt := r.buildSystemPrompt(ctx, msg.Text)
 
+	// Compact history if it has grown too large, replacing old messages with a summary
+	if err := CompactHistory(ctx, r.provider, sess, r.llmCfg.Model); err != nil {
+		slog.Warn("history compaction failed", "session", sess.ID, "err", err)
+	}
+
 	// Agent loop — each iteration gets its own streaming message so that
 	// previous text/tool-status is not overwritten by the next response.
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}

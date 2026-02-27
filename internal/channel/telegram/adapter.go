@@ -175,7 +175,33 @@ func (a *Adapter) SendApprovalRequest(chatID int64, toolName, input string) (int
 	return sent.MessageID, nil
 }
 
-// streamUpdater implements channel.StreamUpdater by editing a Telegram message.
+// SendReflectionRequest sends an inline keyboard for replan approval.
+func (a *Adapter) SendReflectionRequest(chatID int64, reason string, confidence float64) (int, error) {
+	text := fmt.Sprintf(
+		"🤔 *Low confidence plan* (%.0f%%)\nReason: %s\n\nHow should I proceed?",
+		confidence*100, reason,
+	)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("▶️ Continue", "reflect_continue:"),
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Adjust", "reflect_adjust:"),
+			tgbotapi.NewInlineKeyboardButtonData("🛑 Abort", "reflect_abort:"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = keyboard
+
+	sent, err := a.bot.Send(msg)
+	if err != nil {
+		return 0, err
+	}
+	return sent.MessageID, nil
+}
+
+
 type streamUpdater struct {
 	bot    *tgbotapi.BotAPI
 	chatID int64

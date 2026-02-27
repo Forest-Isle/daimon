@@ -20,15 +20,16 @@ import (
 
 // Gateway is the central coordinator that wires all modules together.
 type Gateway struct {
-	cfg        *config.Config
-	db         *store.DB
-	sessions   *session.Manager
-	runtime    *agent.Runtime
-	tools      *tool.Registry
-	channels   map[string]channel.Channel
-	sched      *scheduler.Scheduler
-	mcpManager *mcp.Manager
-	mu         sync.Mutex
+	cfg            *config.Config
+	db             *store.DB
+	sessions       *session.Manager
+	runtime        *agent.Runtime
+	cognitiveAgent *agent.CognitiveAgent
+	tools          *tool.Registry
+	channels       map[string]channel.Channel
+	sched          *scheduler.Scheduler
+	mcpManager     *mcp.Manager
+	mu             sync.Mutex
 
 	// Approval tracking for Telegram inline keyboard
 	pendingApprovals sync.Map // key: "toolName" → chan bool
@@ -65,31 +66,45 @@ func New(cfg *config.Config) (*Gateway, error) {
 	runtime := agent.NewRuntime(provider, tools, sessions, db, cfg.Agent, cfg.LLM)
 
 	// Memory store
+	var memStore memory.Store
 	if cfg.Memory.Enabled {
 		var embedder memory.EmbeddingProvider = &memory.NoopEmbedding{}
 		if cfg.Memory.OpenAIAPIKey != "" {
 			embedder = memory.NewOpenAIEmbedding(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel)
 		}
-		memStore := memory.NewSQLiteStore(db, embedder)
+		memStore = memory.NewSQLiteStore(db, embedder)
 		runtime.SetMemoryStore(memStore)
+	}
+
+	// Optionally build cognitive agent
+	var cognitiveAgent *agent.CognitiveAgent
+	if cfg.Agent.Mode == "cognitive" {
+		cognitiveAgent = agent.NewCognitiveAgent(provider, tools, sessions, db, cfg.Agent, cfg.LLM)
+		if memStore != nil {
+			cognitiveAgent.SetMemoryStore(memStore)
+		}
 	}
 
 	// Scheduler
 	sched := scheduler.New(db, cfg.Scheduler.PollInterval)
 
 	gw := &Gateway{
-		cfg:        cfg,
-		db:         db,
-		sessions:   sessions,
-		runtime:    runtime,
-		tools:      tools,
-		channels:   make(map[string]channel.Channel),
-		sched:      sched,
-		mcpManager: mcp.NewManager(),
+		cfg:            cfg,
+		db:             db,
+		sessions:       sessions,
+		runtime:        runtime,
+		cognitiveAgent: cognitiveAgent,
+		tools:          tools,
+		channels:       make(map[string]channel.Channel),
+		sched:          sched,
+		mcpManager:     mcp.NewManager(),
 	}
 
 	// Set up approval function
 	runtime.SetApprovalFunc(gw.handleApproval)
+	if cognitiveAgent != nil {
+		cognitiveAgent.SetApprovalFunc(gw.handleApproval)
+	}
 
 	// Set up scheduler handler — routes scheduled tasks through the normal message pipeline
 	sched.SetHandler(func(ctx context.Context, task scheduler.Task) {
@@ -182,6 +197,18 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 
 	slog.Info("message received", "channel", msg.Channel, "user", msg.UserName, "text_len", len(msg.Text))
 
+	if gw.cognitiveAgent != nil {
+		if err := gw.cognitiveAgent.HandleMessage(ctx, ch, msg); err != nil {
+			slog.Error("cognitive agent error", "err", err)
+			ch.Send(ctx, channel.OutboundMessage{
+				Channel:   msg.Channel,
+				ChannelID: msg.ChannelID,
+				Text:      "⚠️ Error: " + err.Error(),
+			})
+		}
+		return
+	}
+
 	if err := gw.runtime.HandleMessage(ctx, ch, msg); err != nil {
 		slog.Error("agent error", "err", err)
 		ch.Send(ctx, channel.OutboundMessage{
@@ -230,10 +257,28 @@ func (gw *Gateway) handleCallback(msg channel.InboundMessage) {
 		return
 	}
 
-	action, toolName := parts[0], parts[1]
-	approved := action == "approve"
+	action, key := parts[0], parts[1]
 
-	if v, ok := gw.pendingApprovals.Load(toolName); ok {
+	// Handle reflection replan decisions
+	if action == "reflect_continue" || action == "reflect_adjust" || action == "reflect_abort" {
+		if gw.cognitiveAgent != nil {
+			var decision agent.ReplanDecision
+			switch action {
+			case "reflect_continue":
+				decision = agent.ReplanContinue
+			case "reflect_adjust":
+				decision = agent.ReplanAdjust
+			case "reflect_abort":
+				decision = agent.ReplanAbort
+			}
+			gw.cognitiveAgent.ResolveReplanDecision(key, decision)
+		}
+		return
+	}
+
+	// Handle tool approval
+	approved := action == "approve"
+	if v, ok := gw.pendingApprovals.Load(key); ok {
 		ch := v.(chan bool)
 		ch <- approved
 	}

@@ -1,0 +1,282 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/punkopunko/ironclaw/internal/channel"
+	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/punkopunko/ironclaw/internal/tool"
+)
+
+// Executor implements the ACT phase: topological scheduling + parallel execution.
+type Executor struct {
+	tools        *tool.Registry
+	db           *store.DB
+	approvalFunc ApprovalFunc
+	cfg          config.CognitiveConfig
+}
+
+// NewExecutor creates a new Executor.
+func NewExecutor(tools *tool.Registry, db *store.DB, approvalFunc ApprovalFunc, cfg config.CognitiveConfig) *Executor {
+	return &Executor{
+		tools:        tools,
+		db:           db,
+		approvalFunc: approvalFunc,
+		cfg:          cfg,
+	}
+}
+
+// Run executes the ACT phase — topological ordering + parallel execution.
+func (e *Executor) Run(
+	ctx context.Context,
+	ch channel.Channel,
+	sess *session.Session,
+	target channel.MessageTarget,
+	plan *TaskPlan,
+) ([]Observation, error) {
+	maxParallel := e.cfg.MaxParallelTools
+	if maxParallel <= 0 {
+		maxParallel = 3
+	}
+
+	total := len(plan.SubTasks)
+	var observations []Observation
+	var obsMu sync.Mutex
+
+	// Build task index
+	taskIndex := make(map[string]*SubTask, total)
+	for _, st := range plan.SubTasks {
+		taskIndex[st.ID] = st
+	}
+
+	doneCount := 0
+
+	for {
+		// Collect all pending tasks whose dependencies are all Done
+		ready := collectReady(plan.SubTasks, taskIndex)
+		if len(ready) == 0 {
+			break
+		}
+
+		// Check if any running tasks (shouldn't happen in serial rounds, but safety)
+		anyRunning := false
+		for _, st := range plan.SubTasks {
+			if st.Status == SubTaskRunning {
+				anyRunning = true
+				break
+			}
+		}
+		if anyRunning {
+			break
+		}
+
+		// Batch into maxParallel
+		if len(ready) > maxParallel {
+			ready = ready[:maxParallel]
+		}
+
+		// Mark as running
+		for _, st := range ready {
+			st.Status = SubTaskRunning
+		}
+
+		var wg sync.WaitGroup
+		for _, st := range ready {
+			wg.Add(1)
+			go func(subtask *SubTask) {
+				defer wg.Done()
+				obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks)
+				obsMu.Lock()
+				observations = append(observations, obs)
+				doneCount++
+				obsMu.Unlock()
+
+				// Stream progress to user
+				progressMsg := fmt.Sprintf("[%d/%d] %s... %s",
+					doneCount, total, subtask.Description, statusEmoji(subtask.Status))
+				sendProgress(ctx, ch, target, progressMsg)
+			}(st)
+		}
+		wg.Wait()
+
+		// Check if all remaining tasks are stuck (failed with no ready tasks)
+		allDone := true
+		for _, st := range plan.SubTasks {
+			if st.Status == SubTaskPending || st.Status == SubTaskRunning {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
+			break
+		}
+	}
+
+	return observations, nil
+}
+
+// executeSubTask runs a single subtask and returns its observation.
+func (e *Executor) executeSubTask(
+	ctx context.Context,
+	ch channel.Channel,
+	sess *session.Session,
+	target channel.MessageTarget,
+	subtask *SubTask,
+	allTasks []*SubTask,
+) Observation {
+	obs := Observation{
+		SubTaskID: subtask.ID,
+		ToolName:  subtask.ToolName,
+		Input:     subtask.ToolInput,
+	}
+
+	// If no tool, mark as skipped (direct-reply subtask — shouldn't reach ACT)
+	if subtask.ToolName == "" {
+		subtask.Status = SubTaskDone
+		obs.Output = subtask.Description
+		return obs
+	}
+
+	t, err := e.tools.Get(subtask.ToolName)
+	if err != nil {
+		subtask.Status = SubTaskFailed
+		obs.Error = "tool not found: " + subtask.ToolName
+		markDownstreamSkipped(subtask.ID, obs.Error, allTasks)
+		return obs
+	}
+
+	// Check approval
+	if t.RequiresApproval() && e.approvalFunc != nil {
+		approved, err := e.approvalFunc(ctx, ch, target, subtask.ToolName, subtask.ToolInput)
+		if err != nil || !approved {
+			subtask.Status = SubTaskFailed
+			obs.Denied = true
+			obs.Error = "tool execution denied by user"
+			session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, "", "denied", 0)
+			return obs
+		}
+	}
+
+	// Execute
+	start := time.Now()
+	result, execErr := t.Execute(ctx, []byte(subtask.ToolInput))
+	durationMs := time.Since(start).Milliseconds()
+	obs.DurationMs = durationMs
+
+	if execErr != nil {
+		subtask.Status = SubTaskFailed
+		obs.Error = execErr.Error()
+		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
+		slog.Info("subtask failed", "id", subtask.ID, "tool", subtask.ToolName, "err", execErr)
+		return obs
+	}
+
+	if result.Error != "" {
+		subtask.Status = SubTaskFailed
+		obs.Error = result.Error
+		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
+		slog.Info("subtask failed", "id", subtask.ID, "tool", subtask.ToolName, "result_err", result.Error)
+		return obs
+	}
+
+	subtask.Status = SubTaskDone
+	obs.Output = result.Output
+
+	// Record in session history
+	sess.AddMessage(session.Message{
+		ID:        fmt.Sprintf("tool_use_%s_%d", subtask.ID, time.Now().UnixNano()),
+		Role:      "tool_use",
+		ToolName:  subtask.ToolName,
+		ToolInput: subtask.ToolInput,
+		CreatedAt: time.Now(),
+	})
+	sess.AddMessage(session.Message{
+		ID:        fmt.Sprintf("tool_result_%s_%d", subtask.ID, time.Now().UnixNano()),
+		Role:      "tool_result",
+		Content:   result.Output,
+		ToolName:  fmt.Sprintf("tool_use_%s_%d", subtask.ID, time.Now().UnixNano()-1),
+		CreatedAt: time.Now(),
+	})
+
+	session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, result.Output, "success", durationMs)
+	slog.Info("subtask done", "id", subtask.ID, "tool", subtask.ToolName, "duration_ms", durationMs)
+
+	return obs
+}
+
+// collectReady returns pending tasks whose all dependencies are Done.
+func collectReady(tasks []*SubTask, index map[string]*SubTask) []*SubTask {
+	var ready []*SubTask
+	for _, st := range tasks {
+		if st.Status != SubTaskPending {
+			continue
+		}
+		depsOK := true
+		for _, depID := range st.DependsOn {
+			dep, ok := index[depID]
+			if !ok || dep.Status != SubTaskDone {
+				depsOK = false
+				break
+			}
+		}
+		if depsOK {
+			ready = append(ready, st)
+		}
+	}
+	return ready
+}
+
+// markDownstreamSkipped marks all tasks that directly/indirectly depend on failedID as Skipped.
+func markDownstreamSkipped(failedID string, reason string, allTasks []*SubTask) {
+	skipped := map[string]bool{failedID: true}
+	changed := true
+	for changed {
+		changed = false
+		for _, st := range allTasks {
+			if st.Status != SubTaskPending {
+				continue
+			}
+			for _, dep := range st.DependsOn {
+				if skipped[dep] {
+					st.Status = SubTaskSkipped
+					skipped[st.ID] = true
+					changed = true
+					slog.Info("subtask skipped due to upstream failure",
+						"id", st.ID, "failed_dep", failedID, "reason", reason)
+					break
+				}
+			}
+		}
+	}
+}
+
+// sendProgress streams a progress update to the channel (non-fatal on error).
+func sendProgress(ctx context.Context, ch channel.Channel, target channel.MessageTarget, msg string) {
+	if ch == nil {
+		return
+	}
+	_ = ch.Send(ctx, channel.OutboundMessage{
+		Channel:   target.Channel,
+		ChannelID: target.ChannelID,
+		Text:      msg,
+	})
+}
+
+func statusEmoji(s SubTaskStatus) string {
+	switch s {
+	case SubTaskDone:
+		return "done"
+	case SubTaskFailed:
+		return "failed"
+	case SubTaskSkipped:
+		return "skipped"
+	default:
+		return ""
+	}
+}

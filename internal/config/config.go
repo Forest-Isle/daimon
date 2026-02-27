@@ -34,8 +34,22 @@ type TelegramConfig struct {
 }
 
 type AgentConfig struct {
-	MaxIterations int    `yaml:"max_iterations"`
-	SystemPrompt  string `yaml:"system_prompt"`
+	MaxIterations int             `yaml:"max_iterations"`
+	SystemPrompt  string          `yaml:"system_prompt"`
+	Mode          string          `yaml:"mode"`      // "simple" | "cognitive"
+	Cognitive     CognitiveConfig `yaml:"cognitive"`
+}
+
+// CognitiveConfig holds configuration for the five-step cognitive agent loop.
+type CognitiveConfig struct {
+	PlanModel              string  `yaml:"plan_model"`
+	ReflectModel           string  `yaml:"reflect_model"`
+	ConfidenceThreshold    float64 `yaml:"confidence_threshold"`     // default 0.6
+	MaxParallelTools       int     `yaml:"max_parallel_tools"`       // default 3
+	MaxReplanAttempts      int     `yaml:"max_replan_attempts"`      // default 2
+	PlanMaxTokens          int     `yaml:"plan_max_tokens"`          // default 2048
+	ReflectMaxTokens       int     `yaml:"reflect_max_tokens"`       // default 1024
+	ApprovalTimeoutSeconds int     `yaml:"approval_timeout_seconds"` // default 120
 }
 
 type StoreConfig struct {
@@ -137,6 +151,15 @@ func defaultConfig() Config {
 		},
 		Agent: AgentConfig{
 			MaxIterations: 20,
+			Mode:          "simple",
+			Cognitive: CognitiveConfig{
+				ConfidenceThreshold:    0.6,
+				MaxParallelTools:       3,
+				MaxReplanAttempts:      2,
+				PlanMaxTokens:          2048,
+				ReflectMaxTokens:       1024,
+				ApprovalTimeoutSeconds: 120,
+			},
 		},
 		Store: StoreConfig{
 			Path: "./data/ironclaw.db",

@@ -13,6 +13,16 @@ telegram:
 
 agent:
   max_iterations: 20
+  mode: simple   # "simple" | "cognitive"
+  cognitive:
+    # plan_model: ""          # defaults to llm.model if empty
+    # reflect_model: ""       # defaults to llm.model if empty
+    confidence_threshold: 0.6
+    max_parallel_tools: 3
+    max_replan_attempts: 2
+    plan_max_tokens: 2048
+    reflect_max_tokens: 1024
+    approval_timeout_seconds: 120
   system_prompt: |
     You are IronClaw, a helpful AI assistant with access to tools.
     You can execute shell commands, read/write files, and make HTTP requests.
