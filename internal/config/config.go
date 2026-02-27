@@ -45,6 +45,7 @@ type StoreConfig struct {
 type MemoryConfig struct {
 	Enabled        bool   `yaml:"enabled"`
 	EmbeddingModel string `yaml:"embedding_model"`
+	OpenAIAPIKey   string `yaml:"openai_api_key"`
 }
 
 type SchedulerConfig struct {
@@ -56,6 +57,18 @@ type ToolsConfig struct {
 	Bash BashToolConfig `yaml:"bash"`
 	File FileToolConfig `yaml:"file"`
 	HTTP HTTPToolConfig `yaml:"http"`
+	MCP  MCPConfig      `yaml:"mcp"`
+}
+
+type MCPConfig struct {
+	Servers map[string]MCPServerConfig `yaml:"servers"`
+}
+
+type MCPServerConfig struct {
+	Command          string            `yaml:"command"`
+	Args             []string          `yaml:"args"`
+	Env              map[string]string `yaml:"env"`
+	RequiresApproval bool              `yaml:"requires_approval"`
 }
 
 type BashToolConfig struct {

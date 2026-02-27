@@ -10,6 +10,8 @@ import (
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/channel/telegram"
 	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/punkopunko/ironclaw/internal/mcp"
+	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/scheduler"
 	"github.com/punkopunko/ironclaw/internal/session"
 	"github.com/punkopunko/ironclaw/internal/store"
@@ -18,14 +20,15 @@ import (
 
 // Gateway is the central coordinator that wires all modules together.
 type Gateway struct {
-	cfg      *config.Config
-	db       *store.DB
-	sessions *session.Manager
-	runtime  *agent.Runtime
-	tools    *tool.Registry
-	channels map[string]channel.Channel
-	sched    *scheduler.Scheduler
-	mu       sync.Mutex
+	cfg        *config.Config
+	db         *store.DB
+	sessions   *session.Manager
+	runtime    *agent.Runtime
+	tools      *tool.Registry
+	channels   map[string]channel.Channel
+	sched      *scheduler.Scheduler
+	mcpManager *mcp.Manager
+	mu         sync.Mutex
 
 	// Approval tracking for Telegram inline keyboard
 	pendingApprovals sync.Map // key: "toolName" → chan bool
@@ -61,17 +64,28 @@ func New(cfg *config.Config) (*Gateway, error) {
 	// Agent runtime
 	runtime := agent.NewRuntime(provider, tools, sessions, db, cfg.Agent, cfg.LLM)
 
+	// Memory store
+	if cfg.Memory.Enabled {
+		var embedder memory.EmbeddingProvider = &memory.NoopEmbedding{}
+		if cfg.Memory.OpenAIAPIKey != "" {
+			embedder = memory.NewOpenAIEmbedding(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel)
+		}
+		memStore := memory.NewSQLiteStore(db, embedder)
+		runtime.SetMemoryStore(memStore)
+	}
+
 	// Scheduler
 	sched := scheduler.New(db, cfg.Scheduler.PollInterval)
 
 	gw := &Gateway{
-		cfg:      cfg,
-		db:       db,
-		sessions: sessions,
-		runtime:  runtime,
-		tools:    tools,
-		channels: make(map[string]channel.Channel),
-		sched:    sched,
+		cfg:        cfg,
+		db:         db,
+		sessions:   sessions,
+		runtime:    runtime,
+		tools:      tools,
+		channels:   make(map[string]channel.Channel),
+		sched:      sched,
+		mcpManager: mcp.NewManager(),
 	}
 
 	// Set up approval function
@@ -93,6 +107,13 @@ func New(cfg *config.Config) (*Gateway, error) {
 
 // Start initializes all channels and begins processing.
 func (gw *Gateway) Start(ctx context.Context) error {
+	// Start MCP servers (non-fatal — partial failures are logged)
+	if len(gw.cfg.Tools.MCP.Servers) > 0 {
+		if err := gw.mcpManager.StartServers(ctx, gw.cfg.Tools.MCP.Servers, gw.tools); err != nil {
+			slog.Error("some MCP servers failed to start", "err", err)
+		}
+	}
+
 	// Initialize Telegram channel
 	tg, err := telegram.New(gw.cfg.Telegram.Token, gw.cfg.Telegram.AllowedUserIDs)
 	if err != nil {
@@ -135,6 +156,7 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		gw.sched.Stop()
 	}
 
+	gw.mcpManager.Close()
 	gw.db.Close()
 	slog.Info("gateway stopped")
 	return nil

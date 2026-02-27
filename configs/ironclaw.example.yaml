@@ -23,7 +23,8 @@ store:
 
 memory:
   enabled: true
-  embedding_model: claude
+  embedding_model: text-embedding-3-small  # 或 text-embedding-3-large（3072维，更高精度）
+  openai_api_key: ${OPENAI_API_KEY}
 
 scheduler:
   enabled: true
@@ -45,6 +46,23 @@ tools:
     enabled: true
     requires_approval: false
     timeout: 30s
+  # MCP (Model Context Protocol) 工具集成
+  # 通过 STDIO 传输连接外部 MCP Server，动态加载工具
+  # 工具命名格式: mcp_{server名}_{tool名}
+  mcp:
+    servers:
+      # GitHub MCP Server 示例
+      # github:
+      #   command: "docker"
+      #   args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"]
+      #   env:
+      #     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+      #   requires_approval: true
+      # Filesystem MCP Server 示例
+      # filesystem:
+      #   command: "npx"
+      #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
+      #   requires_approval: false
 
 server:
   addr: ":8080"

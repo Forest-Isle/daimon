@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/session"
 	"github.com/punkopunko/ironclaw/internal/store"
 	"github.com/punkopunko/ironclaw/internal/tool"
@@ -26,7 +28,11 @@ type Runtime struct {
 	cfg          config.AgentConfig
 	llmCfg       config.LLMConfig
 	approvalFunc ApprovalFunc
+	memStore     memory.Store
 }
+
+// SetMemoryStore attaches a memory store to the runtime.
+func (r *Runtime) SetMemoryStore(s memory.Store) { r.memStore = s }
 
 func NewRuntime(
 	provider Provider,
@@ -66,6 +72,9 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		CreatedAt: time.Now(),
 	})
 
+	// Build system prompt, augmented with relevant memories if available
+	systemPrompt := r.buildSystemPrompt(ctx, msg.Text)
+
 	// Agent loop — each iteration gets its own streaming message so that
 	// previous text/tool-status is not overwritten by the next response.
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
@@ -77,12 +86,12 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		updater, err := ch.SendStreaming(ctx, target)
 		if err != nil {
 			// Fallback to non-streaming for this iteration
-			return r.handleNonStreaming(ctx, ch, sess, target)
+			return r.handleNonStreaming(ctx, ch, sess, target, systemPrompt)
 		}
 
 		req := CompletionRequest{
 			Model:     r.llmCfg.Model,
-			System:    r.cfg.SystemPrompt,
+			System:    systemPrompt,
 			Messages:  BuildMessages(sess),
 			Tools:     r.buildToolDefs(),
 			MaxTokens: r.llmCfg.MaxTokens,
@@ -221,14 +230,26 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		slog.Error("failed to persist session", "err", err)
 	}
 
+	// Save user message to memory for future retrieval
+	if r.memStore != nil {
+		if err := r.memStore.Save(ctx, memory.Entry{
+			SessionID: sess.ID,
+			Content:   msg.Text,
+			Metadata:  map[string]string{"role": "user", "channel": msg.Channel},
+			CreatedAt: time.Now(),
+		}); err != nil {
+			slog.Warn("failed to save memory", "err", err)
+		}
+	}
+
 	return nil
 }
 
-func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget) error {
+func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, systemPrompt string) error {
 	for iteration := 0; iteration < r.cfg.MaxIterations; iteration++ {
 		req := CompletionRequest{
 			Model:     r.llmCfg.Model,
-			System:    r.cfg.SystemPrompt,
+			System:    systemPrompt,
 			Messages:  BuildMessages(sess),
 			Tools:     r.buildToolDefs(),
 			MaxTokens: r.llmCfg.MaxTokens,
@@ -309,6 +330,30 @@ func (r *Runtime) addToolResult(sess *session.Session, toolUseID, content string
 		ToolName:  toolUseID, // Store tool_use ID in ToolName for tool_result messages
 		CreatedAt: time.Now(),
 	})
+}
+
+// buildSystemPrompt returns the system prompt, optionally augmented with relevant memories.
+func (r *Runtime) buildSystemPrompt(ctx context.Context, userText string) string {
+	if r.memStore == nil {
+		return r.cfg.SystemPrompt
+	}
+	results, err := r.memStore.Search(ctx, memory.SearchQuery{Text: userText, Limit: 5})
+	if err != nil {
+		slog.Warn("memory search failed", "err", err)
+		return r.cfg.SystemPrompt
+	}
+	if len(results) == 0 {
+		return r.cfg.SystemPrompt
+	}
+	var sb strings.Builder
+	sb.WriteString(r.cfg.SystemPrompt)
+	sb.WriteString("\n\n## Relevant memories\n")
+	for _, res := range results {
+		sb.WriteString("- ")
+		sb.WriteString(res.Entry.Content)
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
 
 func (r *Runtime) buildToolDefs() []ToolDefinition {

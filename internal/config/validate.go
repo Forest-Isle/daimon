@@ -18,5 +18,13 @@ func validate(cfg *Config) error {
 	if cfg.Store.Path == "" {
 		cfg.Store.Path = "./data/ironclaw.db"
 	}
+
+	// Validate MCP server configs
+	for name, srv := range cfg.Tools.MCP.Servers {
+		if srv.Command == "" {
+			return fmt.Errorf("mcp.servers.%s: command is required", name)
+		}
+	}
+
 	return nil
 }
