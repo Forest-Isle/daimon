@@ -342,11 +342,28 @@ func (r *Runtime) addToolResult(sess *session.Session, toolUseID, content string
 	})
 }
 
-// buildSystemPrompt returns the system prompt, optionally augmented with relevant memories and skills.
+// buildSystemPrompt returns the system prompt, structured as:
+// Personality → core system prompt → persistent rules → memories → skills.
 func (r *Runtime) buildSystemPrompt(ctx context.Context, userText string) string {
 	var sb strings.Builder
+
+	// 1. Personality (Soul.md)
+	if r.cfg.Personality != "" {
+		sb.WriteString("## Personality\n")
+		sb.WriteString(r.cfg.Personality)
+		sb.WriteString("\n\n")
+	}
+
+	// 2. Core system prompt (Agent.md + YAML system_prompt)
 	sb.WriteString(r.cfg.SystemPrompt)
 
+	// 3. Persistent rules (Memory.md)
+	if r.cfg.PersistentRules != "" {
+		sb.WriteString("\n\n## Rules\n")
+		sb.WriteString(r.cfg.PersistentRules)
+	}
+
+	// 4. Relevant memories (runtime retrieval)
 	if r.memStore != nil {
 		results, err := r.memStore.Search(ctx, memory.SearchQuery{Text: userText, Limit: 5})
 		if err != nil {
@@ -361,6 +378,7 @@ func (r *Runtime) buildSystemPrompt(ctx context.Context, userText string) string
 		}
 	}
 
+	// 5. Skills
 	if r.skillMgr != nil {
 		if section := r.skillMgr.BuildPromptSection(userText); section != "" {
 			sb.WriteString("\n\n")

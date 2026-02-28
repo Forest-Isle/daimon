@@ -50,6 +50,9 @@ type CognitiveState struct {
 	RecentHistory    []CompletionMessage
 	Skills           string   // injected skill prompt section (may be empty)
 	KnowledgeContext []string // relevant knowledge base snippets
+	GraphContext     []string // relevant knowledge graph relations
+	Personality      string   // from Soul.md — persona/style for final_answer tone
+	PersistentRules  string   // from Memory.md — rules all phases must follow
 }
 
 // SubTask is a single unit of work within a TaskPlan.

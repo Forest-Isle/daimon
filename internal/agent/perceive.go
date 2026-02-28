@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/punkopunko/ironclaw/internal/knowledge"
+	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
 	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/session"
 )
@@ -13,7 +15,8 @@ import (
 // Perceiver implements the PERCEIVE phase: parse goal, retrieve memories, assess complexity.
 type Perceiver struct {
 	memStore memory.Store
-	kb       knowledge.KnowledgeBase // optional knowledge base
+	searcher knowledge.Searcher // optional knowledge searcher (KB or HybridRetriever)
+	graph    graph.Graph        // optional knowledge graph
 }
 
 // NewPerceiver creates a new Perceiver.
@@ -21,9 +24,14 @@ func NewPerceiver(memStore memory.Store) *Perceiver {
 	return &Perceiver{memStore: memStore}
 }
 
-// SetKnowledgeBase injects an optional knowledge base for retrieval during perception.
-func (p *Perceiver) SetKnowledgeBase(kb knowledge.KnowledgeBase) {
-	p.kb = kb
+// SetKnowledgeSearcher injects an optional knowledge searcher for retrieval during perception.
+func (p *Perceiver) SetKnowledgeSearcher(s knowledge.Searcher) {
+	p.searcher = s
+}
+
+// SetKnowledgeGraph injects an optional knowledge graph for entity-based retrieval.
+func (p *Perceiver) SetKnowledgeGraph(g graph.Graph) {
+	p.graph = g
 }
 
 // complexityKeywords trigger moderate or complex classification.
@@ -63,8 +71,8 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 
 	// Knowledge base retrieval — fetch relevant document chunks.
 	var knowledgeContext []string
-	if p.kb != nil {
-		kResults, err := p.kb.Search(ctx, knowledge.KnowledgeQuery{
+	if p.searcher != nil {
+		kResults, err := p.searcher.Search(ctx, knowledge.KnowledgeQuery{
 			Text:  userMsg,
 			Limit: 5,
 		})
@@ -75,6 +83,12 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 				knowledgeContext = append(knowledgeContext, r.Chunk.Content)
 			}
 		}
+	}
+
+	// Knowledge graph retrieval — find related entities.
+	var graphContext []string
+	if p.graph != nil {
+		graphContext = p.queryGraph(ctx, userMsg)
 	}
 
 	// Build recent history for context (used in PLAN prompt).
@@ -92,12 +106,14 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 		RelevantMemories: memories,
 		RecentHistory:    recentHistory,
 		KnowledgeContext: knowledgeContext,
+		GraphContext:     graphContext,
 	}
 
 	slog.Info("perceive complete",
 		"complexity", complexity,
 		"memories", len(memories),
 		"knowledge_snippets", len(knowledgeContext),
+		"graph_relations", len(graphContext),
 		"history_msgs", len(recentHistory),
 	)
 
@@ -158,4 +174,51 @@ func extractIntent(lower string) string {
 		}
 	}
 	return "query"
+}
+
+// queryGraph extracts key terms from the user message and queries the knowledge graph.
+func (p *Perceiver) queryGraph(ctx context.Context, userMsg string) []string {
+	// Extract significant words (>3 chars, not stop words) as candidate entity names.
+	words := strings.Fields(userMsg)
+	var candidates []string
+	for _, w := range words {
+		clean := strings.Trim(strings.ToLower(w), ".,!?;:\"'()[]{}。，！？")
+		if len(clean) > 3 && !isStopWord(clean) {
+			candidates = append(candidates, clean)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	triples, err := graph.SearchRelated(ctx, p.graph, candidates, 2)
+	if err != nil {
+		slog.Warn("perceive: graph search failed", "err", err)
+		return nil
+	}
+
+	var results []string
+	for _, t := range triples {
+		results = append(results, fmt.Sprintf("%s -[%s]-> %s (%s)", t.Subject.Name, t.Predicate, t.Object.Name, t.Object.Type))
+	}
+	if len(results) > 10 {
+		results = results[:10]
+	}
+	return results
+}
+
+var stopWords = map[string]bool{
+	"the": true, "and": true, "for": true, "are": true, "but": true,
+	"not": true, "you": true, "all": true, "can": true, "had": true,
+	"her": true, "was": true, "one": true, "our": true, "out": true,
+	"has": true, "have": true, "from": true, "this": true, "that": true,
+	"with": true, "what": true, "when": true, "where": true, "which": true,
+	"will": true, "would": true, "there": true, "their": true, "about": true,
+	"them": true, "then": true, "than": true, "been": true, "some": true,
+	"could": true, "other": true, "into": true, "more": true, "very": true,
+	"just": true, "also": true, "know": true, "how": true, "please": true,
+}
+
+func isStopWord(w string) bool {
+	return stopWords[w]
 }

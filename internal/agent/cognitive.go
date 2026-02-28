@@ -10,6 +10,7 @@ import (
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/config"
 	"github.com/punkopunko/ironclaw/internal/knowledge"
+	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
 	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/session"
 	"github.com/punkopunko/ironclaw/internal/skill"
@@ -33,6 +34,7 @@ type CognitiveAgent struct {
 	llmCfg             config.LLMConfig
 	memStore           memory.Store
 	skillMgr           *skill.Manager
+	entityExtractor    *graph.LLMEntityExtractor
 	pendingReflections sync.Map
 }
 
@@ -71,11 +73,15 @@ func NewCognitiveAgent(
 func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	ca.memStore = s
 	ca.runtime.SetMemoryStore(s)
-	// Preserve existing knowledge base when rebuilding the perceiver.
-	oldKB := ca.perceiver.kb
+	// Preserve existing searcher and graph when rebuilding the perceiver.
+	oldSearcher := ca.perceiver.searcher
+	oldGraph := ca.perceiver.graph
 	ca.perceiver = NewPerceiver(s)
-	if oldKB != nil {
-		ca.perceiver.SetKnowledgeBase(oldKB)
+	if oldSearcher != nil {
+		ca.perceiver.SetKnowledgeSearcher(oldSearcher)
+	}
+	if oldGraph != nil {
+		ca.perceiver.SetKnowledgeGraph(oldGraph)
 	}
 	ca.reflector = NewReflector(
 		ca.planner.provider,
@@ -86,9 +92,20 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	)
 }
 
-// SetKnowledgeBase injects a knowledge base into the perceiver for context retrieval.
-func (ca *CognitiveAgent) SetKnowledgeBase(kb knowledge.KnowledgeBase) {
-	ca.perceiver.SetKnowledgeBase(kb)
+// SetKnowledgeSearcher injects a knowledge searcher (KB or HybridRetriever) into the perceiver.
+func (ca *CognitiveAgent) SetKnowledgeSearcher(s knowledge.Searcher) {
+	ca.perceiver.SetKnowledgeSearcher(s)
+}
+
+// SetKnowledgeGraph injects a knowledge graph into the perceiver.
+func (ca *CognitiveAgent) SetKnowledgeGraph(g graph.Graph) {
+	ca.perceiver.SetKnowledgeGraph(g)
+}
+
+// SetEntityExtractor injects an entity extractor for graph population during reflection.
+func (ca *CognitiveAgent) SetEntityExtractor(e *graph.LLMEntityExtractor) {
+	ca.entityExtractor = e
+	ca.reflector.SetEntityExtractor(e)
 }
 
 // SetFactExtractor injects a fact extractor into the reflector.
@@ -156,6 +173,10 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if ca.skillMgr != nil {
 		state.Skills = ca.skillMgr.BuildPromptSection(msg.Text)
 	}
+
+	// Inject personality and persistent rules from config (Soul.md / Memory.md)
+	state.Personality = ca.cfg.Personality
+	state.PersistentRules = ca.cfg.PersistentRules
 
 	// Delegate simple tasks to the plain Runtime
 	if state.Goal.Complexity == ComplexitySimple {

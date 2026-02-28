@@ -42,9 +42,15 @@ func (p *Planner) Run(ctx context.Context, state *CognitiveState) (*TaskPlan, er
 		maxTokens = 2048
 	}
 
+	// Build system prompt, appending persistent rules if available
+	system := PlanSystemPrompt
+	if state.PersistentRules != "" {
+		system += "\n\nADDITIONAL RULES (must follow):\n" + state.PersistentRules
+	}
+
 	req := CompletionRequest{
 		Model:     p.llmModel,
-		System:    PlanSystemPrompt,
+		System:    system,
 		Messages:  []CompletionMessage{{Role: "user", Content: userMsg}},
 		Tools:     nil, // PLAN phase must not execute tools
 		MaxTokens: maxTokens,
@@ -153,6 +159,17 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 		}
 	}
 	msg = strings.ReplaceAll(msg, "{{KNOWLEDGE}}", knowledgeSB.String())
+
+	// Graph section
+	var graphSB strings.Builder
+	if len(state.GraphContext) == 0 {
+		graphSB.WriteString("(none)")
+	} else {
+		for _, rel := range state.GraphContext {
+			graphSB.WriteString("- " + rel + "\n")
+		}
+	}
+	msg = strings.ReplaceAll(msg, "{{GRAPH}}", graphSB.String())
 
 	// Append available skills if any
 	if state.Skills != "" {

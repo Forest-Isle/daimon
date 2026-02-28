@@ -12,6 +12,7 @@ import (
 
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
 	"github.com/punkopunko/ironclaw/internal/memory"
 )
 
@@ -24,6 +25,7 @@ type Reflector struct {
 	memStore           memory.Store
 	factExtractor      *memory.LLMFactExtractor
 	lifecycleMgr       *memory.LifecycleManager
+	graphExtractor     *graph.LLMEntityExtractor
 	cfg                config.CognitiveConfig
 	llmModel           string
 	pendingReflections *sync.Map
@@ -60,6 +62,11 @@ func (r *Reflector) SetLifecycleManager(lm *memory.LifecycleManager) {
 	r.lifecycleMgr = lm
 }
 
+// SetEntityExtractor injects a graph entity extractor for populating the knowledge graph.
+func (r *Reflector) SetEntityExtractor(e *graph.LLMEntityExtractor) {
+	r.graphExtractor = e
+}
+
 // Run executes the REFLECT phase. Returns a Reflection (with FinalAnswer).
 func (r *Reflector) Run(
 	ctx context.Context,
@@ -75,9 +82,18 @@ func (r *Reflector) Run(
 		maxTokens = 1024
 	}
 
+	// Build system prompt, appending personality and persistent rules if available
+	system := ReflectSystemPrompt
+	if state.Personality != "" {
+		system += "\n\nPERSONALITY (apply to final_answer tone):\n" + state.Personality
+	}
+	if state.PersistentRules != "" {
+		system += "\n\nADDITIONAL RULES (must follow):\n" + state.PersistentRules
+	}
+
 	req := CompletionRequest{
 		Model:     r.llmModel,
-		System:    ReflectSystemPrompt,
+		System:    system,
 		Messages:  []CompletionMessage{{Role: "user", Content: userMsg}},
 		Tools:     nil,
 		MaxTokens: maxTokens,
@@ -184,6 +200,8 @@ func (r *Reflector) saveExperience(_ context.Context, state *CognitiveState, pla
 				}
 				if len(facts) > 0 {
 					// Facts extracted and lifecycle-managed; skip raw experience save.
+					// Still extract graph entities below.
+					r.extractGraphEntities(bgCtx, state, reflection)
 					return
 				}
 			}
@@ -214,7 +232,20 @@ func (r *Reflector) saveExperience(_ context.Context, state *CognitiveState, pla
 		if err != nil {
 			slog.Warn("reflect: failed to save experience to memory", "err", err)
 		}
+
+		r.extractGraphEntities(bgCtx, state, reflection)
 	}()
+}
+
+// extractGraphEntities populates the knowledge graph from the goal/outcome pair.
+func (r *Reflector) extractGraphEntities(ctx context.Context, state *CognitiveState, reflection *Reflection) {
+	if r.graphExtractor == nil {
+		return
+	}
+	text := fmt.Sprintf("Goal: %s\nOutcome: %s", state.Goal.Raw, reflection.FinalAnswer)
+	if err := r.graphExtractor.Extract(ctx, text, "reflection", state.SessionID); err != nil {
+		slog.Warn("reflect: graph entity extraction failed", "err", err)
+	}
 }
 
 // buildReflectUserMessage fills in the ReflectUserPromptTemplate.

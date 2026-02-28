@@ -51,10 +51,12 @@ type TelegramConfig struct {
 }
 
 type AgentConfig struct {
-	MaxIterations int             `yaml:"max_iterations"`
-	SystemPrompt  string          `yaml:"system_prompt"`
-	Mode          string          `yaml:"mode"`      // "simple" | "cognitive"
-	Cognitive     CognitiveConfig `yaml:"cognitive"`
+	MaxIterations   int             `yaml:"max_iterations"`
+	SystemPrompt    string          `yaml:"system_prompt"`
+	Personality     string          `yaml:"-"` // Soul.md → persona/style (injected by userdir)
+	PersistentRules string          `yaml:"-"` // Memory.md → long-term rules (injected by userdir)
+	Mode            string          `yaml:"mode"`      // "simple" | "cognitive"
+	Cognitive       CognitiveConfig `yaml:"cognitive"`
 }
 
 // CognitiveConfig holds configuration for the five-step cognitive agent loop.

@@ -56,6 +56,12 @@ type KnowledgeBase interface {
 	DeleteSource(ctx context.Context, sourceID string) error
 }
 
+// Searcher is a minimal interface for knowledge retrieval.
+// Both SQLiteKnowledgeBase and HybridRetriever satisfy this interface.
+type Searcher interface {
+	Search(ctx context.Context, query KnowledgeQuery) ([]KnowledgeResult, error)
+}
+
 // EmbeddingProvider generates vector embeddings. Reuses the same interface shape
 // as memory.EmbeddingProvider but is redefined here to avoid import coupling.
 type EmbeddingProvider interface {
