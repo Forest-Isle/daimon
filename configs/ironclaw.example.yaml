@@ -36,6 +36,25 @@ memory:
   enabled: true
   embedding_model: text-embedding-3-small  # 或 text-embedding-3-large（3072维，更高精度）
   openai_api_key: ${OPENAI_API_KEY}
+  # fact_extraction: true          # 启用 mem0 风格的事实提取
+  # similarity_threshold: 0.85     # 去重阈值
+  # bm25_weight: 0.4               # BM25 权重
+  # vector_weight: 0.6             # 向量权重
+
+# 知识库 - 文档摄入 + BM25/向量混合检索
+knowledge:
+  enabled: false
+  chunk_size: 512
+  chunk_overlap: 64
+  bm25_weight: 0.4
+  vector_weight: 0.6
+  graph_enabled: false              # 启用知识图谱（实体/关系抽取）
+  ingest_dirs:                      # 启动时自动摄入的目录
+    # - "./docs"
+    # - "./knowledge"
+  reranker:
+    enabled: false
+    provider: llm                   # "llm" 或 "none"
 
 scheduler:
   enabled: true
