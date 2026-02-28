@@ -6,11 +6,12 @@ VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "d
 COMMIT    ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE      ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS   := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+TAGS      := fts5
 
 ## build: Build the binary
 build:
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/ironclaw
+	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/ironclaw
 
 ## run: Build and run
 run: build
@@ -18,7 +19,7 @@ run: build
 
 ## test: Run tests
 test:
-	CGO_ENABLED=1 go test ./... -v
+	CGO_ENABLED=1 go test -tags "$(TAGS)" ./... -v
 
 ## lint: Run linter (requires golangci-lint)
 lint:
