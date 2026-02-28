@@ -132,6 +132,27 @@ func (m *Manager) loadFromDB(ctx context.Context, channel, channelID string) (*S
 	return &sess, rows.Err()
 }
 
+// Reset deletes the session for the given channel+channelID from both memory and DB,
+// so the next Get call will create a fresh session.
+func (m *Manager) Reset(ctx context.Context, channel, channelID string) error {
+	key := sessionKey(channel, channelID)
+
+	// Load existing session to get its ID for DB cleanup
+	if v, ok := m.sessions.Load(key); ok {
+		sess := v.(*Session)
+		if _, err := m.db.ExecContext(ctx, `DELETE FROM messages WHERE session_id = ?`, sess.ID); err != nil {
+			return fmt.Errorf("delete messages: %w", err)
+		}
+		if _, err := m.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, sess.ID); err != nil {
+			return fmt.Errorf("delete session: %w", err)
+		}
+	}
+
+	m.sessions.Delete(key)
+	slog.Info("session reset", "channel", channel, "channel_id", channelID)
+	return nil
+}
+
 func (m *Manager) insertSession(ctx context.Context, sess *Session) error {
 	_, err := m.db.ExecContext(ctx,
 		`INSERT INTO sessions (id, channel, channel_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,

@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -55,4 +56,18 @@ func (r *Registry) All() []Tool {
 		out = append(out, t)
 	}
 	return out
+}
+
+// UnregisterByPrefix removes all tools whose name starts with prefix and returns the removed names.
+func (r *Registry) UnregisterByPrefix(prefix string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var removed []string
+	for name := range r.tools {
+		if strings.HasPrefix(name, prefix) {
+			delete(r.tools, name)
+			removed = append(removed, name)
+		}
+	}
+	return removed
 }

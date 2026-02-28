@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/punkopunko/ironclaw/internal/agent"
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/channel/telegram"
 	"github.com/punkopunko/ironclaw/internal/config"
 	"github.com/punkopunko/ironclaw/internal/knowledge"
+	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
 	"github.com/punkopunko/ironclaw/internal/mcp"
 	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/scheduler"
@@ -20,6 +22,7 @@ import (
 	"github.com/punkopunko/ironclaw/internal/skill"
 	"github.com/punkopunko/ironclaw/internal/store"
 	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/punkopunko/ironclaw/internal/userdir"
 )
 
 // Gateway is the central coordinator that wires all modules together.
@@ -129,13 +132,13 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}
 		kb := knowledge.New(db, kbEmbedder, kbCfg)
 
-		// Build reranker
+		// Build reranker + hybrid retriever (used as the searcher for perceiver)
 		var reranker knowledge.Reranker = &knowledge.NoopReranker{}
 		if cfg.Knowledge.Reranker.Enabled && cfg.Knowledge.Reranker.Provider == "llm" {
 			llmCompleter := &completerAdapter{provider: provider, model: cfg.LLM.Model}
 			reranker = knowledge.NewLLMReranker(llmCompleter)
 		}
-		_ = knowledge.NewHybridRetriever(kb, reranker) // retrieval goes through kb.Search() in perceiver
+		retriever := knowledge.NewHybridRetriever(kb, reranker)
 
 		// Ingest configured directories at startup
 		for _, dir := range cfg.Knowledge.IngestDirs {
@@ -145,8 +148,46 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}
 
 		if cognitiveAgent != nil {
-			cognitiveAgent.SetKnowledgeBase(kb)
+			cognitiveAgent.SetKnowledgeSearcher(retriever)
 		}
+
+		// Knowledge graph (Phase 3)
+		if cfg.Knowledge.GraphEnabled || cfg.Graph.Enabled {
+			kg := graph.NewSQLiteGraph(db)
+			llmCompleter := &completerAdapter{provider: provider, model: cfg.LLM.Model}
+			extractor := graph.NewLLMEntityExtractor(kg, llmCompleter)
+
+			// Extract entities from already-ingested chunks in background
+			go func() {
+				sources, err := kb.Sources(context.Background())
+				if err != nil {
+					slog.Warn("gateway: failed to list KB sources for graph extraction", "err", err)
+					return
+				}
+				for _, src := range sources {
+					results, err := kb.Search(context.Background(), knowledge.KnowledgeQuery{
+						Text:       "",
+						SourceType: src.SourceType,
+						Limit:      50,
+					})
+					if err != nil {
+						continue
+					}
+					for _, r := range results {
+						extractor.Extract(context.Background(), r.Chunk.Content, "kb_chunk", r.Chunk.ID) //nolint:errcheck
+					}
+				}
+				slog.Info("gateway: initial graph entity extraction complete")
+			}()
+
+			if cognitiveAgent != nil {
+				cognitiveAgent.SetKnowledgeGraph(kg)
+				cognitiveAgent.SetEntityExtractor(extractor)
+			}
+			slog.Info("knowledge graph initialized")
+		}
+
+		slog.Info("knowledge base initialized", "ingest_dirs", cfg.Knowledge.IngestDirs)
 	}
 
 	// Skill manager — load from ~/.IronClaw/skills/ and any extra dirs
@@ -213,6 +254,9 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		}
 	}
 
+	// Start MCP hot-reload watcher (polls ~/.IronClaw/mcp/ for new/removed configs)
+	go gw.watchMCPDir(ctx)
+
 	// Initialize Telegram channel
 	tg, err := telegram.New(gw.cfg.Telegram.Token, gw.cfg.Telegram.AllowedUserIDs)
 	if err != nil {
@@ -276,6 +320,25 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	ch, ok := gw.channels[msg.Channel]
 	if !ok {
 		slog.Error("unknown channel", "channel", msg.Channel)
+		return
+	}
+
+	// Handle /new and /start commands — reset session to start fresh conversation
+	if msg.Text == "/new" || msg.Text == "/start" {
+		if err := gw.sessions.Reset(ctx, msg.Channel, msg.ChannelID); err != nil {
+			slog.Error("session reset failed", "err", err)
+			ch.Send(ctx, channel.OutboundMessage{
+				Channel:   msg.Channel,
+				ChannelID: msg.ChannelID,
+				Text:      "⚠️ Failed to reset session: " + err.Error(),
+			})
+			return
+		}
+		ch.Send(ctx, channel.OutboundMessage{
+			Channel:   msg.Channel,
+			ChannelID: msg.ChannelID,
+			Text:      "🔄 New conversation started.",
+		})
 		return
 	}
 
@@ -420,4 +483,29 @@ func (n *noopKBEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 
 func (n *noopKBEmbedder) Dimensions() int {
 	return 0
+}
+
+// watchMCPDir periodically scans ~/.IronClaw/mcp/ and syncs MCP servers.
+// New yaml files trigger server startup; removed files trigger shutdown.
+func (gw *Gateway) watchMCPDir(ctx context.Context) {
+	const pollInterval = 30 * time.Second
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			desired := userdir.ScanMCPDir()
+			if desired == nil {
+				desired = make(map[string]config.MCPServerConfig)
+			}
+			// Merge project-level MCP config (project config always takes priority).
+			for name, srv := range gw.cfg.Tools.MCP.Servers {
+				desired[name] = srv
+			}
+			gw.mcpManager.SyncServers(ctx, desired, gw.tools)
+		}
+	}
 }

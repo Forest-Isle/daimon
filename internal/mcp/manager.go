@@ -103,3 +103,59 @@ func (m *Manager) Close() error {
 	m.clients = make(map[string]client.MCPClient)
 	return nil
 }
+
+// StopServer shuts down a single MCP server and unregisters its tools from the registry.
+func (m *Manager) StopServer(name string, registry *tool.Registry) {
+	m.mu.Lock()
+	c, ok := m.clients[name]
+	if ok {
+		delete(m.clients, name)
+	}
+	m.mu.Unlock()
+
+	if ok {
+		if err := c.Close(); err != nil {
+			slog.Error("mcp: close client", "server", name, "err", err)
+		}
+	}
+
+	prefix := "mcp_" + name + "_"
+	removed := registry.UnregisterByPrefix(prefix)
+	slog.Info("mcp server stopped", "server", name, "tools_removed", len(removed))
+}
+
+// RunningServers returns the names of currently running MCP servers.
+func (m *Manager) RunningServers() map[string]struct{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]struct{}, len(m.clients))
+	for name := range m.clients {
+		out[name] = struct{}{}
+	}
+	return out
+}
+
+// SyncServers compares the desired server set against running servers.
+// New servers are started, removed servers are stopped, and changed servers are restarted.
+func (m *Manager) SyncServers(ctx context.Context, desired map[string]config.MCPServerConfig, registry *tool.Registry) {
+	running := m.RunningServers()
+
+	// Stop servers that are no longer in desired config.
+	for name := range running {
+		if _, ok := desired[name]; !ok {
+			slog.Info("mcp: removing server (no longer in config)", "server", name)
+			m.StopServer(name, registry)
+		}
+	}
+
+	// Start servers that are new.
+	for name, srv := range desired {
+		if _, ok := running[name]; ok {
+			continue // already running
+		}
+		slog.Info("mcp: starting new server", "server", name)
+		if err := m.startServer(ctx, name, srv, registry); err != nil {
+			slog.Error("mcp: failed to start server during sync", "server", name, "err", err)
+		}
+	}
+}
