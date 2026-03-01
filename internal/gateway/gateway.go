@@ -190,10 +190,13 @@ func New(cfg *config.Config) (*Gateway, error) {
 		slog.Info("knowledge base initialized", "ingest_dirs", cfg.Knowledge.IngestDirs)
 	}
 
-	// Skill manager — load from ~/.IronClaw/skills/ and any extra dirs
+	// Skill manager — load builtin skills, then ~/.IronClaw/skills/ and any extra dirs
 	var skillMgr *skill.Manager
 	if cfg.Skills.Enabled {
 		skillMgr = skill.New()
+		if err := skillMgr.LoadBuiltin(); err != nil {
+			slog.Warn("gateway: failed to load builtin skills", "err", err)
+		}
 		userSkillsDir := defaultSkillsDir()
 		if err := skillMgr.LoadDir(userSkillsDir); err != nil {
 			slog.Warn("gateway: failed to load user skills", "dir", userSkillsDir, "err", err)
@@ -207,6 +210,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		if cognitiveAgent != nil {
 			cognitiveAgent.SetSkillManager(skillMgr)
 		}
+		// Register the read_skill tool for progressive disclosure —
+		// agent sees metadata in prompt, loads full content via this tool.
+		tools.Register(tool.NewSkillTool(skillMgr))
 		slog.Info("skill manager initialized", "skills", len(skillMgr.All()))
 	}
 

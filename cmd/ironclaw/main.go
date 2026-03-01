@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,19 @@ func skillsDir() (string, error) {
 	return dir, nil
 }
 
+// resolveWorkdir returns the workdir for clawhub CLI.
+// If dir is empty, defaults to ~/.IronClaw.
+func resolveWorkdir(dir string) (string, error) {
+	if dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".IronClaw"), nil
+}
+
 // newSkillCmd builds the `ironclaw skill` subcommand group.
 func newSkillCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -76,6 +90,7 @@ func newSkillCmd() *cobra.Command {
 		newSkillListCmd(),
 		newSkillSearchCmd(),
 		newSkillInstallCmd(),
+		newSkillUpdateCmd(),
 		newSkillRemoveCmd(),
 	)
 	return cmd
@@ -92,6 +107,9 @@ func newSkillListCmd() *cobra.Command {
 			}
 
 			mgr := skill.New()
+			if err := mgr.LoadBuiltin(); err != nil {
+				return fmt.Errorf("load builtin skills: %w", err)
+			}
 			if err := mgr.LoadDir(dir); err != nil {
 				return fmt.Errorf("load skills: %w", err)
 			}
@@ -115,61 +133,80 @@ func newSkillListCmd() *cobra.Command {
 }
 
 func newSkillSearchCmd() *cobra.Command {
-	var baseURL string
+	var limit int
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search ClawHub for skills",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := skill.NewClawHubClient(baseURL, "")
-			results, err := client.Search(context.Background(), args[0])
-			if err != nil {
-				return fmt.Errorf("search failed: %w", err)
+			query := strings.Join(args, " ")
+			c := exec.Command("clawhub", "search", query,
+				"--limit", fmt.Sprintf("%d", limit), "--no-input")
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			if err := c.Run(); err != nil {
+				return fmt.Errorf("search failed (requires clawhub CLI: npm install -g clawhub): %w", err)
 			}
-
-			if len(results) == 0 {
-				fmt.Println("No skills found matching:", args[0])
-				return nil
-			}
-
-			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "SLUG\tNAME\tAUTHOR\tTAGS\tDESCRIPTION")
-			for _, r := range results {
-				tags := strings.Join(r.Tags, ", ")
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					r.Slug, r.Name, r.Author, tags, truncate(r.Description, 50))
-			}
-			return w.Flush()
+			return nil
 		},
 	}
-	cmd.Flags().StringVar(&baseURL, "hub", "https://clawhub.ai", "ClawHub base URL")
+	cmd.Flags().IntVar(&limit, "limit", 10, "max results")
 	return cmd
 }
 
 func newSkillInstallCmd() *cobra.Command {
-	var baseURL string
+	var workdir string
 	cmd := &cobra.Command{
 		Use:   "install <slug>",
-		Short: "Download and install a skill from ClawHub",
+		Short: "Install a skill from ClawHub",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, err := skillsDir()
+			dir, err := resolveWorkdir(workdir)
 			if err != nil {
 				return err
 			}
-
-			slug := args[0]
-			client := skill.NewClawHubClient(baseURL, "")
-			s, err := client.Download(context.Background(), slug, dir)
-			if err != nil {
-				return fmt.Errorf("install failed: %w", err)
+			c := exec.Command("clawhub", "install", args[0],
+				"--workdir", dir, "--no-input")
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			if err := c.Run(); err != nil {
+				return fmt.Errorf("install failed (requires clawhub CLI: npm install -g clawhub): %w", err)
 			}
-
-			fmt.Printf("Skill installed: %s (v%s)\n", s.Name, s.Version)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&baseURL, "hub", "https://clawhub.ai", "ClawHub base URL")
+	cmd.Flags().StringVar(&workdir, "workdir", "", "skills working directory (default: ~/.IronClaw)")
+	return cmd
+}
+
+func newSkillUpdateCmd() *cobra.Command {
+	var workdir string
+	cmd := &cobra.Command{
+		Use:   "update [slug]",
+		Short: "Update installed skills from ClawHub",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := resolveWorkdir(workdir)
+			if err != nil {
+				return err
+			}
+			cmdArgs := []string{"update"}
+			if len(args) > 0 {
+				cmdArgs = append(cmdArgs, args[0])
+			} else {
+				cmdArgs = append(cmdArgs, "--all")
+			}
+			cmdArgs = append(cmdArgs, "--workdir", dir, "--no-input")
+			c := exec.Command("clawhub", cmdArgs...)
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			if err := c.Run(); err != nil {
+				return fmt.Errorf("update failed (requires clawhub CLI: npm install -g clawhub): %w", err)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&workdir, "workdir", "", "skills working directory (default: ~/.IronClaw)")
 	return cmd
 }
 

@@ -13,37 +13,44 @@ IronClaw is a self-hosted AI agent runtime that runs entirely on your own infras
 
 ## Features
 
-- **Claude AI Agent** — Powered by Anthropic's Claude with multi-turn conversation and context compaction
-- **Telegram Bot Channel** — Chat with your agent through Telegram with user-level access control
+- **Dual Agent Modes** — Simple linear loop or Cognitive 5-phase loop (PERCEIVE → PLAN → ACT → OBSERVE → REFLECT) with replan support
+- **Long-term Memory** — mem0-style fact extraction with three scopes (session/user/global), FTS5+vector hybrid search, lifecycle management (ADD/UPDATE/DELETE), and automatic consolidation
+- **Knowledge Base** — Document ingestion pipeline (Markdown, code, text, web) with BM25+vector hybrid retrieval and optional LLM reranker
+- **Knowledge Graph** — Entity/relation triple extraction with multi-hop recursive CTE traversal and provenance tracking
+- **MCP Protocol** — Connect multiple MCP servers with hot-reload, automatic tool discovery and registration
+- **Skill System** — Extensible SKILL.md format with built-in ClawHub registry for searching, installing, and managing skills
+- **Telegram Bot Channel** — Streaming message updates, inline keyboard for tool approvals and replan decisions, user-level access control
 - **Tool System** — Built-in tools for Bash execution, file I/O, HTTP requests, and browser automation
-- **Local Storage** — SQLite-based persistence with vector memory search for long-term recall
-- **Task Scheduler** — Cron-based scheduled tasks for automated workflows
-- **Tool Approval** — Configurable approval mechanism for sensitive tool executions
+- **Persona & User Directory** — Auto-initialized `~/.IronClaw/` with personality files (Soul.md, Memory.md, Agent.md) and per-user MCP configs
+- **Local Storage** — SQLite with WAL mode, embedded migrations, FTS5 full-text search (graceful degradation)
+- **Task Scheduler** — Cron-based scheduled tasks with database-backed persistence
+- **Tool Approval** — Configurable per-tool approval mechanism with Telegram inline keyboard
 - **HTTP Gateway** — Optional REST API for programmatic access
-- **Session Management** — Per-user conversation sessions with history
+- **Session Management** — Per-user conversation sessions with history compaction
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│  Telegram    │────▶│   Gateway    │────▶│   Agent     │
-│  Channel     │◀────│   (Router)   │◀────│   Runtime   │
-└─────────────┘     └──────────────┘     └──────┬──────┘
+┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
+│  Telegram    │────▶│   Gateway    │────▶│   Agent         │
+│  Channel     │◀────│   (Router)   │◀────│ Simple/Cognitive│
+└─────────────┘     └──────┬───────┘     └──────┬──────────┘
                            │                     │
                     ┌──────┴──────┐        ┌─────┴──────┐
-                    │   HTTP API  │        │   Tools    │
+                    │  HTTP API   │        │   Tools    │
                     │  (optional) │        │ bash/file/ │
-                    └─────────────┘        │ http/browse│
+                    └─────────────┘        │ http/mcp   │
                                            └─────┬──────┘
                                                   │
-                    ┌─────────────┐        ┌──────┴──────┐
-                    │  Scheduler  │        │   Store     │
-                    │  (cron)     │        │  (SQLite)   │
-                    └─────────────┘        └─────────────┘
-                                           ┌─────────────┐
-                                           │   Memory    │
-                                           │ (embedding) │
-                                           └─────────────┘
+┌─────────────┐  ┌─────────────┐  ┌───────────────┴───────┐
+│  Scheduler  │  │   Skills    │  │       Store (SQLite)   │
+│  (cron)     │  │  (ClawHub)  │  ├────────────┬───────────┤
+└─────────────┘  └─────────────┘  │  Memory    │ Knowledge │
+                                  │ (FTS5+vec) │ (BM25+vec)│
+┌─────────────┐                   ├────────────┤───────────┤
+│  User Dir   │                   │  Knowledge Graph       │
+│ (~/.IronClaw)│                  │  (entity triples)      │
+└─────────────┘                   └────────────────────────┘
 ```
 
 ## Quick Start
@@ -103,15 +110,50 @@ Key settings:
 |---------|-------------|
 | `llm` | AI provider config (API key, model, max tokens) |
 | `telegram` | Bot token and allowed user IDs |
-| `agent` | Max iterations, system prompt |
+| `agent` | Mode (simple/cognitive), max iterations, system prompt, personality |
 | `store` | SQLite database path |
-| `memory` | Embedding-based memory search |
+| `memory` | Fact extraction, scopes, similarity threshold, consolidation, BM25/vector weights |
+| `knowledge` | Document ingestion dirs, chunk size, hybrid retrieval, reranker, graph |
+| `skills` | Enable/disable, extra skill directories |
 | `scheduler` | Cron task scheduler |
-| `tools` | Per-tool enable/disable, timeouts, approval settings |
+| `tools` | Per-tool enable/disable, timeouts, approval settings, MCP servers |
 | `server` | Optional HTTP API endpoint |
 | `log` | Log level and format |
 
 Environment variables can be used in config values with `${VAR_NAME}` syntax.
+
+## Skill Management
+
+IronClaw supports extensible skills via SKILL.md files and the [ClawHub](https://clawhub.ai) public registry.
+
+```bash
+# List installed skills (including built-in)
+ironclaw skill list
+
+# Search for skills
+ironclaw skill search "web scraping"
+
+# Install a skill
+ironclaw skill install <slug>
+
+# Update all skills
+ironclaw skill update
+
+# Remove a skill
+ironclaw skill remove <name>
+```
+
+Skills are stored in `~/.IronClaw/skills/`. Requires `clawhub` CLI (`npm install -g clawhub`).
+
+## User Directory
+
+On first run, IronClaw initializes `~/.IronClaw/` with:
+
+- `Soul.md` — Agent personality and communication style
+- `Memory.md` — Persistent rules and preferences
+- `Agent.md` — Core system prompt template
+- `skills/` — User-installed skills
+- `mcp/` — MCP server configurations (YAML, hot-reloaded)
 
 ## Development
 
@@ -139,11 +181,11 @@ make help
 
 - [ ] Multi-provider LLM support (OpenAI, local models)
 - [ ] Web UI dashboard
-- [ ] Plugin system for custom tools
 - [ ] Discord / Slack channel adapters
 - [ ] Multi-agent collaboration
-- [ ] RAG with document ingestion
 - [ ] Webhook triggers
+- [x] ~~Plugin system for custom tools~~ (Skill System + MCP)
+- [x] ~~RAG with document ingestion~~ (Knowledge Base + Knowledge Graph)
 
 ## Contributing
 

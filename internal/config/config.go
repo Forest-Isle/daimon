@@ -26,15 +26,8 @@ type Config struct {
 
 // SkillsConfig configures the skill system.
 type SkillsConfig struct {
-	Enabled   bool          `yaml:"enabled"`    // default: true
-	ExtraDirs []string      `yaml:"extra_dirs"` // additional skill directories
-	ClawHub   ClawHubConfig `yaml:"clawhub"`
-}
-
-// ClawHubConfig configures the ClawHub public skill registry client.
-type ClawHubConfig struct {
-	BaseURL string `yaml:"base_url"` // default: "https://clawhub.ai"
-	APIKey  string `yaml:"api_key"`  // optional
+	Enabled   bool     `yaml:"enabled"`    // default: true
+	ExtraDirs []string `yaml:"extra_dirs"` // additional skill directories
 }
 
 type LLMConfig struct {
@@ -243,9 +236,6 @@ func defaultConfig() Config {
 		},
 		Skills: SkillsConfig{
 			Enabled: true,
-			ClawHub: ClawHubConfig{
-				BaseURL: "https://clawhub.ai",
-			},
 		},
 		Knowledge: KnowledgeConfig{
 			ChunkSize:    512,
