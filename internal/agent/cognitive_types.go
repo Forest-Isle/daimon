@@ -49,6 +49,7 @@ type CognitiveState struct {
 	RelevantMemories []memory.SearchResult
 	RecentHistory    []CompletionMessage
 	Skills           string   // injected skill prompt section (may be empty)
+	Agents           string   // injected agent prompt section (may be empty)
 	KnowledgeContext []string // relevant knowledge base snippets
 	GraphContext     []string // relevant knowledge graph relations
 	Personality      string   // from Soul.md — persona/style for final_answer tone

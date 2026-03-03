@@ -216,6 +216,28 @@ func New(cfg *config.Config) (*Gateway, error) {
 		slog.Info("skill manager initialized", "skills", len(skillMgr.All()))
 	}
 
+	// Multi-agent system
+	if cfg.Agents.Enabled {
+		agentMgr := agent.NewAgentManager(provider, sessions, db, memStore, tools, cfg.Agent, cfg.LLM)
+		agentMgr.LoadDir(userdir.AgentsDir())
+		for _, dir := range cfg.Agents.ExtraDirs {
+			if err := agentMgr.LoadDir(dir); err != nil {
+				slog.Warn("gateway: failed to load agents from extra dir", "dir", dir, "err", err)
+			}
+		}
+		for _, def := range cfg.Agents.Definitions {
+			if err := agentMgr.Add(defToSpec(def)); err != nil {
+				slog.Warn("gateway: failed to add inline agent definition", "name", def.Name, "err", err)
+			}
+		}
+		agentMgr.RegisterAll(tools)
+		runtime.SetAgentManager(agentMgr)
+		if cognitiveAgent != nil {
+			cognitiveAgent.SetAgentManager(agentMgr)
+		}
+		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
+	}
+
 	// Scheduler
 	sched := scheduler.New(db, cfg.Scheduler.PollInterval)
 
@@ -513,5 +535,20 @@ func (gw *Gateway) watchMCPDir(ctx context.Context) {
 			}
 			gw.mcpManager.SyncServers(ctx, desired, gw.tools)
 		}
+	}
+}
+
+// defToSpec converts a config.AgentDefinition to an agent.AgentSpec.
+func defToSpec(def config.AgentDefinition) *agent.AgentSpec {
+	return &agent.AgentSpec{
+		Name:          def.Name,
+		Description:   def.Description,
+		SystemPrompt:  def.SystemPrompt,
+		Model:         def.Model,
+		MaxTokens:     def.MaxTokens,
+		MaxIterations: def.MaxIterations,
+		Tools:         def.Tools,
+		Tags:          def.Tags,
+		Mode:          def.Mode,
 	}
 }

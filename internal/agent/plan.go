@@ -176,6 +176,11 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 		msg += "\n\n" + state.Skills
 	}
 
+	// Append available agents if any
+	if state.Agents != "" {
+		msg += "\n\n" + state.Agents
+	}
+
 	return msg
 }
 

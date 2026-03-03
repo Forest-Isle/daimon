@@ -31,6 +31,7 @@ type Runtime struct {
 	approvalFunc ApprovalFunc
 	memStore     memory.Store
 	skillMgr     *skill.Manager
+	agentMgr     *AgentManager
 }
 
 // SetMemoryStore attaches a memory store to the runtime.
@@ -38,6 +39,9 @@ func (r *Runtime) SetMemoryStore(s memory.Store) { r.memStore = s }
 
 // SetSkillManager attaches a skill manager to the runtime.
 func (r *Runtime) SetSkillManager(m *skill.Manager) { r.skillMgr = m }
+
+// SetAgentManager attaches an agent manager to the runtime.
+func (r *Runtime) SetAgentManager(m *AgentManager) { r.agentMgr = m }
 
 func NewRuntime(
 	provider Provider,
@@ -384,6 +388,14 @@ func (r *Runtime) buildSystemPrompt(ctx context.Context, userText string) string
 			sb.WriteString("\n\n")
 			sb.WriteString(section)
 			slog.Debug("skills injected into system prompt", "user_text_len", len(userText))
+		}
+	}
+
+	// 6. Available agents
+	if r.agentMgr != nil {
+		if section := r.agentMgr.BuildPromptSection(); section != "" {
+			sb.WriteString("\n\n")
+			sb.WriteString(section)
 		}
 	}
 

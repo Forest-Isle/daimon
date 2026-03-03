@@ -14,6 +14,12 @@ IMPORTANT RULES:
 8. "overall_confidence" (0.0–1.0) is your confidence in the whole plan.
 9. Maximum 10 subtasks per plan.
 
+MULTI-AGENT DELEGATION:
+- When agent_* tools are available, you can delegate independent research/analysis tasks to specialized agents.
+- Use "depends_on" to create pipelines: research agents run in parallel, synthesis/writing agents depend on all research tasks.
+- The "context" field in agent tool input will automatically receive outputs from all predecessor tasks.
+- Example: t1 (agent_researcher on topic A), t2 (agent_researcher on topic B), t3 (agent_writer depends on [t1, t2] to synthesize).
+
 OUTPUT FORMAT:
 {
   "summary": "<one-line plan description>",

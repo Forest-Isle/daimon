@@ -41,6 +41,7 @@ func Apply(cfg *config.Config) error {
 	}
 	applyMCP(cfg, base)
 	ensureSkillsDir(base)
+	ensureAgentsDir(base)
 	return nil
 }
 
@@ -50,6 +51,23 @@ func ensureSkillsDir(base string) {
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
 		slog.Warn("userdir: could not create skills dir", "path", skillsDir, "err", err)
 	}
+}
+
+// ensureAgentsDir creates ~/.IronClaw/agents/ if it does not already exist.
+func ensureAgentsDir(base string) {
+	agentsDir := filepath.Join(base, "agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		slog.Warn("userdir: could not create agents dir", "path", agentsDir, "err", err)
+	}
+}
+
+// AgentsDir returns the path to ~/.IronClaw/agents/.
+func AgentsDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".IronClaw", "agents")
 }
 
 // applyPersonality reads Soul.md, Memory.md, Agent.md and injects them into
@@ -205,6 +223,7 @@ func initDir(base string) error {
 		base,
 		filepath.Join(base, "mcp"),
 		filepath.Join(base, "skills"),
+		filepath.Join(base, "agents"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0755); err != nil {

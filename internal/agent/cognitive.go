@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,7 @@ type CognitiveAgent struct {
 	llmCfg             config.LLMConfig
 	memStore           memory.Store
 	skillMgr           *skill.Manager
+	agentMgr           *AgentManager
 	entityExtractor    *graph.LLMEntityExtractor
 	pendingReflections sync.Map
 }
@@ -130,6 +132,12 @@ func (ca *CognitiveAgent) SetSkillManager(m *skill.Manager) {
 	ca.runtime.SetSkillManager(m)
 }
 
+// SetAgentManager injects an agent manager into the cognitive agent and its inner runtime.
+func (ca *CognitiveAgent) SetAgentManager(m *AgentManager) {
+	ca.agentMgr = m
+	ca.runtime.SetAgentManager(m)
+}
+
 // ResolveReplanDecision is called by the Gateway when the user responds to a replan keyboard.
 func (ca *CognitiveAgent) ResolveReplanDecision(key string, decision ReplanDecision) {
 	if v, ok := ca.pendingReflections.Load(key); ok {
@@ -174,6 +182,11 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		state.Skills = ca.skillMgr.BuildPromptSection(msg.Text)
 	}
 
+	// Inject agents into cognitive state for use in PLAN phase
+	if ca.agentMgr != nil {
+		state.Agents = ca.agentMgr.BuildPromptSection()
+	}
+
 	// Inject personality and persistent rules from config (Soul.md / Memory.md)
 	state.Personality = ca.cfg.Personality
 	state.PersistentRules = ca.cfg.PersistentRules
@@ -182,6 +195,12 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if state.Goal.Complexity == ComplexitySimple {
 		slog.Info("cognitive: simple task, delegating to runtime", "session", sess.ID)
 		return ca.runtime.HandleMessage(ctx, ch, msg)
+	}
+
+	// Check if debate mode should be triggered
+	if ca.shouldDebate(state) {
+		slog.Info("cognitive: debate mode triggered", "session", sess.ID)
+		return ca.handleDebate(ctx, ch, msg, sess, state, target)
 	}
 
 	cogCfg := ca.cfg.Cognitive
@@ -220,7 +239,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── ACT ───────────────────────────────────────────────────────────────
-		observations, err := ca.executor.Run(ctx, ch, sess, target, plan)
+		// Create TaskContext for multi-agent collaboration
+		taskCtx := NewTaskContext(fmt.Sprintf("task_%d", time.Now().UnixNano()), state.UserMessage)
+		observations, err := ca.executor.RunWithContext(ctx, ch, sess, target, plan, taskCtx)
 		if err != nil {
 			slog.Error("cognitive: act failed", "err", err)
 			break
@@ -322,4 +343,80 @@ func (ca *CognitiveAgent) streamFinalAnswer(
 		})
 	}
 	return updater.Finish(answer)
+}
+
+// shouldDebate checks if the current task should trigger debate mode.
+func (ca *CognitiveAgent) shouldDebate(state *CognitiveState) bool {
+	if ca.agentMgr == nil {
+		return false
+	}
+
+	agents := ca.agentMgr.All()
+	if len(agents) < 2 {
+		return false
+	}
+
+	// Check for decision/comparison keywords
+	lower := strings.ToLower(state.UserMessage)
+	debateKeywords := []string{
+		"compare", "versus", "vs", "better", "worse", "pros and cons",
+		"advantages", "disadvantages", "evaluate", "assess", "decide",
+		"choose", "which", "should i", "recommend",
+	}
+
+	for _, kw := range debateKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// handleDebate executes a debate between two agents and synthesizes the result.
+func (ca *CognitiveAgent) handleDebate(
+	ctx context.Context,
+	ch channel.Channel,
+	msg channel.InboundMessage,
+	sess *session.Session,
+	state *CognitiveState,
+	target channel.MessageTarget,
+) error {
+	agents := ca.agentMgr.All()
+	proposer, critic := SelectDebateAgents(agents, state.UserMessage)
+
+	if proposer == "" || critic == "" {
+		slog.Warn("cognitive: insufficient agents for debate, falling back to normal mode")
+		return ca.runtime.HandleMessage(ctx, ch, msg)
+	}
+
+	// Build debate plan
+	maxRounds := 3 // default
+	debatePlan := BuildDebatePlan(state.UserMessage, proposer, critic, DebateConfig{MaxRounds: maxRounds})
+
+	// Execute debate via ACT phase
+	taskCtx := NewTaskContext(fmt.Sprintf("debate_%d", time.Now().UnixNano()), state.UserMessage)
+	observations, err := ca.executor.RunWithContext(ctx, ch, sess, target, debatePlan, taskCtx)
+	if err != nil {
+		return fmt.Errorf("debate execution failed: %w", err)
+	}
+
+	// Synthesize debate results
+	synthesis := SynthesizeDebate(observations, proposer, critic)
+
+	// Use reflector to generate final answer
+	obsResult := ca.observer.Run(observations, debatePlan)
+	reflection, err := ca.reflector.Run(ctx, ch, target, state, debatePlan, obsResult)
+	if err != nil {
+		slog.Error("cognitive: debate reflection failed", "err", err)
+		// Fallback: use synthesis directly
+		return ca.streamFinalAnswer(ctx, ch, target, sess, synthesis)
+	}
+
+	finalAnswer := reflection.FinalAnswer
+	if finalAnswer == "" {
+		finalAnswer = synthesis
+	}
+
+	return ca.streamFinalAnswer(ctx, ch, target, sess, finalAnswer)
 }

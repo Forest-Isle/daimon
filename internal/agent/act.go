@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +41,18 @@ func (e *Executor) Run(
 	sess *session.Session,
 	target channel.MessageTarget,
 	plan *TaskPlan,
+) ([]Observation, error) {
+	return e.RunWithContext(ctx, ch, sess, target, plan, nil)
+}
+
+// RunWithContext executes the ACT phase with an optional TaskContext for multi-agent collaboration.
+func (e *Executor) RunWithContext(
+	ctx context.Context,
+	ch channel.Channel,
+	sess *session.Session,
+	target channel.MessageTarget,
+	plan *TaskPlan,
+	taskCtx *TaskContext,
 ) ([]Observation, error) {
 	maxParallel := e.cfg.MaxParallelTools
 	if maxParallel <= 0 {
@@ -91,7 +105,7 @@ func (e *Executor) Run(
 			wg.Add(1)
 			go func(subtask *SubTask) {
 				defer wg.Done()
-				obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks)
+				obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks, taskCtx, plan)
 				obsMu.Lock()
 				observations = append(observations, obs)
 				doneCount++
@@ -129,6 +143,8 @@ func (e *Executor) executeSubTask(
 	target channel.MessageTarget,
 	subtask *SubTask,
 	allTasks []*SubTask,
+	taskCtx *TaskContext,
+	plan *TaskPlan,
 ) Observation {
 	obs := Observation{
 		SubTaskID: subtask.ID,
@@ -163,9 +179,25 @@ func (e *Executor) executeSubTask(
 		}
 	}
 
+	// If this is an agent_* tool and we have a TaskContext, inject predecessor outputs
+	toolInput := subtask.ToolInput
+	if taskCtx != nil && strings.HasPrefix(subtask.ToolName, "agent_") && len(subtask.DependsOn) > 0 {
+		contextStr := taskCtx.BuildContextForTask(subtask.ID, plan)
+		if contextStr != "" {
+			// Parse existing tool input and inject context
+			var input agentToolInput
+			if err := json.Unmarshal([]byte(subtask.ToolInput), &input); err == nil {
+				input.Context = contextStr
+				if newInput, err := json.Marshal(input); err == nil {
+					toolInput = string(newInput)
+				}
+			}
+		}
+	}
+
 	// Execute
 	start := time.Now()
-	result, execErr := t.Execute(ctx, []byte(subtask.ToolInput))
+	result, execErr := t.Execute(ctx, []byte(toolInput))
 	durationMs := time.Since(start).Milliseconds()
 	obs.DurationMs = durationMs
 
@@ -187,6 +219,16 @@ func (e *Executor) executeSubTask(
 
 	subtask.Status = SubTaskDone
 	obs.Output = result.Output
+
+	// Store result in TaskContext if available
+	if taskCtx != nil && strings.HasPrefix(subtask.ToolName, "agent_") {
+		taskCtx.SetResult(subtask.ID, SubAgentResult{
+			AgentName:  subtask.ToolName,
+			Output:     result.Output,
+			Error:      "",
+			DurationMs: durationMs,
+		})
+	}
 
 	// Record in session history
 	sess.AddMessage(session.Message{
