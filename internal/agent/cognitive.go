@@ -38,6 +38,7 @@ type CognitiveAgent struct {
 	agentMgr           *AgentManager
 	entityExtractor    *graph.LLMEntityExtractor
 	pendingReflections sync.Map
+	rlPolicy           RLPolicy // RL policy interface (nil if disabled)
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -136,6 +137,15 @@ func (ca *CognitiveAgent) SetSkillManager(m *skill.Manager) {
 func (ca *CognitiveAgent) SetAgentManager(m *AgentManager) {
 	ca.agentMgr = m
 	ca.runtime.SetAgentManager(m)
+}
+
+// SetRLPolicy injects an RL policy into the cognitive agent.
+func (ca *CognitiveAgent) SetRLPolicy(policy RLPolicy) {
+	ca.rlPolicy = policy
+	ca.perceiver.SetRLPolicy(policy)
+	ca.planner.SetRLPolicy(policy)
+	ca.executor.SetRLPolicy(policy)
+	ca.reflector.SetRLPolicy(policy)
 }
 
 // ResolveReplanDecision is called by the Gateway when the user responds to a replan keyboard.

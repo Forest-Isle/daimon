@@ -135,3 +135,9 @@ type reflectJSON struct {
 	NeedsReplan         bool     `json:"needs_replan"`
 	ReplanReason        string   `json:"replan_reason"`
 }
+
+// RLPolicy is the interface for RL policy integration (to avoid circular imports).
+type RLPolicy interface {
+	IsEnabled() bool
+	RecordExperience(exp interface{})
+}

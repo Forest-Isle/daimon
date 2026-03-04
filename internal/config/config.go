@@ -78,6 +78,7 @@ type AgentConfig struct {
 	PersistentRules string          `yaml:"-"` // Memory.md → long-term rules (injected by userdir)
 	Mode            string          `yaml:"mode"`      // "simple" | "cognitive"
 	Cognitive       CognitiveConfig `yaml:"cognitive"`
+	RL              RLConfig        `yaml:"rl"`
 }
 
 // CognitiveConfig holds configuration for the five-step cognitive agent loop.
@@ -90,6 +91,58 @@ type CognitiveConfig struct {
 	PlanMaxTokens          int     `yaml:"plan_max_tokens"`          // default 2048
 	ReflectMaxTokens       int     `yaml:"reflect_max_tokens"`       // default 1024
 	ApprovalTimeoutSeconds int     `yaml:"approval_timeout_seconds"` // default 120
+}
+
+// RLConfig holds configuration for the reinforcement learning system.
+type RLConfig struct {
+	Enabled             bool          `yaml:"enabled"`
+	ColdStartEpisodes   int           `yaml:"cold_start_episodes"`
+	ExplorationRate     float64       `yaml:"exploration_rate"`
+	ExplorationDecay    float64       `yaml:"exploration_decay"`
+	UpdateFrequency     int           `yaml:"update_frequency"`
+	CheckpointFrequency int           `yaml:"checkpoint_frequency"`
+	Bandit              BanditConfig  `yaml:"bandit"`
+	PPO                 PPOConfig     `yaml:"ppo"`
+	DQN                 DQNConfig     `yaml:"dqn"`
+	Reward              RewardConfig  `yaml:"reward"`
+}
+
+// BanditConfig configures the Contextual Bandit for tool selection.
+type BanditConfig struct {
+	Enabled    bool    `yaml:"enabled"`
+	PriorAlpha float64 `yaml:"prior_alpha"`
+	PriorBeta  float64 `yaml:"prior_beta"`
+}
+
+// PPOConfig configures Proximal Policy Optimization for plan strategy.
+type PPOConfig struct {
+	Enabled      bool    `yaml:"enabled"`
+	LearningRate float64 `yaml:"learning_rate"`
+	ClipEpsilon  float64 `yaml:"clip_epsilon"`
+	Epochs       int     `yaml:"epochs"`
+	BatchSize    int     `yaml:"batch_size"`
+	Gamma        float64 `yaml:"gamma"`
+	GAELambda    float64 `yaml:"gae_lambda"`
+}
+
+// DQNConfig configures Deep Q-Network for replan decisions.
+type DQNConfig struct {
+	Enabled          bool    `yaml:"enabled"`
+	LearningRate     float64 `yaml:"learning_rate"`
+	Gamma            float64 `yaml:"gamma"`
+	EpsilonStart     float64 `yaml:"epsilon_start"`
+	EpsilonEnd       float64 `yaml:"epsilon_end"`
+	EpsilonDecay     float64 `yaml:"epsilon_decay"`
+	TargetUpdateFreq int     `yaml:"target_update_freq"`
+	BufferSize       int     `yaml:"buffer_size"`
+}
+
+// RewardConfig configures reward weights for the RL system.
+type RewardConfig struct {
+	TaskSuccessWeight      float64 `yaml:"task_success_weight"`
+	EfficiencyWeight       float64 `yaml:"efficiency_weight"`
+	SafetyWeight           float64 `yaml:"safety_weight"`
+	UserSatisfactionWeight float64 `yaml:"user_satisfaction_weight"`
 }
 
 type StoreConfig struct {
@@ -105,18 +158,26 @@ type MemoryConfig struct {
 	ConsolidationInterval time.Duration `yaml:"consolidation_interval"`  // session->user promotion interval
 	BM25Weight            float64       `yaml:"bm25_weight"`             // BM25 weight in RRF (default 0.4)
 	VectorWeight          float64       `yaml:"vector_weight"`           // vector weight in RRF (default 0.6)
+	EnableVSS             bool          `yaml:"enable_vss"`              // enable HNSW indexing via sqlite-vss
+	VectorDimension       int           `yaml:"vector_dimension"`        // embedding dimension (default: 1536)
+	EnableSearchCache     bool          `yaml:"enable_search_cache"`     // enable search result caching
+	SearchCacheSize       int           `yaml:"search_cache_size"`       // max cached queries (default: 500)
+	SearchCacheTTL        time.Duration `yaml:"search_cache_ttl"`        // cache TTL (default: 5min)
 }
 
 // KnowledgeConfig holds configuration for the Phase 2 knowledge base package.
 type KnowledgeConfig struct {
-	Enabled      bool           `yaml:"enabled"`
-	ChunkSize    int            `yaml:"chunk_size"`
-	ChunkOverlap int            `yaml:"chunk_overlap"`
-	BM25Weight   float64        `yaml:"bm25_weight"`
-	VectorWeight float64        `yaml:"vector_weight"`
-	GraphEnabled bool           `yaml:"graph_enabled"`
-	IngestDirs   []string       `yaml:"ingest_dirs"`
-	Reranker     RerankerConfig `yaml:"reranker"`
+	Enabled           bool           `yaml:"enabled"`
+	ChunkSize         int            `yaml:"chunk_size"`
+	ChunkOverlap      int            `yaml:"chunk_overlap"`
+	BM25Weight        float64        `yaml:"bm25_weight"`
+	VectorWeight      float64        `yaml:"vector_weight"`
+	GraphEnabled      bool           `yaml:"graph_enabled"`
+	IngestDirs        []string       `yaml:"ingest_dirs"`
+	Reranker          RerankerConfig `yaml:"reranker"`
+	EnableSearchCache bool           `yaml:"enable_search_cache"` // enable search result caching
+	SearchCacheSize   int            `yaml:"search_cache_size"`   // max cached queries (default: 500)
+	SearchCacheTTL    time.Duration  `yaml:"search_cache_ttl"`    // cache TTL (default: 5min)
 }
 
 // RerankerConfig configures the optional LLM-based reranker.
@@ -233,6 +294,44 @@ func defaultConfig() Config {
 				PlanMaxTokens:          2048,
 				ReflectMaxTokens:       1024,
 				ApprovalTimeoutSeconds: 120,
+			},
+			RL: RLConfig{
+				Enabled:             false,
+				ColdStartEpisodes:   1000,
+				ExplorationRate:     0.2,
+				ExplorationDecay:    0.9995,
+				UpdateFrequency:     10,
+				CheckpointFrequency: 100,
+				Bandit: BanditConfig{
+					Enabled:    true,
+					PriorAlpha: 1.0,
+					PriorBeta:  1.0,
+				},
+				PPO: PPOConfig{
+					Enabled:      true,
+					LearningRate: 0.0003,
+					ClipEpsilon:  0.2,
+					Epochs:       4,
+					BatchSize:    64,
+					Gamma:        0.99,
+					GAELambda:    0.95,
+				},
+				DQN: DQNConfig{
+					Enabled:          true,
+					LearningRate:     0.001,
+					Gamma:            0.99,
+					EpsilonStart:     0.9,
+					EpsilonEnd:       0.05,
+					EpsilonDecay:     0.995,
+					TargetUpdateFreq: 500,
+					BufferSize:       10000,
+				},
+				Reward: RewardConfig{
+					TaskSuccessWeight:      0.5,
+					EfficiencyWeight:       0.3,
+					SafetyWeight:           0.15,
+					UserSatisfactionWeight: 0.05,
+				},
 			},
 		},
 		Store: StoreConfig{

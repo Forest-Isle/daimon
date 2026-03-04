@@ -29,6 +29,7 @@ type Reflector struct {
 	cfg                config.CognitiveConfig
 	llmModel           string
 	pendingReflections *sync.Map
+	rlPolicy           RLPolicy // optional RL policy
 }
 
 // NewReflector creates a new Reflector.
@@ -65,6 +66,11 @@ func (r *Reflector) SetLifecycleManager(lm *memory.LifecycleManager) {
 // SetEntityExtractor injects a graph entity extractor for populating the knowledge graph.
 func (r *Reflector) SetEntityExtractor(e *graph.LLMEntityExtractor) {
 	r.graphExtractor = e
+}
+
+// SetRLPolicy injects an optional RL policy.
+func (r *Reflector) SetRLPolicy(policy RLPolicy) {
+	r.rlPolicy = policy
 }
 
 // Run executes the REFLECT phase. Returns a Reflection (with FinalAnswer).

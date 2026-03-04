@@ -26,19 +26,31 @@ type SQLiteKnowledgeBase struct {
 	fts5Available bool
 	cfg           Config
 	pipeline      *IngestPipeline
+	searchCache   *KnowledgeSearchCache
 }
 
 // Config holds knowledge base configuration.
 type Config struct {
-	ChunkSize    int
-	ChunkOverlap int
-	BM25Weight   float64
-	VectorWeight float64
-	IngestDirs   []string
+	ChunkSize         int
+	ChunkOverlap      int
+	BM25Weight        float64
+	VectorWeight      float64
+	IngestDirs        []string
+	EnableSearchCache bool          // Enable search result caching
+	SearchCacheSize   int           // Max cached queries (default: 500)
+	SearchCacheTTL    time.Duration // Cache TTL (default: 5min)
 }
 
 // New creates a new SQLiteKnowledgeBase.
 func New(db *store.DB, embedder EmbeddingProvider, cfg Config) *SQLiteKnowledgeBase {
+	// Set defaults
+	if cfg.SearchCacheSize <= 0 {
+		cfg.SearchCacheSize = 500
+	}
+	if cfg.SearchCacheTTL <= 0 {
+		cfg.SearchCacheTTL = 5 * time.Minute
+	}
+
 	kb := &SQLiteKnowledgeBase{
 		db:       db,
 		embedder: embedder,
@@ -46,6 +58,13 @@ func New(db *store.DB, embedder EmbeddingProvider, cfg Config) *SQLiteKnowledgeB
 	}
 	kb.fts5Available = kb.detectFTS5()
 	kb.pipeline = NewIngestPipeline(kb, cfg)
+
+	// Initialize search cache if enabled
+	if cfg.EnableSearchCache {
+		kb.searchCache = NewKnowledgeSearchCache(cfg.SearchCacheSize, cfg.SearchCacheTTL)
+		slog.Info("knowledge: search result cache enabled", "size", cfg.SearchCacheSize, "ttl", cfg.SearchCacheTTL)
+	}
+
 	return kb
 }
 
@@ -63,6 +82,13 @@ func (kb *SQLiteKnowledgeBase) detectFTS5() bool {
 func (kb *SQLiteKnowledgeBase) Search(ctx context.Context, query KnowledgeQuery) ([]KnowledgeResult, error) {
 	if query.Limit <= 0 {
 		query.Limit = 10
+	}
+
+	// Check cache first
+	if kb.searchCache != nil {
+		if cached, ok := kb.searchCache.Get(query); ok {
+			return cached, nil
+		}
 	}
 
 	if len(query.Embedding) == 0 && query.Text != "" {
@@ -145,6 +171,12 @@ func (kb *SQLiteKnowledgeBase) Search(ctx context.Context, query KnowledgeQuery)
 	for i := 0; i < limit; i++ {
 		out[i] = KnowledgeResult{Chunk: fused[i].chunk, Score: fused[i].score}
 	}
+
+	// Cache the results
+	if kb.searchCache != nil {
+		kb.searchCache.Set(query, out)
+	}
+
 	return out, nil
 }
 
@@ -324,6 +356,12 @@ func (kb *SQLiteKnowledgeBase) saveChunk(ctx context.Context, chunk Chunk) error
 		chunk.ID, chunk.SourceID, chunk.SourceURI, chunk.SourceType,
 		chunk.Content, embBytes, chunk.ChunkIndex, string(meta), chunk.CreatedAt,
 	)
+
+	// Invalidate search cache when new chunks are added
+	if kb.searchCache != nil {
+		kb.searchCache.Invalidate()
+	}
+
 	return err
 }
 

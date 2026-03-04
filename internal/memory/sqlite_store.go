@@ -27,6 +27,8 @@ type SQLiteStore struct {
 	embedder      EmbeddingProvider
 	fts5Available bool
 	cfg           MemoryConfig
+	vssIndexer    *VSSIndexer
+	searchCache   *SearchResultCache
 }
 
 // MemoryConfig holds tunable parameters for the memory subsystem.
@@ -37,10 +39,26 @@ type MemoryConfig struct {
 	ConsolidationInterval time.Duration
 	BM25Weight            float64
 	VectorWeight          float64
+	EnableVSS             bool          // Enable HNSW indexing via sqlite-vss
+	VectorDimension       int           // Embedding dimension (default: 1536 for OpenAI)
+	EnableSearchCache     bool          // Enable search result caching
+	SearchCacheSize       int           // Max cached queries (default: 500)
+	SearchCacheTTL        time.Duration // Cache TTL (default: 5min)
 }
 
 // NewSQLiteStore creates a SQLiteStore, probing FTS5 availability at startup.
 func NewSQLiteStore(db *store.DB, embedder EmbeddingProvider, cfg MemoryConfig) *SQLiteStore {
+	// Set defaults
+	if cfg.VectorDimension <= 0 {
+		cfg.VectorDimension = 1536 // OpenAI ada-002 default
+	}
+	if cfg.SearchCacheSize <= 0 {
+		cfg.SearchCacheSize = 500
+	}
+	if cfg.SearchCacheTTL <= 0 {
+		cfg.SearchCacheTTL = 5 * time.Minute
+	}
+
 	s := &SQLiteStore{db: db, embedder: embedder, cfg: cfg}
 	s.fts5Available = s.detectFTS5()
 	if s.fts5Available {
@@ -48,6 +66,27 @@ func NewSQLiteStore(db *store.DB, embedder EmbeddingProvider, cfg MemoryConfig) 
 	} else {
 		slog.Warn("memory: FTS5 not available, falling back to LIKE search")
 	}
+
+	// Initialize VSS indexer if enabled
+	if cfg.EnableVSS {
+		s.vssIndexer = NewVSSIndexer(db, cfg.VectorDimension)
+		if s.vssIndexer.available {
+			// Create indexes in background
+			go func() {
+				ctx := context.Background()
+				if err := s.vssIndexer.CreateMemoryFactsIndex(ctx); err != nil {
+					slog.Warn("memory: failed to create VSS index for memory_facts", "err", err)
+				}
+			}()
+		}
+	}
+
+	// Initialize search cache if enabled
+	if cfg.EnableSearchCache {
+		s.searchCache = NewSearchResultCache(cfg.SearchCacheSize, cfg.SearchCacheTTL)
+		slog.Info("memory: search result cache enabled", "size", cfg.SearchCacheSize, "ttl", cfg.SearchCacheTTL)
+	}
+
 	return s
 }
 
@@ -127,7 +166,7 @@ func (s *SQLiteStore) SaveFact(ctx context.Context, entry Entry) error {
 	embBytes := float32SliceToBytes(entry.Embedding)
 	category := entry.Metadata["category"]
 
-	_, err := s.db.ExecContext(ctx,
+	result, err := s.db.ExecContext(ctx,
 		`INSERT INTO memory_facts
 		     (id, session_id, user_id, scope, content, embedding, category, version, expires_at, metadata, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -136,7 +175,24 @@ func (s *SQLiteStore) SaveFact(ctx context.Context, entry Entry) error {
 		entry.Content, embBytes, category, entry.Version, entry.ExpiresAt,
 		string(metadata), entry.CreatedAt, entry.UpdatedAt,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Index in VSS if enabled
+	if s.vssIndexer != nil && s.vssIndexer.available && len(entry.Embedding) > 0 {
+		rowid, _ := result.LastInsertId()
+		if rowid > 0 {
+			go s.vssIndexer.IndexNewFact(context.Background(), rowid, entry.Embedding)
+		}
+	}
+
+	// Invalidate search cache
+	if s.searchCache != nil {
+		s.searchCache.Invalidate()
+	}
+
+	return nil
 }
 
 // ListByScope returns all non-expired entries in memory_facts for a given scope and user.
@@ -164,12 +220,14 @@ func (s *SQLiteStore) UpdateFact(ctx context.Context, id string, content string,
 
 	// Re-embed the updated content.
 	var embBytes []byte
+	var embedding []float32
 	if content != "" {
 		emb, err := s.embedder.Embed(ctx, content)
 		if err != nil {
 			slog.Warn("memory: failed to re-embed updated fact", "id", id, "err", err)
 		} else {
 			embBytes = float32SliceToBytes(emb)
+			embedding = emb
 		}
 	}
 
@@ -177,12 +235,36 @@ func (s *SQLiteStore) UpdateFact(ctx context.Context, id string, content string,
 		`UPDATE memory_facts SET content = ?, embedding = ?, version = ?, updated_at = ? WHERE id = ?`,
 		content, embBytes, version, now, id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Update VSS index if enabled
+	if s.vssIndexer != nil && s.vssIndexer.available && len(embedding) > 0 {
+		var rowid int64
+		err := s.db.QueryRow(`SELECT rowid FROM memory_facts WHERE id = ?`, id).Scan(&rowid)
+		if err == nil {
+			go s.vssIndexer.IndexNewFact(context.Background(), rowid, embedding)
+		}
+	}
+
+	// Invalidate search cache
+	if s.searchCache != nil {
+		s.searchCache.Invalidate()
+	}
+
+	return nil
 }
 
 // DeleteFact removes a fact from memory_facts by ID.
 func (s *SQLiteStore) DeleteFact(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM memory_facts WHERE id = ?`, id)
+
+	// Invalidate search cache
+	if s.searchCache != nil {
+		s.searchCache.Invalidate()
+	}
+
 	return err
 }
 
@@ -197,6 +279,13 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 func (s *SQLiteStore) Search(ctx context.Context, query SearchQuery) ([]SearchResult, error) {
 	if query.Limit <= 0 {
 		query.Limit = 10
+	}
+
+	// Check cache first
+	if s.searchCache != nil {
+		if cached, ok := s.searchCache.Get(query); ok {
+			return cached, nil
+		}
 	}
 
 	// Generate query embedding.
@@ -218,8 +307,19 @@ func (s *SQLiteStore) Search(ctx context.Context, query SearchQuery) ([]SearchRe
 		vectorWeight = defaultVectorWeight
 	}
 
-	// Collect vector candidates from both tables.
-	vectorResults := s.vectorSearchBoth(ctx, query)
+	// Use VSS index if available, otherwise fall back to brute-force
+	var vectorResults []SearchResult
+	if s.vssIndexer != nil && s.vssIndexer.available && len(query.Embedding) > 0 {
+		vssResults, err := s.vssIndexer.SearchMemoryFacts(ctx, query.Embedding, query.Limit*3)
+		if err != nil {
+			slog.Warn("memory: VSS search failed, falling back to brute-force", "err", err)
+			vectorResults = s.vectorSearchBoth(ctx, query)
+		} else {
+			vectorResults = vssResults
+		}
+	} else {
+		vectorResults = s.vectorSearchBoth(ctx, query)
+	}
 
 	// Collect BM25/text candidates from both tables.
 	var textResults []SearchResult
@@ -291,6 +391,12 @@ func (s *SQLiteStore) Search(ctx context.Context, query SearchQuery) ([]SearchRe
 	for i := 0; i < limit; i++ {
 		out[i] = SearchResult{Entry: fused[i].entry, Score: fused[i].score}
 	}
+
+	// Cache the results
+	if s.searchCache != nil {
+		s.searchCache.Set(query, out)
+	}
+
 	return out, nil
 }
 

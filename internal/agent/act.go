@@ -22,6 +22,7 @@ type Executor struct {
 	db           *store.DB
 	approvalFunc ApprovalFunc
 	cfg          config.CognitiveConfig
+	rlPolicy     RLPolicy // optional RL policy
 }
 
 // NewExecutor creates a new Executor.
@@ -32,6 +33,11 @@ func NewExecutor(tools *tool.Registry, db *store.DB, approvalFunc ApprovalFunc, 
 		approvalFunc: approvalFunc,
 		cfg:          cfg,
 	}
+}
+
+// SetRLPolicy injects an optional RL policy.
+func (e *Executor) SetRLPolicy(policy RLPolicy) {
+	e.rlPolicy = policy
 }
 
 // Run executes the ACT phase — topological ordering + parallel execution.

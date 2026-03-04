@@ -80,7 +80,19 @@ func New(cfg *config.Config) (*Gateway, error) {
 	if cfg.Memory.Enabled {
 		var embedder memory.EmbeddingProvider = &memory.NoopEmbedding{}
 		if cfg.Memory.OpenAIAPIKey != "" {
-			embedder = memory.NewOpenAIEmbedding(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel)
+			baseEmbedder := memory.NewOpenAIEmbedding(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel)
+			// Wrap with cache if enabled
+			if cfg.Memory.EnableSearchCache {
+				embedder = memory.NewCachedEmbedder(
+					baseEmbedder,
+					cfg.Memory.EmbeddingModel,
+					1000,           // Cache 1000 embeddings
+					10*time.Minute, // 10 minute TTL
+				)
+				slog.Info("memory: embedding cache enabled")
+			} else {
+				embedder = baseEmbedder
+			}
 		}
 		memCfg := memory.MemoryConfig{
 			FactExtraction:        cfg.Memory.FactExtraction,
@@ -88,6 +100,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 			ConsolidationInterval: cfg.Memory.ConsolidationInterval,
 			BM25Weight:            cfg.Memory.BM25Weight,
 			VectorWeight:          cfg.Memory.VectorWeight,
+			EnableVSS:             cfg.Memory.EnableVSS,
+			VectorDimension:       cfg.Memory.VectorDimension,
+			EnableSearchCache:     cfg.Memory.EnableSearchCache,
+			SearchCacheSize:       cfg.Memory.SearchCacheSize,
+			SearchCacheTTL:        cfg.Memory.SearchCacheTTL,
 		}
 		sqliteStore := memory.NewSQLiteStore(db, embedder, memCfg)
 		memStore = sqliteStore
@@ -118,11 +135,14 @@ func New(cfg *config.Config) (*Gateway, error) {
 	// Knowledge base (Phase 2)
 	if cfg.Knowledge.Enabled {
 		kbCfg := knowledge.Config{
-			ChunkSize:    cfg.Knowledge.ChunkSize,
-			ChunkOverlap: cfg.Knowledge.ChunkOverlap,
-			BM25Weight:   cfg.Knowledge.BM25Weight,
-			VectorWeight: cfg.Knowledge.VectorWeight,
-			IngestDirs:   cfg.Knowledge.IngestDirs,
+			ChunkSize:         cfg.Knowledge.ChunkSize,
+			ChunkOverlap:      cfg.Knowledge.ChunkOverlap,
+			BM25Weight:        cfg.Knowledge.BM25Weight,
+			VectorWeight:      cfg.Knowledge.VectorWeight,
+			IngestDirs:        cfg.Knowledge.IngestDirs,
+			EnableSearchCache: cfg.Knowledge.EnableSearchCache,
+			SearchCacheSize:   cfg.Knowledge.SearchCacheSize,
+			SearchCacheTTL:    cfg.Knowledge.SearchCacheTTL,
 		}
 		var kbEmbedder knowledge.EmbeddingProvider
 		if cfg.Memory.OpenAIAPIKey != "" {

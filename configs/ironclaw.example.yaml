@@ -24,6 +24,40 @@ agent:
     plan_max_tokens: 2048
     reflect_max_tokens: 1024
     approval_timeout_seconds: 120
+  # 强化学习系统 - 自适应工具选择、Plan 策略优化、Replan 决策
+  rl:
+    enabled: false
+    cold_start_episodes: 1000        # 冷启动数据收集数量
+    exploration_rate: 0.2            # 初始探索率
+    exploration_decay: 0.9995        # 探索率衰减
+    update_frequency: 10             # 每 N 个 Episode 更新策略
+    checkpoint_frequency: 100        # 每 N 个 Episode 保存 checkpoint
+    bandit:
+      enabled: true
+      prior_alpha: 1.0               # Beta 分布先验 α
+      prior_beta: 1.0                # Beta 分布先验 β
+    ppo:
+      enabled: true
+      learning_rate: 0.0003
+      clip_epsilon: 0.2
+      epochs: 4
+      batch_size: 64
+      gamma: 0.99
+      gae_lambda: 0.95
+    dqn:
+      enabled: true
+      learning_rate: 0.001
+      gamma: 0.99
+      epsilon_start: 0.9
+      epsilon_end: 0.05
+      epsilon_decay: 0.995
+      target_update_freq: 500
+      buffer_size: 10000
+    reward:
+      task_success_weight: 0.5
+      efficiency_weight: 0.3
+      safety_weight: 0.15
+      user_satisfaction_weight: 0.05
   system_prompt: |
     You are IronClaw, a helpful AI assistant with access to tools.
     You can execute shell commands, read/write files, and make HTTP requests.
@@ -41,6 +75,13 @@ memory:
   # bm25_weight: 0.4               # BM25 权重
   # vector_weight: 0.6             # 向量权重
 
+  # 性能优化配置
+  # enable_vss: true               # 启用 HNSW 索引（需要 sqlite-vss 扩展）
+  # vector_dimension: 1536         # 向量维度（text-embedding-3-small: 1536, 3-large: 3072）
+  # enable_search_cache: true      # 启用搜索结果缓存
+  # search_cache_size: 500         # 缓存查询数量
+  # search_cache_ttl: 5m           # 缓存过期时间
+
 # 知识库 - 文档摄入 + BM25/向量混合检索
 knowledge:
   enabled: false
@@ -55,6 +96,11 @@ knowledge:
   reranker:
     enabled: false
     provider: llm                   # "llm" 或 "none"
+
+  # 性能优化配置
+  # enable_search_cache: true      # 启用搜索结果缓存
+  # search_cache_size: 500         # 缓存查询数量
+  # search_cache_ttl: 5m           # 缓存过期时间
 
 scheduler:
   enabled: true

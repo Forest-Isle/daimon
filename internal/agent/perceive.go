@@ -17,6 +17,7 @@ type Perceiver struct {
 	memStore memory.Store
 	searcher knowledge.Searcher // optional knowledge searcher (KB or HybridRetriever)
 	graph    graph.Graph        // optional knowledge graph
+	rlPolicy RLPolicy           // optional RL policy
 }
 
 // NewPerceiver creates a new Perceiver.
@@ -32,6 +33,11 @@ func (p *Perceiver) SetKnowledgeSearcher(s knowledge.Searcher) {
 // SetKnowledgeGraph injects an optional knowledge graph for entity-based retrieval.
 func (p *Perceiver) SetKnowledgeGraph(g graph.Graph) {
 	p.graph = g
+}
+
+// SetRLPolicy injects an optional RL policy.
+func (p *Perceiver) SetRLPolicy(policy RLPolicy) {
+	p.rlPolicy = policy
 }
 
 // complexityKeywords trigger moderate or complex classification.
