@@ -33,7 +33,7 @@ func NewLLMFactExtractor(completer Completer, cfg MemoryConfig) *LLMFactExtracto
 	}
 }
 
-const factExtractionSystemPrompt = `You are a memory distiller. Given a conversation exchange, extract concise, standalone facts worth remembering for future context.
+const factExtractionSystemPrompt = `You are a memory.md distiller. Given a conversation exchange, extract concise, standalone facts worth remembering for future context.
 
 Rules:
 1. Output ONLY a JSON array of fact objects, no prose.

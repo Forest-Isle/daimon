@@ -219,7 +219,7 @@ func contains(slice []string, item string) bool {
 }
 
 // captureChannel implements channel.Channel by recording all outbound messages
-// in memory. It is used to capture sub-agent output without sending to external platforms.
+// in memory.md. It is used to capture sub-agent output without sending to external platforms.
 type captureChannel struct {
 	mu       sync.Mutex
 	messages []string

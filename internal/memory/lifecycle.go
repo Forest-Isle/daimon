@@ -35,12 +35,12 @@ func NewLifecycleManager(store Store, embedder EmbeddingProvider, completer Comp
 	}
 }
 
-const lifecycleSystemPrompt = `You are a memory lifecycle manager. Given a new fact candidate and existing similar memories, decide what action to take.
+const lifecycleSystemPrompt = `You are a memory.md lifecycle manager. Given a new fact candidate and existing similar memories, decide what action to take.
 
 Actions:
 - ADD: the new fact is novel and should be stored
-- UPDATE: the new fact supersedes an existing memory (provide target_id)
-- DELETE: the new fact invalidates an existing memory (provide target_id)
+- UPDATE: the new fact supersedes an existing memory.md (provide target_id)
+- DELETE: the new fact invalidates an existing memory.md (provide target_id)
 - NOOP: the fact is already captured; do nothing
 
 Output ONLY JSON: {"action": "ADD|UPDATE|DELETE|NOOP", "target_id": "<id or empty>", "reason": "<brief reason>"}`

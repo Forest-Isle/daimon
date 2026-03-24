@@ -29,7 +29,7 @@ func sessionKey(channel, channelID string) string {
 func (m *Manager) Get(ctx context.Context, channel, channelID string) (*Session, error) {
 	key := sessionKey(channel, channelID)
 
-	// Check in-memory cache first
+	// Check in-memory.md cache first
 	if v, ok := m.sessions.Load(key); ok {
 		return v.(*Session), nil
 	}
@@ -132,7 +132,7 @@ func (m *Manager) loadFromDB(ctx context.Context, channel, channelID string) (*S
 	return &sess, rows.Err()
 }
 
-// Reset deletes the session for the given channel+channelID from both memory and DB,
+// Reset deletes the session for the given channel+channelID from both memory.md and DB,
 // so the next Get call will create a fresh session.
 func (m *Manager) Reset(ctx context.Context, channel, channelID string) error {
 	key := sessionKey(channel, channelID)

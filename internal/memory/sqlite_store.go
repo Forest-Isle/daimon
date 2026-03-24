@@ -31,7 +31,7 @@ type SQLiteStore struct {
 	searchCache   *SearchResultCache
 }
 
-// MemoryConfig holds tunable parameters for the memory subsystem.
+// MemoryConfig holds tunable parameters for the memory.md subsystem.
 // It is populated from config.MemoryConfig in the gateway layer.
 type MemoryConfig struct {
 	FactExtraction        bool
@@ -62,9 +62,9 @@ func NewSQLiteStore(db *store.DB, embedder EmbeddingProvider, cfg MemoryConfig) 
 	s := &SQLiteStore{db: db, embedder: embedder, cfg: cfg}
 	s.fts5Available = s.detectFTS5()
 	if s.fts5Available {
-		slog.Info("memory: FTS5 available, hybrid search enabled")
+		slog.Info("memory.md: FTS5 available, hybrid search enabled")
 	} else {
-		slog.Warn("memory: FTS5 not available, falling back to LIKE search")
+		slog.Warn("memory.md: FTS5 not available, falling back to LIKE search")
 	}
 
 	// Initialize VSS indexer if enabled
@@ -75,7 +75,7 @@ func NewSQLiteStore(db *store.DB, embedder EmbeddingProvider, cfg MemoryConfig) 
 			go func() {
 				ctx := context.Background()
 				if err := s.vssIndexer.CreateMemoryFactsIndex(ctx); err != nil {
-					slog.Warn("memory: failed to create VSS index for memory_facts", "err", err)
+					slog.Warn("memory.md: failed to create VSS index for memory_facts", "err", err)
 				}
 			}()
 		}
@@ -84,7 +84,7 @@ func NewSQLiteStore(db *store.DB, embedder EmbeddingProvider, cfg MemoryConfig) 
 	// Initialize search cache if enabled
 	if cfg.EnableSearchCache {
 		s.searchCache = NewSearchResultCache(cfg.SearchCacheSize, cfg.SearchCacheTTL)
-		slog.Info("memory: search result cache enabled", "size", cfg.SearchCacheSize, "ttl", cfg.SearchCacheTTL)
+		slog.Info("memory.md: search result cache enabled", "size", cfg.SearchCacheSize, "ttl", cfg.SearchCacheTTL)
 	}
 
 	return s
@@ -115,7 +115,7 @@ func (s *SQLiteStore) Save(ctx context.Context, entry Entry) error {
 	if len(entry.Embedding) == 0 && entry.Content != "" {
 		emb, err := s.embedder.Embed(ctx, entry.Content)
 		if err != nil {
-			slog.Warn("memory: failed to generate embedding", "err", err)
+			slog.Warn("memory.md: failed to generate embedding", "err", err)
 		} else {
 			entry.Embedding = emb
 		}
@@ -156,7 +156,7 @@ func (s *SQLiteStore) SaveFact(ctx context.Context, entry Entry) error {
 	if len(entry.Embedding) == 0 && entry.Content != "" {
 		emb, err := s.embedder.Embed(ctx, entry.Content)
 		if err != nil {
-			slog.Warn("memory: failed to generate fact embedding", "err", err)
+			slog.Warn("memory.md: failed to generate fact embedding", "err", err)
 		} else {
 			entry.Embedding = emb
 		}
@@ -224,7 +224,7 @@ func (s *SQLiteStore) UpdateFact(ctx context.Context, id string, content string,
 	if content != "" {
 		emb, err := s.embedder.Embed(ctx, content)
 		if err != nil {
-			slog.Warn("memory: failed to re-embed updated fact", "id", id, "err", err)
+			slog.Warn("memory.md: failed to re-embed updated fact", "id", id, "err", err)
 		} else {
 			embBytes = float32SliceToBytes(emb)
 			embedding = emb
@@ -292,7 +292,7 @@ func (s *SQLiteStore) Search(ctx context.Context, query SearchQuery) ([]SearchRe
 	if len(query.Embedding) == 0 && query.Text != "" {
 		emb, err := s.embedder.Embed(ctx, query.Text)
 		if err != nil {
-			slog.Warn("memory: embed query failed, falling back to text search", "err", err)
+			slog.Warn("memory.md: embed query failed, falling back to text search", "err", err)
 		} else {
 			query.Embedding = emb
 		}
@@ -312,7 +312,7 @@ func (s *SQLiteStore) Search(ctx context.Context, query SearchQuery) ([]SearchRe
 	if s.vssIndexer != nil && s.vssIndexer.available && len(query.Embedding) > 0 {
 		vssResults, err := s.vssIndexer.SearchMemoryFacts(ctx, query.Embedding, query.Limit*3)
 		if err != nil {
-			slog.Warn("memory: VSS search failed, falling back to brute-force", "err", err)
+			slog.Warn("memory.md: VSS search failed, falling back to brute-force", "err", err)
 			vectorResults = s.vectorSearchBoth(ctx, query)
 		} else {
 			vectorResults = vssResults
@@ -532,7 +532,7 @@ func (s *SQLiteStore) fts5Search(ctx context.Context, query SearchQuery) []Searc
 		query.Text, limit,
 	)
 	if err != nil {
-		slog.Warn("memory: FTS5 search failed", "err", err)
+		slog.Warn("memory.md: FTS5 search failed", "err", err)
 		return s.likeSearchBoth(ctx, query)
 	}
 	defer rows.Close()
