@@ -47,7 +47,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(startCmd, versionCmd, newSkillCmd())
+	root.AddCommand(startCmd, versionCmd, newSkillCmd(), newMemoryCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
