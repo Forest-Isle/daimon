@@ -25,9 +25,9 @@ func NewVSSIndexer(db *store.DB, dimension int) *VSSIndexer {
 	}
 	v.available = v.detectVSS()
 	if v.available {
-		slog.Info("memory: sqlite-vss available, HNSW indexing enabled")
+		slog.Info("memory.md: sqlite-vss available, HNSW indexing enabled")
 	} else {
-		slog.Warn("memory: sqlite-vss not available, falling back to brute-force search")
+		slog.Warn("memory.md: sqlite-vss not available, falling back to brute-force search")
 	}
 	return v
 }
@@ -38,7 +38,7 @@ func (v *VSSIndexer) detectVSS() bool {
 	var version string
 	err := v.db.QueryRow(`SELECT vss_version()`).Scan(&version)
 	if err == nil {
-		slog.Info("memory: sqlite-vss detected", "version", version)
+		slog.Info("memory.md: sqlite-vss detected", "version", version)
 		return true
 	}
 	return false
@@ -70,8 +70,77 @@ func (v *VSSIndexer) CreateMemoryFactsIndex(ctx context.Context) error {
 		return fmt.Errorf("populate memory_facts_vss: %w", err)
 	}
 
-	slog.Info("memory: HNSW index created for memory_facts")
+	slog.Info("memory.md: HNSW index created for memory_facts")
 	return nil
+}
+
+// CreateFactEmbeddingsIndex creates HNSW index for fact_embeddings table (file-based memory).
+func (v *VSSIndexer) CreateFactEmbeddingsIndex(ctx context.Context) error {
+	if !v.available {
+		return fmt.Errorf("sqlite-vss not available")
+	}
+
+	// Create virtual table for HNSW index
+	_, err := v.db.ExecContext(ctx, fmt.Sprintf(`
+		CREATE VIRTUAL TABLE IF NOT EXISTS fact_embeddings_vss USING vss0(
+			embedding(%d)
+		)
+	`, v.dimension))
+	if err != nil {
+		return fmt.Errorf("create fact_embeddings_vss: %w", err)
+	}
+
+	// Populate index from existing embeddings
+	_, err = v.db.ExecContext(ctx, `
+		INSERT INTO fact_embeddings_vss(rowid, embedding)
+		SELECT rowid, embedding FROM fact_embeddings WHERE embedding IS NOT NULL
+		ON CONFLICT(rowid) DO UPDATE SET embedding = excluded.embedding
+	`)
+	if err != nil {
+		return fmt.Errorf("populate fact_embeddings_vss: %w", err)
+	}
+
+	slog.Info("memory.md: HNSW index created for fact_embeddings")
+	return nil
+}
+
+// InsertFactEmbedding adds a fact embedding to the VSS index.
+func (v *VSSIndexer) InsertFactEmbedding(ctx context.Context, factID string, embedding []float32) error {
+	if !v.available {
+		return nil
+	}
+
+	// Get rowid for the fact
+	var rowid int64
+	err := v.db.QueryRowContext(ctx, `SELECT rowid FROM fact_embeddings WHERE fact_id = ?`, factID).Scan(&rowid)
+	if err != nil {
+		return fmt.Errorf("failed to get rowid: %w", err)
+	}
+
+	embBytes := float32SliceToBytes(embedding)
+	_, err = v.db.ExecContext(ctx, `
+		INSERT INTO fact_embeddings_vss(rowid, embedding)
+		VALUES (?, ?)
+		ON CONFLICT(rowid) DO UPDATE SET embedding = excluded.embedding
+	`, rowid, embBytes)
+	return err
+}
+
+// DeleteFactEmbedding removes a fact embedding from the VSS index.
+func (v *VSSIndexer) DeleteFactEmbedding(ctx context.Context, factID string) error {
+	if !v.available {
+		return nil
+	}
+
+	// Get rowid for the fact
+	var rowid int64
+	err := v.db.QueryRowContext(ctx, `SELECT rowid FROM fact_embeddings WHERE fact_id = ?`, factID).Scan(&rowid)
+	if err != nil {
+		return nil // Fact doesn't exist, nothing to delete
+	}
+
+	_, err = v.db.ExecContext(ctx, `DELETE FROM fact_embeddings_vss WHERE rowid = ?`, rowid)
+	return err
 }
 
 // CreateKBChunksIndex creates HNSW index for kb_chunks table.
@@ -98,7 +167,7 @@ func (v *VSSIndexer) CreateKBChunksIndex(ctx context.Context) error {
 		return fmt.Errorf("populate kb_chunks_vss: %w", err)
 	}
 
-	slog.Info("memory: HNSW index created for kb_chunks")
+	slog.Info("memory.md: HNSW index created for kb_chunks")
 	return nil
 }
 

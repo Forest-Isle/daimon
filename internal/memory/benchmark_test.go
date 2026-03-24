@@ -51,8 +51,8 @@ func BenchmarkVectorSearch(b *testing.B) {
 }
 
 func benchmarkSearch(b *testing.B, dataSize int, useCache, useVSS bool) {
-	// Setup in-memory database
-	db, err := store.Open(":memory:")
+	// Setup in-memory.md database
+	db, err := store.Open(":memory.md:")
 	if err != nil {
 		b.Fatal(err)
 	}

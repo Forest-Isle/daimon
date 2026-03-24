@@ -135,6 +135,40 @@ func (c *CachedEmbedder) Embed(ctx context.Context, text string) ([]float32, err
 	return emb, nil
 }
 
+// EmbedBatch generates or retrieves cached embeddings for multiple texts.
+func (c *CachedEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	results := make([][]float32, len(texts))
+	var uncachedIndices []int
+	var uncachedTexts []string
+
+	// Check cache for each text
+	for i, text := range texts {
+		if emb, ok := c.cache.Get(text, c.model); ok {
+			results[i] = emb
+		} else {
+			uncachedIndices = append(uncachedIndices, i)
+			uncachedTexts = append(uncachedTexts, text)
+		}
+	}
+
+	// Generate embeddings for uncached texts
+	if len(uncachedTexts) > 0 {
+		embeddings, err := c.provider.EmbedBatch(ctx, uncachedTexts)
+		if err != nil {
+			return nil, err
+		}
+
+		// Cache and assign results
+		for i, emb := range embeddings {
+			idx := uncachedIndices[i]
+			results[idx] = emb
+			c.cache.Set(uncachedTexts[i], c.model, emb)
+		}
+	}
+
+	return results, nil
+}
+
 // Dimensions returns the embedding dimension from the underlying provider.
 func (c *CachedEmbedder) Dimensions() int {
 	return c.provider.Dimensions()
