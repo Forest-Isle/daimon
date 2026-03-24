@@ -17,6 +17,7 @@ import (
 	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
 	"github.com/punkopunko/ironclaw/internal/mcp"
 	"github.com/punkopunko/ironclaw/internal/memory"
+	"github.com/punkopunko/ironclaw/internal/rl"
 	"github.com/punkopunko/ironclaw/internal/scheduler"
 	"github.com/punkopunko/ironclaw/internal/session"
 	"github.com/punkopunko/ironclaw/internal/skill"
@@ -36,6 +37,7 @@ type Gateway struct {
 	channels       map[string]channel.Channel
 	sched          *scheduler.Scheduler
 	mcpManager     *mcp.Manager
+	rlTrainer      *rl.Trainer
 	mu             sync.Mutex
 
 	// Approval tracking for Telegram inline keyboard
@@ -106,8 +108,42 @@ func New(cfg *config.Config) (*Gateway, error) {
 			SearchCacheSize:       cfg.Memory.SearchCacheSize,
 			SearchCacheTTL:        cfg.Memory.SearchCacheTTL,
 		}
-		sqliteStore := memory.NewSQLiteStore(db, embedder, memCfg)
-		memStore = sqliteStore
+
+		// Determine storage type (default: file)
+		storageType := cfg.Memory.StorageType
+		if storageType == "" {
+			storageType = "file"
+		}
+
+		if storageType == "file" {
+			// File-based storage
+			storageDir := cfg.Memory.StorageDir
+			if storageDir == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return nil, err
+				}
+				storageDir = filepath.Join(home, ".IronClaw", "memory")
+			}
+
+			// Create embeddings DB
+			embeddingsDB := memory.NewEmbeddingsDB(db, memCfg)
+
+			// Create file store
+			fileStore := memory.NewFileStore(storageDir, embeddingsDB, embedder, memCfg)
+			memStore = fileStore
+
+			// Start background processor for transaction log
+			go fileStore.StartBackgroundProcessor(context.Background())
+
+			slog.Info("memory: file-based storage enabled", "dir", storageDir)
+		} else {
+			// SQLite storage (legacy)
+			sqliteStore := memory.NewSQLiteStore(db, embedder, memCfg)
+			memStore = sqliteStore
+			slog.Info("memory: SQLite storage enabled")
+		}
+
 		runtime.SetMemoryStore(memStore)
 
 		if cfg.Memory.FactExtraction {
@@ -130,6 +166,20 @@ func New(cfg *config.Config) (*Gateway, error) {
 		if lifecycleMgr != nil {
 			cognitiveAgent.SetLifecycleManager(lifecycleMgr)
 		}
+	}
+
+	// RL System (requires cognitive agent)
+	var rlTrainer *rl.Trainer
+	if cfg.Agent.RL.Enabled && cognitiveAgent != nil {
+		rlStorage := rl.NewStorage(db)
+		rlPolicy := rl.NewPolicy(rlStorage, cfg.Agent.RL)
+		if err := rlPolicy.LoadCheckpoint(context.Background()); err != nil {
+			slog.Warn("gateway: failed to load RL checkpoint", "err", err)
+		}
+		rlTrainer = rl.NewTrainer(rlPolicy, cfg.Agent.RL)
+		cognitiveAgent.SetRLPolicy(rlPolicy)
+		cognitiveAgent.SetRLTrainer(rlTrainer)
+		slog.Info("RL system initialized")
 	}
 
 	// Knowledge base (Phase 2)
@@ -271,6 +321,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		channels:       make(map[string]channel.Channel),
 		sched:          sched,
 		mcpManager:     mcp.NewManager(),
+		rlTrainer:      rlTrainer,
 	}
 
 	// Set up approval function
@@ -331,6 +382,12 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		go startHTTPServer(gw.cfg.Server.Addr, gw.db)
 	}
 
+	// Start RL trainer
+	if gw.rlTrainer != nil {
+		gw.rlTrainer.Start(ctx)
+		slog.Info("RL trainer started")
+	}
+
 	slog.Info("gateway started")
 	return nil
 }
@@ -348,6 +405,11 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	}
 
 	gw.mcpManager.Close()
+
+	if gw.rlTrainer != nil {
+		gw.rlTrainer.Stop()
+	}
+
 	gw.db.Close()
 	slog.Info("gateway stopped")
 	return nil

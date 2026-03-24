@@ -68,6 +68,8 @@ store:
 
 memory:
   enabled: true
+  storage_type: file                   # "file" (推荐) 或 "sqlite" (传统)
+  storage_dir: ~/.IronClaw/memory      # 文件存储目录（默认）
   embedding_model: text-embedding-3-small  # 或 text-embedding-3-large（3072维，更高精度）
   openai_api_key: ${OPENAI_API_KEY}
   # fact_extraction: true          # 启用 mem0 风格的事实提取
@@ -81,6 +83,12 @@ memory:
   # enable_search_cache: true      # 启用搜索结果缓存
   # search_cache_size: 500         # 缓存查询数量
   # search_cache_ttl: 5m           # 缓存过期时间
+
+  # 文件存储配置
+  file_storage:
+    flush_interval: 5s             # 事务日志刷新间隔
+    chunk_threshold: 200           # 超过此数量的事实时自动分块
+    compression: false             # 是否压缩大文件
 
 # 知识库 - 文档摄入 + BM25/向量混合检索
 knowledge:

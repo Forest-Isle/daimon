@@ -14,9 +14,9 @@ type Config struct {
 	Telegram  TelegramConfig  `yaml:"telegram"`
 	Agent     AgentConfig     `yaml:"agent"`
 	Store     StoreConfig     `yaml:"store"`
-	Memory    MemoryConfig    `yaml:"memory"`
+	Memory    MemoryConfig    `yaml:"memory.md"`
 	Knowledge KnowledgeConfig `yaml:"knowledge"` // Phase 2 placeholder
-	Graph     GraphConfig     `yaml:"graph"`      // Phase 3 placeholder
+	Graph     GraphConfig     `yaml:"graph"`     // Phase 3 placeholder
 	Scheduler SchedulerConfig `yaml:"scheduler"`
 	Tools     ToolsConfig     `yaml:"tools"`
 	Server    ServerConfig    `yaml:"server"`
@@ -34,9 +34,9 @@ type SkillsConfig struct {
 // AgentsConfig configures the multi-agent collaboration system.
 type AgentsConfig struct {
 	Enabled     bool              `yaml:"enabled"`
-	ExtraDirs   []string          `yaml:"extra_dirs"`   // additional agent spec directories
-	Definitions []AgentDefinition `yaml:"definitions"`  // inline agent definitions
-	Debate      DebateSettings    `yaml:"debate"`       // debate mode settings
+	ExtraDirs   []string          `yaml:"extra_dirs"`  // additional agent spec directories
+	Definitions []AgentDefinition `yaml:"definitions"` // inline agent definitions
+	Debate      DebateSettings    `yaml:"debate"`      // debate mode settings
 }
 
 // DebateSettings configures the debate mode for multi-agent collaboration.
@@ -74,9 +74,9 @@ type TelegramConfig struct {
 type AgentConfig struct {
 	MaxIterations   int             `yaml:"max_iterations"`
 	SystemPrompt    string          `yaml:"system_prompt"`
-	Personality     string          `yaml:"-"` // Soul.md → persona/style (injected by userdir)
-	PersistentRules string          `yaml:"-"` // Memory.md → long-term rules (injected by userdir)
-	Mode            string          `yaml:"mode"`      // "simple" | "cognitive"
+	Personality     string          `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
+	PersistentRules string          `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
+	Mode            string          `yaml:"mode"` // "simple" | "cognitive"
 	Cognitive       CognitiveConfig `yaml:"cognitive"`
 	RL              RLConfig        `yaml:"rl"`
 }
@@ -95,16 +95,16 @@ type CognitiveConfig struct {
 
 // RLConfig holds configuration for the reinforcement learning system.
 type RLConfig struct {
-	Enabled             bool          `yaml:"enabled"`
-	ColdStartEpisodes   int           `yaml:"cold_start_episodes"`
-	ExplorationRate     float64       `yaml:"exploration_rate"`
-	ExplorationDecay    float64       `yaml:"exploration_decay"`
-	UpdateFrequency     int           `yaml:"update_frequency"`
-	CheckpointFrequency int           `yaml:"checkpoint_frequency"`
-	Bandit              BanditConfig  `yaml:"bandit"`
-	PPO                 PPOConfig     `yaml:"ppo"`
-	DQN                 DQNConfig     `yaml:"dqn"`
-	Reward              RewardConfig  `yaml:"reward"`
+	Enabled             bool         `yaml:"enabled"`
+	ColdStartEpisodes   int          `yaml:"cold_start_episodes"`
+	ExplorationRate     float64      `yaml:"exploration_rate"`
+	ExplorationDecay    float64      `yaml:"exploration_decay"`
+	UpdateFrequency     int          `yaml:"update_frequency"`
+	CheckpointFrequency int          `yaml:"checkpoint_frequency"`
+	Bandit              BanditConfig `yaml:"bandit"`
+	PPO                 PPOConfig    `yaml:"ppo"`
+	DQN                 DQNConfig    `yaml:"dqn"`
+	Reward              RewardConfig `yaml:"reward"`
 }
 
 // BanditConfig configures the Contextual Bandit for tool selection.
@@ -151,18 +151,28 @@ type StoreConfig struct {
 
 type MemoryConfig struct {
 	Enabled               bool          `yaml:"enabled"`
+	StorageType           string        `yaml:"storage_type"`           // "file" or "sqlite" (default: "file")
+	StorageDir            string        `yaml:"storage_dir"`            // directory for file-based storage (default: ~/.IronClaw/memory)
 	EmbeddingModel        string        `yaml:"embedding_model"`
 	OpenAIAPIKey          string        `yaml:"openai_api_key"`
-	FactExtraction        bool          `yaml:"fact_extraction"`         // enable LLM fact extraction
-	SimilarityThreshold   float64       `yaml:"similarity_threshold"`    // dedup threshold (default 0.85)
-	ConsolidationInterval time.Duration `yaml:"consolidation_interval"`  // session->user promotion interval
-	BM25Weight            float64       `yaml:"bm25_weight"`             // BM25 weight in RRF (default 0.4)
-	VectorWeight          float64       `yaml:"vector_weight"`           // vector weight in RRF (default 0.6)
-	EnableVSS             bool          `yaml:"enable_vss"`              // enable HNSW indexing via sqlite-vss
-	VectorDimension       int           `yaml:"vector_dimension"`        // embedding dimension (default: 1536)
-	EnableSearchCache     bool          `yaml:"enable_search_cache"`     // enable search result caching
-	SearchCacheSize       int           `yaml:"search_cache_size"`       // max cached queries (default: 500)
-	SearchCacheTTL        time.Duration `yaml:"search_cache_ttl"`        // cache TTL (default: 5min)
+	FactExtraction        bool          `yaml:"fact_extraction"`        // enable LLM fact extraction
+	SimilarityThreshold   float64       `yaml:"similarity_threshold"`   // dedup threshold (default 0.85)
+	ConsolidationInterval time.Duration `yaml:"consolidation_interval"` // session->user promotion interval
+	BM25Weight            float64       `yaml:"bm25_weight"`            // BM25 weight in RRF (default 0.4)
+	VectorWeight          float64       `yaml:"vector_weight"`          // vector weight in RRF (default 0.6)
+	EnableVSS             bool          `yaml:"enable_vss"`             // enable HNSW indexing via sqlite-vss
+	VectorDimension       int           `yaml:"vector_dimension"`       // embedding dimension (default: 1536)
+	EnableSearchCache     bool          `yaml:"enable_search_cache"`    // enable search result caching
+	SearchCacheSize       int           `yaml:"search_cache_size"`      // max cached queries (default: 500)
+	SearchCacheTTL        time.Duration `yaml:"search_cache_ttl"`       // cache TTL (default: 5min)
+	FileStorage           FileStorageConfig `yaml:"file_storage"`       // file storage specific settings
+}
+
+// FileStorageConfig holds file-based storage specific settings.
+type FileStorageConfig struct {
+	FlushInterval   time.Duration `yaml:"flush_interval"`   // transaction log flush interval (default: 5s)
+	ChunkThreshold  int           `yaml:"chunk_threshold"`  // facts per file before chunking (default: 200)
+	Compression     bool          `yaml:"compression"`      // enable gzip compression for large files
 }
 
 // KnowledgeConfig holds configuration for the Phase 2 knowledge base package.
