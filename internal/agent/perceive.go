@@ -71,7 +71,7 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 			Scopes: []memory.MemoryScope{memory.ScopeSession, memory.ScopeUser},
 		})
 		if err != nil {
-			slog.Warn("perceive: memory search failed", "err", err)
+			slog.Warn("perceive: memory.md search failed", "err", err)
 		}
 	}
 

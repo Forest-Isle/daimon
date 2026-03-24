@@ -34,7 +34,7 @@ type Runtime struct {
 	agentMgr     *AgentManager
 }
 
-// SetMemoryStore attaches a memory store to the runtime.
+// SetMemoryStore attaches a memory.md store to the runtime.
 func (r *Runtime) SetMemoryStore(s memory.Store) { r.memStore = s }
 
 // SetSkillManager attaches a skill manager to the runtime.
@@ -244,7 +244,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		slog.Error("failed to persist session", "err", err)
 	}
 
-	// Save user message to memory for future retrieval
+	// Save user message to memory.md for future retrieval
 	if r.memStore != nil {
 		if err := r.memStore.Save(ctx, memory.Entry{
 			SessionID: sess.ID,
@@ -252,7 +252,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 			Metadata:  map[string]string{"role": "user", "channel": msg.Channel},
 			CreatedAt: time.Now(),
 		}); err != nil {
-			slog.Warn("failed to save memory", "err", err)
+			slog.Warn("failed to save memory.md", "err", err)
 		}
 	}
 
@@ -371,7 +371,7 @@ func (r *Runtime) buildSystemPrompt(ctx context.Context, userText string) string
 	if r.memStore != nil {
 		results, err := r.memStore.Search(ctx, memory.SearchQuery{Text: userText, Limit: 5})
 		if err != nil {
-			slog.Warn("memory search failed", "err", err)
+			slog.Warn("memory.md search failed", "err", err)
 		} else if len(results) > 0 {
 			sb.WriteString("\n\n## Relevant memories\n")
 			for _, res := range results {

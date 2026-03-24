@@ -1,7 +1,12 @@
 package agent
 
 import (
+	"context"
+	"sync"
+	"time"
+
 	"github.com/punkopunko/ironclaw/internal/memory"
+	"github.com/punkopunko/ironclaw/internal/rl"
 )
 
 // TaskComplexity classifies how complex a user request is.
@@ -136,8 +141,41 @@ type reflectJSON struct {
 	ReplanReason        string   `json:"replan_reason"`
 }
 
-// RLPolicy is the interface for RL policy integration (to avoid circular imports).
+// RLPolicy is the interface for RL policy integration.
 type RLPolicy interface {
 	IsEnabled() bool
-	RecordExperience(exp interface{})
+	SelectTool(ctx context.Context, state *rl.RLState, toolNames []string) *rl.ToolSelectionAction
+	UpdateToolSelection(ctx context.Context, state *rl.RLState, toolName string, reward float64) error
+	SelectPlanStrategy(state *rl.RLState) *rl.PlanStrategyAction
+	SelectReplanAction(state *rl.RLState) rl.ReplanActionType
+}
+
+// RLTrainer is the interface for RL training coordination.
+type RLTrainer interface {
+	AddExperience(exp rl.Experience)
+	RecordEpisode(ctx context.Context, params rl.EpisodeParams) error
+}
+
+// EpisodeCollector accumulates RL experiences during one cognitive loop pass.
+type EpisodeCollector struct {
+	State       *rl.RLState
+	StartTime   time.Time
+	mu          sync.Mutex
+	experiences []rl.Experience
+}
+
+// Add appends an experience to the collector (thread-safe).
+func (c *EpisodeCollector) Add(exp rl.Experience) {
+	c.mu.Lock()
+	c.experiences = append(c.experiences, exp)
+	c.mu.Unlock()
+}
+
+// GetExperiences returns a copy of all collected experiences.
+func (c *EpisodeCollector) GetExperiences() []rl.Experience {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]rl.Experience, len(c.experiences))
+	copy(out, c.experiences)
+	return out
 }

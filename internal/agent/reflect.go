@@ -19,7 +19,7 @@ import (
 // ReflectionCallback is called by the Gateway when the user responds to a replan keyboard.
 type ReflectionCallback func(key string, decision ReplanDecision)
 
-// Reflector implements the REFLECT phase: LLM evaluation + confidence approval + memory write.
+// Reflector implements the REFLECT phase: LLM evaluation + confidence approval + memory.md write.
 type Reflector struct {
 	provider           Provider
 	memStore           memory.Store
@@ -53,7 +53,7 @@ func NewReflector(
 	}
 }
 
-// SetFactExtractor injects a fact extractor for lifecycle-managed memory writes.
+// SetFactExtractor injects a fact extractor for lifecycle-managed memory.md writes.
 func (r *Reflector) SetFactExtractor(fe *memory.LLMFactExtractor) {
 	r.factExtractor = fe
 }
@@ -126,7 +126,7 @@ func (r *Reflector) Run(
 		"needs_replan", reflection.NeedsReplan,
 	)
 
-	// Write experience to memory regardless of success/failure
+	// Write experience to memory.md regardless of success/failure
 	r.saveExperience(ctx, state, plan, reflection)
 
 	return reflection, nil
@@ -236,7 +236,7 @@ func (r *Reflector) saveExperience(_ context.Context, state *CognitiveState, pla
 			CreatedAt: time.Now(),
 		})
 		if err != nil {
-			slog.Warn("reflect: failed to save experience to memory", "err", err)
+			slog.Warn("reflect: failed to save experience to memory.md", "err", err)
 		}
 
 		r.extractGraphEntities(bgCtx, state, reflection)

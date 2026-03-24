@@ -13,6 +13,7 @@ import (
 	"github.com/punkopunko/ironclaw/internal/knowledge"
 	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
 	"github.com/punkopunko/ironclaw/internal/memory"
+	"github.com/punkopunko/ironclaw/internal/rl"
 	"github.com/punkopunko/ironclaw/internal/session"
 	"github.com/punkopunko/ironclaw/internal/skill"
 	"github.com/punkopunko/ironclaw/internal/store"
@@ -38,7 +39,8 @@ type CognitiveAgent struct {
 	agentMgr           *AgentManager
 	entityExtractor    *graph.LLMEntityExtractor
 	pendingReflections sync.Map
-	rlPolicy           RLPolicy // RL policy interface (nil if disabled)
+	rlPolicy           RLPolicy  // RL policy interface (nil if disabled)
+	rlTrainer          RLTrainer // RL trainer interface (nil if disabled)
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -72,7 +74,7 @@ func NewCognitiveAgent(
 	return ca
 }
 
-// SetMemoryStore injects the memory store into all phases that need it.
+// SetMemoryStore injects the memory.md store into all phases that need it.
 func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	ca.memStore = s
 	ca.runtime.SetMemoryStore(s)
@@ -146,6 +148,11 @@ func (ca *CognitiveAgent) SetRLPolicy(policy RLPolicy) {
 	ca.planner.SetRLPolicy(policy)
 	ca.executor.SetRLPolicy(policy)
 	ca.reflector.SetRLPolicy(policy)
+}
+
+// SetRLTrainer injects an RL trainer into the cognitive agent.
+func (ca *CognitiveAgent) SetRLTrainer(trainer RLTrainer) {
+	ca.rlTrainer = trainer
 }
 
 // ResolveReplanDecision is called by the Gateway when the user responds to a replan keyboard.
@@ -223,7 +230,24 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		maxReplans = MaxReplanAttempts
 	}
 
+	// ── RL: build initial state after PERCEIVE ──────────────────────────────
+	var rlState *rl.RLState
+	var episodeCollector *EpisodeCollector
+	rlEnabled := ca.rlPolicy != nil && ca.rlPolicy.IsEnabled()
+	if rlEnabled {
+		rlState = buildInitialRLState(state, len(ca.executor.tools.All()))
+		episodeCollector = &EpisodeCollector{
+			State:     rlState,
+			StartTime: time.Now(),
+		}
+	}
+
+	// Hoist loop-scoped variables for goto compatibility
 	var finalAnswer string
+	var plan *TaskPlan
+	var obsResult *ObservationResult
+	var reflection *Reflection
+	var ppoStrategy *rl.PlanStrategyAction
 
 	for attempt := 0; attempt <= maxReplans; attempt++ {
 		if attempt > 0 {
@@ -231,12 +255,22 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── PLAN ──────────────────────────────────────────────────────────────
-		plan, err := ca.planner.Run(ctx, state)
+		plan, err = ca.planner.Run(ctx, state)
 		if err != nil {
 			slog.Error("cognitive: plan failed", "err", err)
 			break
 		}
 		plan.ReplanCount = attempt
+
+		// RL: apply PPO plan strategy adjustment
+		if rlEnabled && rlState != nil {
+			ppoStrategy = ca.rlPolicy.SelectPlanStrategy(rlState)
+			if ppoStrategy != nil {
+				plan.OverallConfidence = clampRL(
+					plan.OverallConfidence+ppoStrategy.ConfidenceAdj, 0, 1)
+			}
+			updateRLStateWithPlan(rlState, plan)
+		}
 
 		// Direct reply — skip ACT/OBSERVE
 		if plan.DirectReply != "" {
@@ -251,22 +285,27 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		// ── ACT ───────────────────────────────────────────────────────────────
 		// Create TaskContext for multi-agent collaboration
 		taskCtx := NewTaskContext(fmt.Sprintf("task_%d", time.Now().UnixNano()), state.UserMessage)
-		observations, err := ca.executor.RunWithContext(ctx, ch, sess, target, plan, taskCtx)
-		if err != nil {
-			slog.Error("cognitive: act failed", "err", err)
+		observations, actErr := ca.executor.RunWithContext(ctx, ch, sess, target, plan, taskCtx, rlState, episodeCollector)
+		if actErr != nil {
+			slog.Error("cognitive: act failed", "err", actErr)
 			break
 		}
 
 		// ── OBSERVE ───────────────────────────────────────────────────────────
-		obsResult := ca.observer.Run(observations, plan)
+		obsResult = ca.observer.Run(observations, plan)
 		slog.Info("cognitive: observe complete",
 			"success", obsResult.SuccessCount,
 			"failure", obsResult.FailureCount,
 			"progress", fmt.Sprintf("%.0f%%", obsResult.OverallProgress*100),
 		)
 
+		// RL: update state with observation results
+		if rlEnabled && rlState != nil {
+			updateRLStateWithObservation(rlState, obsResult)
+		}
+
 		// ── REFLECT ───────────────────────────────────────────────────────────
-		reflection, err := ca.reflector.Run(ctx, ch, target, state, plan, obsResult)
+		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult)
 		if err != nil {
 			slog.Error("cognitive: reflect failed", "err", err)
 			finalAnswer = "Task completed."
@@ -281,6 +320,15 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		// Stream final answer to user
 		if err := ca.streamFinalAnswer(ctx, ch, target, sess, finalAnswer); err != nil {
 			slog.Warn("cognitive: stream final answer failed", "err", err)
+		}
+
+		// RL: update reflection confidence and record DQN suggestion
+		if rlEnabled && rlState != nil && reflection != nil {
+			rlState.ReflectionConfidence = clampRL(reflection.OverallConfidence, 0, 1)
+			if reflection.NeedsReplan {
+				dqnAction := ca.rlPolicy.SelectReplanAction(rlState)
+				slog.Info("cognitive: DQN replan suggestion", "action", dqnAction.String())
+			}
 		}
 
 		// Check if replan is needed
@@ -306,12 +354,17 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	}
 
 persist:
+	// RL: record PPO/DQN experiences and episode
+	if rlEnabled && episodeCollector != nil && ca.rlTrainer != nil {
+		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector)
+	}
+
 	// Persist session
 	if err := ca.sessions.Persist(ctx, sess); err != nil {
 		slog.Error("cognitive: failed to persist session", "err", err)
 	}
 
-	// Save user message to memory
+	// Save user message to memory.md
 	if ca.memStore != nil {
 		if err := ca.memStore.Save(ctx, memory.Entry{
 			SessionID: sess.ID,
@@ -319,7 +372,7 @@ persist:
 			Metadata:  map[string]string{"role": "user", "channel": msg.Channel},
 			CreatedAt: time.Now(),
 		}); err != nil {
-			slog.Warn("cognitive: failed to save memory", "err", err)
+			slog.Warn("cognitive: failed to save memory.md", "err", err)
 		}
 	}
 
@@ -406,7 +459,7 @@ func (ca *CognitiveAgent) handleDebate(
 
 	// Execute debate via ACT phase
 	taskCtx := NewTaskContext(fmt.Sprintf("debate_%d", time.Now().UnixNano()), state.UserMessage)
-	observations, err := ca.executor.RunWithContext(ctx, ch, sess, target, debatePlan, taskCtx)
+	observations, err := ca.executor.RunWithContext(ctx, ch, sess, target, debatePlan, taskCtx, nil, nil)
 	if err != nil {
 		return fmt.Errorf("debate execution failed: %w", err)
 	}
@@ -429,4 +482,89 @@ func (ca *CognitiveAgent) handleDebate(
 	}
 
 	return ca.streamFinalAnswer(ctx, ch, target, sess, finalAnswer)
+}
+
+// recordRLEpisode records PPO/DQN experiences and the full episode to the trainer.
+// Runs asynchronously to avoid blocking the main cognitive loop.
+func (ca *CognitiveAgent) recordRLEpisode(
+	state *CognitiveState,
+	plan *TaskPlan,
+	obsResult *ObservationResult,
+	reflection *Reflection,
+	ppoStrategy *rl.PlanStrategyAction,
+	collector *EpisodeCollector,
+) {
+	rlState := collector.State
+	episodeReward := computeSimpleEpisodeReward(reflection, obsResult)
+
+	// Record PPO experience (plan strategy → episode outcome)
+	if ppoStrategy != nil {
+		collector.Add(rl.Experience{
+			State:     rlState,
+			Action:    ppoStrategy.ToVector(),
+			Reward:    episodeReward,
+			NextState: nil,
+			Done:      true,
+			Level:     rl.LevelPPO,
+		})
+	}
+
+	// Record DQN experience (replan decision → episode outcome)
+	if reflection != nil && reflection.NeedsReplan {
+		dqnAction := ca.rlPolicy.SelectReplanAction(rlState)
+		collector.Add(rl.Experience{
+			State:     rlState,
+			Action:    []float64{float64(dqnAction)},
+			Reward:    episodeReward,
+			NextState: nil,
+			Done:      true,
+			Level:     rl.LevelDQN,
+		})
+	}
+
+	// Fire-and-forget: record episode + add experiences to trainer buffer
+	experiences := collector.GetExperiences()
+	go func() {
+		bgCtx := context.Background()
+
+		subtaskCount := 0
+		replanCount := 0
+		if plan != nil {
+			subtaskCount = len(plan.SubTasks)
+			replanCount = plan.ReplanCount
+		}
+
+		successCount, failureCount, deniedCount := 0, 0, 0
+		if obsResult != nil {
+			successCount = obsResult.SuccessCount
+			failureCount = obsResult.FailureCount
+			deniedCount = obsResult.DeniedCount
+		}
+
+		succeeded := reflection != nil && reflection.Succeeded
+
+		durationMs := time.Since(collector.StartTime).Milliseconds()
+
+		if err := ca.rlTrainer.RecordEpisode(bgCtx, rl.EpisodeParams{
+			SessionID:     state.SessionID,
+			Goal:          state.Goal.Raw,
+			Complexity:    string(state.Goal.Complexity),
+			Succeeded:     succeeded,
+			DurationMs:    durationMs,
+			MaxDurationMs: 120000, // 2-minute baseline
+			SubtaskCount:  subtaskCount,
+			ReplanCount:   replanCount,
+			SuccessCount:  successCount,
+			FailureCount:  failureCount,
+			DeniedCount:   deniedCount,
+			Experiences:   experiences,
+		}); err != nil {
+			slog.Warn("cognitive: failed to record RL episode", "err", err)
+		}
+
+		// Add individual experiences to the replay buffer
+		for _, exp := range experiences {
+			ca.rlTrainer.AddExperience(exp)
+		}
+	}()
 }

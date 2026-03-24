@@ -11,6 +11,7 @@ import (
 
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/punkopunko/ironclaw/internal/rl"
 	"github.com/punkopunko/ironclaw/internal/session"
 	"github.com/punkopunko/ironclaw/internal/store"
 	"github.com/punkopunko/ironclaw/internal/tool"
@@ -48,10 +49,11 @@ func (e *Executor) Run(
 	target channel.MessageTarget,
 	plan *TaskPlan,
 ) ([]Observation, error) {
-	return e.RunWithContext(ctx, ch, sess, target, plan, nil)
+	return e.RunWithContext(ctx, ch, sess, target, plan, nil, nil, nil)
 }
 
 // RunWithContext executes the ACT phase with an optional TaskContext for multi-agent collaboration.
+// rlState and collector are optional (nil when RL is disabled).
 func (e *Executor) RunWithContext(
 	ctx context.Context,
 	ch channel.Channel,
@@ -59,6 +61,8 @@ func (e *Executor) RunWithContext(
 	target channel.MessageTarget,
 	plan *TaskPlan,
 	taskCtx *TaskContext,
+	rlState *rl.RLState,
+	collector *EpisodeCollector,
 ) ([]Observation, error) {
 	maxParallel := e.cfg.MaxParallelTools
 	if maxParallel <= 0 {
@@ -111,7 +115,7 @@ func (e *Executor) RunWithContext(
 			wg.Add(1)
 			go func(subtask *SubTask) {
 				defer wg.Done()
-				obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks, taskCtx, plan)
+				obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks, taskCtx, plan, rlState, collector)
 				obsMu.Lock()
 				observations = append(observations, obs)
 				doneCount++
@@ -151,6 +155,8 @@ func (e *Executor) executeSubTask(
 	allTasks []*SubTask,
 	taskCtx *TaskContext,
 	plan *TaskPlan,
+	rlState *rl.RLState,
+	collector *EpisodeCollector,
 ) Observation {
 	obs := Observation{
 		SubTaskID: subtask.ID,
@@ -181,6 +187,7 @@ func (e *Executor) executeSubTask(
 			obs.Denied = true
 			obs.Error = "tool execution denied by user"
 			session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, "", "denied", 0)
+			e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 			return obs
 		}
 	}
@@ -212,6 +219,7 @@ func (e *Executor) executeSubTask(
 		obs.Error = execErr.Error()
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
 		slog.Info("subtask failed", "id", subtask.ID, "tool", subtask.ToolName, "err", execErr)
+		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 		return obs
 	}
 
@@ -220,6 +228,7 @@ func (e *Executor) executeSubTask(
 		obs.Error = result.Error
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
 		slog.Info("subtask failed", "id", subtask.ID, "tool", subtask.ToolName, "result_err", result.Error)
+		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 		return obs
 	}
 
@@ -254,6 +263,9 @@ func (e *Executor) executeSubTask(
 
 	session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, result.Output, "success", durationMs)
 	slog.Info("subtask done", "id", subtask.ID, "tool", subtask.ToolName, "duration_ms", durationMs)
+
+	// RL: record bandit experience after successful execution
+	e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 
 	return obs
 }
@@ -326,5 +338,46 @@ func statusEmoji(s SubTaskStatus) string {
 		return "skipped"
 	default:
 		return ""
+	}
+}
+
+// recordBanditExperience computes tool reward and records a bandit experience.
+func (e *Executor) recordBanditExperience(
+	ctx context.Context,
+	rlState *rl.RLState,
+	collector *EpisodeCollector,
+	subtask *SubTask,
+	obs *Observation,
+) {
+	if e.rlPolicy == nil || !e.rlPolicy.IsEnabled() || rlState == nil {
+		return
+	}
+
+	succeeded := subtask.Status == SubTaskDone
+	reward := rl.ComputeToolReward(succeeded, obs.Denied, obs.DurationMs)
+
+	// Update bandit arm statistics
+	if err := e.rlPolicy.UpdateToolSelection(ctx, rlState, subtask.ToolName, reward); err != nil {
+		slog.Warn("act: bandit update failed", "tool", subtask.ToolName, "err", err)
+	}
+
+	// Record experience in the episode collector
+	if collector != nil {
+		// Compute a tool index for the action vector (used for training, not selection)
+		toolIdx := 0.0
+		for i, t := range e.tools.All() {
+			if t.Name() == subtask.ToolName {
+				toolIdx = float64(i)
+				break
+			}
+		}
+		collector.Add(rl.Experience{
+			State:     rlState,
+			Action:    []float64{toolIdx},
+			Reward:    reward,
+			NextState: rlState, // same state within episode
+			Done:      false,
+			Level:     rl.LevelBandit,
+		})
 	}
 }
