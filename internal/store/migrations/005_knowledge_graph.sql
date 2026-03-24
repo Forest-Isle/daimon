@@ -24,10 +24,10 @@ CREATE INDEX IF NOT EXISTS idx_kg_edges_source ON kg_edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_kg_edges_target ON kg_edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_kg_edges_type ON kg_edges(type);
 
--- Provenance: links edges back to their source (memory fact or KB chunk)
+-- Provenance: links edges back to their source (memory.md fact or KB chunk)
 CREATE TABLE IF NOT EXISTS kg_provenance (
     edge_id     TEXT NOT NULL REFERENCES kg_edges(id) ON DELETE CASCADE,
-    source_type TEXT NOT NULL,  -- "memory" | "kb_chunk"
+    source_type TEXT NOT NULL,  -- "memory.md" | "kb_chunk"
     source_id   TEXT NOT NULL,
     PRIMARY KEY (edge_id, source_id)
 );

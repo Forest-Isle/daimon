@@ -1,4 +1,4 @@
--- 003_memory_v2.sql: Extended memory facts table with scope, lifecycle, and FTS5
+-- 003_memory_v2.sql: Extended memory.md facts table with scope, lifecycle, and FTS5
 CREATE TABLE IF NOT EXISTS memory_facts (
     id           TEXT PRIMARY KEY,
     session_id   TEXT,
