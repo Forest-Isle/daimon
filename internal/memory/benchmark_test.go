@@ -27,6 +27,22 @@ func (m *mockEmbedder) Embed(ctx context.Context, text string) ([]float32, error
 	return emb, nil
 }
 
+func (m *mockEmbedder) Dimensions() int {
+	return m.dimension
+}
+
+func (m *mockEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	results := make([][]float32, len(texts))
+	for i, text := range texts {
+		emb, err := m.Embed(ctx, text)
+		if err != nil {
+			return nil, err
+		}
+		results[i] = emb
+	}
+	return results, nil
+}
+
 // BenchmarkVectorSearch compares brute-force vs cached search
 func BenchmarkVectorSearch(b *testing.B) {
 	sizes := []int{100, 1000, 10000}

@@ -32,6 +32,7 @@ type Runtime struct {
 	memStore     memory.Store
 	skillMgr     *skill.Manager
 	agentMgr     *AgentManager
+	compressor   *memory.IncrementalCompressor
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -42,6 +43,9 @@ func (r *Runtime) SetSkillManager(m *skill.Manager) { r.skillMgr = m }
 
 // SetAgentManager attaches an agent manager to the runtime.
 func (r *Runtime) SetAgentManager(m *AgentManager) { r.agentMgr = m }
+
+// SetCompressor attaches an incremental compressor to the runtime.
+func (r *Runtime) SetCompressor(c *memory.IncrementalCompressor) { r.compressor = c }
 
 func NewRuntime(
 	provider Provider,
@@ -229,6 +233,10 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 				status = "error"
 			} else {
 				output = result.Output
+				// Compress long tool outputs
+				if r.compressor != nil {
+					output = r.compressor.CompressToolResult(output)
+				}
 			}
 
 			session.LogToolExecution(ctx, r.db, sess.ID, tc.Name, tc.Input, output, status, duration)

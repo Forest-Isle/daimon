@@ -29,6 +29,7 @@ type SQLiteStore struct {
 	cfg           MemoryConfig
 	vssIndexer    *VSSIndexer
 	searchCache   *SearchResultCache
+	accessLog     *AccessLog
 }
 
 // MemoryConfig holds tunable parameters for the memory.md subsystem.
@@ -61,6 +62,7 @@ func NewSQLiteStore(db *store.DB, embedder EmbeddingProvider, cfg MemoryConfig) 
 
 	s := &SQLiteStore{db: db, embedder: embedder, cfg: cfg}
 	s.fts5Available = s.detectFTS5()
+	s.accessLog = NewAccessLog(db)
 	if s.fts5Available {
 		slog.Info("memory.md: FTS5 available, hybrid search enabled")
 	} else {
@@ -348,6 +350,10 @@ func (s *SQLiteStore) Search(ctx context.Context, query SearchQuery) ([]SearchRe
 	entryMap := make(map[string]Entry, len(vectorResults)+len(textResults))
 	for _, r := range vectorResults {
 		entryMap[r.Entry.ID] = r.Entry
+		// Record access
+		if s.accessLog != nil {
+			go s.accessLog.RecordAccess(ctx, r.Entry.ID, query.SessionID)
+		}
 	}
 	for _, r := range textResults {
 		if _, exists := entryMap[r.Entry.ID]; !exists {

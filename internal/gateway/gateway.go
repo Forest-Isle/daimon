@@ -115,9 +115,10 @@ func New(cfg *config.Config) (*Gateway, error) {
 			storageType = "file"
 		}
 
+		var storageDir string
 		if storageType == "file" {
 			// File-based storage
-			storageDir := cfg.Memory.StorageDir
+			storageDir = cfg.Memory.StorageDir
 			if storageDir == "" {
 				home, err := os.UserHomeDir()
 				if err != nil {
@@ -145,6 +146,29 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}
 
 		runtime.SetMemoryStore(memStore)
+
+		// Initialize incremental compressor
+		if storageType == "file" {
+			compressor := memory.NewIncrementalCompressor(storageDir, &completerAdapter{provider: provider, model: cfg.LLM.Model})
+			runtime.SetCompressor(compressor)
+			slog.Info("memory: incremental compressor enabled")
+		}
+
+		// Initialize forgetting curve manager
+		if sqliteStore, ok := memStore.(*memory.SQLiteStore); ok {
+			forgettingCurve := memory.NewForgettingCurveManager(sqliteStore, db)
+			// Schedule daily fade task
+			go func() {
+				ticker := time.NewTicker(24 * time.Hour)
+				defer ticker.Stop()
+				for range ticker.C {
+					if err := forgettingCurve.FadeWeakMemories(context.Background()); err != nil {
+						slog.Warn("memory: fade weak memories failed", "err", err)
+					}
+				}
+			}()
+			slog.Info("memory: forgetting curve enabled")
+		}
 
 		if cfg.Memory.FactExtraction {
 			completer := &completerAdapter{provider: provider, model: cfg.LLM.Model}
