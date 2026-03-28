@@ -2,903 +2,623 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
-// FileStore implements Store using file-based storage with markdown files.
-type FileStore struct {
-	storageDir      string
-	indexManager    *IndexManager
-	metadataManager *MetadataManager
-	txLog           *TransactionLog
-	parser          *MarkdownParser
-	chunker         *Chunker
-	embedder        EmbeddingProvider
-	embeddingsDB    *EmbeddingsDBImpl
-	searchCache     *SearchResultCache
-	cfg             MemoryConfig
-	mu              sync.RWMutex
+// FileMemoryStore implements Store with Markdown files as primary storage.
+type FileMemoryStore struct {
+	baseDir  string
+	db       *sql.DB
+	embedder EmbeddingProvider
+	cfg      MemoryConfig
 }
 
-// NewFileStore creates a new FileStore.
-func NewFileStore(storageDir string, embeddingsDB *EmbeddingsDBImpl, embedder EmbeddingProvider, cfg MemoryConfig) *FileStore {
-	// Ensure storage directory exists
-	os.MkdirAll(storageDir, 0755)
-	os.MkdirAll(filepath.Join(storageDir, "session"), 0755)
-	os.MkdirAll(filepath.Join(storageDir, "user"), 0755)
-	os.MkdirAll(filepath.Join(storageDir, "global"), 0755)
-
-	indexManager := NewIndexManager(storageDir)
-	if err := indexManager.Load(); err != nil {
-		slog.Error("file_store: failed to load index", "err", err)
-	}
-
-	metadataManager := NewMetadataManager(storageDir)
-
-	flushInterval := 5 * time.Second
-	txLog := NewTransactionLog(storageDir, embedder, embeddingsDB, flushInterval)
-
-	// Initialize search cache if enabled
-	var searchCache *SearchResultCache
-	if cfg.EnableSearchCache {
-		searchCache = NewSearchResultCache(cfg.SearchCacheSize, cfg.SearchCacheTTL)
-		slog.Info("file_store: search result cache enabled", "size", cfg.SearchCacheSize, "ttl", cfg.SearchCacheTTL)
-	}
-
-	return &FileStore{
-		storageDir:      storageDir,
-		indexManager:    indexManager,
-		metadataManager: metadataManager,
-		txLog:           txLog,
-		parser:          NewMarkdownParser(),
-		chunker:         NewChunker(),
-		embedder:        embedder,
-		embeddingsDB:    embeddingsDB,
-		searchCache:     searchCache,
-		cfg:             cfg,
-	}
+// MemoryFile represents a memory stored as Markdown with YAML frontmatter.
+type MemoryFile struct {
+	ID           string            `yaml:"id"`
+	Scope        string            `yaml:"scope"`
+	UserID       string            `yaml:"user_id,omitempty"`
+	SessionID    string            `yaml:"session_id,omitempty"`
+	CreatedAt    time.Time         `yaml:"created_at"`
+	UpdatedAt    time.Time         `yaml:"updated_at"`
+	LastAccessed *time.Time        `yaml:"last_accessed_at,omitempty"`
+	Strength     float64           `yaml:"strength,omitempty"`
+	RelatedTo    string            `yaml:"related_to,omitempty"`
+	PromotedFrom string            `yaml:"promoted_from,omitempty"`
+	PromotedAt   *time.Time        `yaml:"promoted_at,omitempty"`
+	Metadata     map[string]string `yaml:"metadata,omitempty"`
+	Content      string            `yaml:"-"`
 }
 
-// StartBackgroundProcessor starts the background task for processing transaction logs.
-func (fs *FileStore) StartBackgroundProcessor(ctx context.Context) {
-	fs.txLog.StartBackgroundProcessor(ctx)
+// NewFileMemoryStore creates a file-based memory store.
+func NewFileMemoryStore(baseDir string, db *sql.DB, embedder EmbeddingProvider, cfg MemoryConfig) (*FileMemoryStore, error) {
+	store := &FileMemoryStore{
+		baseDir:  baseDir,
+		db:       db,
+		embedder: embedder,
+		cfg:      cfg,
+	}
+	if err := store.initDirectories(); err != nil {
+		return nil, err
+	}
+	if err := store.checkIndexStaleness(); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
-// Stop stops the background processor.
-func (fs *FileStore) Stop() {
-	fs.txLog.Stop()
-}
+func (s *FileMemoryStore) checkIndexStaleness() error {
+	ctx := context.Background()
 
-// Save saves a memory entry (legacy compatibility).
-func (fs *FileStore) Save(ctx context.Context, entry Entry) error {
-	return fs.SaveFact(ctx, entry)
-}
-
-// SaveFact saves a fact to the appropriate markdown file.
-func (fs *FileStore) SaveFact(ctx context.Context, entry Entry) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	// Generate fact ID if not provided
-	if entry.ID == "" {
-		entry.ID = fmt.Sprintf("fact_%s", uuid.New().String()[:8])
-	}
-
-	// Determine file path based on scope
-	filePath, err := fs.getFilePath(entry.Scope, entry.UserID, entry.SessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get file path: %w", err)
-	}
-
-	// Load existing document or create new one
-	doc, err := fs.loadOrCreateDocument(filePath, entry.Scope, entry.UserID, entry.SessionID)
-	if err != nil {
-		return fmt.Errorf("failed to load document: %w", err)
-	}
-
-	// Add new fact
-	now := time.Now()
-	fact := MarkdownFact{
-		ID:        entry.ID,
-		Category:  entry.Metadata["category"],
-		Version:   entry.Version,
-		CreatedAt: now,
-		UpdatedAt: now,
-		ExpiresAt: entry.ExpiresAt,
-		Content:   entry.Content,
-	}
-
-	doc.Facts = append(doc.Facts, fact)
-	doc.Frontmatter.UpdatedAt = now
-	doc.Frontmatter.Version++
-
-	// Check if chunking is needed
-	data, err := fs.parser.Serialize(doc)
-	if err != nil {
-		return fmt.Errorf("failed to serialize document: %w", err)
-	}
-
-	shouldChunk := fs.chunker.ShouldChunk(len(doc.Facts), len(data))
-
-	if shouldChunk {
-		// Perform chunking
-		if err := fs.chunkDocument(doc, entry.Scope, entry.UserID, entry.SessionID); err != nil {
-			return fmt.Errorf("failed to chunk document: %w", err)
-		}
-	} else {
-		// Write single file
-		if err := os.WriteFile(filePath, data, 0644); err != nil {
-			return fmt.Errorf("failed to write file: %w", err)
-		}
-
-		// Update index
-		factIDs := make([]string, len(doc.Facts))
-		for i, f := range doc.Facts {
-			factIDs[i] = f.ID
-		}
-		hash := ComputeHash(string(data))
-
-		if err := fs.updateIndex(entry.Scope, entry.UserID, entry.SessionID, filePath, hash, factIDs); err != nil {
-			slog.Error("file_store: failed to update index", "err", err)
-		}
-	}
-
-	// Append to transaction log for async embedding generation
-	logEntry := LogEntry{
-		Timestamp: now,
-		Operation: LogOpAdd,
-		FactID:    entry.ID,
-		FilePath:  filePath,
-		Content:   entry.Content,
-		Hash:      ComputeHash(entry.Content),
-	}
-
-	if err := fs.txLog.Append(logEntry); err != nil {
-		slog.Error("file_store: failed to append to transaction log", "err", err)
-	}
-
-	return nil
-}
-
-// UpdateFact updates an existing fact.
-func (fs *FileStore) UpdateFact(ctx context.Context, id string, content string, version int) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	// Find the fact across all scopes
-	filePath, factIndex, doc, err := fs.findFact(id)
-	if err != nil {
-		return fmt.Errorf("fact not found: %w", err)
-	}
-
-	// Update fact
-	now := time.Now()
-	doc.Facts[factIndex].Content = content
-	doc.Facts[factIndex].UpdatedAt = now
-	doc.Facts[factIndex].Version = version
-	doc.Frontmatter.UpdatedAt = now
-	doc.Frontmatter.Version++
-
-	// Serialize and write
-	data, err := fs.parser.Serialize(doc)
-	if err != nil {
-		return fmt.Errorf("failed to serialize document: %w", err)
-	}
-
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-
-	// Update index
-	factIDs := make([]string, len(doc.Facts))
-	for i, f := range doc.Facts {
-		factIDs[i] = f.ID
-	}
-	hash := ComputeHash(string(data))
-
-	scope := doc.Frontmatter.Scope
-	userID := doc.Frontmatter.UserID
-	sessionID := doc.Frontmatter.SessionID
-
-	if err := fs.updateIndex(MemoryScope(scope), userID, sessionID, filePath, hash, factIDs); err != nil {
-		slog.Error("file_store: failed to update index", "err", err)
-	}
-
-	// Append to transaction log
-	logEntry := LogEntry{
-		Timestamp: now,
-		Operation: LogOpUpdate,
-		FactID:    id,
-		FilePath:  filePath,
-		Content:   content,
-		Hash:      ComputeHash(content),
-	}
-
-	if err := fs.txLog.Append(logEntry); err != nil {
-		slog.Error("file_store: failed to append to transaction log", "err", err)
-	}
-
-	return nil
-}
-
-// DeleteFact deletes a fact.
-func (fs *FileStore) DeleteFact(ctx context.Context, id string) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	// Find the fact
-	filePath, factIndex, doc, err := fs.findFact(id)
-	if err != nil {
-		return fmt.Errorf("fact not found: %w", err)
-	}
-
-	// Remove fact
-	doc.Facts = append(doc.Facts[:factIndex], doc.Facts[factIndex+1:]...)
-	doc.Frontmatter.UpdatedAt = time.Now()
-	doc.Frontmatter.Version++
-
-	// Serialize and write
-	data, err := fs.parser.Serialize(doc)
-	if err != nil {
-		return fmt.Errorf("failed to serialize document: %w", err)
-	}
-
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-
-	// Update index
-	factIDs := make([]string, len(doc.Facts))
-	for i, f := range doc.Facts {
-		factIDs[i] = f.ID
-	}
-	hash := ComputeHash(string(data))
-
-	scope := doc.Frontmatter.Scope
-	userID := doc.Frontmatter.UserID
-	sessionID := doc.Frontmatter.SessionID
-
-	if err := fs.updateIndex(MemoryScope(scope), userID, sessionID, filePath, hash, factIDs); err != nil {
-		slog.Error("file_store: failed to update index", "err", err)
-	}
-
-	// Append to transaction log
-	logEntry := LogEntry{
-		Timestamp: time.Now(),
-		Operation: LogOpDelete,
-		FactID:    id,
-		FilePath:  filePath,
-		Content:   "",
-		Hash:      "",
-	}
-
-	if err := fs.txLog.Append(logEntry); err != nil {
-		slog.Error("file_store: failed to append to transaction log", "err", err)
-	}
-
-	return nil
-}
-
-// Delete is an alias for DeleteFact (legacy compatibility).
-func (fs *FileStore) Delete(ctx context.Context, id string) error {
-	return fs.DeleteFact(ctx, id)
-}
-
-// ListByScope lists all facts for a given scope.
-func (fs *FileStore) ListByScope(ctx context.Context, scope MemoryScope, userID string) ([]Entry, error) {
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
-
-	var filePaths []string
-	var dirs []string
-
-	switch scope {
-	case ScopeSession:
-		// List all session files
-		sessionIDs := fs.indexManager.ListSessionIDs()
-		for _, sessionID := range sessionIDs {
-			if file, ok := fs.indexManager.GetSessionFile(sessionID); ok {
-				filePaths = append(filePaths, file)
-				dirs = append(dirs, filepath.Dir(file))
-			}
-		}
-	case ScopeUser:
-		if file, ok := fs.indexManager.GetUserFile(userID); ok {
-			filePaths = append(filePaths, file)
-			dirs = append(dirs, filepath.Dir(file))
-		}
-	case ScopeGlobal:
-		if file, ok := fs.indexManager.GetGlobalFile(); ok {
-			filePaths = append(filePaths, file)
-			dirs = append(dirs, filepath.Dir(file))
-		}
-	}
-
-	var entries []Entry
-	for i, dir := range dirs {
-		// Check if this is chunked storage
-		metadata, err := fs.metadataManager.Load(dir)
-		if err == nil && len(metadata.Chunks) > 0 {
-			// Load from chunks
-			doc, err := fs.loadDocumentFromChunks(metadata)
-			if err != nil {
-				slog.Error("file_store: failed to load chunked document", "dir", dir, "err", err)
-				continue
-			}
-
-			for _, fact := range doc.Facts {
-				entry := Entry{
-					ID:        fact.ID,
-					SessionID: doc.Frontmatter.SessionID,
-					UserID:    doc.Frontmatter.UserID,
-					Scope:     MemoryScope(doc.Frontmatter.Scope),
-					Content:   fact.Content,
-					Metadata: map[string]string{
-						"category": fact.Category,
-					},
-					Version:   fact.Version,
-					ExpiresAt: fact.ExpiresAt,
-					CreatedAt: fact.CreatedAt,
-					UpdatedAt: fact.UpdatedAt,
-				}
-				entries = append(entries, entry)
-			}
-		} else {
-			// Load from single file
-			filePath := filePaths[i]
-			doc, err := fs.loadDocument(filePath)
-			if err != nil {
-				slog.Error("file_store: failed to load document", "path", filePath, "err", err)
-				continue
-			}
-
-			for _, fact := range doc.Facts {
-				entry := Entry{
-					ID:        fact.ID,
-					SessionID: doc.Frontmatter.SessionID,
-					UserID:    doc.Frontmatter.UserID,
-					Scope:     MemoryScope(doc.Frontmatter.Scope),
-					Content:   fact.Content,
-					Metadata: map[string]string{
-						"category": fact.Category,
-					},
-					Version:   fact.Version,
-					ExpiresAt: fact.ExpiresAt,
-					CreatedAt: fact.CreatedAt,
-					UpdatedAt: fact.UpdatedAt,
-				}
-				entries = append(entries, entry)
-			}
-		}
-	}
-
-	return entries, nil
-}
-
-// Search performs hybrid search (BM25 + vector search with RRF fusion).
-func (fs *FileStore) Search(ctx context.Context, query SearchQuery) ([]SearchResult, error) {
-	// Check cache first
-	if fs.searchCache != nil {
-		if cached, ok := fs.searchCache.Get(query); ok {
-			slog.Debug("file_store: cache hit", "query", query.Text)
-			return cached, nil
-		}
-	}
-
-	// Generate query embedding
-	var queryEmbedding []float32
-	var err error
-	if fs.embedder != nil && query.Text != "" {
-		queryEmbedding, err = fs.embedder.Embed(ctx, query.Text)
+	// Get newest file mtime
+	var newestMtime time.Time
+	scopes := []string{"user", "session", "feedback", "global"}
+	for _, scope := range scopes {
+		scopeDir := filepath.Join(s.baseDir, scope)
+		files, err := filepath.Glob(filepath.Join(scopeDir, "*.md"))
 		if err != nil {
-			slog.Warn("file_store: failed to generate query embedding", "err", err)
+			continue
+		}
+		for _, file := range files {
+			info, err := os.Stat(file)
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(newestMtime) {
+				newestMtime = info.ModTime()
+			}
 		}
 	}
 
-	// Use provided embedding if available
-	if len(query.Embedding) > 0 {
-		queryEmbedding = query.Embedding
+	// Get index last update time
+	var indexTime time.Time
+	err := s.db.QueryRowContext(ctx, `SELECT MAX(updated_at) FROM memory_index`).Scan(&indexTime)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("check index time: %w", err)
 	}
 
-	// Determine scopes to search
-	scopes := query.Scopes
-	if len(scopes) == 0 {
-		scopes = []MemoryScope{ScopeSession, ScopeUser, ScopeGlobal}
+	// Rebuild if index is stale (>24h older than newest file)
+	if newestMtime.Sub(indexTime) > 24*time.Hour {
+		return s.RebuildIndex(ctx)
 	}
 
-	// Set default limit
+	return nil
+}
+
+func (s *FileMemoryStore) initDirectories() error {
+	dirs := []string{"user", "session", "feedback", "global", "archived"}
+	for _, dir := range dirs {
+		path := filepath.Join(s.baseDir, dir)
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return fmt.Errorf("create directory %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func (s *FileMemoryStore) Save(ctx context.Context, entry Entry) error {
+	return s.SaveFact(ctx, entry)
+}
+
+func (s *FileMemoryStore) SaveFact(ctx context.Context, entry Entry) error {
+	mf := MemoryFile{
+		ID:        entry.ID,
+		Scope:     string(entry.Scope),
+		UserID:    entry.UserID,
+		SessionID: entry.SessionID,
+		CreatedAt: entry.CreatedAt,
+		UpdatedAt: entry.UpdatedAt,
+		Metadata:  entry.Metadata,
+		Content:   entry.Content,
+	}
+
+	filePath := s.buildFilePath(entry.Scope, entry.ID, entry.CreatedAt)
+	if err := s.writeFileAtomic(filePath, mf); err != nil {
+		return err
+	}
+
+	return s.syncIndex(ctx, entry, filePath)
+}
+
+func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]SearchResult, error) {
+	// Step 1: Parse MEMORY.md for quick filtering
+	idx := NewMemoryIndex(s.baseDir)
+	indexEntries, err := idx.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("parse MEMORY.md: %w", err)
+	}
+
+	// Filter by scope if specified
+	var candidateIDs []string
+	if len(query.Scopes) > 0 {
+		for _, scope := range query.Scopes {
+			entries := indexEntries[string(scope)]
+			for _, entry := range entries {
+				// Extract ID from file path
+				base := filepath.Base(entry.FilePath)
+				parts := strings.Split(base, "_")
+				if len(parts) >= 3 {
+					id := strings.TrimSuffix(parts[2], ".md")
+					candidateIDs = append(candidateIDs, id)
+				}
+			}
+		}
+	}
+
+	// Step 2: Query memory_index for metadata filtering
+	whereClause := []string{"1=1"}
+	args := []interface{}{}
+
+	if query.UserID != "" {
+		whereClause = append(whereClause, "user_id = ?")
+		args = append(args, query.UserID)
+	}
+	if query.SessionID != "" {
+		whereClause = append(whereClause, "session_id = ?")
+		args = append(args, query.SessionID)
+	}
+	if len(candidateIDs) > 0 {
+		placeholders := strings.Repeat("?,", len(candidateIDs))
+		placeholders = placeholders[:len(placeholders)-1]
+		whereClause = append(whereClause, fmt.Sprintf("memory_id IN (%s)", placeholders))
+		for _, id := range candidateIDs {
+			args = append(args, id)
+		}
+	}
+
+	sqlQuery := fmt.Sprintf("SELECT memory_id, file_path, strength FROM memory_index WHERE %s", strings.Join(whereClause, " AND "))
+	rows, err := s.db.QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query memory_index: %w", err)
+	}
+	defer rows.Close()
+
+	type indexResult struct {
+		id       string
+		filePath string
+		strength float64
+	}
+	var indexResults []indexResult
+	for rows.Next() {
+		var r indexResult
+		if err := rows.Scan(&r.id, &r.filePath, &r.strength); err != nil {
+			return nil, err
+		}
+		indexResults = append(indexResults, r)
+	}
+
+	if len(indexResults) == 0 {
+		return []SearchResult{}, nil
+	}
+
+	// Step 3: Perform hybrid search (BM25 + vector) with RRF fusion
+	results, err := s.hybridSearch(ctx, query, indexResults)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 4: Read Markdown files for top-k results
 	limit := query.Limit
 	if limit <= 0 {
 		limit = 10
 	}
+	if len(results) > limit {
+		results = results[:limit]
+	}
 
-	// Parallel search: BM25 + Vector
-	var bm25Results []FTS5SearchResult
-	var vectorResults []VectorSearchResult
-	var wg sync.WaitGroup
-	var bm25Err, vectorErr error
+	for i := range results {
+		var filePath string
+		err := s.db.QueryRowContext(ctx, `SELECT file_path FROM memory_index WHERE memory_id = ?`, results[i].Entry.ID).Scan(&filePath)
+		if err != nil {
+			continue
+		}
 
-	// BM25 search
+		mf, err := s.parseFile(filePath)
+		if err != nil {
+			continue
+		}
+		results[i].Entry.Content = mf.Content
+		results[i].Entry.Metadata = mf.Metadata
+		results[i].Entry.Scope = MemoryScope(mf.Scope)
+		results[i].Entry.UserID = mf.UserID
+		results[i].Entry.SessionID = mf.SessionID
+		results[i].Entry.CreatedAt = mf.CreatedAt
+		results[i].Entry.UpdatedAt = mf.UpdatedAt
+
+		// Track access
+		if err := s.trackAccess(ctx, results[i].Entry.ID, filePath, mf); err != nil {
+			// Log but don't fail
+		}
+	}
+
+	return results, nil
+}
+
+func (s *FileMemoryStore) trackAccess(ctx context.Context, id, filePath string, mf *MemoryFile) error {
+	now := time.Now()
+	mf.LastAccessed = &now
+
+	// Update file frontmatter
+	if err := s.writeFileAtomic(filePath, *mf); err != nil {
+		return err
+	}
+
+	// Update memory_index strength cache
+	_, err := s.db.ExecContext(ctx, `UPDATE memory_index SET strength = ? WHERE memory_id = ?`, mf.Strength, id)
+	return err
+}
+
+func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, indexResults []indexResult) ([]SearchResult, error) {
+	idMap := make(map[string]indexResult)
+	for _, r := range indexResults {
+		idMap[r.id] = r
+	}
+
+	// BM25 search via FTS5
+	bm25Results := make(map[string]float64)
 	if query.Text != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			bm25Results, bm25Err = fs.embeddingsDB.FTS5Search(ctx, query.Text, limit*2, scopes, query.UserID, query.SessionID)
-		}()
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT memory_id, rank
+			FROM memory_fts
+			WHERE memory_fts MATCH ?
+			ORDER BY rank
+			LIMIT 100
+		`, query.Text)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var id string
+				var rank float64
+				if err := rows.Scan(&id, &rank); err == nil {
+					if _, ok := idMap[id]; ok {
+						bm25Results[id] = -rank // FTS5 rank is negative
+					}
+				}
+			}
+		}
 	}
 
 	// Vector search
-	if len(queryEmbedding) > 0 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			vectorResults, vectorErr = fs.embeddingsDB.VectorSearch(ctx, queryEmbedding, limit*2, scopes, query.UserID, query.SessionID)
-		}()
+	vectorResults := make(map[string]float64)
+	if len(query.Embedding) > 0 {
+		// Simple cosine similarity (placeholder for HNSW)
+		for id := range idMap {
+			var embBytes []byte
+			err := s.db.QueryRowContext(ctx, `SELECT embedding FROM memory_embeddings WHERE memory_id = ?`, id).Scan(&embBytes)
+			if err == nil {
+				emb := deserializeEmbedding(embBytes)
+				sim := cosineSimilarity(query.Embedding, emb)
+				vectorResults[id] = sim
+			}
+		}
 	}
 
-	wg.Wait()
-
-	// Check for errors
-	if bm25Err != nil {
-		slog.Warn("file_store: BM25 search failed", "err", bm25Err)
-	}
-	if vectorErr != nil {
-		slog.Warn("file_store: vector search failed", "err", vectorErr)
-	}
-
-	// Perform RRF fusion
-	fusedResults := fs.rrfFusion(bm25Results, vectorResults, limit)
-
-	// Hydrate results from markdown files
-	hydratedResults, err := fs.hydrateResults(ctx, fusedResults)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hydrate results: %w", err)
-	}
-
-	// Cache results
-	if fs.searchCache != nil {
-		fs.searchCache.Set(query, hydratedResults)
-	}
-
-	return hydratedResults, nil
+	// RRF fusion
+	results := s.rrfFusion(bm25Results, vectorResults, idMap)
+	return results, nil
 }
 
-// rrfFusion performs Reciprocal Rank Fusion on BM25 and vector search results.
-func (fs *FileStore) rrfFusion(bm25Results []FTS5SearchResult, vectorResults []VectorSearchResult, limit int) []fusedResult {
-	const k = 60 // RRF constant
+func deserializeEmbedding(buf []byte) []float32 {
+	vec := make([]float32, len(buf)/4)
+	for i := range vec {
+		bits := uint32(buf[i*4]) | uint32(buf[i*4+1])<<8 | uint32(buf[i*4+2])<<16 | uint32(buf[i*4+3])<<24
+		vec[i] = float32(bits) / 1e6
+	}
+	return vec
+}
 
-	// Get weights from config
-	bm25Weight := fs.cfg.BM25Weight
-	vectorWeight := fs.cfg.VectorWeight
-	if bm25Weight == 0 && vectorWeight == 0 {
-		bm25Weight = 0.4
-		vectorWeight = 0.6
+func cosineSimilarity(a, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		dot += float64(a[i] * b[i])
+		normA += float64(a[i] * a[i])
+		normB += float64(b[i] * b[i])
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+func (s *FileMemoryStore) rrfFusion(bm25Results, vectorResults map[string]float64, idMap map[string]indexResult) []SearchResult {
+	const k = 60.0
+	scores := make(map[string]float64)
+
+	// RRF for BM25
+	bm25Sorted := sortByScore(bm25Results)
+	for rank, id := range bm25Sorted {
+		scores[id] += 1.0 / (k + float64(rank+1))
 	}
 
-	// Build score map
-	scoreMap := make(map[string]float64)
-	filePathMap := make(map[string]string)
-
-	// Add BM25 scores
-	for rank, result := range bm25Results {
-		score := bm25Weight / float64(rank+k)
-		scoreMap[result.FactID] += score
-		filePathMap[result.FactID] = result.FilePath
+	// RRF for vector
+	vectorSorted := sortByScore(vectorResults)
+	for rank, id := range vectorSorted {
+		scores[id] += 1.0 / (k + float64(rank+1))
 	}
 
-	// Add vector scores
-	for rank, result := range vectorResults {
-		score := vectorWeight / float64(rank+k)
-		scoreMap[result.FactID] += score
-		filePathMap[result.FactID] = result.FilePath
+	// Apply strength weighting: final_score = relevance × 0.7 + strength × 0.3
+	for id, score := range scores {
+		if r, ok := idMap[id]; ok {
+			scores[id] = score*0.7 + r.strength*0.3
+		}
 	}
 
-	// Convert to slice and sort
-	var results []fusedResult
-	for factID, score := range scoreMap {
-		results = append(results, fusedResult{
-			FactID:   factID,
-			FilePath: filePathMap[factID],
-			Score:    score,
-		})
-	}
-
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
-
-	// Limit results
-	if len(results) > limit {
-		results = results[:limit]
+	// Sort by final score
+	finalSorted := sortByScore(scores)
+	results := make([]SearchResult, 0, len(finalSorted))
+	for _, id := range finalSorted {
+		if r, ok := idMap[id]; ok {
+			results = append(results, SearchResult{
+				Entry: Entry{
+					ID:        id,
+					Scope:     MemoryScope(r.filePath),
+					CreatedAt: time.Now(),
+				},
+				Score: scores[id],
+			})
+		}
 	}
 
 	return results
 }
 
-// hydrateResults loads full content from markdown files.
-func (fs *FileStore) hydrateResults(ctx context.Context, fusedResults []fusedResult) ([]SearchResult, error) {
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
+func sortByScore(m map[string]float64) []string {
+	type kv struct {
+		key   string
+		value float64
+	}
+	var sorted []kv
+	for k, v := range m {
+		sorted = append(sorted, kv{k, v})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].value > sorted[j].value
+	})
+	ids := make([]string, len(sorted))
+	for i, kv := range sorted {
+		ids[i] = kv.key
+	}
+	return ids
+}
 
-	var results []SearchResult
+func (s *FileMemoryStore) ListByScope(ctx context.Context, scope MemoryScope, userID string) ([]Entry, error) {
+	return nil, fmt.Errorf("not implemented")
+}
 
-	// Group by file path to minimize file reads
-	fileMap := make(map[string][]fusedResult)
-	for _, fr := range fusedResults {
-		fileMap[fr.FilePath] = append(fileMap[fr.FilePath], fr)
+func (s *FileMemoryStore) UpdateFact(ctx context.Context, id string, content string, version int) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (s *FileMemoryStore) DeleteFact(ctx context.Context, id string) error {
+	// Find file path from index
+	var filePath string
+	err := s.db.QueryRowContext(ctx, `SELECT file_path FROM memory_index WHERE memory_id = ?`, id).Scan(&filePath)
+	if err != nil {
+		return fmt.Errorf("find memory file: %w", err)
 	}
 
-	// Load each file once and extract relevant facts
-	for filePath, frs := range fileMap {
-		doc, err := fs.loadDocument(filePath)
+	// Move file to archived/
+	archivedPath := filepath.Join(s.baseDir, "archived", filepath.Base(filePath))
+	if err := os.Rename(filePath, archivedPath); err != nil {
+		return fmt.Errorf("archive file: %w", err)
+	}
+
+	// Remove from all index tables
+	_, err = s.db.ExecContext(ctx, `DELETE FROM memory_index WHERE memory_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete from memory_index: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete from memory_fts: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, `DELETE FROM memory_embeddings WHERE memory_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete from memory_embeddings: %w", err)
+	}
+
+	return nil
+}
+
+func (s *FileMemoryStore) Delete(ctx context.Context, id string) error {
+	return s.DeleteFact(ctx, id)
+}
+
+func (s *FileMemoryStore) buildFilePath(scope MemoryScope, id string, createdAt time.Time) string {
+	category := "memory"
+	dateStr := createdAt.Format("20060102")
+	filename := fmt.Sprintf("%s_%s_%s.md", category, dateStr, id)
+	return filepath.Join(s.baseDir, string(scope), filename)
+}
+
+func (s *FileMemoryStore) writeFileAtomic(path string, mf MemoryFile) error {
+	tmpPath := path + ".tmp"
+
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString("---\n"); err != nil {
+		return err
+	}
+
+	enc := yaml.NewEncoder(f)
+	if err := enc.Encode(mf); err != nil {
+		return err
+	}
+	enc.Close()
+
+	if _, err := f.WriteString("---\n\n"); err != nil {
+		return err
+	}
+
+	if _, err := f.WriteString(mf.Content); err != nil {
+		return err
+	}
+
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	f.Close()
+
+	return os.Rename(tmpPath, path)
+}
+
+func (s *FileMemoryStore) parseFile(path string) (*MemoryFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	parts := strings.SplitN(string(data), "---\n", 3)
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("invalid frontmatter format")
+	}
+
+	var mf MemoryFile
+	if err := yaml.Unmarshal([]byte(parts[1]), &mf); err != nil {
+		return nil, err
+	}
+
+	mf.Content = strings.TrimSpace(parts[2])
+	return &mf, nil
+}
+
+func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath string) error {
+	// Update MEMORY.md index
+	idx := NewMemoryIndex(s.baseDir)
+	title := fmt.Sprintf("%s_%s", entry.ID, entry.CreatedAt.Format("20060102"))
+	summary := entry.Content
+	if len(summary) > 80 {
+		summary = summary[:77] + "..."
+	}
+	if err := idx.AddEntry(string(entry.Scope), filePath, title, summary); err != nil {
+		return fmt.Errorf("update MEMORY.md: %w", err)
+	}
+
+	// Update memory_index table
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO memory_index (memory_id, file_path, scope, user_id, session_id, created_at, updated_at, strength)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(memory_id) DO UPDATE SET
+			file_path = excluded.file_path,
+			updated_at = excluded.updated_at,
+			strength = excluded.strength
+	`, entry.ID, filePath, entry.Scope, entry.UserID, entry.SessionID, entry.CreatedAt, entry.UpdatedAt, 1.0)
+	if err != nil {
+		return fmt.Errorf("update memory_index: %w", err)
+	}
+
+	// Update memory_fts table
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO memory_fts (memory_id, content)
+		VALUES (?, ?)
+		ON CONFLICT(memory_id) DO UPDATE SET content = excluded.content
+	`, entry.ID, entry.Content)
+	if err != nil {
+		return fmt.Errorf("update memory_fts: %w", err)
+	}
+
+	// Update memory_embeddings table (async via embedder)
+	if s.embedder != nil && len(entry.Embedding) > 0 {
+		embBytes := serializeEmbedding(entry.Embedding)
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO memory_embeddings (memory_id, embedding, dimension)
+			VALUES (?, ?, ?)
+			ON CONFLICT(memory_id) DO UPDATE SET embedding = excluded.embedding
+		`, entry.ID, embBytes, len(entry.Embedding))
 		if err != nil {
-			slog.Warn("file_store: failed to load document for hydration", "path", filePath, "err", err)
+			return fmt.Errorf("update memory_embeddings: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// RebuildIndex scans all memory files and rebuilds the SQLite index.
+func (s *FileMemoryStore) RebuildIndex(ctx context.Context) error {
+	// Clear existing index
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_index`); err != nil {
+		return fmt.Errorf("clear memory_index: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_fts`); err != nil {
+		return fmt.Errorf("clear memory_fts: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_embeddings`); err != nil {
+		return fmt.Errorf("clear memory_embeddings: %w", err)
+	}
+
+	// Scan all scope directories
+	scopes := []string{"user", "session", "feedback", "global"}
+	for _, scope := range scopes {
+		scopeDir := filepath.Join(s.baseDir, scope)
+		files, err := filepath.Glob(filepath.Join(scopeDir, "*.md"))
+		if err != nil {
 			continue
 		}
 
-		// Build fact map for quick lookup
-		factMap := make(map[string]MarkdownFact)
-		for _, fact := range doc.Facts {
-			factMap[fact.ID] = fact
-		}
-
-		// Hydrate each result
-		for _, fr := range frs {
-			fact, ok := factMap[fr.FactID]
-			if !ok {
+		for _, filePath := range files {
+			mf, err := s.parseFile(filePath)
+			if err != nil {
 				continue
 			}
 
 			entry := Entry{
-				ID:        fact.ID,
-				SessionID: doc.Frontmatter.SessionID,
-				UserID:    doc.Frontmatter.UserID,
-				Scope:     MemoryScope(doc.Frontmatter.Scope),
-				Content:   fact.Content,
-				Metadata: map[string]string{
-					"category": fact.Category,
-				},
-				Version:   fact.Version,
-				ExpiresAt: fact.ExpiresAt,
-				CreatedAt: fact.CreatedAt,
-				UpdatedAt: fact.UpdatedAt,
+				ID:        mf.ID,
+				Scope:     MemoryScope(mf.Scope),
+				UserID:    mf.UserID,
+				SessionID: mf.SessionID,
+				Content:   mf.Content,
+				CreatedAt: mf.CreatedAt,
+				UpdatedAt: mf.UpdatedAt,
 			}
 
-			results = append(results, SearchResult{
-				Entry: entry,
-				Score: fr.Score,
-			})
-		}
-	}
-
-	// Sort by score (maintain RRF order)
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
-
-	return results, nil
-}
-
-// fusedResult is an intermediate result from RRF fusion.
-type fusedResult struct {
-	FactID   string
-	FilePath string
-	Score    float64
-}
-
-// getFilePath returns the file path for a given scope.
-func (fs *FileStore) getFilePath(scope MemoryScope, userID, sessionID string) (string, error) {
-	switch scope {
-	case ScopeSession:
-		if sessionID == "" {
-			return "", fmt.Errorf("session_id required for session scope")
-		}
-		dir := filepath.Join(fs.storageDir, "session", sessionID)
-		os.MkdirAll(dir, 0755)
-		return filepath.Join(dir, "facts.md"), nil
-	case ScopeUser:
-		if userID == "" {
-			return "", fmt.Errorf("user_id required for user scope")
-		}
-		dir := filepath.Join(fs.storageDir, "user", userID)
-		os.MkdirAll(dir, 0755)
-		return filepath.Join(dir, "facts.md"), nil
-	case ScopeGlobal:
-		return filepath.Join(fs.storageDir, "global", "facts.md"), nil
-	default:
-		return "", fmt.Errorf("unknown scope: %s", scope)
-	}
-}
-
-// chunkDocument splits a document into multiple chunk files.
-func (fs *FileStore) chunkDocument(doc *MarkdownDocument, scope MemoryScope, userID, sessionID string) error {
-	// Get directory for this scope
-	dir := filepath.Dir(fs.mustGetFilePath(scope, userID, sessionID))
-
-	// Load or create metadata
-	metadata, err := fs.metadataManager.Load(dir)
-	if err != nil {
-		return fmt.Errorf("failed to load metadata: %w", err)
-	}
-
-	// Update metadata scope info
-	metadata.Scope = string(scope)
-	metadata.UserID = userID
-	metadata.SessionID = sessionID
-
-	// Calculate target facts per chunk
-	targetFactsPerChunk := ChunkThreshold / 2 // ~100 facts per chunk
-
-	// Split facts into chunks
-	factChunks := fs.chunker.SplitFacts(doc.Facts, targetFactsPerChunk)
-
-	// Get chunk directory
-	chunkDir, err := fs.metadataManager.GetChunkDir(scope, userID, sessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get chunk dir: %w", err)
-	}
-
-	// Ensure chunk directory exists
-	if err := os.MkdirAll(chunkDir, 0755); err != nil {
-		return fmt.Errorf("failed to create chunk dir: %w", err)
-	}
-
-	// Clear existing chunks
-	metadata.Chunks = []ChunkInfo{}
-	metadata.TotalFacts = 0
-
-	// Write each chunk
-	for i, factChunk := range factChunks {
-		chunkID := fmt.Sprintf("chunk_%03d", i+1)
-		chunkFile := filepath.Join(chunkDir, fmt.Sprintf("%s.md", chunkID))
-
-		// Create chunk document
-		chunkDoc := &MarkdownDocument{
-			Frontmatter: doc.Frontmatter,
-			Facts:       factChunk,
-		}
-		chunkDoc.Frontmatter.Version = i + 1
-
-		// Serialize and write
-		data, err := fs.parser.Serialize(chunkDoc)
-		if err != nil {
-			return fmt.Errorf("failed to serialize chunk %s: %w", chunkID, err)
-		}
-
-		if err := os.WriteFile(chunkFile, data, 0644); err != nil {
-			return fmt.Errorf("failed to write chunk %s: %w", chunkID, err)
-		}
-
-		// Build fact range
-		var factRange []string
-		if len(factChunk) > 0 {
-			factRange = []string{factChunk[0].ID, factChunk[len(factChunk)-1].ID}
-		}
-
-		// Add chunk info to metadata
-		chunkInfo := ChunkInfo{
-			ChunkID:   chunkID,
-			File:      chunkFile,
-			FactRange: factRange,
-			FactCount: len(factChunk),
-			SizeBytes: len(data),
-			CreatedAt: time.Now(),
-		}
-		fs.metadataManager.AddChunk(metadata, chunkInfo)
-
-		slog.Info("file_store: created chunk", "chunk_id", chunkID, "facts", len(factChunk), "size", len(data))
-	}
-
-	// Save metadata
-	if err := fs.metadataManager.Save(dir, metadata); err != nil {
-		return fmt.Errorf("failed to save metadata: %w", err)
-	}
-
-	// Update index with all fact IDs
-	allFactIDs := make([]string, 0, len(doc.Facts))
-	for _, fact := range doc.Facts {
-		allFactIDs = append(allFactIDs, fact.ID)
-	}
-
-	// Use first chunk file as representative in index
-	if len(metadata.Chunks) > 0 {
-		hash := ComputeHash(string(allFactIDs[0])) // Use first fact ID as hash
-		if err := fs.updateIndex(scope, userID, sessionID, metadata.Chunks[0].File, hash, allFactIDs); err != nil {
-			slog.Error("file_store: failed to update index", "err", err)
-		}
-	}
-
-	slog.Info("file_store: document chunked", "total_chunks", len(factChunks), "total_facts", len(doc.Facts))
-	return nil
-}
-
-// loadOrCreateDocument loads an existing document or creates a new one.
-// It handles both single-file and chunked storage.
-func (fs *FileStore) loadOrCreateDocument(filePath string, scope MemoryScope, userID, sessionID string) (*MarkdownDocument, error) {
-	dir := filepath.Dir(filePath)
-
-	// Check if metadata exists (chunked storage)
-	metadata, err := fs.metadataManager.Load(dir)
-	if err == nil && len(metadata.Chunks) > 0 {
-		// Load from chunks
-		return fs.loadDocumentFromChunks(metadata)
-	}
-
-	// Check if single file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		// Create new document
-		now := time.Now()
-		return &MarkdownDocument{
-			Frontmatter: MarkdownFrontmatter{
-				Scope:     string(scope),
-				UserID:    userID,
-				SessionID: sessionID,
-				CreatedAt: now,
-				UpdatedAt: now,
-				Version:   1,
-			},
-			Facts: []MarkdownFact{},
-		}, nil
-	}
-
-	// Load single file
-	return fs.loadDocument(filePath)
-}
-
-// loadDocumentFromChunks loads a document from multiple chunk files.
-func (fs *FileStore) loadDocumentFromChunks(metadata *ChunkMetadata) (*MarkdownDocument, error) {
-	if len(metadata.Chunks) == 0 {
-		return nil, fmt.Errorf("no chunks in metadata")
-	}
-
-	// Load first chunk to get frontmatter
-	firstChunk, err := fs.loadDocument(metadata.Chunks[0].File)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load first chunk: %w", err)
-	}
-
-	doc := &MarkdownDocument{
-		Frontmatter: firstChunk.Frontmatter,
-		Facts:       []MarkdownFact{},
-	}
-
-	// Load all chunks
-	for _, chunkInfo := range metadata.Chunks {
-		chunkDoc, err := fs.loadDocument(chunkInfo.File)
-		if err != nil {
-			slog.Warn("file_store: failed to load chunk", "file", chunkInfo.File, "err", err)
-			continue
-		}
-		doc.Facts = append(doc.Facts, chunkDoc.Facts...)
-	}
-
-	return doc, nil
-}
-
-// mustGetFilePath is like getFilePath but panics on error (for internal use).
-func (fs *FileStore) mustGetFilePath(scope MemoryScope, userID, sessionID string) string {
-	path, err := fs.getFilePath(scope, userID, sessionID)
-	if err != nil {
-		panic(err)
-	}
-	return path
-}
-
-// loadDocument loads a document from disk.
-func (fs *FileStore) loadDocument(filePath string) (*MarkdownDocument, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	doc, err := fs.parser.Parse(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse document: %w", err)
-	}
-
-	return doc, nil
-}
-
-// findFact finds a fact by ID across all scopes.
-func (fs *FileStore) findFact(id string) (string, int, *MarkdownDocument, error) {
-	// Search in all scopes
-	scopes := []struct {
-		scope   MemoryScope
-		ids     []string
-		getFile func(string) (string, bool)
-	}{
-		{ScopeSession, fs.indexManager.ListSessionIDs(), fs.indexManager.GetSessionFile},
-		{ScopeUser, fs.indexManager.ListUserIDs(), fs.indexManager.GetUserFile},
-	}
-
-	for _, s := range scopes {
-		for _, scopeID := range s.ids {
-			filePath, ok := s.getFile(scopeID)
-			if !ok {
-				continue
+			// Generate embedding if needed
+			if s.embedder != nil {
+				embedding, err := s.embedder.Embed(ctx, mf.Content)
+				if err == nil {
+					entry.Embedding = embedding
+				}
 			}
 
-			dir := filepath.Dir(filePath)
-
-			// Check if chunked storage
-			metadata, err := fs.metadataManager.Load(dir)
-			if err == nil && len(metadata.Chunks) > 0 {
-				// Search in chunks
-				doc, err := fs.loadDocumentFromChunks(metadata)
-				if err != nil {
-					continue
-				}
-
-				for i, fact := range doc.Facts {
-					if fact.ID == id {
-						// Return the first chunk file as representative
-						return metadata.Chunks[0].File, i, doc, nil
-					}
-				}
-			} else {
-				// Search in single file
-				doc, err := fs.loadDocument(filePath)
-				if err != nil {
-					continue
-				}
-
-				for i, fact := range doc.Facts {
-					if fact.ID == id {
-						return filePath, i, doc, nil
-					}
-				}
+			if err := s.syncIndex(ctx, entry, filePath); err != nil {
+				return fmt.Errorf("sync index for %s: %w", filePath, err)
 			}
 		}
 	}
 
-	// Check global scope
-	if filePath, ok := fs.indexManager.GetGlobalFile(); ok {
-		dir := filepath.Dir(filePath)
-
-		// Check if chunked storage
-		metadata, err := fs.metadataManager.Load(dir)
-		if err == nil && len(metadata.Chunks) > 0 {
-			doc, err := fs.loadDocumentFromChunks(metadata)
-			if err == nil {
-				for i, fact := range doc.Facts {
-					if fact.ID == id {
-						return metadata.Chunks[0].File, i, doc, nil
-					}
-				}
-			}
-		} else {
-			doc, err := fs.loadDocument(filePath)
-			if err == nil {
-				for i, fact := range doc.Facts {
-					if fact.ID == id {
-						return filePath, i, doc, nil
-					}
-				}
-			}
-		}
-	}
-
-	return "", 0, nil, fmt.Errorf("fact not found: %s", id)
+	// Rebuild MEMORY.md
+	idx := NewMemoryIndex(s.baseDir)
+	return idx.Rebuild()
 }
 
-// updateIndex updates the index for a given scope.
-func (fs *FileStore) updateIndex(scope MemoryScope, userID, sessionID, filePath, hash string, factIDs []string) error {
-	switch scope {
-	case ScopeSession:
-		return fs.indexManager.UpdateSession(sessionID, filePath, hash, factIDs)
-	case ScopeUser:
-		return fs.indexManager.UpdateUser(userID, filePath, hash, factIDs)
-	case ScopeGlobal:
-		return fs.indexManager.UpdateGlobal(filePath, hash, factIDs)
-	default:
-		return fmt.Errorf("unknown scope: %s", scope)
+func serializeEmbedding(vec []float32) []byte {
+	buf := make([]byte, len(vec)*4)
+	for i, v := range vec {
+		bits := uint32(0)
+		if v != 0 {
+			bits = uint32(v * 1e6)
+		}
+		buf[i*4] = byte(bits)
+		buf[i*4+1] = byte(bits >> 8)
+		buf[i*4+2] = byte(bits >> 16)
+		buf[i*4+3] = byte(bits >> 24)
 	}
+	return buf
 }

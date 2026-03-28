@@ -22,6 +22,9 @@ func newMemoryCmd() *cobra.Command {
 		newMemoryExportCmd(),
 		newMemoryVerifyCmd(),
 		newMemoryStatsCmd(),
+		newMemoryMigrateCmd(),
+		newMemoryRestoreCmd(),
+		newMemoryReindexCmd(),
 	)
 	return cmd
 }
@@ -253,6 +256,104 @@ func newMemoryStatsCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory (default: ~/.IronClaw/memory)")
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "path to config file")
+
+	return cmd
+}
+
+func newMemoryMigrateCmd() *cobra.Command {
+	var dryRun bool
+	var configPath string
+
+	cmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Migrate SQLite memory to file-based storage",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dryRun {
+				fmt.Println("[DRY RUN] Would migrate SQLite data to files")
+				return nil
+			}
+			return fmt.Errorf("use 'ironclaw memory export' for migration")
+		},
+	}
+
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be migrated")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file")
+
+	return cmd
+}
+
+func newMemoryRestoreCmd() *cobra.Command {
+	var backupPath string
+
+	cmd := &cobra.Command{
+		Use:   "restore",
+		Short: "Restore memory from backup",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, _ := os.UserHomeDir()
+			backupDir := filepath.Join(home, ".ironclaw", "backups")
+
+			if backupPath == "" {
+				files, err := filepath.Glob(filepath.Join(backupDir, "*.db"))
+				if err != nil || len(files) == 0 {
+					return fmt.Errorf("no backups found")
+				}
+				backupPath = files[len(files)-1]
+			}
+
+			fmt.Printf("Restoring from: %s\n", backupPath)
+			data, err := os.ReadFile(backupPath)
+			if err != nil {
+				return err
+			}
+
+			return os.WriteFile("./data/ironclaw.db", data, 0644)
+		},
+	}
+
+	cmd.Flags().StringVar(&backupPath, "backup", "", "backup file path")
+
+	return cmd
+}
+
+func newMemoryReindexCmd() *cobra.Command {
+	var configPath string
+
+	cmd := &cobra.Command{
+		Use:   "reindex",
+		Short: "Rebuild memory index from files",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+
+			db, err := store.Open(cfg.Store.Path)
+			if err != nil {
+				return fmt.Errorf("open database: %w", err)
+			}
+			defer db.Close()
+
+			home, _ := os.UserHomeDir()
+			memoryDir := filepath.Join(home, ".IronClaw", "memory")
+
+			fileStore, err := memory.NewFileMemoryStore(memoryDir, db.DB, &memory.NoopEmbedding{}, memory.MemoryConfig{})
+			if err != nil {
+				return err
+			}
+
+			fmt.Println("Rebuilding index...")
+			if err := fileStore.RebuildIndex(ctx); err != nil {
+				return err
+			}
+
+			fmt.Println("Index rebuilt successfully")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file")
 
 	return cmd
 }

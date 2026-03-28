@@ -11,9 +11,11 @@ import (
 
 // LifecycleDecision represents the action to take for a new fact candidate.
 type LifecycleDecision struct {
-	Action   MemoryAction
-	TargetID string // for UPDATE/DELETE: the existing entry ID
-	Reason   string
+	Action        MemoryAction
+	TargetID      string   // for UPDATE/DELETE: the existing entry ID
+	Reason        string
+	ConflictingIDs []string // IDs of conflicting memories
+	RelatedTo     string   // ID of related memory for complementary facts
 }
 
 // LifecycleManager implements the ADD/UPDATE/DELETE/NOOP decision loop.
@@ -35,15 +37,21 @@ func NewLifecycleManager(store Store, embedder EmbeddingProvider, completer Comp
 	}
 }
 
-const lifecycleSystemPrompt = `You are a memory.md lifecycle manager. Given a new fact candidate and existing similar memories, decide what action to take.
+const lifecycleSystemPrompt = `You are a memory lifecycle manager. Given a new fact candidate and existing similar memories, decide what action to take.
 
 Actions:
 - ADD: the new fact is novel and should be stored
-- UPDATE: the new fact supersedes an existing memory.md (provide target_id)
-- DELETE: the new fact invalidates an existing memory.md (provide target_id)
+- UPDATE: the new fact supersedes an existing memory (provide target_id)
+- DELETE: the new fact invalidates an existing memory (provide target_id)
 - NOOP: the fact is already captured; do nothing
 
-Output ONLY JSON: {"action": "ADD|UPDATE|DELETE|NOOP", "target_id": "<id or empty>", "reason": "<brief reason>"}`
+Conflict Detection:
+- Check if new fact contradicts existing memories (mark conflicting_ids)
+- Check if new fact updates/supersedes existing memories (temporal supersession)
+- Check if new fact complements existing memories (mark related_to)
+- Check if new fact duplicates existing memories (NOOP)
+
+Output ONLY JSON: {"action": "ADD|UPDATE|DELETE|NOOP", "target_id": "<id or empty>", "reason": "<brief reason>", "conflicting_ids": ["<id1>", "<id2>"], "related_to": "<id or empty>"}`
 
 // Process decides and executes the lifecycle action for a single extracted fact.
 func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, sessionID, userID string, scope MemoryScope) error {
@@ -96,27 +104,15 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 
 	switch decision.Action {
 	case ActionADD:
-		return lm.executeAdd(ctx, fact, sessionID, userID, scope)
+		return lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo)
 	case ActionUPDATE:
 		if decision.TargetID != "" {
-			// Find existing version to increment.
-			var version int
-			for _, c := range candidates {
-				if c.Entry.ID == decision.TargetID {
-					version = c.Entry.Version + 1
-					break
-				}
-			}
-			if version == 0 {
-				version = 1
-			}
-			return lm.store.UpdateFact(ctx, decision.TargetID, fact.Content, version)
+			return lm.executeUpdate(ctx, decision.TargetID, fact, sessionID, userID, scope)
 		}
-		// No target ID: fall back to ADD.
-		return lm.executeAdd(ctx, fact, sessionID, userID, scope)
+		return lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo)
 	case ActionDELETE:
 		if decision.TargetID != "" {
-			return lm.store.DeleteFact(ctx, decision.TargetID)
+			return lm.executeDelete(ctx, decision.TargetID)
 		}
 	case ActionNOOP:
 		// Nothing to do.
@@ -143,15 +139,19 @@ func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, cand
 	end := strings.LastIndex(text, "}")
 	if start >= 0 && end > start {
 		var raw struct {
-			Action   string `json:"action"`
-			TargetID string `json:"target_id"`
-			Reason   string `json:"reason"`
+			Action         string   `json:"action"`
+			TargetID       string   `json:"target_id"`
+			Reason         string   `json:"reason"`
+			ConflictingIDs []string `json:"conflicting_ids"`
+			RelatedTo      string   `json:"related_to"`
 		}
 		if err := json.Unmarshal([]byte(text[start:end+1]), &raw); err == nil {
 			return &LifecycleDecision{
-				Action:   MemoryAction(raw.Action),
-				TargetID: raw.TargetID,
-				Reason:   raw.Reason,
+				Action:         MemoryAction(raw.Action),
+				TargetID:       raw.TargetID,
+				Reason:         raw.Reason,
+				ConflictingIDs: raw.ConflictingIDs,
+				RelatedTo:      raw.RelatedTo,
 			}, nil
 		}
 	}
@@ -159,7 +159,35 @@ func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, cand
 }
 
 // executeAdd stores a new fact entry in the memory_facts table.
-func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, sessionID, userID string, scope MemoryScope) error {
+func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, sessionID, userID string, scope MemoryScope, relatedTo string) error {
+	now := time.Now()
+	metadata := map[string]string{
+		"category": fact.Category,
+		"source":   "fact_extraction",
+	}
+	if relatedTo != "" {
+		metadata["related_to"] = relatedTo
+	}
+
+	return lm.store.SaveFact(ctx, Entry{
+		SessionID: sessionID,
+		UserID:    userID,
+		Scope:     scope,
+		Content:   fact.Content,
+		Metadata:  metadata,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+}
+
+// executeUpdate archives old file and creates new file with updated content.
+func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, fact ExtractedFact, sessionID, userID string, scope MemoryScope) error {
+	// Delete (archive) old entry
+	if err := lm.store.DeleteFact(ctx, targetID); err != nil {
+		return fmt.Errorf("archive old entry: %w", err)
+	}
+
+	// Create new entry
 	now := time.Now()
 	return lm.store.SaveFact(ctx, Entry{
 		SessionID: sessionID,
@@ -167,10 +195,16 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 		Scope:     scope,
 		Content:   fact.Content,
 		Metadata: map[string]string{
-			"category": fact.Category,
-			"source":   "fact_extraction",
+			"category":   fact.Category,
+			"source":     "fact_extraction",
+			"updated_from": targetID,
 		},
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
+}
+
+// executeDelete moves file to archived/ subdirectory.
+func (lm *LifecycleManager) executeDelete(ctx context.Context, targetID string) error {
+	return lm.store.DeleteFact(ctx, targetID)
 }

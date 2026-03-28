@@ -1,4 +1,7 @@
--- 003_memory_v2.sql: Extended memory.md facts table with scope, lifecycle, and FTS5
+-- 003_memory_v2.sql: LEGACY - Extended memory facts table (replaced by file-based storage in 006)
+-- This migration is kept for backward compatibility with existing databases
+-- New installations should use file-based storage (see 006_file_memory_index.sql)
+
 CREATE TABLE IF NOT EXISTS memory_facts (
     id           TEXT PRIMARY KEY,
     session_id   TEXT,

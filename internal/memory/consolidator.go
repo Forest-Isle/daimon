@@ -2,8 +2,11 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -11,17 +14,21 @@ import (
 // It runs periodically in the background.
 type Consolidator struct {
 	store    Store
+	db       *sql.DB
+	baseDir  string
 	interval time.Duration
 	done     chan struct{}
 }
 
 // NewConsolidator creates a Consolidator with the given interval.
-func NewConsolidator(store Store, interval time.Duration) *Consolidator {
+func NewConsolidator(store Store, db *sql.DB, baseDir string, interval time.Duration) *Consolidator {
 	if interval <= 0 {
 		interval = 24 * time.Hour
 	}
 	return &Consolidator{
 		store:    store,
+		db:       db,
+		baseDir:  baseDir,
 		interval: interval,
 		done:     make(chan struct{}),
 	}
@@ -55,11 +62,14 @@ func (c *Consolidator) loop(ctx context.Context) {
 }
 
 // consolidate promotes high-value session facts to user scope.
-// For MVP: simply copies session facts that are older than the interval to user scope.
 func (c *Consolidator) consolidate(ctx context.Context) error {
 	slog.Info("consolidator: running session->user consolidation")
 
-	// List all session facts
+	if c.baseDir != "" {
+		return c.consolidateFiles(ctx)
+	}
+
+	// Fallback to database consolidation
 	facts, err := c.store.ListByScope(ctx, ScopeSession, "")
 	if err != nil {
 		return fmt.Errorf("list session facts: %w", err)
@@ -67,15 +77,13 @@ func (c *Consolidator) consolidate(ctx context.Context) error {
 
 	promoted := 0
 	for _, fact := range facts {
-		// Skip recently created facts (less than interval old)
 		if time.Since(fact.CreatedAt) < c.interval {
 			continue
 		}
 		if fact.UserID == "" {
-			continue // can't promote without user ID
+			continue
 		}
 
-		// Promote to user scope by saving a new user-scoped fact
 		promotedFact := fact
 		promotedFact.ID = fmt.Sprintf("fact_promoted_%d", time.Now().UnixNano())
 		promotedFact.Scope = ScopeUser
@@ -98,4 +106,89 @@ func (c *Consolidator) consolidate(ctx context.Context) error {
 
 	slog.Info("consolidator: done", "promoted", promoted, "total_session_facts", len(facts))
 	return nil
+}
+
+// consolidateFiles promotes session files to user scope by moving files.
+func (c *Consolidator) consolidateFiles(ctx context.Context) error {
+	sessionDir := filepath.Join(c.baseDir, "session")
+	userDir := filepath.Join(c.baseDir, "user")
+
+	files, err := filepath.Glob(filepath.Join(sessionDir, "*.md"))
+	if err != nil {
+		return err
+	}
+
+	promoted := 0
+	for _, filePath := range files {
+		info, err := os.Stat(filePath)
+		if err != nil {
+			continue
+		}
+
+		// Check if file is older than 24h
+		if time.Since(info.ModTime()) < c.interval {
+			continue
+		}
+
+		// Parse file to check strength and user_id
+		mf, err := c.parseFile(filePath)
+		if err != nil {
+			continue
+		}
+
+		if mf.UserID == "" {
+			continue
+		}
+
+		// Check strength using forgetting curve
+		if mf.Strength < 0.5 {
+			continue
+		}
+
+		// Move file from session/ to user/
+		newPath := filepath.Join(userDir, filepath.Base(filePath))
+		if err := os.Rename(filePath, newPath); err != nil {
+			slog.Warn("consolidator: failed to move file", "path", filePath, "err", err)
+			continue
+		}
+
+		// Update frontmatter
+		mf.Scope = "user"
+		now := time.Now()
+		mf.PromotedFrom = filePath
+		mf.PromotedAt = &now
+
+		if err := c.writeFile(newPath, mf); err != nil {
+			slog.Warn("consolidator: failed to update frontmatter", "path", newPath, "err", err)
+			continue
+		}
+
+		// Update memory_index
+		_, err = c.db.ExecContext(ctx, `
+			UPDATE memory_index
+			SET file_path = ?, scope = 'user'
+			WHERE memory_id = ?
+		`, newPath, mf.ID)
+		if err != nil {
+			slog.Warn("consolidator: failed to update index", "id", mf.ID, "err", err)
+		}
+
+		promoted++
+	}
+
+	slog.Info("consolidator: done", "promoted", promoted, "total_files", len(files))
+	return nil
+}
+
+func (c *Consolidator) parseFile(path string) (*MemoryFile, error) {
+	// Reuse parseFile from file_store
+	fs := &FileMemoryStore{baseDir: c.baseDir}
+	return fs.parseFile(path)
+}
+
+func (c *Consolidator) writeFile(path string, mf *MemoryFile) error {
+	// Reuse writeFileAtomic from file_store
+	fs := &FileMemoryStore{baseDir: c.baseDir}
+	return fs.writeFileAtomic(path, *mf)
+}
 }

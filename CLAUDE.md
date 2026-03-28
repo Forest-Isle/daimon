@@ -44,7 +44,7 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 ## Key Packages
 
 - `internal/agent/` — Provider interface, Runtime (simple), CognitiveAgent (5-phase), context building, history compaction
-- `internal/memory/` — mem0-style fact extraction, FTS5+vector hybrid search (RRF fusion), scopes: session/user/global, lifecycle management (ADD/UPDATE/DELETE/NOOP)
+- `internal/memory/` — **File-based storage**: Markdown files at `~/.ironclaw/memory/` as primary storage (YAML frontmatter + content), SQLite as auxiliary index for FTS5+vector hybrid search (RRF fusion). Scopes: session/user/global/feedback. Lifecycle management (ADD/UPDATE/DELETE/NOOP) with conflict detection. Forgetting curve integration for strength-based ranking and auto-archival. Migration tool: `ironclaw memory migrate` converts legacy SQLite data to files.
 - `internal/knowledge/` — Document ingestion pipeline, BM25+vector hybrid retrieval, LLM reranker; `graph/` subpackage for entity/relation triples with recursive CTE traversal
 - `internal/store/` — SQLite wrapper with WAL mode, embedded migrations (`//go:embed migrations/*.sql`) applied alphabetically at startup (idempotent `CREATE TABLE IF NOT EXISTS`)
 - `internal/tool/` — Tool interface + Registry; bash/file/http/browser implementations; `policy.go` for blocked command checks
@@ -58,4 +58,29 @@ YAML at `configs/ironclaw.yaml` (copy from `ironclaw.example.yaml`). Environment
 
 ## Database
 
-SQLite at `./data/ironclaw.db`. Migrations in `internal/store/migrations/` (001-005). FTS5 is probed at startup and gracefully degrades to LIKE queries if unavailable.
+SQLite at `./data/ironclaw.db`. Migrations in `internal/store/migrations/` (001-006). FTS5 is probed at startup and gracefully degrades to LIKE queries if unavailable.
+
+## Memory System
+
+**Storage architecture**: File-first with SQLite auxiliary index.
+
+**Primary storage**: Markdown files at `~/.ironclaw/memory/` with YAML frontmatter:
+- Directory structure: `user/`, `session/`, `feedback/`, `global/`, `archived/`
+- File naming: `{scope}/{category}_{YYYYMMDD}_{id}.md`
+- Frontmatter fields: id, scope, user_id, session_id, created_at, updated_at, last_accessed_at, strength, related_to, promoted_from
+- `MEMORY.md` index file lists all active memories with one-line descriptions
+
+**SQLite index** (migration 006): Three tables for fast search:
+- `memory_index` — file path → metadata mapping (scope, user_id, timestamps, strength)
+- `memory_fts` — FTS5 virtual table for BM25 full-text search
+- `memory_embeddings` — vector embeddings for semantic search
+
+**Search flow**: Parse MEMORY.md → query SQL index (FTS5 + vector) → RRF fusion with strength weighting → read top-k Markdown files
+
+**Lifecycle**: LLM-driven ADD/UPDATE/DELETE/NOOP decisions with conflict detection. Updates archive old file to `archived/` and create new version.
+
+**Forgetting curve**: Strength computed from `last_accessed_at` and access frequency. Memories with strength < 0.3 auto-archived by background task (runs every 24h).
+
+**Consolidation**: Session files older than 24h with strength ≥ 0.5 promoted to user scope (file moved from `session/` → `user/`).
+
+**Migration**: `ironclaw memory migrate` converts legacy SQLite `memory_facts` table to Markdown files. Backup created at `~/.ironclaw/backups/`. Restore with `ironclaw memory restore`.

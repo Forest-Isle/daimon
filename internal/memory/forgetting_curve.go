@@ -4,10 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"math"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/punkopunko/ironclaw/internal/store"
+	"gopkg.in/yaml.v3"
 )
 
 type ForgettingCurveManager struct {
@@ -39,7 +43,7 @@ func (fc *ForgettingCurveManager) ComputeStrength(ctx context.Context, fact Entr
 	stability := baseImportance * 24 // Important facts decay slower
 	retention := math.Exp(-elapsedHours / stability)
 
-	// Access bonus (skip if no access log)
+	// Access bonus from last_accessed_at in frontmatter
 	if fc.accessLog == nil {
 		return retention
 	}
@@ -57,6 +61,29 @@ func (fc *ForgettingCurveManager) ComputeStrength(ctx context.Context, fact Entr
 	}
 
 	return retention * accessBonus
+}
+
+// ComputeStrengthFromFile calculates strength reading last_accessed_at from file frontmatter
+func (fc *ForgettingCurveManager) ComputeStrengthFromFile(mf *MemoryFile) float64 {
+	baseImportance := 1.0
+	if imp, ok := mf.Metadata["importance"]; ok {
+		if v, err := strconv.ParseFloat(imp, 64); err == nil {
+			baseImportance = v
+		}
+	}
+
+	elapsedHours := time.Since(mf.CreatedAt).Hours()
+	stability := baseImportance * 24
+	retention := math.Exp(-elapsedHours / stability)
+
+	if mf.LastAccessed != nil {
+		hoursSinceAccess := time.Since(*mf.LastAccessed).Hours()
+		if hoursSinceAccess < 24 {
+			retention *= 1.5
+		}
+	}
+
+	return retention
 }
 
 // FadeWeakMemories archives facts with low strength
@@ -96,5 +123,47 @@ func (fc *ForgettingCurveManager) FadeWeakMemories(ctx context.Context) error {
 	}
 
 	slog.Info("forgetting_curve: faded weak memories", "count", faded)
+	return nil
+}
+
+// FadeWeakMemoriesFromFiles scans memory files and moves weak ones to archived/
+func (fc *ForgettingCurveManager) FadeWeakMemoriesFromFiles(ctx context.Context, baseDir string) error {
+	faded := 0
+	scopes := []string{"user", "session"}
+
+	for _, scope := range scopes {
+		scopeDir := filepath.Join(baseDir, scope)
+		files, err := filepath.Glob(filepath.Join(scopeDir, "*.md"))
+		if err != nil {
+			continue
+		}
+
+		for _, filePath := range files {
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				continue
+			}
+
+			parts := strings.SplitN(string(data), "---\n", 3)
+			if len(parts) < 3 {
+				continue
+			}
+
+			var mf MemoryFile
+			if err := yaml.Unmarshal([]byte(parts[1]), &mf); err != nil {
+				continue
+			}
+
+			strength := fc.ComputeStrengthFromFile(&mf)
+			if strength < 0.3 {
+				archivedPath := filepath.Join(baseDir, "archived", filepath.Base(filePath))
+				if err := os.Rename(filePath, archivedPath); err == nil {
+					faded++
+				}
+			}
+		}
+	}
+
+	slog.Info("forgetting_curve: faded weak memory files", "count", faded)
 	return nil
 }

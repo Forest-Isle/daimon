@@ -83,18 +83,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		var embedder memory.EmbeddingProvider = &memory.NoopEmbedding{}
 		if cfg.Memory.OpenAIAPIKey != "" {
 			baseEmbedder := memory.NewOpenAIEmbedding(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel)
-			// Wrap with cache if enabled
-			if cfg.Memory.EnableSearchCache {
-				embedder = memory.NewCachedEmbedder(
-					baseEmbedder,
-					cfg.Memory.EmbeddingModel,
-					1000,           // Cache 1000 embeddings
-					10*time.Minute, // 10 minute TTL
-				)
-				slog.Info("memory: embedding cache enabled")
-			} else {
-				embedder = baseEmbedder
-			}
+			embedder = memory.NewCachedEmbedder(baseEmbedder)
+			slog.Info("memory: cached embedder enabled")
 		}
 		memCfg := memory.MemoryConfig{
 			FactExtraction:        cfg.Memory.FactExtraction,
@@ -113,6 +103,16 @@ func New(cfg *config.Config) (*Gateway, error) {
 		storageType := cfg.Memory.StorageType
 		if storageType == "" {
 			storageType = "file"
+		}
+
+		// Check for legacy data and prompt migration
+		if storageType == "file" {
+			var count int
+			err := db.QueryRow(`SELECT COUNT(*) FROM memory_facts`).Scan(&count)
+			if err == nil && count > 0 {
+				slog.Warn("memory: detected legacy SQLite data", "count", count)
+				slog.Info("memory: run 'ironclaw memory migrate' to migrate to file-based storage")
+			}
 		}
 
 		var storageDir string
@@ -155,9 +155,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}
 
 		// Initialize forgetting curve manager
+		forgettingCurve := memory.NewForgettingCurveManager(nil, db)
+
 		if sqliteStore, ok := memStore.(*memory.SQLiteStore); ok {
-			forgettingCurve := memory.NewForgettingCurveManager(sqliteStore, db)
-			// Schedule daily fade task
+			forgettingCurve = memory.NewForgettingCurveManager(sqliteStore, db)
+			// Schedule daily fade task for SQLite
 			go func() {
 				ticker := time.NewTicker(24 * time.Hour)
 				defer ticker.Stop()
@@ -167,7 +169,19 @@ func New(cfg *config.Config) (*Gateway, error) {
 					}
 				}
 			}()
-			slog.Info("memory: forgetting curve enabled")
+			slog.Info("memory: forgetting curve enabled (SQLite)")
+		} else if storageType == "file" {
+			// Schedule daily fade task for file-based storage
+			go func() {
+				ticker := time.NewTicker(24 * time.Hour)
+				defer ticker.Stop()
+				for range ticker.C {
+					if err := forgettingCurve.FadeWeakMemoriesFromFiles(context.Background(), storageDir); err != nil {
+						slog.Warn("memory: fade weak memory files failed", "err", err)
+					}
+				}
+			}()
+			slog.Info("memory: forgetting curve enabled (file-based)")
 		}
 
 		if cfg.Memory.FactExtraction {
