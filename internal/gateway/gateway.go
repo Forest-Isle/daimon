@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -99,90 +100,54 @@ func New(cfg *config.Config) (*Gateway, error) {
 			SearchCacheTTL:        cfg.Memory.SearchCacheTTL,
 		}
 
-		// Determine storage type (default: file)
-		storageType := cfg.Memory.StorageType
-		if storageType == "" {
-			storageType = "file"
-		}
-
 		// Check for legacy data and prompt migration
-		if storageType == "file" {
-			var count int
-			err := db.QueryRow(`SELECT COUNT(*) FROM memory_facts`).Scan(&count)
-			if err == nil && count > 0 {
-				slog.Warn("memory: detected legacy SQLite data", "count", count)
-				slog.Info("memory: run 'ironclaw memory migrate' to migrate to file-based storage")
-			}
+		var count int
+		err = db.QueryRow(`SELECT COUNT(*) FROM memory_facts`).Scan(&count)
+		if err == nil && count > 0 {
+			slog.Warn("memory: detected legacy SQLite data", "count", count)
+			slog.Info("memory: run 'ironclaw memory migrate' to migrate to file-based storage")
 		}
 
-		var storageDir string
-		if storageType == "file" {
-			// File-based storage
-			storageDir = cfg.Memory.StorageDir
-			if storageDir == "" {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return nil, err
-				}
-				storageDir = filepath.Join(home, ".IronClaw", "memory")
+		// File-based storage
+		storageDir := cfg.Memory.StorageDir
+		if storageDir == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, err
 			}
-
-			// Create embeddings DB
-			embeddingsDB := memory.NewEmbeddingsDB(db, memCfg)
-
-			// Create file store
-			fileStore := memory.NewFileStore(storageDir, embeddingsDB, embedder, memCfg)
-			memStore = fileStore
-
-			// Start background processor for transaction log
-			go fileStore.StartBackgroundProcessor(context.Background())
-
-			slog.Info("memory: file-based storage enabled", "dir", storageDir)
-		} else {
-			// SQLite storage (legacy)
-			sqliteStore := memory.NewSQLiteStore(db, embedder, memCfg)
-			memStore = sqliteStore
-			slog.Info("memory: SQLite storage enabled")
+			storageDir = filepath.Join(home, ".IronClaw", "memory")
 		}
+
+		// Create file store
+		fileStore, err := memory.NewFileMemoryStore(storageDir, db.DB, embedder, memCfg)
+		if err != nil {
+			return nil, fmt.Errorf("create file memory store: %w", err)
+		}
+		memStore = fileStore
+
+		slog.Info("memory: file-based storage enabled", "dir", storageDir)
 
 		runtime.SetMemoryStore(memStore)
 
 		// Initialize incremental compressor
-		if storageType == "file" {
-			compressor := memory.NewIncrementalCompressor(storageDir, &completerAdapter{provider: provider, model: cfg.LLM.Model})
-			runtime.SetCompressor(compressor)
-			slog.Info("memory: incremental compressor enabled")
-		}
+		compressor := memory.NewIncrementalCompressor(storageDir, &completerAdapter{provider: provider, model: cfg.LLM.Model})
+		runtime.SetCompressor(compressor)
+		slog.Info("memory: incremental compressor enabled")
 
 		// Initialize forgetting curve manager
-		forgettingCurve := memory.NewForgettingCurveManager(nil, db)
+		forgettingCurve := memory.NewForgettingCurveManager(db)
 
-		if sqliteStore, ok := memStore.(*memory.SQLiteStore); ok {
-			forgettingCurve = memory.NewForgettingCurveManager(sqliteStore, db)
-			// Schedule daily fade task for SQLite
-			go func() {
-				ticker := time.NewTicker(24 * time.Hour)
-				defer ticker.Stop()
-				for range ticker.C {
-					if err := forgettingCurve.FadeWeakMemories(context.Background()); err != nil {
-						slog.Warn("memory: fade weak memories failed", "err", err)
-					}
+		// Schedule daily fade task for file-based storage
+		go func() {
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for range ticker.C {
+				if err := forgettingCurve.FadeWeakMemoriesFromFiles(context.Background(), storageDir); err != nil {
+					slog.Warn("memory: fade weak memory files failed", "err", err)
 				}
-			}()
-			slog.Info("memory: forgetting curve enabled (SQLite)")
-		} else if storageType == "file" {
-			// Schedule daily fade task for file-based storage
-			go func() {
-				ticker := time.NewTicker(24 * time.Hour)
-				defer ticker.Stop()
-				for range ticker.C {
-					if err := forgettingCurve.FadeWeakMemoriesFromFiles(context.Background(), storageDir); err != nil {
-						slog.Warn("memory: fade weak memory files failed", "err", err)
-					}
-				}
-			}()
-			slog.Info("memory: forgetting curve enabled (file-based)")
-		}
+			}
+		}()
+		slog.Info("memory: forgetting curve enabled (file-based)")
 
 		if cfg.Memory.FactExtraction {
 			completer := &completerAdapter{provider: provider, model: cfg.LLM.Model}

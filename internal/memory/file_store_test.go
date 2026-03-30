@@ -36,8 +36,8 @@ func TestFileMemoryStore_SaveAndSearch(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	if err := fileStore.SaveFact(ctx, entry); err != nil {
-		t.Fatalf("SaveFact failed: %v", err)
+	if err := fileStore.Save(ctx, entry); err != nil {
+		t.Fatalf("Save failed: %v", err)
 	}
 
 	// Verify file exists
@@ -86,12 +86,12 @@ func TestFileMemoryStore_Delete(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	if err := fileStore.SaveFact(ctx, entry); err != nil {
+	if err := fileStore.Save(ctx, entry); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := fileStore.DeleteFact(ctx, "test_002"); err != nil {
-		t.Fatalf("DeleteFact failed: %v", err)
+	if err := fileStore.Delete(ctx, "test_002"); err != nil {
+		t.Fatalf("Delete failed: %v", err)
 	}
 
 	// Verify file moved to archived
@@ -126,7 +126,7 @@ func TestFileMemoryStore_RebuildIndex(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		if err := fileStore.SaveFact(ctx, entry); err != nil {
+		if err := fileStore.Save(ctx, entry); err != nil {
 			t.Fatal(err)
 		}
 	}

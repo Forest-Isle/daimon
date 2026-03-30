@@ -17,7 +17,6 @@ import (
 type EmbeddingsDBImpl struct {
 	db            *store.DB
 	fts5Available bool
-	vssIndexer    *VSSIndexer
 	cfg           MemoryConfig
 }
 
@@ -34,19 +33,6 @@ func NewEmbeddingsDB(db *store.DB, cfg MemoryConfig) *EmbeddingsDBImpl {
 		slog.Info("embeddings_db: FTS5 available")
 	} else {
 		slog.Warn("embeddings_db: FTS5 not available, falling back to LIKE search")
-	}
-
-	// Initialize VSS indexer if enabled
-	if cfg.EnableVSS {
-		edb.vssIndexer = NewVSSIndexer(db, cfg.VectorDimension)
-		if edb.vssIndexer.available {
-			go func() {
-				ctx := context.Background()
-				if err := edb.vssIndexer.CreateFactEmbeddingsIndex(ctx); err != nil {
-					slog.Warn("embeddings_db: failed to create VSS index", "err", err)
-				}
-			}()
-		}
 	}
 
 	return edb
@@ -98,13 +84,6 @@ func (edb *EmbeddingsDBImpl) SaveEmbedding(
 		return fmt.Errorf("failed to save embedding: %w", err)
 	}
 
-	// Update VSS index if enabled
-	if edb.cfg.EnableVSS && edb.vssIndexer != nil && edb.vssIndexer.available {
-		if err := edb.vssIndexer.InsertFactEmbedding(ctx, factID, embedding); err != nil {
-			slog.Warn("embeddings_db: failed to update VSS index", "fact_id", factID, "err", err)
-		}
-	}
-
 	return nil
 }
 
@@ -116,61 +95,12 @@ func (edb *EmbeddingsDBImpl) DeleteEmbedding(ctx context.Context, factID string)
 		return fmt.Errorf("failed to delete embedding: %w", err)
 	}
 
-	// Delete from VSS index if enabled
-	if edb.cfg.EnableVSS && edb.vssIndexer != nil && edb.vssIndexer.available {
-		if err := edb.vssIndexer.DeleteFactEmbedding(ctx, factID); err != nil {
-			slog.Warn("embeddings_db: failed to delete from VSS index", "fact_id", factID, "err", err)
-		}
-	}
-
 	return nil
 }
 
-// VectorSearch performs vector similarity search.
+// VectorSearch performs brute-force cosine similarity search.
 func (edb *EmbeddingsDBImpl) VectorSearch(ctx context.Context, queryEmbedding []float32, limit int, scopes []MemoryScope, userID, sessionID string) ([]VectorSearchResult, error) {
-	// Use VSS if available
-	if edb.cfg.EnableVSS && edb.vssIndexer != nil && edb.vssIndexer.available {
-		return edb.vssSearch(ctx, queryEmbedding, limit, scopes, userID, sessionID)
-	}
-
-	// Fallback to brute-force cosine similarity
 	return edb.bruteForceVectorSearch(ctx, queryEmbedding, limit, scopes, userID, sessionID)
-}
-
-// vssSearch uses VSS (HNSW) for fast vector search.
-func (edb *EmbeddingsDBImpl) vssSearch(ctx context.Context, queryEmbedding []float32, limit int, scopes []MemoryScope, userID, sessionID string) ([]VectorSearchResult, error) {
-	// Build scope filter
-	scopeFilter := buildScopeFilter(scopes, userID, sessionID)
-
-	query := `
-		SELECT fe.fact_id, fe.file_path, fe.scope, fe.user_id, fe.session_id,
-		       vss.distance
-		FROM fact_embeddings_vss vss
-		JOIN fact_embeddings fe ON vss.rowid = fe.rowid
-		WHERE vss.embedding MATCH ?
-		` + scopeFilter + `
-		ORDER BY vss.distance ASC
-		LIMIT ?
-	`
-
-	embeddingJSON, _ := json.Marshal(queryEmbedding)
-	rows, err := edb.db.QueryContext(ctx, query, embeddingJSON, limit)
-	if err != nil {
-		return nil, fmt.Errorf("VSS search failed: %w", err)
-	}
-	defer rows.Close()
-
-	var results []VectorSearchResult
-	for rows.Next() {
-		var r VectorSearchResult
-		if err := rows.Scan(&r.FactID, &r.FilePath, &r.Scope, &r.UserID, &r.SessionID, &r.Distance); err != nil {
-			return nil, err
-		}
-		r.Score = 1.0 / (1.0 + r.Distance) // Convert distance to similarity score
-		results = append(results, r)
-	}
-
-	return results, rows.Err()
 }
 
 // bruteForceVectorSearch performs brute-force cosine similarity search.
@@ -205,7 +135,7 @@ func (edb *EmbeddingsDBImpl) bruteForceVectorSearch(ctx context.Context, queryEm
 		}
 
 		// Compute cosine similarity
-		r.Score = cosineSimilarityFileStore(queryEmbedding, embedding)
+		r.Score = embeddingCosineSimilarity(queryEmbedding, embedding)
 		results = append(results, r)
 	}
 
@@ -273,8 +203,6 @@ func (edb *EmbeddingsDBImpl) FTS5Search(ctx context.Context, query string, limit
 func (edb *EmbeddingsDBImpl) fallbackLikeSearch(ctx context.Context, query string, limit int, scopes []MemoryScope, userID, sessionID string) ([]FTS5SearchResult, error) {
 	scopeFilter := buildScopeFilter(scopes, userID, sessionID)
 
-	// Note: This is a placeholder - we can't search content without storing it
-	// In practice, this would require loading markdown files
 	sqlQuery := `
 		SELECT fact_id, file_path, scope, user_id, session_id
 		FROM fact_embeddings
@@ -379,8 +307,8 @@ func buildScopeFilter(scopes []MemoryScope, userID, sessionID string) string {
 	return filter
 }
 
-// cosineSimilarityFileStore computes cosine similarity between two vectors.
-func cosineSimilarityFileStore(a, b []float32) float64 {
+// embeddingCosineSimilarity computes cosine similarity between two vectors.
+func embeddingCosineSimilarity(a, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0
 	}

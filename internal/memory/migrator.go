@@ -16,13 +16,13 @@ import (
 // Migrator handles migration from SQLite to file-based storage.
 type Migrator struct {
 	db           *store.DB
-	fileStore    *FileStore
+	fileStore    *FileMemoryStore
 	embeddingsDB *EmbeddingsDBImpl
 	embedder     EmbeddingProvider
 }
 
 // NewMigrator creates a new Migrator.
-func NewMigrator(db *store.DB, fileStore *FileStore, embeddingsDB *EmbeddingsDBImpl, embedder EmbeddingProvider) *Migrator {
+func NewMigrator(db *store.DB, fileStore *FileMemoryStore, embeddingsDB *EmbeddingsDBImpl, embedder EmbeddingProvider) *Migrator {
 	return &Migrator{
 		db:           db,
 		fileStore:    fileStore,
@@ -216,7 +216,7 @@ func (m *Migrator) writeSessionFacts(ctx context.Context, sessionID string, fact
 	for _, fact := range facts {
 		fact.Scope = ScopeSession
 		fact.SessionID = sessionID
-		if err := m.fileStore.SaveFact(ctx, fact); err != nil {
+		if err := m.fileStore.Save(ctx, fact); err != nil {
 			return fmt.Errorf("failed to save fact %s: %w", fact.ID, err)
 		}
 	}
@@ -228,7 +228,7 @@ func (m *Migrator) writeUserFacts(ctx context.Context, userID string, facts []En
 	for _, fact := range facts {
 		fact.Scope = ScopeUser
 		fact.UserID = userID
-		if err := m.fileStore.SaveFact(ctx, fact); err != nil {
+		if err := m.fileStore.Save(ctx, fact); err != nil {
 			return fmt.Errorf("failed to save fact %s: %w", fact.ID, err)
 		}
 	}
@@ -239,7 +239,7 @@ func (m *Migrator) writeUserFacts(ctx context.Context, userID string, facts []En
 func (m *Migrator) writeGlobalFacts(ctx context.Context, facts []Entry) error {
 	for _, fact := range facts {
 		fact.Scope = ScopeGlobal
-		if err := m.fileStore.SaveFact(ctx, fact); err != nil {
+		if err := m.fileStore.Save(ctx, fact); err != nil {
 			return fmt.Errorf("failed to save fact %s: %w", fact.ID, err)
 		}
 	}
@@ -296,7 +296,7 @@ func (m *Migrator) copyEmbeddings(ctx context.Context, facts []Entry) (int, erro
 
 // getFactFilePath returns the file path for a fact.
 func (m *Migrator) getFactFilePath(fact Entry) (string, error) {
-	storageDir := m.fileStore.storageDir
+	storageDir := m.fileStore.baseDir
 
 	switch fact.Scope {
 	case ScopeSession:
@@ -400,7 +400,7 @@ func (m *Migrator) GetStats(ctx context.Context) (map[string]interface{}, error)
 
 	// Storage directory size
 	var totalSize int64
-	filepath.Walk(m.fileStore.storageDir, func(path string, info os.FileInfo, err error) error {
+	filepath.Walk(m.fileStore.baseDir, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() {
 			totalSize += info.Size()
 		}
@@ -410,7 +410,7 @@ func (m *Migrator) GetStats(ctx context.Context) (map[string]interface{}, error)
 	stats["storage_size_mb"] = float64(totalSize) / (1024 * 1024)
 
 	// Index stats
-	stats["storage_dir"] = m.fileStore.storageDir
+	stats["storage_dir"] = m.fileStore.baseDir
 
 	return stats, nil
 }

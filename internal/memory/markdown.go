@@ -3,12 +3,20 @@ package memory
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// ComputeHash returns a SHA256 hex digest of the input string.
+func ComputeHash(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
 
 // MarkdownFrontmatter represents the YAML frontmatter of a facts.md file.
 type MarkdownFrontmatter struct {

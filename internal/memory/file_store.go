@@ -80,14 +80,14 @@ func (s *FileMemoryStore) checkIndexStaleness() error {
 	}
 
 	// Get index last update time
-	var indexTime time.Time
+	var indexTime sql.NullTime
 	err := s.db.QueryRowContext(ctx, `SELECT MAX(updated_at) FROM memory_index`).Scan(&indexTime)
 	if err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("check index time: %w", err)
 	}
 
-	// Rebuild if index is stale (>24h older than newest file)
-	if newestMtime.Sub(indexTime) > 24*time.Hour {
+	// Rebuild if index is stale (>24h older than newest file) or empty
+	if !indexTime.Valid || newestMtime.Sub(indexTime.Time) > 24*time.Hour {
 		return s.RebuildIndex(ctx)
 	}
 
@@ -106,10 +106,6 @@ func (s *FileMemoryStore) initDirectories() error {
 }
 
 func (s *FileMemoryStore) Save(ctx context.Context, entry Entry) error {
-	return s.SaveFact(ctx, entry)
-}
-
-func (s *FileMemoryStore) SaveFact(ctx context.Context, entry Entry) error {
 	mf := MemoryFile{
 		ID:        entry.ID,
 		Scope:     string(entry.Scope),
@@ -127,6 +123,13 @@ func (s *FileMemoryStore) SaveFact(ctx context.Context, entry Entry) error {
 	}
 
 	return s.syncIndex(ctx, entry, filePath)
+}
+
+// indexResult holds a row from memory_index used during search.
+type indexResult struct {
+	id       string
+	filePath string
+	strength float64
 }
 
 func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]SearchResult, error) {
@@ -182,11 +185,6 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 	}
 	defer rows.Close()
 
-	type indexResult struct {
-		id       string
-		filePath string
-		strength float64
-	}
 	var indexResults []indexResult
 	for rows.Next() {
 		var r indexResult
@@ -397,11 +395,11 @@ func (s *FileMemoryStore) ListByScope(ctx context.Context, scope MemoryScope, us
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *FileMemoryStore) UpdateFact(ctx context.Context, id string, content string, version int) error {
+func (s *FileMemoryStore) Update(ctx context.Context, id string, content string, version int) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (s *FileMemoryStore) DeleteFact(ctx context.Context, id string) error {
+func (s *FileMemoryStore) Delete(ctx context.Context, id string) error {
 	// Find file path from index
 	var filePath string
 	err := s.db.QueryRowContext(ctx, `SELECT file_path FROM memory_index WHERE memory_id = ?`, id).Scan(&filePath)
@@ -432,10 +430,6 @@ func (s *FileMemoryStore) DeleteFact(ctx context.Context, id string) error {
 	}
 
 	return nil
-}
-
-func (s *FileMemoryStore) Delete(ctx context.Context, id string) error {
-	return s.DeleteFact(ctx, id)
 }
 
 func (s *FileMemoryStore) buildFilePath(scope MemoryScope, id string, createdAt time.Time) string {
@@ -525,11 +519,10 @@ func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath s
 		return fmt.Errorf("update memory_index: %w", err)
 	}
 
-	// Update memory_fts table
+	// Update memory_fts table (FTS5 doesn't support UPSERT, use DELETE+INSERT)
+	s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, entry.ID)
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO memory_fts (memory_id, content)
-		VALUES (?, ?)
-		ON CONFLICT(memory_id) DO UPDATE SET content = excluded.content
+		INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)
 	`, entry.ID, entry.Content)
 	if err != nil {
 		return fmt.Errorf("update memory_fts: %w", err)

@@ -82,7 +82,7 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 
 	// If no similar facts and LLM not available, just ADD.
 	if lm.completer == nil || len(candidates) == 0 {
-		return lm.executeAdd(ctx, fact, sessionID, userID, scope)
+		return lm.executeAdd(ctx, fact, sessionID, userID, scope, "")
 	}
 
 	// Ask LLM to decide.
@@ -158,7 +158,7 @@ func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, cand
 	return &LifecycleDecision{Action: ActionADD}, nil
 }
 
-// executeAdd stores a new fact entry in the memory_facts table.
+// executeAdd stores a new fact entry as a Markdown file.
 func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, sessionID, userID string, scope MemoryScope, relatedTo string) error {
 	now := time.Now()
 	metadata := map[string]string{
@@ -169,7 +169,7 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 		metadata["related_to"] = relatedTo
 	}
 
-	return lm.store.SaveFact(ctx, Entry{
+	return lm.store.Save(ctx, Entry{
 		SessionID: sessionID,
 		UserID:    userID,
 		Scope:     scope,
@@ -183,13 +183,13 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 // executeUpdate archives old file and creates new file with updated content.
 func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, fact ExtractedFact, sessionID, userID string, scope MemoryScope) error {
 	// Delete (archive) old entry
-	if err := lm.store.DeleteFact(ctx, targetID); err != nil {
+	if err := lm.store.Delete(ctx, targetID); err != nil {
 		return fmt.Errorf("archive old entry: %w", err)
 	}
 
 	// Create new entry
 	now := time.Now()
-	return lm.store.SaveFact(ctx, Entry{
+	return lm.store.Save(ctx, Entry{
 		SessionID: sessionID,
 		UserID:    userID,
 		Scope:     scope,
@@ -206,5 +206,5 @@ func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, 
 
 // executeDelete moves file to archived/ subdirectory.
 func (lm *LifecycleManager) executeDelete(ctx context.Context, targetID string) error {
-	return lm.store.DeleteFact(ctx, targetID)
+	return lm.store.Delete(ctx, targetID)
 }

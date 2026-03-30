@@ -97,7 +97,7 @@ func (c *Consolidator) consolidate(ctx context.Context) error {
 		promotedFact.Metadata["promoted_from"] = fact.ID
 		promotedFact.Metadata["promoted_at"] = now.Format(time.RFC3339)
 
-		if err := c.store.SaveFact(ctx, promotedFact); err != nil {
+		if err := c.store.Save(ctx, promotedFact); err != nil {
 			slog.Warn("consolidator: failed to promote fact", "id", fact.ID, "err", err)
 			continue
 		}
@@ -190,5 +190,4 @@ func (c *Consolidator) writeFile(path string, mf *MemoryFile) error {
 	// Reuse writeFileAtomic from file_store
 	fs := &FileMemoryStore{baseDir: c.baseDir}
 	return fs.writeFileAtomic(path, *mf)
-}
 }

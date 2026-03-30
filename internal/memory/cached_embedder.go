@@ -48,3 +48,19 @@ func (ce *CachedEmbedder) cacheKey(text string) string {
 	h := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(h[:])
 }
+
+func (ce *CachedEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	results := make([][]float32, len(texts))
+	for i, text := range texts {
+		emb, err := ce.Embed(ctx, text)
+		if err != nil {
+			return nil, err
+		}
+		results[i] = emb
+	}
+	return results, nil
+}
+
+func (ce *CachedEmbedder) Dimensions() int {
+	return ce.provider.Dimensions()
+}

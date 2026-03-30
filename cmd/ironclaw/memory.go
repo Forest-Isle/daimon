@@ -82,7 +82,10 @@ func newMemoryExportCmd() *cobra.Command {
 			embedder := &memory.NoopEmbedding{}
 
 			// Create file store
-			fileStore := memory.NewFileStore(outputDir, embeddingsDB, embedder, memCfg)
+			fileStore, err := memory.NewFileMemoryStore(outputDir, db.DB, embedder, memCfg)
+			if err != nil {
+				return fmt.Errorf("create file store: %w", err)
+			}
 
 			// Create migrator
 			migrator := memory.NewMigrator(db, fileStore, embeddingsDB, embedder)
@@ -169,7 +172,10 @@ func newMemoryVerifyCmd() *cobra.Command {
 
 			// Create file store
 			embedder := &memory.NoopEmbedding{}
-			fileStore := memory.NewFileStore(outputDir, embeddingsDB, embedder, memCfg)
+			fileStore, err := memory.NewFileMemoryStore(outputDir, db.DB, embedder, memCfg)
+			if err != nil {
+				return fmt.Errorf("create file store: %w", err)
+			}
 
 			// Create migrator
 			migrator := memory.NewMigrator(db, fileStore, embeddingsDB, embedder)
@@ -231,7 +237,10 @@ func newMemoryStatsCmd() *cobra.Command {
 
 			// Create file store
 			embedder := &memory.NoopEmbedding{}
-			fileStore := memory.NewFileStore(outputDir, embeddingsDB, embedder, memCfg)
+			fileStore, err := memory.NewFileMemoryStore(outputDir, db.DB, embedder, memCfg)
+			if err != nil {
+				return fmt.Errorf("create file store: %w", err)
+			}
 
 			// Create migrator
 			migrator := memory.NewMigrator(db, fileStore, embeddingsDB, embedder)

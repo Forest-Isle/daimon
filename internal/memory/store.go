@@ -5,6 +5,20 @@ import (
 	"time"
 )
 
+// MemoryConfig holds configuration for the memory subsystem.
+type MemoryConfig struct {
+	FactExtraction        bool
+	SimilarityThreshold   float64
+	ConsolidationInterval time.Duration
+	BM25Weight            float64
+	VectorWeight          float64
+	EnableVSS             bool          // Enable HNSW indexing via sqlite-vss
+	VectorDimension       int           // Embedding dimension (default: 1536 for OpenAI)
+	EnableSearchCache     bool          // Enable search result caching
+	SearchCacheSize       int           // Max cached queries (default: 500)
+	SearchCacheTTL        time.Duration // Cache TTL (default: 5min)
+}
+
 // MemoryScope defines the lifetime/visibility of a memory.md entry.
 type MemoryScope string
 
@@ -24,22 +38,22 @@ const (
 	ActionNOOP   MemoryAction = "NOOP"
 )
 
-// Entry is a single memory.md record. Backward-compatible with existing `memories` table.
+// Entry is a single memory record stored as a Markdown file with YAML frontmatter.
 type Entry struct {
 	ID        string
 	SessionID string
-	UserID    string      // NEW: identifies the user across sessions
-	Scope     MemoryScope // NEW: session | user | global
+	UserID    string      // identifies the user across sessions
+	Scope     MemoryScope // session | user | global
 	Content   string      // preferably a distilled fact, not raw message
 	Embedding []float32
 	Metadata  map[string]string
-	Version   int        // NEW: incremented on each update
-	ExpiresAt *time.Time // NEW: optional TTL
+	Version   int        // incremented on each update
+	ExpiresAt *time.Time // optional TTL
 	CreatedAt time.Time
-	UpdatedAt time.Time // NEW
+	UpdatedAt time.Time
 }
 
-// SearchQuery defines parameters for memory.md search.
+// SearchQuery defines parameters for memory search.
 type SearchQuery struct {
 	Text      string
 	Embedding []float32
@@ -49,19 +63,17 @@ type SearchQuery struct {
 	Scopes    []MemoryScope // optional: filter by scope(s)
 }
 
-// SearchResult is a memory.md entry with a relevance score.
+// SearchResult is a memory entry with a relevance score.
 type SearchResult struct {
 	Entry Entry
 	Score float64
 }
 
-// Store is the memory.md storage interface.
+// Store is the memory storage interface.
 type Store interface {
 	Save(ctx context.Context, entry Entry) error
-	SaveFact(ctx context.Context, entry Entry) error // saves to memory_facts table
 	Search(ctx context.Context, query SearchQuery) ([]SearchResult, error)
 	ListByScope(ctx context.Context, scope MemoryScope, userID string) ([]Entry, error)
-	UpdateFact(ctx context.Context, id string, content string, version int) error
-	DeleteFact(ctx context.Context, id string) error
+	Update(ctx context.Context, id string, content string, version int) error
 	Delete(ctx context.Context, id string) error
 }

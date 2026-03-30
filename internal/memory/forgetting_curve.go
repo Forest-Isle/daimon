@@ -15,14 +15,12 @@ import (
 )
 
 type ForgettingCurveManager struct {
-	store     *SQLiteStore
 	accessLog *AccessLog
 	db        *store.DB
 }
 
-func NewForgettingCurveManager(s *SQLiteStore, db *store.DB) *ForgettingCurveManager {
+func NewForgettingCurveManager(db *store.DB) *ForgettingCurveManager {
 	return &ForgettingCurveManager{
-		store:     s,
 		accessLog: NewAccessLog(db),
 		db:        db,
 	}
@@ -86,12 +84,13 @@ func (fc *ForgettingCurveManager) ComputeStrengthFromFile(mf *MemoryFile) float6
 	return retention
 }
 
-// FadeWeakMemories archives facts with low strength
-func (fc *ForgettingCurveManager) FadeWeakMemories(ctx context.Context) error {
+// FadeWeakMemories archives memories with low strength from the memory_index table.
+// It queries memory_index for weak entries and moves the corresponding files to archived/.
+func (fc *ForgettingCurveManager) FadeWeakMemories(ctx context.Context, baseDir string) error {
 	rows, err := fc.db.QueryContext(ctx, `
-		SELECT id, session_id, user_id, scope, content, embedding, version, expires_at, metadata, created_at, updated_at
-		FROM memory_facts
-		WHERE scope IN ('session', 'user')
+		SELECT memory_id, file_path, strength
+		FROM memory_index
+		WHERE scope IN ('session', 'user') AND strength < 0.3
 	`)
 	if err != nil {
 		return err
@@ -100,26 +99,29 @@ func (fc *ForgettingCurveManager) FadeWeakMemories(ctx context.Context) error {
 
 	faded := 0
 	for rows.Next() {
-		var fact Entry
-		var metadataJSON string
-		var embBytes []byte
-		if err := rows.Scan(&fact.ID, &fact.SessionID, &fact.UserID, &fact.Scope, &fact.Content,
-			&embBytes, &fact.Version, &fact.ExpiresAt, &metadataJSON,
-			&fact.CreatedAt, &fact.UpdatedAt); err != nil {
+		var id, filePath string
+		var strength float64
+		if err := rows.Scan(&id, &filePath, &strength); err != nil {
 			slog.Warn("forgetting_curve: scan error", "err", err)
 			continue
 		}
 
-		strength := fc.ComputeStrength(ctx, fact)
-		if strength < 0.3 {
-			// Archive weak memory (use background context to avoid deadline)
-			_, err := fc.db.Exec(`UPDATE memory_facts SET scope = 'archive' WHERE id = ?`, fact.ID)
-			if err == nil {
-				faded++
-			} else {
-				slog.Warn("forgetting_curve: update error", "id", fact.ID, "err", err)
-			}
+		// Move file to archived/
+		archivedPath := filepath.Join(baseDir, "archived", filepath.Base(filePath))
+		if err := os.Rename(filePath, archivedPath); err != nil {
+			slog.Warn("forgetting_curve: failed to archive file", "id", id, "err", err)
+			continue
 		}
+
+		// Update memory_index
+		_, err := fc.db.ExecContext(ctx, `
+			UPDATE memory_index SET scope = 'archived', file_path = ? WHERE memory_id = ?
+		`, archivedPath, id)
+		if err != nil {
+			slog.Warn("forgetting_curve: failed to update index", "id", id, "err", err)
+		}
+
+		faded++
 	}
 
 	slog.Info("forgetting_curve: faded weak memories", "count", faded)

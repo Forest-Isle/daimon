@@ -37,9 +37,29 @@ func TestConsolidator_FileMove(t *testing.T) {
 		UpdatedAt: time.Now().Add(-25 * time.Hour),
 	}
 
-	if err := fileStore.SaveFact(ctx, entry); err != nil {
+	if err := fileStore.Save(ctx, entry); err != nil {
 		t.Fatal(err)
 	}
+
+	// Backdate the file's modtime so the consolidator treats it as old
+	sessionFiles, _ := filepath.Glob(filepath.Join(memDir, "session", "*.md"))
+	if len(sessionFiles) == 0 {
+		t.Fatal("Expected session file to exist")
+	}
+	oldTime := time.Now().Add(-25 * time.Hour)
+	os.Chtimes(sessionFiles[0], oldTime, oldTime)
+
+	// Update the file's frontmatter with high strength
+	mf, err := fileStore.parseFile(sessionFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	mf.Strength = 0.8
+	if err := fileStore.writeFileAtomic(sessionFiles[0], *mf); err != nil {
+		t.Fatal(err)
+	}
+	// Re-backdate after rewrite
+	os.Chtimes(sessionFiles[0], oldTime, oldTime)
 
 	// Run consolidation
 	consolidator := NewConsolidator(fileStore, db.DB, memDir, 24*time.Hour)
@@ -142,7 +162,7 @@ func TestIndexRebuild(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		if err := fileStore.SaveFact(ctx, entry); err != nil {
+		if err := fileStore.Save(ctx, entry); err != nil {
 			t.Fatal(err)
 		}
 	}
