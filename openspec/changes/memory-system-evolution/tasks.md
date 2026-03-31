@@ -35,8 +35,8 @@
 - [x] 3.8 Modify `buildSystemPrompt` in `internal/agent/runtime.go` to load and inject `user/profile_{user_id}.md` as "User Context" section
 - [x] 3.9 Modify search in `embeddings_db.go` to support `type` filter parameter and implement layered retrieval: summaries first, backfill with raw facts, deduplicate against source_facts
 - [x] 3.10 Wire `Compactor` and `Profiler` into gateway initialization in `gateway.go` with background task startup
-- [ ] 3.11 Write tests for compaction: category threshold detection, summary generation, source fact preservation
-- [ ] 3.12 Write tests for layered retrieval: profile injection, summary preference over raw facts, deduplication, backfill logic
+- [x] 3.11 Write tests for compaction: category threshold detection, summary generation, source fact preservation
+- [x] 3.12 Write tests for layered retrieval: profile injection, summary preference over raw facts, deduplication, backfill logic
 
 ## 4. Phase 4: Temporal Knowledge Graph & Memory-Graph Integration
 
@@ -49,11 +49,11 @@
 - [x] 4.7 Implement `SyncOnDelete`: find edges with provenance for factID, remove provenance entry, recalculate weight based on remaining provenance count, set weight=0.1 if no provenance remains
 - [x] 4.8 Inject `GraphSync` into `LifecycleManager` and call sync functions from `executeAdd`, `executeUpdate`, `executeDelete`
 - [x] 4.9 Create `internal/knowledge/graph/graph_decay.go` with background task: validate provenance entries, decay unsupported edge weights (×0.9), delete edges with weight < 0.1
-- [ ] 4.10 Update `perceive.go` to implement graph-expanded retrieval: for top-3 memory results, extract entities, traverse graph for connected context, boost scores based on graph connectivity
+- [x] 4.10 Update `perceive.go` to implement graph-expanded retrieval: for top-3 memory results, extract entities, traverse graph for connected context, boost scores based on graph connectivity
 - [x] 4.11 Wire `GraphSync` and `GraphDecayTask` into gateway initialization
-- [ ] 4.12 Write tests for temporal edges: versioning, point-in-time queries, current-state filtering
-- [ ] 4.13 Write tests for memory-graph sync: ADD creates provenance, DELETE weakens edges, orphan cleanup
-- [ ] 4.14 Write tests for graph-boosted reranking: connected entities get score boost, no connection = no change
+- [x] 4.12 Write tests for temporal edges: versioning, point-in-time queries, current-state filtering
+- [x] 4.13 Write tests for memory-graph sync: ADD creates provenance, DELETE weakens edges, orphan cleanup
+- [x] 4.14 Write tests for graph-boosted reranking: connected entities get score boost, no connection = no change
 
 ## 5. Phase 5: Memory Privacy & Selective Forgetting
 
@@ -73,5 +73,5 @@
 - [x] 5.14 Implement audit logging: wrap memory read/write/delete operations to log to `memory_audit_log` table, with configurable retention (default 90 days)
 - [x] 5.15 Register `memory_manage` tool in the tool registry in `gateway.go`
 - [x] 5.16 Write tests for PII detection: email, phone, SSN patterns, false positive handling
-- [ ] 5.17 Write tests for sensitivity-based search filtering: secret excluded, private scoping
-- [ ] 5.18 Write tests for memory_manage tool: forget flow, list formatting, protect updates
+- [x] 5.17 Write tests for sensitivity-based search filtering: secret excluded, private scoping
+- [x] 5.18 Write tests for memory_manage tool: forget flow, list formatting, protect updates

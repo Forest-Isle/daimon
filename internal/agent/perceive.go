@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/punkopunko/ironclaw/internal/knowledge"
@@ -93,8 +94,14 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 
 	// Knowledge graph retrieval — find related entities.
 	var graphContext []string
+	var queryEntities []string
 	if p.graph != nil {
-		graphContext = p.queryGraph(ctx, userMsg)
+		graphContext, queryEntities = p.queryGraphWithEntities(ctx, userMsg)
+	}
+
+	// Graph-expanded retrieval: boost memory scores based on graph connectivity.
+	if p.graph != nil && len(memories) > 0 && len(queryEntities) > 0 {
+		memories = p.boostByGraphConnectivity(ctx, memories, queryEntities)
 	}
 
 	// Build recent history for context (used in PLAN prompt).
@@ -184,23 +191,22 @@ func extractIntent(lower string) string {
 
 // queryGraph extracts key terms from the user message and queries the knowledge graph.
 func (p *Perceiver) queryGraph(ctx context.Context, userMsg string) []string {
-	// Extract significant words (>3 chars, not stop words) as candidate entity names.
-	words := strings.Fields(userMsg)
-	var candidates []string
-	for _, w := range words {
-		clean := strings.Trim(strings.ToLower(w), ".,!?;:\"'()[]{}。，！？")
-		if len(clean) > 3 && !isStopWord(clean) {
-			candidates = append(candidates, clean)
-		}
-	}
+	results, _ := p.queryGraphWithEntities(ctx, userMsg)
+	return results
+}
+
+// queryGraphWithEntities extracts key terms from the user message, queries the knowledge
+// graph, and returns both the formatted triples and the extracted entity candidates.
+func (p *Perceiver) queryGraphWithEntities(ctx context.Context, userMsg string) ([]string, []string) {
+	candidates := extractEntityCandidates(userMsg)
 	if len(candidates) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	triples, err := graph.SearchRelated(ctx, p.graph, candidates, 2)
 	if err != nil {
 		slog.Warn("perceive: graph search failed", "err", err)
-		return nil
+		return nil, candidates
 	}
 
 	var results []string
@@ -210,7 +216,101 @@ func (p *Perceiver) queryGraph(ctx context.Context, userMsg string) []string {
 	if len(results) > 10 {
 		results = results[:10]
 	}
+	return results, candidates
+}
+
+// boostByGraphConnectivity boosts memory search result scores based on graph connectivity
+// between entities found in memory content and the query entities. For the top-3 results,
+// it extracts entity names, checks graph connections to query entities, and multiplies
+// the score by (1 + 0.2 * connection_count).
+func (p *Perceiver) boostByGraphConnectivity(ctx context.Context, results []memory.SearchResult, queryEntities []string) []memory.SearchResult {
+	if p.graph == nil || len(results) == 0 {
+		return results
+	}
+
+	// Build a set of node IDs for query entities for fast lookup.
+	queryNodeIDs := make(map[string]bool)
+	for _, qe := range queryEntities {
+		nodes, err := p.graph.FindByName(ctx, qe)
+		if err != nil {
+			continue
+		}
+		for _, n := range nodes {
+			queryNodeIDs[n.ID] = true
+		}
+	}
+	if len(queryNodeIDs) == 0 {
+		return results
+	}
+
+	// Process top-3 results (or fewer if less available).
+	limit := 3
+	if len(results) < limit {
+		limit = len(results)
+	}
+
+	for i := 0; i < limit; i++ {
+		content := results[i].Entry.Content
+		memEntities := extractEntityCandidates(content)
+		if len(memEntities) == 0 {
+			continue
+		}
+
+		connectionCount := 0
+		for _, me := range memEntities {
+			nodes, err := p.graph.FindByName(ctx, me)
+			if err != nil {
+				continue
+			}
+			for _, node := range nodes {
+				// Traverse up to 2 hops from this memory entity.
+				triples, err := p.graph.Traverse(ctx, node.ID, 2)
+				if err != nil {
+					continue
+				}
+				for _, t := range triples {
+					// Check if any connected node matches a query entity node.
+					if queryNodeIDs[t.Subject.ID] || queryNodeIDs[t.Object.ID] {
+						connectionCount++
+					}
+				}
+			}
+		}
+
+		if connectionCount > 0 {
+			boost := 1.0 + 0.2*float64(connectionCount)
+			results[i].Score *= boost
+			slog.Debug("perceive: graph-boosted memory result",
+				"memory_id", results[i].Entry.ID,
+				"connections", connectionCount,
+				"boost", boost,
+				"new_score", results[i].Score,
+			)
+		}
+	}
+
+	// Re-sort results by score descending after boosting.
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
 	return results
+}
+
+// extractEntityCandidates extracts significant words (>3 chars, non-stopwords) from text
+// as candidate entity names for graph lookup.
+func extractEntityCandidates(text string) []string {
+	words := strings.Fields(text)
+	var candidates []string
+	seen := make(map[string]bool)
+	for _, w := range words {
+		clean := strings.Trim(strings.ToLower(w), ".,!?;:\"'()[]{}。，！？")
+		if len(clean) > 3 && !isStopWord(clean) && !seen[clean] {
+			seen[clean] = true
+			candidates = append(candidates, clean)
+		}
+	}
+	return candidates
 }
 
 var stopWords = map[string]bool{
