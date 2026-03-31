@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -41,19 +42,57 @@ func Open(path string) (*DB, error) {
 }
 
 func migrate(db *sql.DB) error {
+	// Create migration tracking table to ensure each migration runs only once.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS _migrations (
+		name TEXT PRIMARY KEY,
+		applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return fmt.Errorf("create _migrations table: %w", err)
+	}
+
 	entries, err := migrationsFS.ReadDir("migrations")
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
+		// Skip already-applied migrations.
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM _migrations WHERE name = ?`, e.Name()).Scan(&count); err != nil {
+			return fmt.Errorf("check migration %s: %w", e.Name(), err)
+		}
+		if count > 0 {
+			continue
+		}
+
 		data, err := migrationsFS.ReadFile("migrations/" + e.Name())
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", e.Name(), err)
 		}
 		if _, err := db.Exec(string(data)); err != nil {
-			return fmt.Errorf("exec migration %s: %w", e.Name(), err)
+			// For existing databases upgraded from the old migrate() that had no
+			// tracking: ALTER TABLE ADD COLUMN will fail with "duplicate column"
+			// if the column already exists. Treat this as "already applied".
+			if isAlreadyAppliedError(err) {
+				slog.Info("migration already applied (detected from error), recording", "file", e.Name())
+			} else {
+				return fmt.Errorf("exec migration %s: %w", e.Name(), err)
+			}
+		} else {
+			slog.Info("migration applied", "file", e.Name())
 		}
-		slog.Info("migration applied", "file", e.Name())
+		if _, err := db.Exec(`INSERT INTO _migrations (name) VALUES (?)`, e.Name()); err != nil {
+			return fmt.Errorf("record migration %s: %w", e.Name(), err)
+		}
 	}
 	return nil
+}
+
+// isAlreadyAppliedError returns true for errors indicating a migration was
+// previously applied (e.g. duplicate column from ALTER TABLE, table already
+// exists without IF NOT EXISTS).
+func isAlreadyAppliedError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate column name") ||
+		strings.Contains(msg, "table already exists") ||
+		strings.Contains(msg, "already exists")
 }

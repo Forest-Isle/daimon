@@ -98,14 +98,6 @@ func New(cfg *config.Config) (*Gateway, error) {
 			ReflectionL2Trigger:      cfg.Memory.ReflectionL2Trigger,
 		}
 
-		// Check for legacy data and prompt migration
-		var count int
-		err = db.QueryRow(`SELECT COUNT(*) FROM memory_facts`).Scan(&count)
-		if err == nil && count > 0 {
-			slog.Warn("memory: detected legacy SQLite data", "count", count)
-			slog.Info("memory: run 'ironclaw memory migrate' to migrate to file-based storage")
-		}
-
 		// File-based storage
 		storageDir := cfg.Memory.StorageDir
 		if storageDir == "" {

@@ -74,69 +74,6 @@ func TestConsolidator_FileMove(t *testing.T) {
 	}
 }
 
-func TestMigration_SQLiteToFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-	db, err := store.Open(filepath.Join(tmpDir, "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	// Insert legacy data
-	_, err = db.Exec(`
-		INSERT INTO memory_facts (id, scope, user_id, content, created_at, updated_at)
-		VALUES ('legacy_001', 'user', 'user123', 'Legacy memory', datetime('now'), datetime('now'))
-	`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Run migration (simplified)
-	memDir := filepath.Join(tmpDir, "memory")
-	os.MkdirAll(filepath.Join(memDir, "user"), 0755)
-
-	rows, err := db.Query(`SELECT id, scope, user_id, content, created_at, updated_at FROM memory_facts`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-
-	count := 0
-	for rows.Next() {
-		var id, scope, userID, content string
-		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&id, &scope, &userID, &content, &createdAt, &updatedAt); err != nil {
-			t.Fatal(err)
-		}
-
-		mf := MemoryFile{
-			ID:        id,
-			Scope:     scope,
-			UserID:    userID,
-			Content:   content,
-			CreatedAt: createdAt,
-			UpdatedAt: updatedAt,
-		}
-
-		filePath := filepath.Join(memDir, scope, "memory_"+createdAt.Format("20060102")+"_"+id+".md")
-		fs := &FileMemoryStore{baseDir: memDir}
-		if err := fs.writeFileAtomic(filePath, mf); err != nil {
-			t.Fatal(err)
-		}
-		count++
-	}
-
-	if count == 0 {
-		t.Error("Expected migrated files")
-	}
-
-	// Verify file exists
-	files, _ := filepath.Glob(filepath.Join(memDir, "user", "*.md"))
-	if len(files) == 0 {
-		t.Error("No files migrated")
-	}
-}
-
 func TestIndexRebuild(t *testing.T) {
 	tmpDir := t.TempDir()
 	db, err := store.Open(filepath.Join(tmpDir, "test.db"))
