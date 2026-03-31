@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/punkopunko/ironclaw/internal/channel"
@@ -21,15 +19,14 @@ type ReflectionCallback func(key string, decision ReplanDecision)
 
 // Reflector implements the REFLECT phase: LLM evaluation + confidence approval + memory.md write.
 type Reflector struct {
-	provider           Provider
-	memStore           memory.Store
-	factExtractor      *memory.LLMFactExtractor
-	lifecycleMgr       *memory.LifecycleManager
-	graphExtractor     *graph.LLMEntityExtractor
-	cfg                config.CognitiveConfig
-	llmModel           string
-	pendingReflections *sync.Map
-	rlPolicy           RLPolicy // optional RL policy
+	provider       Provider
+	memStore       memory.Store
+	factExtractor  *memory.LLMFactExtractor
+	lifecycleMgr   *memory.LifecycleManager
+	graphExtractor *graph.LLMEntityExtractor
+	cfg            config.CognitiveConfig
+	llmModel       string
+	rlPolicy       RLPolicy // optional RL policy
 }
 
 // NewReflector creates a new Reflector.
@@ -38,18 +35,16 @@ func NewReflector(
 	memStore memory.Store,
 	cfg config.CognitiveConfig,
 	llmModel string,
-	pendingReflections *sync.Map,
 ) *Reflector {
 	model := cfg.ReflectModel
 	if model == "" {
 		model = llmModel
 	}
 	return &Reflector{
-		provider:           provider,
-		memStore:           memStore,
-		cfg:                cfg,
-		llmModel:           model,
-		pendingReflections: pendingReflections,
+		provider: provider,
+		memStore: memStore,
+		cfg:      cfg,
+		llmModel: model,
 	}
 }
 
@@ -132,52 +127,37 @@ func (r *Reflector) Run(
 	return reflection, nil
 }
 
-// RequestReplanApproval sends a Telegram inline keyboard and waits for the user's decision.
+// RequestReplanApproval asks the user via the channel whether to replan.
+// Channels that implement channel.ReflectionSender get an interactive prompt;
+// all others default to ReplanContinue.
 func (r *Reflector) RequestReplanApproval(
 	ctx context.Context,
 	ch channel.Channel,
 	target channel.MessageTarget,
 	reflection *Reflection,
 ) (ReplanDecision, error) {
-	tgAdapter, ok := ch.(interface {
-		SendReflectionRequest(chatID int64, reason string, confidence float64) (int, error)
-	})
+	sender, ok := ch.(channel.ReflectionSender)
 	if !ok {
-		// Non-Telegram: auto-continue
+		// Channel does not support interactive reflection — auto-continue.
 		return ReplanContinue, nil
 	}
 
-	chatID, err := strconv.ParseInt(target.ChannelID, 10, 64)
-	if err != nil || chatID == 0 {
+	chDecision, err := sender.SendReflectionRequest(ctx, target, reflection.ReplanReason, reflection.OverallConfidence)
+	if err != nil {
+		slog.Warn("reflect: failed to send reflection request", "err", err)
 		return ReplanContinue, nil
 	}
 
-	key := fmt.Sprintf("reflect_%s_%d", target.ChannelID, time.Now().UnixNano())
-	_, sendErr := tgAdapter.SendReflectionRequest(chatID, reflection.ReplanReason, reflection.OverallConfidence)
-	if sendErr != nil {
-		slog.Warn("reflect: failed to send approval request", "err", sendErr)
+	// Convert channel.ReplanDecision to agent.ReplanDecision
+	switch chDecision {
+	case channel.ReplanContinue:
 		return ReplanContinue, nil
-	}
-
-	// Register pending channel
-	resultCh := make(chan ReplanDecision, 1)
-	r.pendingReflections.Store(key, resultCh)
-	defer r.pendingReflections.Delete(key)
-
-	timeoutSeconds := r.cfg.ApprovalTimeoutSeconds
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = 120
-	}
-
-	select {
-	case decision := <-resultCh:
-		slog.Info("reflect: replan decision received", "decision", decision)
-		return decision, nil
-	case <-time.After(time.Duration(timeoutSeconds) * time.Second):
-		slog.Info("reflect: replan approval timed out, defaulting to continue")
+	case channel.ReplanAdjust:
+		return ReplanAdjust, nil
+	case channel.ReplanAbort:
+		return ReplanAbort, nil
+	default:
 		return ReplanContinue, nil
-	case <-ctx.Done():
-		return ReplanContinue, ctx.Err()
 	}
 }
 

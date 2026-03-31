@@ -12,6 +12,11 @@ telegram:
   allowed_user_ids:
     - 123456789
 
+# TUI (Terminal UI) channel — use `ironclaw tui` to start
+tui:
+  auto_approve: false   # set true to skip tool approval prompts
+  # theme: ""           # reserved for future use
+
 agent:
   max_iterations: 20
   mode: simple   # "simple" | "cognitive"

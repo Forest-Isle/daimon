@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/punkopunko/ironclaw/internal/channel"
@@ -35,12 +34,11 @@ type CognitiveAgent struct {
 	cfg                config.AgentConfig
 	llmCfg             config.LLMConfig
 	memStore           memory.Store
-	skillMgr           *skill.Manager
-	agentMgr           *AgentManager
-	entityExtractor    *graph.LLMEntityExtractor
-	pendingReflections sync.Map
-	rlPolicy           RLPolicy  // RL policy interface (nil if disabled)
-	rlTrainer          RLTrainer // RL trainer interface (nil if disabled)
+	skillMgr        *skill.Manager
+	agentMgr        *AgentManager
+	entityExtractor *graph.LLMEntityExtractor
+	rlPolicy        RLPolicy  // RL policy interface (nil if disabled)
+	rlTrainer       RLTrainer // RL trainer interface (nil if disabled)
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -69,7 +67,7 @@ func NewCognitiveAgent(
 	ca.planner = NewPlanner(provider, tools, cogCfg, llmCfg.Model)
 	ca.executor = NewExecutor(tools, db, nil, cogCfg) // approvalFunc set via SetApprovalFunc
 	ca.observer = NewObserver()
-	ca.reflector = NewReflector(provider, nil, cogCfg, llmCfg.Model, &ca.pendingReflections)
+	ca.reflector = NewReflector(provider, nil, cogCfg, llmCfg.Model)
 
 	return ca
 }
@@ -93,7 +91,6 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 		s,
 		ca.cfg.Cognitive,
 		ca.llmCfg.Model,
-		&ca.pendingReflections,
 	)
 }
 
@@ -153,17 +150,6 @@ func (ca *CognitiveAgent) SetRLPolicy(policy RLPolicy) {
 // SetRLTrainer injects an RL trainer into the cognitive agent.
 func (ca *CognitiveAgent) SetRLTrainer(trainer RLTrainer) {
 	ca.rlTrainer = trainer
-}
-
-// ResolveReplanDecision is called by the Gateway when the user responds to a replan keyboard.
-func (ca *CognitiveAgent) ResolveReplanDecision(key string, decision ReplanDecision) {
-	if v, ok := ca.pendingReflections.Load(key); ok {
-		ch := v.(chan ReplanDecision)
-		select {
-		case ch <- decision:
-		default:
-		}
-	}
 }
 
 // HandleMessage processes an inbound message through the cognitive loop.

@@ -6,13 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/punkopunko/ironclaw/internal/agent"
 	"github.com/punkopunko/ironclaw/internal/channel"
-	"github.com/punkopunko/ironclaw/internal/channel/telegram"
 	"github.com/punkopunko/ironclaw/internal/config"
 	"github.com/punkopunko/ironclaw/internal/knowledge"
 	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
@@ -40,9 +38,6 @@ type Gateway struct {
 	mcpManager     *mcp.Manager
 	rlTrainer      *rl.Trainer
 	mu             sync.Mutex
-
-	// Approval tracking for Telegram inline keyboard
-	pendingApprovals sync.Map // key: "toolName" → chan bool
 }
 
 func New(cfg *config.Config) (*Gateway, error) {
@@ -392,6 +387,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 	return gw, nil
 }
 
+// AddChannel registers a channel adapter. Call before Start().
+func (gw *Gateway) AddChannel(ch channel.Channel) {
+	gw.channels[ch.Name()] = ch
+}
+
 // Start initializes all channels and begins processing.
 func (gw *Gateway) Start(ctx context.Context) error {
 	// Start MCP servers (non-fatal — partial failures are logged)
@@ -403,13 +403,6 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 	// Start MCP hot-reload watcher (polls ~/.IronClaw/mcp/ for new/removed configs)
 	go gw.watchMCPDir(ctx)
-
-	// Initialize Telegram channel
-	tg, err := telegram.New(gw.cfg.Telegram.Token, gw.cfg.Telegram.AllowedUserIDs)
-	if err != nil {
-		return err
-	}
-	gw.channels["telegram"] = tg
 
 	// Start channels
 	for name, ch := range gw.channels {
@@ -465,12 +458,6 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 
 // handleInbound routes incoming messages to the agent runtime.
 func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage) {
-	// Handle approval callbacks
-	if msg.CallbackData != "" {
-		gw.handleCallback(msg)
-		return
-	}
-
 	if msg.Text == "" {
 		return
 	}
@@ -524,69 +511,15 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	}
 }
 
-// handleApproval sends an approval request via Telegram and waits for response.
+// handleApproval sends an approval request via the channel and waits for response.
+// Channels that implement channel.ApprovalSender get interactive approval;
+// all others auto-approve.
 func (gw *Gateway) handleApproval(ctx context.Context, ch channel.Channel, target channel.MessageTarget, toolName string, input string) (bool, error) {
-	tgAdapter, ok := ch.(*telegram.Adapter)
-	if !ok {
-		// Non-Telegram channels auto-approve for now
-		return true, nil
+	if sender, ok := ch.(channel.ApprovalSender); ok {
+		return sender.SendApprovalRequest(ctx, target, toolName, input)
 	}
-
-	chatID := parseChatID(target.ChannelID)
-	if chatID == 0 {
-		return false, nil
-	}
-
-	_, err := tgAdapter.SendApprovalRequest(chatID, toolName, input)
-	if err != nil {
-		return false, err
-	}
-
-	// Wait for callback
-	resultCh := make(chan bool, 1)
-	gw.pendingApprovals.Store(toolName, resultCh)
-	defer gw.pendingApprovals.Delete(toolName)
-
-	select {
-	case approved := <-resultCh:
-		return approved, nil
-	case <-ctx.Done():
-		return false, ctx.Err()
-	}
-}
-
-// handleCallback processes inline keyboard callbacks.
-func (gw *Gateway) handleCallback(msg channel.InboundMessage) {
-	parts := strings.SplitN(msg.CallbackData, ":", 2)
-	if len(parts) != 2 {
-		return
-	}
-
-	action, key := parts[0], parts[1]
-
-	// Handle reflection replan decisions
-	if action == "reflect_continue" || action == "reflect_adjust" || action == "reflect_abort" {
-		if gw.cognitiveAgent != nil {
-			var decision agent.ReplanDecision
-			switch action {
-			case "reflect_continue":
-				decision = agent.ReplanContinue
-			case "reflect_adjust":
-				decision = agent.ReplanAdjust
-			case "reflect_abort":
-				decision = agent.ReplanAbort
-			}
-			gw.cognitiveAgent.ResolveReplanDecision(key, decision)
-		}
-		return
-	}
-
-	// Handle tool approval
-	approved := action == "approve"
-	if v, ok := gw.pendingApprovals.Load(key); ok {
-		ch := v.(chan bool)
-		ch <- approved
-	}
+	// Channel does not support interactive approval — auto-approve.
+	return true, nil
 }
 
 // completerAdapter bridges agent.Provider to memory.Completer.
@@ -607,19 +540,6 @@ func (a *completerAdapter) Complete(ctx context.Context, systemPrompt, userMessa
 		return "", err
 	}
 	return resp.Text, nil
-}
-
-func parseChatID(s string) int64 {
-	var id int64
-	for _, c := range s {
-		if c >= '0' && c <= '9' {
-			id = id*10 + int64(c-'0')
-		} else if c == '-' && id == 0 {
-			// negative chat IDs for groups
-			continue
-		}
-	}
-	return id
 }
 
 // defaultSkillsDir returns the path to ~/.IronClaw/skills/.

@@ -19,3 +19,28 @@ type StreamUpdater interface {
 	Update(text string) error
 	Finish(text string) error
 }
+
+// ReplanDecision represents a user's choice when asked about replanning.
+// Defined in the channel package to avoid circular dependencies (agent → channel).
+type ReplanDecision string
+
+const (
+	ReplanContinue ReplanDecision = "continue"
+	ReplanAdjust   ReplanDecision = "adjust"
+	ReplanAbort    ReplanDecision = "abort"
+)
+
+// ApprovalSender is an optional interface for channels that support interactive
+// tool-execution approval. The call blocks until the user responds or a timeout
+// is reached. Channels that do not implement this interface will auto-approve.
+type ApprovalSender interface {
+	SendApprovalRequest(ctx context.Context, target MessageTarget, toolName string, input string) (bool, error)
+}
+
+// ReflectionSender is an optional interface for channels that support interactive
+// replan-decision prompts during the cognitive REFLECT phase. The call blocks
+// until the user responds or a timeout is reached. Channels that do not implement
+// this interface default to ReplanContinue.
+type ReflectionSender interface {
+	SendReflectionRequest(ctx context.Context, target MessageTarget, reason string, confidence float64) (ReplanDecision, error)
+}
