@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,6 +19,13 @@ type LifecycleDecision struct {
 	RelatedTo     string   // ID of related memory for complementary facts
 }
 
+// GraphSyncer is an optional interface for syncing memory events to the knowledge graph.
+type GraphSyncer interface {
+	SyncOnAdd(ctx context.Context, factID, content string) error
+	SyncOnUpdate(ctx context.Context, oldFactID, newFactID, content string) error
+	SyncOnDelete(ctx context.Context, factID string) error
+}
+
 // LifecycleManager implements the ADD/UPDATE/DELETE/NOOP decision loop.
 // It mirrors the mem0 core design: new fact -> similarity search -> LLM decision -> execute.
 type LifecycleManager struct {
@@ -25,16 +33,28 @@ type LifecycleManager struct {
 	embedder  EmbeddingProvider
 	completer Completer
 	cfg       MemoryConfig
+	reflector *ReflectionTracker
+	graphSync GraphSyncer
 }
 
 // NewLifecycleManager creates a new LifecycleManager.
-func NewLifecycleManager(store Store, embedder EmbeddingProvider, completer Completer, cfg MemoryConfig) *LifecycleManager {
+// The reflector parameter is optional (can be nil) — when provided, each processed
+// fact is tracked for reflection trigger evaluation.
+func NewLifecycleManager(store Store, embedder EmbeddingProvider, completer Completer, cfg MemoryConfig, reflector *ReflectionTracker) *LifecycleManager {
 	return &LifecycleManager{
 		store:     store,
 		embedder:  embedder,
 		completer: completer,
 		cfg:       cfg,
+		reflector: reflector,
 	}
+}
+
+// SetGraphSync attaches an optional graph syncer to the lifecycle manager.
+// This is called after construction because the graph may be initialized after
+// the lifecycle manager is created.
+func (lm *LifecycleManager) SetGraphSync(gs GraphSyncer) {
+	lm.graphSync = gs
 }
 
 const lifecycleSystemPrompt = `You are a memory lifecycle manager. Given a new fact candidate and existing similar memories, decide what action to take.
@@ -80,16 +100,19 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 		}
 	}
 
-	// If no similar facts and LLM not available, just ADD.
-	if lm.completer == nil || len(candidates) == 0 {
-		return lm.executeAdd(ctx, fact, sessionID, userID, scope, "")
-	}
+	// Determine lifecycle decision.
+	var decision *LifecycleDecision
 
-	// Ask LLM to decide.
-	decision, err := lm.decide(ctx, fact, candidates)
-	if err != nil {
-		slog.Warn("lifecycle: LLM decision failed, defaulting to ADD", "err", err)
+	if lm.completer == nil || len(candidates) == 0 {
+		// No similar facts or no LLM — default to ADD.
 		decision = &LifecycleDecision{Action: ActionADD}
+	} else {
+		// Ask LLM to decide.
+		decision, err = lm.decide(ctx, fact, candidates)
+		if err != nil {
+			slog.Warn("lifecycle: LLM decision failed, defaulting to ADD", "err", err)
+			decision = &LifecycleDecision{Action: ActionADD}
+		}
 	}
 
 	contentPreview := fact.Content
@@ -102,22 +125,34 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 		"reason", decision.Reason,
 	)
 
+	// Execute the lifecycle action.
+	var execErr error
 	switch decision.Action {
 	case ActionADD:
-		return lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo)
+		execErr = lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo)
 	case ActionUPDATE:
 		if decision.TargetID != "" {
-			return lm.executeUpdate(ctx, decision.TargetID, fact, sessionID, userID, scope)
+			execErr = lm.executeUpdate(ctx, decision.TargetID, fact, sessionID, userID, scope)
+		} else {
+			execErr = lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo)
 		}
-		return lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo)
 	case ActionDELETE:
 		if decision.TargetID != "" {
-			return lm.executeDelete(ctx, decision.TargetID)
+			execErr = lm.executeDelete(ctx, decision.TargetID)
 		}
 	case ActionNOOP:
 		// Nothing to do.
 	}
-	return nil
+
+	// Trigger reflection check if reflector is available
+	if lm.reflector != nil && decision.Action != ActionNOOP {
+		trackID := fmt.Sprintf("fact_%d", time.Now().UnixNano())
+		if err := lm.reflector.Track(ctx, trackID, fact.Content, userID); err != nil {
+			slog.Warn("lifecycle: reflection tracking failed", "err", err)
+		}
+	}
+
+	return execErr
 }
 
 // decide calls the LLM to choose ADD/UPDATE/DELETE/NOOP for the given fact and candidates.
@@ -161,6 +196,9 @@ func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, cand
 // executeAdd stores a new fact entry as a Markdown file.
 func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, sessionID, userID string, scope MemoryScope, relatedTo string) error {
 	now := time.Now()
+	// Generate a predictable ID so we can pass it to both store.Save and graphSync.
+	factID := fmt.Sprintf("fact_%d", now.UnixNano())
+
 	metadata := map[string]string{
 		"category": fact.Category,
 		"source":   "fact_extraction",
@@ -168,8 +206,19 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 	if relatedTo != "" {
 		metadata["related_to"] = relatedTo
 	}
+	metadata["type"] = fact.Type
+	if fact.Importance > 0 {
+		metadata["importance"] = strconv.Itoa(fact.Importance)
+	}
+	if fact.Emotion != "" {
+		metadata["emotion"] = fact.Emotion
+	}
+	if fact.Sensitivity != "" {
+		metadata["sensitivity"] = fact.Sensitivity
+	}
 
-	return lm.store.Save(ctx, Entry{
+	if err := lm.store.Save(ctx, Entry{
+		ID:        factID,
 		SessionID: sessionID,
 		UserID:    userID,
 		Scope:     scope,
@@ -177,7 +226,18 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 		Metadata:  metadata,
 		CreatedAt: now,
 		UpdatedAt: now,
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Sync to knowledge graph if available
+	if lm.graphSync != nil {
+		if err := lm.graphSync.SyncOnAdd(ctx, factID, fact.Content); err != nil {
+			slog.Warn("lifecycle: graph sync on add failed", "id", factID, "err", err)
+		}
+	}
+
+	return nil
 }
 
 // executeUpdate archives old file and creates new file with updated content.
@@ -187,24 +247,61 @@ func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, 
 		return fmt.Errorf("archive old entry: %w", err)
 	}
 
-	// Create new entry
+	// Create new entry with a predictable ID
 	now := time.Now()
-	return lm.store.Save(ctx, Entry{
+	newFactID := fmt.Sprintf("fact_%d", now.UnixNano())
+
+	metadata := map[string]string{
+		"category":     fact.Category,
+		"source":       "fact_extraction",
+		"updated_from": targetID,
+	}
+	metadata["type"] = fact.Type
+	if fact.Importance > 0 {
+		metadata["importance"] = strconv.Itoa(fact.Importance)
+	}
+	if fact.Emotion != "" {
+		metadata["emotion"] = fact.Emotion
+	}
+	if fact.Sensitivity != "" {
+		metadata["sensitivity"] = fact.Sensitivity
+	}
+
+	if err := lm.store.Save(ctx, Entry{
+		ID:        newFactID,
 		SessionID: sessionID,
 		UserID:    userID,
 		Scope:     scope,
 		Content:   fact.Content,
-		Metadata: map[string]string{
-			"category":   fact.Category,
-			"source":     "fact_extraction",
-			"updated_from": targetID,
-		},
+		Metadata:  metadata,
 		CreatedAt: now,
 		UpdatedAt: now,
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Sync to knowledge graph if available
+	if lm.graphSync != nil {
+		if err := lm.graphSync.SyncOnUpdate(ctx, targetID, newFactID, fact.Content); err != nil {
+			slog.Warn("lifecycle: graph sync on update failed", "old_id", targetID, "new_id", newFactID, "err", err)
+		}
+	}
+
+	return nil
 }
 
 // executeDelete moves file to archived/ subdirectory.
 func (lm *LifecycleManager) executeDelete(ctx context.Context, targetID string) error {
-	return lm.store.Delete(ctx, targetID)
+	if err := lm.store.Delete(ctx, targetID); err != nil {
+		return err
+	}
+
+	// Sync to knowledge graph if available
+	if lm.graphSync != nil {
+		if err := lm.graphSync.SyncOnDelete(ctx, targetID); err != nil {
+			slog.Warn("lifecycle: graph sync on delete failed", "id", targetID, "err", err)
+		}
+	}
+
+	return nil
 }

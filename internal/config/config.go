@@ -166,6 +166,12 @@ type MemoryConfig struct {
 	SearchCacheSize       int           `yaml:"search_cache_size"`      // max cached queries (default: 500)
 	SearchCacheTTL        time.Duration `yaml:"search_cache_ttl"`       // cache TTL (default: 5min)
 	FileStorage           FileStorageConfig `yaml:"file_storage"`       // file storage specific settings
+	ReflectionCountThreshold int           `yaml:"reflection_count_threshold"` // default 10
+	ReflectionDriftThreshold float64       `yaml:"reflection_drift_threshold"` // default 0.7
+	ReflectionL2Trigger      int           `yaml:"reflection_l2_trigger"`      // default 5
+	RetentionEpisodic        time.Duration `yaml:"retention_episodic"`         // e.g., "720h" for 30 days
+	RetentionSemantic        time.Duration `yaml:"retention_semantic"`         // e.g., "8760h" for 365 days
+	RetentionProcedural      time.Duration `yaml:"retention_procedural"`       // 0 = never
 }
 
 // FileStorageConfig holds file-based storage specific settings.

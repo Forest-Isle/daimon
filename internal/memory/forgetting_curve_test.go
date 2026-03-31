@@ -150,3 +150,133 @@ This is a recent memory that should not be archived.
 		t.Error("strong file should not have been archived")
 	}
 }
+
+func TestTypeDependentDecay(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	fc := NewForgettingCurveManager(db)
+	ctx := context.Background()
+
+	created := time.Now().Add(-48 * time.Hour)
+	base := map[string]string{"importance": "5"}
+
+	episodic := Entry{
+		ID: "ep", Scope: ScopeUser, Content: "episodic",
+		Metadata: copyMap(base, "type", "episodic"), CreatedAt: created, UpdatedAt: created,
+	}
+	semantic := Entry{
+		ID: "sem", Scope: ScopeUser, Content: "semantic",
+		Metadata: copyMap(base, "type", "semantic"), CreatedAt: created, UpdatedAt: created,
+	}
+	procedural := Entry{
+		ID: "proc", Scope: ScopeUser, Content: "procedural",
+		Metadata: copyMap(base, "type", "procedural"), CreatedAt: created, UpdatedAt: created,
+	}
+
+	epStrength := fc.ComputeStrength(ctx, episodic)
+	semStrength := fc.ComputeStrength(ctx, semantic)
+	procStrength := fc.ComputeStrength(ctx, procedural)
+
+	t.Logf("episodic=%f semantic=%f procedural=%f", epStrength, semStrength, procStrength)
+
+	if epStrength >= semStrength {
+		t.Errorf("episodic (%f) should be weaker than semantic (%f)", epStrength, semStrength)
+	}
+	if semStrength >= procStrength {
+		t.Errorf("semantic (%f) should be weaker than procedural (%f)", semStrength, procStrength)
+	}
+}
+
+func TestProceduralAccessBonus(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	fc := NewForgettingCurveManager(db)
+	ctx := context.Background()
+
+	// Record 5 accesses for both entries
+	for i := 0; i < 5; i++ {
+		if err := fc.accessLog.RecordAccess(ctx, "sem_fact", "s1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := fc.accessLog.RecordAccess(ctx, "proc_fact", "s1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	created := time.Now().Add(-24 * time.Hour)
+
+	semEntry := Entry{
+		ID: "sem_fact", Scope: ScopeUser, Content: "semantic",
+		Metadata:  map[string]string{"importance": "5", "type": "semantic"},
+		CreatedAt: created, UpdatedAt: created,
+	}
+	procEntry := Entry{
+		ID: "proc_fact", Scope: ScopeUser, Content: "procedural",
+		Metadata:  map[string]string{"importance": "5", "type": "procedural"},
+		CreatedAt: created, UpdatedAt: created,
+	}
+
+	semStrength := fc.ComputeStrength(ctx, semEntry)
+	procStrength := fc.ComputeStrength(ctx, procEntry)
+
+	t.Logf("semantic strength=%f procedural strength=%f", semStrength, procStrength)
+
+	if procStrength <= semStrength {
+		t.Errorf("procedural (%f) should have higher strength than semantic (%f) due to higher access factor", procStrength, semStrength)
+	}
+}
+
+func TestComputeStrengthFromFileTypeDependentMultiplier(t *testing.T) {
+	fc := &ForgettingCurveManager{}
+
+	created := time.Now().Add(-48 * time.Hour)
+
+	types := []struct {
+		name       string
+		memType    string
+		multiplier float64
+	}{
+		{"episodic", "episodic", 12.0},
+		{"semantic", "semantic", 24.0},
+		{"procedural", "procedural", 48.0},
+	}
+
+	strengths := make(map[string]float64)
+	for _, tc := range types {
+		mf := &MemoryFile{
+			ID:         tc.name,
+			Scope:      "user",
+			Type:       tc.memType,
+			Importance: 5,
+			CreatedAt:  created,
+		}
+		s := fc.ComputeStrengthFromFile(mf)
+		strengths[tc.name] = s
+		t.Logf("%s: strength=%f", tc.name, s)
+	}
+
+	if strengths["episodic"] >= strengths["semantic"] {
+		t.Errorf("episodic (%f) should be < semantic (%f)", strengths["episodic"], strengths["semantic"])
+	}
+	if strengths["semantic"] >= strengths["procedural"] {
+		t.Errorf("semantic (%f) should be < procedural (%f)", strengths["semantic"], strengths["procedural"])
+	}
+}
+
+// copyMap creates a copy of base with an extra key/value pair.
+func copyMap(base map[string]string, key, value string) map[string]string {
+	m := make(map[string]string, len(base)+1)
+	for k, v := range base {
+		m[k] = v
+	}
+	m[key] = value
+	return m
+}

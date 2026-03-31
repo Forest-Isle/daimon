@@ -88,16 +88,19 @@ func New(cfg *config.Config) (*Gateway, error) {
 			slog.Info("memory: cached embedder enabled")
 		}
 		memCfg := memory.MemoryConfig{
-			FactExtraction:        cfg.Memory.FactExtraction,
-			SimilarityThreshold:   cfg.Memory.SimilarityThreshold,
-			ConsolidationInterval: cfg.Memory.ConsolidationInterval,
-			BM25Weight:            cfg.Memory.BM25Weight,
-			VectorWeight:          cfg.Memory.VectorWeight,
-			EnableVSS:             cfg.Memory.EnableVSS,
-			VectorDimension:       cfg.Memory.VectorDimension,
-			EnableSearchCache:     cfg.Memory.EnableSearchCache,
-			SearchCacheSize:       cfg.Memory.SearchCacheSize,
-			SearchCacheTTL:        cfg.Memory.SearchCacheTTL,
+			FactExtraction:           cfg.Memory.FactExtraction,
+			SimilarityThreshold:      cfg.Memory.SimilarityThreshold,
+			ConsolidationInterval:    cfg.Memory.ConsolidationInterval,
+			BM25Weight:               cfg.Memory.BM25Weight,
+			VectorWeight:             cfg.Memory.VectorWeight,
+			EnableVSS:                cfg.Memory.EnableVSS,
+			VectorDimension:          cfg.Memory.VectorDimension,
+			EnableSearchCache:        cfg.Memory.EnableSearchCache,
+			SearchCacheSize:          cfg.Memory.SearchCacheSize,
+			SearchCacheTTL:           cfg.Memory.SearchCacheTTL,
+			ReflectionCountThreshold: cfg.Memory.ReflectionCountThreshold,
+			ReflectionDriftThreshold: cfg.Memory.ReflectionDriftThreshold,
+			ReflectionL2Trigger:      cfg.Memory.ReflectionL2Trigger,
 		}
 
 		// Check for legacy data and prompt migration
@@ -129,6 +132,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 
 		runtime.SetMemoryStore(memStore)
 
+		// Set memory base dir on runtime for user profile injection
+		runtime.SetMemoryBaseDir(storageDir)
+
 		// Initialize incremental compressor
 		compressor := memory.NewIncrementalCompressor(storageDir, &completerAdapter{provider: provider, model: cfg.LLM.Model})
 		runtime.SetCompressor(compressor)
@@ -137,7 +143,36 @@ func New(cfg *config.Config) (*Gateway, error) {
 		// Initialize forgetting curve manager
 		forgettingCurve := memory.NewForgettingCurveManager(db)
 
-		// Schedule daily fade task for file-based storage
+		if cfg.Memory.FactExtraction {
+			completer := &completerAdapter{provider: provider, model: cfg.LLM.Model}
+			factExtractor = memory.NewLLMFactExtractor(completer, memCfg)
+
+			// Create reflection tracker for automatic L1/L2 reflections
+			var reflector *memory.ReflectionTracker
+			reflector = memory.NewReflectionTracker(memStore, completer, embedder, memCfg, db.DB)
+			slog.Info("memory: reflection tracker enabled")
+
+			lifecycleMgr = memory.NewLifecycleManager(memStore, embedder, completer, memCfg, reflector)
+
+			// Start compactor background task
+			compactor := memory.NewCompactor(memStore, completer, db.DB, storageDir, memCfg)
+			compactor.Start(context.Background())
+			slog.Info("memory: compactor enabled")
+			// Note: compactor.Stop() should be called on shutdown
+
+			// Create profiler (triggered by reflection completion, not a background task)
+			profiler := memory.NewProfiler(memStore, completer, db.DB, storageDir, memCfg)
+			_ = profiler // Profiler is triggered by ReflectionTracker callbacks
+			// TODO: Add profiler callback to reflector once ReflectionTracker supports it
+			slog.Info("memory: profiler created")
+		}
+
+		// Register memory_manage tool
+		memTool := tool.NewMemoryManageTool(memStore, db.DB, storageDir)
+		tools.Register(memTool)
+		slog.Info("memory: memory_manage tool registered")
+
+		// Schedule daily retention policy enforcement alongside fade task
 		go func() {
 			ticker := time.NewTicker(24 * time.Hour)
 			defer ticker.Stop()
@@ -145,15 +180,12 @@ func New(cfg *config.Config) (*Gateway, error) {
 				if err := forgettingCurve.FadeWeakMemoriesFromFiles(context.Background(), storageDir); err != nil {
 					slog.Warn("memory: fade weak memory files failed", "err", err)
 				}
+				if err := forgettingCurve.FadeByRetentionPolicy(context.Background(), storageDir, memCfg); err != nil {
+					slog.Warn("memory: retention policy enforcement failed", "err", err)
+				}
 			}
 		}()
-		slog.Info("memory: forgetting curve enabled (file-based)")
-
-		if cfg.Memory.FactExtraction {
-			completer := &completerAdapter{provider: provider, model: cfg.LLM.Model}
-			factExtractor = memory.NewLLMFactExtractor(completer, memCfg)
-			lifecycleMgr = memory.NewLifecycleManager(memStore, embedder, completer, memCfg)
-		}
+		slog.Info("memory: forgetting curve and retention policy enabled (file-based)")
 	}
 
 	// Optionally build cognitive agent
@@ -257,6 +289,19 @@ func New(cfg *config.Config) (*Gateway, error) {
 				cognitiveAgent.SetKnowledgeGraph(kg)
 				cognitiveAgent.SetEntityExtractor(extractor)
 			}
+
+			// Wire GraphSync to lifecycle manager for memory→graph synchronization
+			if lifecycleMgr != nil {
+				graphSync := graph.NewGraphSync(kg, extractor)
+				lifecycleMgr.SetGraphSync(graphSync)
+				slog.Info("knowledge graph: memory lifecycle sync enabled")
+			}
+
+			// Start graph decay background task
+			graphDecay := graph.NewGraphDecayTask(kg, 24*time.Hour)
+			go graphDecay.Start(context.Background())
+			slog.Info("knowledge graph: decay task started")
+
 			slog.Info("knowledge graph initialized")
 		}
 

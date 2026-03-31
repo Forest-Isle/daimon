@@ -36,9 +36,22 @@ func (fc *ForgettingCurveManager) ComputeStrength(ctx context.Context, fact Entr
 		}
 	}
 
+	// Type-dependent stability multiplier
+	typeMultiplier := 24.0 // semantic default
+	memType := ""
+	if t, ok := fact.Metadata["type"]; ok {
+		memType = t
+	}
+	switch memType {
+	case "episodic":
+		typeMultiplier = 12.0
+	case "procedural":
+		typeMultiplier = 48.0
+	}
+	stability := baseImportance * typeMultiplier
+
 	// Time decay: R(t) = e^(-t/S)
 	elapsedHours := time.Since(fact.CreatedAt).Hours()
-	stability := baseImportance * 24 // Important facts decay slower
 	retention := math.Exp(-elapsedHours / stability)
 
 	// Access bonus from last_accessed_at in frontmatter
@@ -51,7 +64,12 @@ func (fc *ForgettingCurveManager) ComputeStrength(ctx context.Context, fact Entr
 		return retention
 	}
 
-	accessBonus := 1.0 + 0.1*float64(accessCount)
+	// Type-dependent access factor
+	accessFactor := 0.1
+	if memType == "procedural" {
+		accessFactor = 0.12
+	}
+	accessBonus := 1.0 + accessFactor*float64(accessCount)
 
 	// Recent access boost
 	if !lastAccess.IsZero() && time.Since(lastAccess).Hours() < 24 {
@@ -69,9 +87,22 @@ func (fc *ForgettingCurveManager) ComputeStrengthFromFile(mf *MemoryFile) float6
 			baseImportance = v
 		}
 	}
+	// Also check the direct Importance field
+	if mf.Importance > 0 {
+		baseImportance = float64(mf.Importance)
+	}
+
+	// Type-dependent stability multiplier
+	typeMultiplier := 24.0
+	switch mf.Type {
+	case "episodic":
+		typeMultiplier = 12.0
+	case "procedural":
+		typeMultiplier = 48.0
+	}
+	stability := baseImportance * typeMultiplier
 
 	elapsedHours := time.Since(mf.CreatedAt).Hours()
-	stability := baseImportance * 24
 	retention := math.Exp(-elapsedHours / stability)
 
 	if mf.LastAccessed != nil {
@@ -167,5 +198,70 @@ func (fc *ForgettingCurveManager) FadeWeakMemoriesFromFiles(ctx context.Context,
 	}
 
 	slog.Info("forgetting_curve: faded weak memory files", "count", faded)
+	return nil
+}
+
+// FadeByRetentionPolicy archives memories that exceed their type-specific retention period.
+// Retention durations of 0 mean no time-based archival for that type (forgetting curve only).
+func (fc *ForgettingCurveManager) FadeByRetentionPolicy(ctx context.Context, baseDir string, cfg MemoryConfig) error {
+	// Build a map of memory_type → retention duration (skip zero durations)
+	retentionPolicies := map[string]time.Duration{}
+	if cfg.RetentionEpisodic > 0 {
+		retentionPolicies["episodic"] = cfg.RetentionEpisodic
+	}
+	if cfg.RetentionSemantic > 0 {
+		retentionPolicies["semantic"] = cfg.RetentionSemantic
+	}
+	if cfg.RetentionProcedural > 0 {
+		retentionPolicies["procedural"] = cfg.RetentionProcedural
+	}
+
+	if len(retentionPolicies) == 0 {
+		return nil // No retention policies configured
+	}
+
+	archived := 0
+	now := time.Now()
+
+	for memType, retention := range retentionPolicies {
+		cutoff := now.Add(-retention)
+
+		rows, err := fc.db.QueryContext(ctx, `
+			SELECT memory_id, file_path
+			FROM memory_index
+			WHERE memory_type = ? AND scope IN ('session', 'user') AND created_at < ?
+		`, memType, cutoff)
+		if err != nil {
+			slog.Warn("forgetting_curve: retention query failed", "type", memType, "err", err)
+			continue
+		}
+
+		for rows.Next() {
+			var id, filePath string
+			if err := rows.Scan(&id, &filePath); err != nil {
+				continue
+			}
+
+			archivedPath := filepath.Join(baseDir, "archived", filepath.Base(filePath))
+			if err := os.Rename(filePath, archivedPath); err != nil {
+				slog.Warn("forgetting_curve: retention archive failed", "id", id, "err", err)
+				continue
+			}
+
+			// Update memory_index
+			_, err := fc.db.ExecContext(ctx, `
+				UPDATE memory_index SET scope = 'archived', file_path = ? WHERE memory_id = ?
+			`, archivedPath, id)
+			if err != nil {
+				slog.Warn("forgetting_curve: retention index update failed", "id", id, "err", err)
+			}
+			archived++
+		}
+		rows.Close()
+	}
+
+	if archived > 0 {
+		slog.Info("forgetting_curve: archived by retention policy", "count", archived)
+	}
 	return nil
 }

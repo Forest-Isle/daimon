@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,10 @@ type MemoryFile struct {
 	UpdatedAt    time.Time         `yaml:"updated_at"`
 	LastAccessed *time.Time        `yaml:"last_accessed_at,omitempty"`
 	Strength     float64           `yaml:"strength,omitempty"`
+	Type         string            `yaml:"type,omitempty"`        // episodic, semantic, procedural, reflection, summary, profile
+	Importance   int               `yaml:"importance,omitempty"`  // 1-10
+	Emotion      string            `yaml:"emotion,omitempty"`     // positive, negative, neutral
+	Sensitivity  string            `yaml:"sensitivity,omitempty"` // public, private, secret
 	RelatedTo    string            `yaml:"related_to,omitempty"`
 	PromotedFrom string            `yaml:"promoted_from,omitempty"`
 	PromotedAt   *time.Time        `yaml:"promoted_at,omitempty"`
@@ -117,6 +122,24 @@ func (s *FileMemoryStore) Save(ctx context.Context, entry Entry) error {
 		Content:   entry.Content,
 	}
 
+	// Populate MemoryFile fields from entry metadata
+	if entry.Metadata != nil {
+		if t, ok := entry.Metadata["type"]; ok {
+			mf.Type = t
+		}
+		if imp, ok := entry.Metadata["importance"]; ok {
+			if v, err := strconv.Atoi(imp); err == nil {
+				mf.Importance = v
+			}
+		}
+		if e, ok := entry.Metadata["emotion"]; ok {
+			mf.Emotion = e
+		}
+		if sens, ok := entry.Metadata["sensitivity"]; ok {
+			mf.Sensitivity = sens
+		}
+	}
+
 	filePath := s.buildFilePath(entry.Scope, entry.ID, entry.CreatedAt)
 	if err := s.writeFileAtomic(filePath, mf); err != nil {
 		return err
@@ -176,6 +199,20 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 		for _, id := range candidateIDs {
 			args = append(args, id)
 		}
+	}
+
+	// TypeFilter: filter by memory type (e.g., "summary")
+	if query.TypeFilter != "" {
+		whereClause = append(whereClause, "memory_type = ?")
+		args = append(args, query.TypeFilter)
+	}
+
+	// Sensitivity filtering: exclude secret memories from automated searches
+	whereClause = append(whereClause, "sensitivity != 'secret'")
+
+	// If no user filter, also exclude private memories
+	if query.UserID == "" {
+		whereClause = append(whereClause, "sensitivity != 'private'")
 	}
 
 	sqlQuery := fmt.Sprintf("SELECT memory_id, file_path, strength FROM memory_index WHERE %s", strings.Join(whereClause, " AND "))
@@ -507,14 +544,32 @@ func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath s
 	}
 
 	// Update memory_index table
+	memType := "semantic"
+	emotion := "neutral"
+	sensitivity := "public"
+	if entry.Metadata != nil {
+		if t, ok := entry.Metadata["type"]; ok && t != "" {
+			memType = t
+		}
+		if e, ok := entry.Metadata["emotion"]; ok && e != "" {
+			emotion = e
+		}
+		if s, ok := entry.Metadata["sensitivity"]; ok && s != "" {
+			sensitivity = s
+		}
+	}
+
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO memory_index (memory_id, file_path, scope, user_id, session_id, created_at, updated_at, strength)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO memory_index (memory_id, file_path, scope, user_id, session_id, created_at, updated_at, strength, memory_type, emotion, sensitivity)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(memory_id) DO UPDATE SET
 			file_path = excluded.file_path,
 			updated_at = excluded.updated_at,
-			strength = excluded.strength
-	`, entry.ID, filePath, entry.Scope, entry.UserID, entry.SessionID, entry.CreatedAt, entry.UpdatedAt, 1.0)
+			strength = excluded.strength,
+			memory_type = excluded.memory_type,
+			emotion = excluded.emotion,
+			sensitivity = excluded.sensitivity
+	`, entry.ID, filePath, entry.Scope, entry.UserID, entry.SessionID, entry.CreatedAt, entry.UpdatedAt, 1.0, memType, emotion, sensitivity)
 	if err != nil {
 		return fmt.Errorf("update memory_index: %w", err)
 	}

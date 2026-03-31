@@ -53,7 +53,9 @@ func (g *SQLiteGraph) UpsertNode(ctx context.Context, node Node) (string, error)
 	return node.ID, nil
 }
 
-// UpsertEdge creates or updates an edge.
+// UpsertEdge creates or updates an edge with temporal versioning.
+// If an active edge (valid_to IS NULL) exists for the same (source, target, type),
+// it is invalidated and a new version is created.
 func (g *SQLiteGraph) UpsertEdge(ctx context.Context, edge Edge) (string, error) {
 	if edge.SourceID == "" || edge.TargetID == "" || edge.Type == "" {
 		return "", fmt.Errorf("edge source_id, target_id, and type are required")
@@ -62,16 +64,12 @@ func (g *SQLiteGraph) UpsertEdge(ctx context.Context, edge Edge) (string, error)
 	props, _ := json.Marshal(edge.Properties)
 	now := time.Now()
 
-	var id string
-	err := g.db.QueryRowContext(ctx,
-		`SELECT id FROM kg_edges WHERE source_id = ? AND target_id = ? AND type = ?`,
-		edge.SourceID, edge.TargetID, edge.Type).Scan(&id)
-	if err == nil {
-		// Update weight
-		_, err2 := g.db.ExecContext(ctx,
-			`UPDATE kg_edges SET weight = ?, properties = ? WHERE id = ?`,
-			edge.Weight, string(props), id)
-		return id, err2
+	// Invalidate existing active edge
+	_, err := g.db.ExecContext(ctx,
+		`UPDATE kg_edges SET valid_to = ? WHERE source_id = ? AND target_id = ? AND type = ? AND valid_to IS NULL`,
+		now, edge.SourceID, edge.TargetID, edge.Type)
+	if err != nil {
+		return "", fmt.Errorf("invalidate old edge: %w", err)
 	}
 
 	if edge.ID == "" {
@@ -82,16 +80,22 @@ func (g *SQLiteGraph) UpsertEdge(ctx context.Context, edge Edge) (string, error)
 		weight = 1.0
 	}
 	_, err = g.db.ExecContext(ctx,
-		`INSERT INTO kg_edges (id, source_id, target_id, type, weight, properties, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		edge.ID, edge.SourceID, edge.TargetID, edge.Type, weight, string(props), now)
+		`INSERT INTO kg_edges (id, source_id, target_id, type, weight, properties, created_at, valid_from, valid_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+		edge.ID, edge.SourceID, edge.TargetID, edge.Type, weight, string(props), now, now)
 	if err != nil {
 		return "", err
 	}
 	return edge.ID, nil
 }
 
-// Neighbors returns all nodes directly connected to nodeID, optionally filtered by edge type.
+// Neighbors returns all nodes directly connected to nodeID via currently active edges.
 func (g *SQLiteGraph) Neighbors(ctx context.Context, nodeID, edgeType string) ([]Triple, error) {
+	return g.NeighborsAt(ctx, nodeID, edgeType, nil)
+}
+
+// NeighborsAt returns neighbors as of a specific point in time.
+// If asOf is nil, only currently active edges (valid_to IS NULL) are returned.
+func (g *SQLiteGraph) NeighborsAt(ctx context.Context, nodeID, edgeType string, asOf *time.Time) ([]Triple, error) {
 	query := `
         SELECT e.id, e.source_id, e.target_id, e.type, e.weight,
                n.id, n.type, n.name, n.properties
@@ -99,6 +103,14 @@ func (g *SQLiteGraph) Neighbors(ctx context.Context, nodeID, edgeType string) ([
           JOIN kg_nodes n ON n.id = e.target_id
          WHERE e.source_id = ?`
 	args := []any{nodeID}
+
+	if asOf != nil {
+		query += ` AND e.valid_from <= ? AND (e.valid_to IS NULL OR e.valid_to > ?)`
+		args = append(args, *asOf, *asOf)
+	} else {
+		query += ` AND e.valid_to IS NULL`
+	}
+
 	if edgeType != "" {
 		query += ` AND e.type = ?`
 		args = append(args, edgeType)
@@ -113,30 +125,54 @@ func (g *SQLiteGraph) Neighbors(ctx context.Context, nodeID, edgeType string) ([
 }
 
 // Traverse performs BFS multi-hop traversal from nodeID up to maxDepth using recursive CTE.
+// Only currently active edges (valid_to IS NULL) are traversed.
 func (g *SQLiteGraph) Traverse(ctx context.Context, nodeID string, maxDepth int) ([]Triple, error) {
+	return g.TraverseAt(ctx, nodeID, maxDepth, nil)
+}
+
+// TraverseAt performs BFS multi-hop traversal as of a specific point in time.
+// If asOf is nil, only currently active edges are traversed.
+func (g *SQLiteGraph) TraverseAt(ctx context.Context, nodeID string, maxDepth int, asOf *time.Time) ([]Triple, error) {
 	if maxDepth <= 0 {
 		maxDepth = 3
 	}
 
-	// Recursive CTE: traverse up to maxDepth hops
+	var temporalFilter string
+	var args []any
+
+	if asOf != nil {
+		temporalFilter = `AND e.valid_from <= ? AND (e.valid_to IS NULL OR e.valid_to > ?)`
+		// Base case args: nodeID, asOf, asOf
+		// Recursive case args: asOf, asOf (same filter)
+		// We use named placeholders via positional args
+	} else {
+		temporalFilter = `AND e.valid_to IS NULL`
+	}
+
 	query := fmt.Sprintf(`
         WITH RECURSIVE traverse(source_id, target_id, edge_type, weight, depth) AS (
-            SELECT source_id, target_id, type, weight, 1
-              FROM kg_edges
-             WHERE source_id = ?
+            SELECT e.source_id, e.target_id, e.type, e.weight, 1
+              FROM kg_edges e
+             WHERE e.source_id = ? %s
             UNION ALL
             SELECT e.source_id, e.target_id, e.type, e.weight, t.depth + 1
               FROM kg_edges e
               JOIN traverse t ON e.source_id = t.target_id
-             WHERE t.depth < %d
+             WHERE t.depth < %d %s
         )
         SELECT DISTINCT t.source_id, t.target_id, t.edge_type, t.weight,
                n.id, n.type, n.name, n.properties
           FROM traverse t
           JOIN kg_nodes n ON n.id = t.target_id
-         ORDER BY t.depth`, maxDepth)
+         ORDER BY t.depth`, temporalFilter, maxDepth, temporalFilter)
 
-	rows, err := g.db.QueryContext(ctx, query, nodeID)
+	if asOf != nil {
+		args = append(args, nodeID, *asOf, *asOf, *asOf, *asOf)
+	} else {
+		args = append(args, nodeID)
+	}
+
+	rows, err := g.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +222,61 @@ func (g *SQLiteGraph) AddProvenance(ctx context.Context, edgeID, sourceType, sou
 	_, err := g.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO kg_provenance (edge_id, source_type, source_id) VALUES (?, ?, ?)`,
 		edgeID, sourceType, sourceID)
+	return err
+}
+
+// FindEdgesByProvenance returns all active edges that have provenance from the given sourceID.
+func (g *SQLiteGraph) FindEdgesByProvenance(ctx context.Context, sourceID string) ([]Edge, error) {
+	rows, err := g.db.QueryContext(ctx,
+		`SELECT e.id, e.source_id, e.target_id, e.type, e.weight, e.properties, e.created_at, e.valid_from, e.valid_to
+		   FROM kg_edges e
+		   JOIN kg_provenance p ON p.edge_id = e.id
+		  WHERE p.source_id = ? AND e.valid_to IS NULL`, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var edges []Edge
+	for rows.Next() {
+		var e Edge
+		var props string
+		var validFrom, validTo sql.NullTime
+		if err := rows.Scan(&e.ID, &e.SourceID, &e.TargetID, &e.Type, &e.Weight, &props, &e.CreatedAt, &validFrom, &validTo); err != nil {
+			continue
+		}
+		json.Unmarshal([]byte(props), &e.Properties) //nolint:errcheck
+		if validFrom.Valid {
+			e.ValidFrom = &validFrom.Time
+		}
+		if validTo.Valid {
+			e.ValidTo = &validTo.Time
+		}
+		edges = append(edges, e)
+	}
+	return edges, rows.Err()
+}
+
+// RemoveProvenance removes a specific provenance entry for an edge.
+func (g *SQLiteGraph) RemoveProvenance(ctx context.Context, edgeID, sourceID string) error {
+	_, err := g.db.ExecContext(ctx,
+		`DELETE FROM kg_provenance WHERE edge_id = ? AND source_id = ?`,
+		edgeID, sourceID)
+	return err
+}
+
+// CountProvenance returns the number of provenance entries for an edge.
+func (g *SQLiteGraph) CountProvenance(ctx context.Context, edgeID string) (int, error) {
+	var count int
+	err := g.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM kg_provenance WHERE edge_id = ?`, edgeID).Scan(&count)
+	return count, err
+}
+
+// UpdateEdgeWeight updates the weight of an edge.
+func (g *SQLiteGraph) UpdateEdgeWeight(ctx context.Context, edgeID string, weight float64) error {
+	_, err := g.db.ExecContext(ctx,
+		`UPDATE kg_edges SET weight = ? WHERE id = ?`, weight, edgeID)
 	return err
 }
 

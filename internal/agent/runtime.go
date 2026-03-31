@@ -22,21 +22,25 @@ type ApprovalFunc func(ctx context.Context, ch channel.Channel, target channel.M
 
 // Runtime orchestrates the agent loop: context → LLM → tools → reply.
 type Runtime struct {
-	provider     Provider
-	tools        *tool.Registry
-	sessions     *session.Manager
-	db           *store.DB
-	cfg          config.AgentConfig
-	llmCfg       config.LLMConfig
-	approvalFunc ApprovalFunc
-	memStore     memory.Store
-	skillMgr     *skill.Manager
-	agentMgr     *AgentManager
-	compressor   *memory.IncrementalCompressor
+	provider       Provider
+	tools          *tool.Registry
+	sessions       *session.Manager
+	db             *store.DB
+	cfg            config.AgentConfig
+	llmCfg         config.LLMConfig
+	approvalFunc   ApprovalFunc
+	memStore       memory.Store
+	skillMgr       *skill.Manager
+	agentMgr       *AgentManager
+	compressor     *memory.IncrementalCompressor
+	memoryBaseDir  string // base directory for file-based memory storage
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
 func (r *Runtime) SetMemoryStore(s memory.Store) { r.memStore = s }
+
+// SetMemoryBaseDir sets the base directory for file-based memory storage.
+func (r *Runtime) SetMemoryBaseDir(dir string) { r.memoryBaseDir = dir }
 
 // SetSkillManager attaches a skill manager to the runtime.
 func (r *Runtime) SetSkillManager(m *skill.Manager) { r.skillMgr = m }
@@ -390,7 +394,18 @@ func (r *Runtime) buildSystemPrompt(ctx context.Context, userText string) string
 		}
 	}
 
-	// 5. Skills
+	// 5. User profile (loaded from memory base dir)
+	if r.memoryBaseDir != "" {
+		// Attempt to load user profile — userID is not available in simple mode,
+		// so we use a default. The cognitive agent has proper user tracking.
+		profileContent, err := memory.LoadUserProfile(r.memoryBaseDir, "default")
+		if err == nil && profileContent != "" {
+			sb.WriteString("\n\n## User Context\n")
+			sb.WriteString(profileContent)
+		}
+	}
+
+	// 6. Skills
 	if r.skillMgr != nil {
 		if section := r.skillMgr.BuildPromptSection(userText); section != "" {
 			sb.WriteString("\n\n")
@@ -399,7 +414,7 @@ func (r *Runtime) buildSystemPrompt(ctx context.Context, userText string) string
 		}
 	}
 
-	// 6. Available agents
+	// 7. Available agents
 	if r.agentMgr != nil {
 		if section := r.agentMgr.BuildPromptSection(); section != "" {
 			sb.WriteString("\n\n")
