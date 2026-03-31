@@ -9,48 +9,51 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/punkopunko/ironclaw)](go.mod)
 [![Release](https://img.shields.io/github/v/release/punkopunko/ironclaw)](https://github.com/punkopunko/ironclaw/releases)
 
-IronClaw is a self-hosted AI agent runtime that runs entirely on your own infrastructure. It connects Claude AI with real-world tools — shell commands, file operations, HTTP requests — and exposes them through channels like Telegram. All data stays local in SQLite.
+IronClaw is a self-hosted AI agent runtime that runs entirely on your own infrastructure. It connects Claude AI with real-world tools — shell commands, file operations, HTTP requests, browser automation — and exposes them through multiple channels (Telegram, Terminal UI). All data stays local in SQLite and Markdown files.
 
 ## Features
 
-- **Dual Agent Modes** — Simple linear loop or Cognitive 5-phase loop (PERCEIVE → PLAN → ACT → OBSERVE → REFLECT) with replan support
-- **Long-term Memory** — File-based storage with Markdown files at `~/.ironclaw/memory/`, mem0-style fact extraction with four scopes (session/user/global/feedback), FTS5+vector hybrid search, lifecycle management (ADD/UPDATE/DELETE), forgetting curve integration, and automatic consolidation
-- **Knowledge Base** — Document ingestion pipeline (Markdown, code, text, web) with BM25+vector hybrid retrieval and optional LLM reranker
-- **Knowledge Graph** — Entity/relation triple extraction with multi-hop recursive CTE traversal and provenance tracking
+- **Dual Agent Modes** — Simple linear loop or Cognitive 5-phase loop (PERCEIVE → PLAN → ACT → OBSERVE → REFLECT) with automatic replanning and confidence tracking
+- **Advanced Memory System** — File-based Markdown storage with cognitive science-inspired memory types (episodic/semantic/procedural), importance scoring, forgetting curve integration, automatic reflection (L1 patterns + L2 strategic insights), hierarchical compression (facts → summaries → user profiles), and layered retrieval
+- **Knowledge Base** — Document ingestion pipeline (Markdown, code, PDF, text, web) with BM25+vector hybrid retrieval, RRF fusion, and optional LLM reranker
+- **Temporal Knowledge Graph** — Entity/relation extraction with time-aware edge versioning, multi-hop recursive CTE traversal, memory-graph bidirectional sync, provenance tracking, and automatic graph decay
+- **Privacy Controls** — PII detection (email, phone, SSN, credit card), sensitivity classification (public/private/secret), user-facing memory management tool, configurable retention policies, and audit logging
 - **MCP Protocol** — Connect multiple MCP servers with hot-reload, automatic tool discovery and registration
 - **Skill System** — Extensible SKILL.md format with built-in ClawHub registry for searching, installing, and managing skills
-- **Telegram Bot Channel** — Streaming message updates, inline keyboard for tool approvals and replan decisions, user-level access control
-- **Tool System** — Built-in tools for Bash execution, file I/O, HTTP requests, and browser automation
-- **Persona & User Directory** — Auto-initialized `~/.IronClaw/` with personality files (Soul.md, Memory.md, Agent.md) and per-user MCP configs
-- **Local Storage** — SQLite with WAL mode, embedded migrations, FTS5 full-text search (graceful degradation)
+- **Multi-Channel** — Telegram bot (streaming, inline keyboard approvals) and TUI terminal interface (Bubble Tea + Glamour markdown rendering)
+- **Reinforcement Learning** — Three-layer RL system: Contextual Bandit (tool selection), PPO (plan strategy), DQN (replan decisions) with full neural network training
+- **Tool System** — Built-in tools for Bash, file I/O, HTTP, browser automation, skill execution, and memory management, plus MCP-based dynamic tool discovery
+- **Persona & User Directory** — Auto-initialized `~/.IronClaw/` with personality files (Soul.md, Memory.md, Agent.md) and per-user configs
+- **Local Storage** — SQLite with WAL mode, 12 embedded migrations, FTS5 full-text search (graceful degradation to LIKE)
 - **Task Scheduler** — Cron-based scheduled tasks with database-backed persistence
-- **Tool Approval** — Configurable per-tool approval mechanism with Telegram inline keyboard
-- **HTTP Gateway** — Optional REST API for programmatic access
-- **Session Management** — Per-user conversation sessions with history compaction
+- **Tool Approval** — Configurable per-tool approval via Telegram inline keyboard or TUI interactive prompts
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
-│  Telegram    │────▶│   Gateway    │────▶│   Agent         │
-│  Channel     │◀────│   (Router)   │◀────│ Simple/Cognitive│
-└─────────────┘     └──────┬───────┘     └──────┬──────────┘
-                           │                     │
-                    ┌──────┴──────┐        ┌─────┴──────┐
-                    │  HTTP API   │        │   Tools    │
-                    │  (optional) │        │ bash/file/ │
-                    └─────────────┘        │ http/mcp   │
-                                           └─────┬──────┘
-                                                  │
-┌─────────────┐  ┌─────────────┐  ┌───────────────┴───────┐
-│  Scheduler  │  │   Skills    │  │       Store (SQLite)   │
-│  (cron)     │  │  (ClawHub)  │  ├────────────┬───────────┤
-└─────────────┘  └─────────────┘  │  Memory    │ Knowledge │
-                                  │ (FTS5+vec) │ (BM25+vec)│
-┌─────────────┐                   ├────────────┤───────────┤
-│  User Dir   │                   │  Knowledge Graph       │
-│ (~/.IronClaw)│                  │  (entity triples)      │
-└─────────────┘                   └────────────────────────┘
+┌─────────────┐  ┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
+│  Telegram    │  │  TUI        │────▶│   Gateway    │────▶│   Agent         │
+│  Channel     │  │  Channel    │◀────│   (Router)   │◀────│ Simple/Cognitive│
+└─────────────┘  └─────────────┘     └──────┬───────┘     └──────┬──────────┘
+                                            │                     │
+                                     ┌──────┴──────┐        ┌─────┴──────┐
+                                     │  HTTP API   │        │   Tools    │
+                                     │  (optional) │        │ bash/file/ │
+                                     └─────────────┘        │ http/mcp   │
+                                                            └─────┬──────┘
+                                                                  │
+┌─────────────┐  ┌─────────────┐  ┌───────────────────────────────┴───────┐
+│  Scheduler  │  │   Skills    │  │            Store (SQLite)              │
+│  (cron)     │  │  (ClawHub)  │  ├──────────────┬────────────────────────┤
+└─────────────┘  └─────────────┘  │   Memory     │   Knowledge Base      │
+                                  │ File-first   │   (BM25 + vector)     │
+┌─────────────┐  ┌─────────────┐  │ MD + SQLite  ├────────────────────────┤
+│  User Dir   │  │  RL Engine  │  │ index        │   Knowledge Graph     │
+│(~/.IronClaw)│  │(Bandit/PPO/ │  ├──────────────┤   (temporal edges,    │
+└─────────────┘  │ DQN)        │  │  Reflector   │    provenance)        │
+                 └─────────────┘  │  Compactor   ├────────────────────────┤
+                                  │  Profiler    │   Privacy & Audit     │
+                                  └──────────────┴────────────────────────┘
 ```
 
 ## Quick Start
@@ -70,8 +73,11 @@ vim configs/ironclaw.yaml
 # Build (requires CGO for SQLite)
 make build
 
-# Run
+# Run with Telegram channel
 ./bin/ironclaw start
+
+# Or run with Terminal UI
+./bin/ironclaw tui
 ```
 
 ### Docker
@@ -102,17 +108,16 @@ cp configs/ironclaw.example.yaml configs/ironclaw.yaml
 
 ## Configuration
 
-IronClaw uses a YAML config file. See [`configs/ironclaw.example.yaml`](configs/ironclaw.example.yaml) for all available options.
-
-Key settings:
+IronClaw uses a YAML config file with environment variable expansion (`${VAR_NAME}`). See [`configs/ironclaw.example.yaml`](configs/ironclaw.example.yaml) for all options.
 
 | Section | Description |
 |---------|-------------|
 | `llm` | AI provider config (API key, model, max tokens) |
 | `telegram` | Bot token and allowed user IDs |
-| `agent` | Mode (simple/cognitive), max iterations, system prompt, personality |
+| `tui` | Terminal UI settings (auto_approve mode) |
+| `agent` | Mode (simple/cognitive), max iterations, RL config |
 | `store` | SQLite database path |
-| `memory` | Fact extraction, scopes, similarity threshold, consolidation, BM25/vector weights |
+| `memory` | Storage dir, fact extraction, similarity threshold, reflection/compaction thresholds, retention policies |
 | `knowledge` | Document ingestion dirs, chunk size, hybrid retrieval, reranker, graph |
 | `skills` | Enable/disable, extra skill directories |
 | `scheduler` | Cron task scheduler |
@@ -120,107 +125,112 @@ Key settings:
 | `server` | Optional HTTP API endpoint |
 | `log` | Log level and format |
 
-Environment variables can be used in config values with `${VAR_NAME}` syntax.
-
-## Skill Management
-
-IronClaw supports extensible skills via SKILL.md files and the [ClawHub](https://clawhub.ai) public registry.
-
-```bash
-# List installed skills (including built-in)
-ironclaw skill list
-
-# Search for skills
-ironclaw skill search "web scraping"
-
-# Install a skill
-ironclaw skill install <slug>
-
-# Update all skills
-ironclaw skill update
-
-# Remove a skill
-ironclaw skill remove <name>
-```
-
-Skills are stored in `~/.IronClaw/skills/`. Requires `clawhub` CLI (`npm install -g clawhub`).
-
 ## Memory System
 
-IronClaw uses a **file-first memory architecture** where Markdown files are the source of truth and SQLite serves as an auxiliary index for fast search.
+IronClaw uses a **file-first memory architecture** inspired by cognitive science, with five layers of memory processing:
+
+```
+Layer 0: Working Context (current conversation)
+    ↓ fact extraction
+Layer 1: Session Facts (episodic/semantic/procedural, with importance & emotion)
+    ↓ consolidation (24h, strength ≥ 0.5)
+Layer 2: User Facts (promoted from session)
+    ↓ compaction (same category ≥ 8 facts)
+Layer 3: Summaries (LLM-merged structured summaries)
+    ↓ reflection (L1 patterns → L2 strategic insights)
+Layer 4: User Profile (identity, preferences, current focus)
+```
+
+### Memory Types
+
+| Type | Decay Rate | Description |
+|------|-----------|-------------|
+| **Episodic** | Fast (12h × importance) | Time-bound events and specific experiences |
+| **Semantic** | Standard (24h × importance) | General knowledge, preferences, stable facts |
+| **Procedural** | Slow (48h × importance) | Behavioral patterns, workflows — strengthens with use |
 
 ### Storage Structure
 
-Memories are stored at `~/.ironclaw/memory/` with the following structure:
-
 ```
 ~/.ironclaw/memory/
-├── MEMORY.md              # Index file listing all active memories
-├── user/                  # User-scoped long-term memories
-│   └── preference_20260328_abc123.md
+├── MEMORY.md              # Index of all active memories
+├── user/                  # Long-term memories + summaries + profiles
 ├── session/               # Session-scoped temporary memories
-│   └── context_20260328_def456.md
-├── feedback/              # User feedback and corrections
-│   └── feedback_20260328_ghi789.md
-├── global/                # Global cross-user memories
-│   └── system_20260328_jkl012.md
+├── feedback/              # User corrections
+├── global/                # Cross-user system memories
 └── archived/              # Auto-archived low-strength memories
-    └── old_20260320_mno345.md
 ```
 
-Each memory file contains YAML frontmatter with metadata and Markdown content:
+Each memory file uses YAML frontmatter:
 
 ```markdown
 ---
 id: abc123
 scope: user
-user_id: user_001
-created_at: 2026-03-28T10:00:00Z
-updated_at: 2026-03-28T10:00:00Z
-last_accessed_at: 2026-03-28T12:00:00Z
+type: semantic
+importance: 7
+emotion: neutral
+sensitivity: public
 strength: 0.85
-related_to: [def456, ghi789]
+created_at: 2026-03-28T10:00:00Z
 ---
 
 User prefers concise responses without verbose explanations.
 ```
 
-### Migration from Legacy SQLite Storage
+### Key Mechanisms
 
-If you're upgrading from a version that used SQLite as primary storage, migrate your data:
+- **Hybrid Search**: BM25 (FTS5) + vector (cosine similarity) with RRF fusion and strength weighting
+- **Forgetting Curve**: Ebbinghaus-based decay `R(t) = e^(-t/S)` with type-dependent stability and access bonuses
+- **Lifecycle Management**: LLM-driven ADD/UPDATE/DELETE/NOOP decisions with conflict detection (mem0-style)
+- **Reflection**: Hybrid trigger (count ≥ 10 OR topic drift cosine < 0.7) producing multi-level insights
+- **Privacy**: Auto PII detection, sensitivity classification, user-facing `memory_manage` tool for selective forgetting
+- **Graph Sync**: Memory lifecycle events automatically sync to knowledge graph (entity extraction, provenance, edge weakening)
+
+### Migration from Legacy Storage
 
 ```bash
-# Migrate existing memories to file-based storage
-# Creates backup at ~/.ironclaw/backups/memory_backup_{timestamp}.db
-ironclaw memory migrate
-
-# Preview migration without writing files
-ironclaw memory migrate --dry-run
-
-# Restore from backup if needed
-ironclaw memory restore
+ironclaw memory migrate            # Migrate SQLite → file storage
+ironclaw memory migrate --dry-run  # Preview only
+ironclaw memory restore            # Restore from backup
 ```
 
-The migration tool:
-- Backs up your database before migration
-- Converts `memory_facts` table rows to Markdown files
-- Preserves all metadata (scope, timestamps, embeddings)
-- Reports progress during migration
-- Is idempotent (safe to run multiple times)
+## Knowledge Graph
 
-### How It Works
+The temporal knowledge graph tracks entity relationships with version history:
 
-**Search flow**: Parse MEMORY.md index → Query SQLite index (FTS5 + vector) → RRF fusion with strength weighting → Read top-k Markdown files
+- **Temporal Edges**: `valid_from`/`valid_to` timestamps enable point-in-time queries and relationship versioning
+- **Memory Sync**: Memory ADD → entity extraction; UPDATE → provenance migration; DELETE → edge weakening (not deletion)
+- **Graph Decay**: Background task cleans orphaned provenance, decays unsupported edges, removes dead edges
+- **Multi-hop Traversal**: Recursive CTE with temporal predicates for current-state and historical queries
+- **Graph-Boosted Retrieval**: Memory search results enriched by graph connectivity scoring
 
-**Forgetting curve**: Memories decay over time based on `last_accessed_at` and access frequency. Memories with strength < 0.3 are automatically archived by a background task (runs every 24h).
+## Channels
 
-**Consolidation**: Session memories older than 24h with strength ≥ 0.5 are promoted to user scope (files moved from `session/` → `user/`).
+### Telegram
 
-**Benefits**:
-- Human-readable and editable
-- Git-friendly version control
-- Portable and easy to backup
-- Resilient to database corruption
+Full-featured Telegram bot with streaming message updates, inline keyboard for tool approvals and replan decisions, and user-level access control.
+
+### Terminal UI (TUI)
+
+Interactive terminal interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Glamour](https://github.com/charmbracelet/glamour) for rich markdown rendering.
+
+```bash
+ironclaw tui                # Start interactive TUI
+ironclaw tui --auto-approve # Auto-approve all tool calls
+```
+
+## Skill Management
+
+IronClaw supports extensible skills via SKILL.md files and the [ClawHub](https://clawhub.ai) registry.
+
+```bash
+ironclaw skill list              # List installed skills
+ironclaw skill search "web"      # Search ClawHub
+ironclaw skill install <slug>    # Install a skill
+ironclaw skill update            # Update all skills
+ironclaw skill remove <name>     # Remove a skill
+```
 
 ## User Directory
 
@@ -229,30 +239,29 @@ On first run, IronClaw initializes `~/.IronClaw/` with:
 - `Soul.md` — Agent personality and communication style
 - `Memory.md` — Persistent rules and preferences
 - `Agent.md` — Core system prompt template
+- `config.yaml` — User overlay configuration
 - `skills/` — User-installed skills
 - `mcp/` — MCP server configurations (YAML, hot-reloaded)
+- `memory/` — Long-term memory (Markdown + SQLite index)
 
 ## Development
 
 ```bash
-# Build
-make build
-
-# Run tests
-make test
-
-# Lint (requires golangci-lint)
-make lint
-
-# Format code
-make fmt
-
-# Build Docker image
-make docker
-
-# Show all targets
-make help
+make build          # Build binary (CGO_ENABLED=1, -tags fts5)
+make test           # Run all tests
+make lint           # Run golangci-lint
+make fmt            # Format code (goimports + go fmt)
+make docker         # Build Docker image
+make help           # Show all targets
 ```
+
+Single test:
+
+```bash
+CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/package/ -v
+```
+
+> **Note**: `CGO_ENABLED=1` and `-tags fts5` are required for all build/test commands — SQLite uses cgo and FTS5 must be enabled at compile time.
 
 ## Roadmap
 
@@ -263,6 +272,8 @@ make help
 - [ ] Webhook triggers
 - [x] ~~Plugin system for custom tools~~ (Skill System + MCP)
 - [x] ~~RAG with document ingestion~~ (Knowledge Base + Knowledge Graph)
+- [x] ~~Terminal UI~~ (Bubble Tea TUI Channel)
+- [x] ~~Advanced memory~~ (Type taxonomy, reflection, compression, privacy)
 
 ## Contributing
 
