@@ -24,6 +24,8 @@ type Edge struct {
 	Weight     float64
 	Properties map[string]string
 	CreatedAt  time.Time
+	ValidFrom  *time.Time `json:"valid_from,omitempty"`
+	ValidTo    *time.Time `json:"valid_to,omitempty"`
 }
 
 // Triple is a subject-predicate-object relation.

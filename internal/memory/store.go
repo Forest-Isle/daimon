@@ -17,6 +17,17 @@ type MemoryConfig struct {
 	EnableSearchCache     bool          // Enable search result caching
 	SearchCacheSize       int           // Max cached queries (default: 500)
 	SearchCacheTTL        time.Duration // Cache TTL (default: 5min)
+
+	ReflectionCountThreshold int     // default 10, trigger reflection after N unreflected facts
+	ReflectionDriftThreshold float64 // default 0.7, trigger if cosine sim drops below this
+	ReflectionL2Trigger      int     // default 5, generate L2 reflection after this many L1s
+
+	CompactionInterval  time.Duration // default 6h, how often to run compaction
+	CompactionThreshold int           // default 8, compact when category has >= this many memories
+
+	RetentionEpisodic   time.Duration // retention for episodic memories, 0 = use forgetting curve only
+	RetentionSemantic   time.Duration // retention for semantic memories
+	RetentionProcedural time.Duration // retention for procedural memories, 0 = never auto-delete
 }
 
 // MemoryScope defines the lifetime/visibility of a memory.md entry.
@@ -55,12 +66,13 @@ type Entry struct {
 
 // SearchQuery defines parameters for memory search.
 type SearchQuery struct {
-	Text      string
-	Embedding []float32
-	Limit     int
-	SessionID string        // optional: scope to session
-	UserID    string        // optional: scope to user
-	Scopes    []MemoryScope // optional: filter by scope(s)
+	Text       string
+	Embedding  []float32
+	Limit      int
+	SessionID  string        // optional: scope to session
+	UserID     string        // optional: scope to user
+	Scopes     []MemoryScope // optional: filter by scope(s)
+	TypeFilter string        // optional: filter by memory type (e.g., "summary")
 }
 
 // SearchResult is a memory entry with a relevance score.

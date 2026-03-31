@@ -15,21 +15,27 @@ type Completer interface {
 
 // ExtractedFact is a single fact extracted from a conversation message.
 type ExtractedFact struct {
-	Content  string `json:"content"`
-	Category string `json:"category"` // e.g. "preference", "fact", "task", "relationship"
+	Content     string `json:"content"`
+	Category    string `json:"category"`   // e.g. "preference", "fact", "task", "relationship", "identity"
+	Type        string `json:"type"`       // "episodic", "semantic", "procedural"
+	Importance  int    `json:"importance"` // 1-10
+	Emotion     string `json:"emotion"`    // "positive", "negative", "neutral"
+	Sensitivity string `json:"-"`          // set by PII detection, not from LLM
 }
 
 // LLMFactExtractor extracts distilled facts from raw conversation messages using an LLM.
 type LLMFactExtractor struct {
-	completer Completer
-	enabled   bool
+	completer   Completer
+	enabled     bool
+	piiDetector *PIIDetector
 }
 
 // NewLLMFactExtractor creates a new LLMFactExtractor.
 func NewLLMFactExtractor(completer Completer, cfg MemoryConfig) *LLMFactExtractor {
 	return &LLMFactExtractor{
-		completer: completer,
-		enabled:   cfg.FactExtraction,
+		completer:   completer,
+		enabled:     cfg.FactExtraction,
+		piiDetector: NewPIIDetector(),
 	}
 }
 
@@ -41,7 +47,12 @@ Rules:
 3. Include only facts that would be useful in future conversations: preferences, identities, goals, learned facts.
 4. Ignore ephemeral details (current time, temporary states).
 5. Maximum 5 facts per extraction.
-6. Each fact object: {"content": "<fact>", "category": "<preference|fact|task|relationship|identity>"}
+6. Each fact object: {"content": "<fact>", "category": "<preference|fact|task|relationship|identity>", "type": "<episodic|semantic|procedural>", "importance": <1-10>, "emotion": "<positive|negative|neutral>"}
+
+Memory types:
+- episodic: time-bound events and specific experiences
+- semantic: general knowledge, preferences, and stable facts
+- procedural: behavioral patterns, workflows, and learned procedures
 
 If no memorable facts are present, output: []`
 
@@ -57,7 +68,19 @@ func (e *LLMFactExtractor) Extract(ctx context.Context, goal, outcome string) ([
 		return nil, fmt.Errorf("fact extraction LLM call: %w", err)
 	}
 
-	return parseFacts(resp)
+	facts, err := parseFacts(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply PII detection
+	for i := range facts {
+		if e.piiDetector.HasPII(facts[i].Content) {
+			facts[i].Sensitivity = "private"
+		}
+	}
+
+	return facts, nil
 }
 
 // parseFacts extracts a JSON array of ExtractedFact from raw LLM text output.
@@ -75,5 +98,23 @@ func parseFacts(text string) ([]ExtractedFact, error) {
 	if err := json.Unmarshal([]byte(jsonStr), &facts); err != nil {
 		return nil, fmt.Errorf("parse facts JSON: %w", err)
 	}
+
+	// Apply defaults and validate fields
+	validTypes := map[string]bool{"episodic": true, "semantic": true, "procedural": true}
+	validEmotions := map[string]bool{"positive": true, "negative": true, "neutral": true}
+	for i := range facts {
+		if !validTypes[facts[i].Type] {
+			facts[i].Type = "semantic"
+		}
+		if facts[i].Importance < 1 {
+			facts[i].Importance = 1
+		} else if facts[i].Importance > 10 {
+			facts[i].Importance = 10
+		}
+		if !validEmotions[facts[i].Emotion] {
+			facts[i].Emotion = "neutral"
+		}
+	}
+
 	return facts, nil
 }
