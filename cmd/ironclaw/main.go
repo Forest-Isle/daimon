@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 
+	"github.com/punkopunko/ironclaw/internal/channel/telegram"
 	"github.com/punkopunko/ironclaw/internal/config"
 	"github.com/punkopunko/ironclaw/internal/gateway"
 	"github.com/punkopunko/ironclaw/internal/skill"
@@ -47,7 +48,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(startCmd, versionCmd, newSkillCmd(), newMemoryCmd())
+	root.AddCommand(startCmd, versionCmd, newTUICmd(), newSkillCmd(), newMemoryCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -272,6 +273,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("init gateway: %w", err)
 	}
+
+	// Create and register Telegram channel
+	tg, err := telegram.New(cfg.Telegram.Token, cfg.Telegram.AllowedUserIDs)
+	if err != nil {
+		return fmt.Errorf("init telegram: %w", err)
+	}
+	if cfg.Agent.Cognitive.ApprovalTimeoutSeconds > 0 {
+		tg.SetApprovalTimeout(cfg.Agent.Cognitive.ApprovalTimeoutSeconds)
+	}
+	gw.AddChannel(tg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

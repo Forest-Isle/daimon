@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-IronClaw is a local-first AI agent runtime in Go. It connects Claude AI with tools (bash, file, HTTP, browser) and exposes them through channels (Telegram). All data persists in SQLite.
+IronClaw is a local-first AI agent runtime in Go. It connects Claude AI with tools (bash, file, HTTP, browser) and exposes them through channels (Telegram, TUI). All data persists in SQLite.
 
 ## Build & Dev Commands
 
@@ -24,7 +24,7 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 
 **Module**: `github.com/punkopunko/ironclaw`
 
-**Entry point**: `cmd/ironclaw/main.go` — Cobra CLI with `start`, `version`, `skill` commands.
+**Entry point**: `cmd/ironclaw/main.go` — Cobra CLI with `start`, `tui`, `version`, `skill` commands.
 
 **Two agent modes** (`agent.mode` in config):
 - `simple` — linear loop: system prompt → LLM → tool calls → repeat (up to `max_iterations`)
@@ -40,6 +40,7 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 **Key adapter patterns**:
 - `completerAdapter` in gateway.go bridges `agent.Provider` → `memory.Completer` (avoids circular imports between agent and memory packages)
 - `noopKBEmbedder` provides a no-op `knowledge.EmbeddingProvider` when OpenAI key is absent (BM25-only fallback)
+- `channel.ApprovalSender` / `channel.ReflectionSender` — optional interfaces for channels that support interactive tool approval and replan decisions; channels that don't implement them auto-approve / auto-continue
 
 ## Key Packages
 
@@ -50,6 +51,7 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 - `internal/tool/` — Tool interface + Registry; bash/file/http/browser implementations; `policy.go` for blocked command checks
 - `internal/mcp/` — MCP protocol client; tools registered as `mcp_{server}_{tool}`
 - `internal/channel/telegram/` — Telegram adapter with streaming (edit-message), inline keyboard for tool approvals
+- `internal/channel/tui/` — Terminal UI adapter using Bubble Tea (Charm ecosystem); supports streaming, Markdown rendering (Glamour), interactive tool approval dialogs, and replan decisions
 - `internal/skill/` — SKILL.md files (YAML frontmatter + markdown body) loaded from `~/.IronClaw/skills/`
 
 ## Config

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,12 +14,18 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// Adapter implements channel.Channel for Telegram.
+// Adapter implements channel.Channel, channel.ApprovalSender, and
+// channel.ReflectionSender for Telegram.
 type Adapter struct {
 	bot            *tgbotapi.BotAPI
 	allowedUserIDs map[int64]bool
 	handler        channel.InboundHandler
 	stopCh         chan struct{}
+
+	// Approval tracking — moved from Gateway so the adapter fully owns the flow.
+	pendingApprovals    sync.Map // key: toolName → chan bool
+	pendingReflections  sync.Map // key: string → chan channel.ReplanDecision
+	approvalTimeoutSecs int
 }
 
 func New(token string, allowedUserIDs []int64) (*Adapter, error) {
@@ -33,7 +40,19 @@ func New(token string, allowedUserIDs []int64) (*Adapter, error) {
 	}
 
 	slog.Info("telegram bot authorized", "username", bot.Self.UserName)
-	return &Adapter{bot: bot, allowedUserIDs: allowed, stopCh: make(chan struct{})}, nil
+	return &Adapter{
+		bot:                 bot,
+		allowedUserIDs:      allowed,
+		stopCh:              make(chan struct{}),
+		approvalTimeoutSecs: 120,
+	}, nil
+}
+
+// SetApprovalTimeout overrides the default approval timeout (120s).
+func (a *Adapter) SetApprovalTimeout(seconds int) {
+	if seconds > 0 {
+		a.approvalTimeoutSecs = seconds
+	}
 }
 
 func (a *Adapter) Name() string { return "telegram" }
@@ -64,20 +83,15 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 
 func (a *Adapter) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 	// Handle callback queries (inline keyboard) — must be synchronous
-	// so the approval channel receives the result before the update loop moves on.
+	// so the approval/reflection channel receives the result before the update loop moves on.
 	if update.CallbackQuery != nil {
 		userID := update.CallbackQuery.From.ID
 		if !a.allowedUserIDs[userID] {
 			return
 		}
-		chatID := update.CallbackQuery.Message.Chat.ID
-		a.handler(ctx, channel.InboundMessage{
-			Channel:      "telegram",
-			ChannelID:    strconv.FormatInt(chatID, 10),
-			UserID:       strconv.FormatInt(userID, 10),
-			UserName:     update.CallbackQuery.From.UserName,
-			CallbackData: update.CallbackQuery.Data,
-		})
+
+		data := update.CallbackQuery.Data
+		a.handleCallback(data)
 
 		// Acknowledge callback
 		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
@@ -106,6 +120,49 @@ func (a *Adapter) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 		UserName:  update.Message.From.UserName,
 		Text:      update.Message.Text,
 	})
+}
+
+// handleCallback routes inline keyboard callback data to the appropriate
+// pending approval or reflection channel.
+func (a *Adapter) handleCallback(data string) {
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 {
+		return
+	}
+
+	action, key := parts[0], parts[1]
+
+	// Handle reflection replan decisions
+	switch action {
+	case "reflect_continue", "reflect_adjust", "reflect_abort":
+		var decision channel.ReplanDecision
+		switch action {
+		case "reflect_continue":
+			decision = channel.ReplanContinue
+		case "reflect_adjust":
+			decision = channel.ReplanAdjust
+		case "reflect_abort":
+			decision = channel.ReplanAbort
+		}
+		if v, ok := a.pendingReflections.Load(key); ok {
+			ch := v.(chan channel.ReplanDecision)
+			select {
+			case ch <- decision:
+			default:
+			}
+		}
+		return
+	}
+
+	// Handle tool approval
+	approved := action == "approve"
+	if v, ok := a.pendingApprovals.Load(key); ok {
+		ch := v.(chan bool)
+		select {
+		case ch <- approved:
+		default:
+		}
+	}
 }
 
 func (a *Adapter) Send(ctx context.Context, msg channel.OutboundMessage) error {
@@ -153,8 +210,16 @@ func (a *Adapter) Stop(_ context.Context) error {
 	return nil
 }
 
-// SendApprovalRequest sends an inline keyboard for tool approval.
-func (a *Adapter) SendApprovalRequest(chatID int64, toolName, input string) (int, error) {
+// ---------- channel.ApprovalSender ----------
+
+// SendApprovalRequest sends a Telegram inline keyboard for tool approval and
+// blocks until the user responds or the timeout expires.
+func (a *Adapter) SendApprovalRequest(ctx context.Context, target channel.MessageTarget, toolName string, input string) (bool, error) {
+	chatID, err := strconv.ParseInt(target.ChannelID, 10, 64)
+	if err != nil || chatID == 0 {
+		return true, nil // fallback: auto-approve
+	}
+
 	text := fmt.Sprintf("🔧 Tool: *%s*\n```\n%s\n```\nApprove execution?", toolName, FormatForTelegram(input))
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
@@ -168,25 +233,49 @@ func (a *Adapter) SendApprovalRequest(chatID int64, toolName, input string) (int
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 
-	sent, err := a.bot.Send(msg)
-	if err != nil {
-		return 0, err
+	if _, err := a.bot.Send(msg); err != nil {
+		return false, err
 	}
-	return sent.MessageID, nil
+
+	// Wait for callback
+	resultCh := make(chan bool, 1)
+	a.pendingApprovals.Store(toolName, resultCh)
+	defer a.pendingApprovals.Delete(toolName)
+
+	timeout := time.Duration(a.approvalTimeoutSecs) * time.Second
+	select {
+	case approved := <-resultCh:
+		return approved, nil
+	case <-time.After(timeout):
+		slog.Info("telegram: approval timed out, defaulting to deny", "tool", toolName)
+		return false, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
 }
 
-// SendReflectionRequest sends an inline keyboard for replan approval.
-func (a *Adapter) SendReflectionRequest(chatID int64, reason string, confidence float64) (int, error) {
+// ---------- channel.ReflectionSender ----------
+
+// SendReflectionRequest sends a Telegram inline keyboard for replan approval
+// and blocks until the user responds or the timeout expires.
+func (a *Adapter) SendReflectionRequest(ctx context.Context, target channel.MessageTarget, reason string, confidence float64) (channel.ReplanDecision, error) {
+	chatID, err := strconv.ParseInt(target.ChannelID, 10, 64)
+	if err != nil || chatID == 0 {
+		return channel.ReplanContinue, nil
+	}
+
 	text := fmt.Sprintf(
 		"🤔 *Low confidence plan* (%.0f%%)\nReason: %s\n\nHow should I proceed?",
 		confidence*100, reason,
 	)
 
+	key := fmt.Sprintf("reflect_%s_%d", target.ChannelID, time.Now().UnixNano())
+
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("▶️ Continue", "reflect_continue:"),
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Adjust", "reflect_adjust:"),
-			tgbotapi.NewInlineKeyboardButtonData("🛑 Abort", "reflect_abort:"),
+			tgbotapi.NewInlineKeyboardButtonData("▶️ Continue", "reflect_continue:"+key),
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Adjust", "reflect_adjust:"+key),
+			tgbotapi.NewInlineKeyboardButtonData("🛑 Abort", "reflect_abort:"+key),
 		),
 	)
 
@@ -194,13 +283,30 @@ func (a *Adapter) SendReflectionRequest(chatID int64, reason string, confidence 
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = keyboard
 
-	sent, err := a.bot.Send(msg)
-	if err != nil {
-		return 0, err
+	if _, err := a.bot.Send(msg); err != nil {
+		slog.Warn("telegram: failed to send reflection request", "err", err)
+		return channel.ReplanContinue, nil
 	}
-	return sent.MessageID, nil
+
+	// Wait for callback
+	resultCh := make(chan channel.ReplanDecision, 1)
+	a.pendingReflections.Store(key, resultCh)
+	defer a.pendingReflections.Delete(key)
+
+	timeout := time.Duration(a.approvalTimeoutSecs) * time.Second
+	select {
+	case decision := <-resultCh:
+		slog.Info("telegram: replan decision received", "decision", decision)
+		return decision, nil
+	case <-time.After(timeout):
+		slog.Info("telegram: reflection timed out, defaulting to continue")
+		return channel.ReplanContinue, nil
+	case <-ctx.Done():
+		return channel.ReplanContinue, ctx.Err()
+	}
 }
 
+// ---------- streamUpdater ----------
 
 type streamUpdater struct {
 	bot    *tgbotapi.BotAPI

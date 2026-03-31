@@ -12,6 +12,7 @@ import (
 type Config struct {
 	LLM       LLMConfig       `yaml:"llm"`
 	Telegram  TelegramConfig  `yaml:"telegram"`
+	TUI       TUIConfig       `yaml:"tui"`
 	Agent     AgentConfig     `yaml:"agent"`
 	Store     StoreConfig     `yaml:"store"`
 	Memory    MemoryConfig    `yaml:"memory.md"`
@@ -23,6 +24,12 @@ type Config struct {
 	Log       LogConfig       `yaml:"log"`
 	Skills    SkillsConfig    `yaml:"skills"`
 	Agents    AgentsConfig    `yaml:"agents"`
+}
+
+// TUIConfig configures the TUI (terminal UI) channel.
+type TUIConfig struct {
+	AutoApprove bool   `yaml:"auto_approve"` // skip approval prompts
+	Theme       string `yaml:"theme"`        // reserved for future use
 }
 
 // SkillsConfig configures the skill system.

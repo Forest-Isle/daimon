@@ -191,4 +191,3 @@ func (c *Consolidator) writeFile(path string, mf *MemoryFile) error {
 	fs := &FileMemoryStore{baseDir: c.baseDir}
 	return fs.writeFileAtomic(path, *mf)
 }
-}
