@@ -9,48 +9,51 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/punkopunko/ironclaw)](go.mod)
 [![Release](https://img.shields.io/github/v/release/punkopunko/ironclaw)](https://github.com/punkopunko/ironclaw/releases)
 
-IronClaw 是一个自托管的 AI Agent 运行时，完全运行在你自己的基础设施上。它将 Claude AI 与实际工具（Shell 命令、文件操作、HTTP 请求）连接起来，并通过 Telegram 等渠道进行交互。所有数据本地存储在 SQLite 中。
+IronClaw 是一个自托管的 AI Agent 运行时，完全运行在你自己的基础设施上。它将 Claude AI 与实际工具（Shell 命令、文件操作、HTTP 请求、浏览器自动化）连接起来，并通过多种渠道（Telegram、终端 UI）进行交互。所有数据本地存储在 SQLite 和 Markdown 文件中。
 
 ## 功能特性
 
-- **双模式 Agent** — 简单线性循环或认知五阶段循环（PERCEIVE → PLAN → ACT → OBSERVE → REFLECT），支持重规划
-- **长期记忆** — mem0 风格的事实提取，三级作用域（session/user/global），FTS5+向量混合搜索，生命周期管理（ADD/UPDATE/DELETE），自动聚合提升
-- **知识库** — 文档摄取管线（Markdown、代码、文本、网页），BM25+向量混合检索，可选 LLM 重排序
-- **知识图谱** — 实体/关系三元组提取，递归 CTE 多跳遍历，溯源追踪
+- **双模式 Agent** — 简单线性循环或认知五阶段循环（PERCEIVE → PLAN → ACT → OBSERVE → REFLECT），支持自动重规划和置信度追踪
+- **高级记忆系统** — 基于 Markdown 文件的存储，融合认知科学的记忆类型分类（情景/语义/程序），重要性评分，遗忘曲线整合，自动反思（L1 模式识别 + L2 战略洞察），分层压缩（事实 → 摘要 → 用户画像），分层检索
+- **知识库** — 文档摄取管线（Markdown、代码、PDF、文本、网页），BM25+向量混合检索，RRF 融合，可选 LLM 重排序
+- **时序知识图谱** — 实体/关系提取，时间感知的边版本化，递归 CTE 多跳遍历，记忆-图谱双向同步，溯源追踪，自动图谱衰减
+- **隐私控制** — PII 检测（邮箱、电话、身份证号、银行卡号），敏感度分级（public/private/secret），用户记忆管理工具，可配置保留策略，审计日志
 - **MCP 协议** — 多 MCP 服务器连接，热重载，自动工具发现与注册
 - **技能系统** — 可扩展的 SKILL.md 格式，内置 ClawHub 公共注册中心，支持搜索、安装和管理技能
-- **Telegram Bot 渠道** — 流式消息更新，内联键盘审批工具执行和重规划决策，用户级访问控制
-- **工具系统** — 内置 Bash 执行、文件读写、HTTP 请求、浏览器自动化等工具
-- **人格与用户目录** — 自动初始化 `~/.IronClaw/`，包含人格文件（Soul.md、Memory.md、Agent.md）和用户级 MCP 配置
-- **本地存储** — SQLite WAL 模式，内嵌迁移，FTS5 全文搜索（优雅降级）
+- **多渠道** — Telegram Bot（流式消息，内联键盘审批）和 TUI 终端界面（Bubble Tea + Glamour Markdown 渲染）
+- **强化学习** — 三层 RL 系统：上下文赌博机（工具选择）、PPO（规划策略）、DQN（重规划决策），含完整神经网络训练
+- **工具系统** — 内置 Bash、文件读写、HTTP、浏览器自动化、技能执行、记忆管理等工具，以及基于 MCP 的动态工具发现
+- **人格与用户目录** — 自动初始化 `~/.IronClaw/`，包含人格文件（Soul.md、Memory.md、Agent.md）和用户级配置
+- **本地存储** — SQLite WAL 模式，12 个内嵌迁移，FTS5 全文搜索（优雅降级为 LIKE 查询）
 - **定时任务** — 基于 Cron 的任务调度，数据库持久化
-- **工具审批** — 可配置的逐工具审批机制，Telegram 内联键盘交互
-- **HTTP 网关** — 可选的 REST API，支持程序化访问
-- **会话管理** — 按用户隔离的对话会话，支持历史压缩
+- **工具审批** — 可配置的逐工具审批机制，支持 Telegram 内联键盘或 TUI 交互式对话框
 
 ## 架构概览
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
-│  Telegram    │────▶│   Gateway    │────▶│   Agent         │
-│  Channel     │◀────│   (Router)   │◀────│ Simple/Cognitive│
-└─────────────┘     └──────┬───────┘     └──────┬──────────┘
-                           │                     │
-                    ┌──────┴──────┐        ┌─────┴──────┐
-                    │  HTTP API   │        │   Tools    │
-                    │  (可选)      │        │ bash/file/ │
-                    └─────────────┘        │ http/mcp   │
-                                           └─────┬──────┘
-                                                  │
-┌─────────────┐  ┌─────────────┐  ┌───────────────┴───────┐
-│  Scheduler  │  │   Skills    │  │       Store (SQLite)   │
-│  (cron)     │  │  (ClawHub)  │  ├────────────┬───────────┤
-└─────────────┘  └─────────────┘  │  Memory    │ Knowledge │
-                                  │ (FTS5+vec) │ (BM25+vec)│
-┌─────────────┐                   ├────────────┤───────────┤
-│  User Dir   │                   │  Knowledge Graph       │
-│ (~/.IronClaw)│                  │  (entity triples)      │
-└─────────────┘                   └────────────────────────┘
+┌─────────────┐  ┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
+│  Telegram    │  │  TUI        │────▶│   Gateway    │────▶│   Agent         │
+│  Channel     │  │  Channel    │◀────│   (Router)   │◀────│ Simple/Cognitive│
+└─────────────┘  └─────────────┘     └──────┬───────┘     └──────┬──────────┘
+                                            │                     │
+                                     ┌──────┴──────┐        ┌─────┴──────┐
+                                     │  HTTP API   │        │   Tools    │
+                                     │  (可选)      │        │ bash/file/ │
+                                     └─────────────┘        │ http/mcp   │
+                                                            └─────┬──────┘
+                                                                  │
+┌─────────────┐  ┌─────────────┐  ┌───────────────────────────────┴───────┐
+│  Scheduler  │  │   Skills    │  │            Store (SQLite)              │
+│  (cron)     │  │  (ClawHub)  │  ├──────────────┬────────────────────────┤
+└─────────────┘  └─────────────┘  │   Memory     │    知识库              │
+                                  │  文件优先     │   (BM25 + 向量)       │
+┌─────────────┐  ┌─────────────┐  │  MD + SQLite ├────────────────────────┤
+│  User Dir   │  │  RL Engine  │  │  索引        │    知识图谱            │
+│(~/.IronClaw)│  │(Bandit/PPO/ │  ├──────────────┤   (时序边, 溯源)      │
+└─────────────┘  │ DQN)        │  │  反思器      ├────────────────────────┤
+                 └─────────────┘  │  压缩器      │    隐私与审计          │
+                                  │  画像器      │                        │
+                                  └──────────────┴────────────────────────┘
 ```
 
 ## 快速开始
@@ -70,8 +73,11 @@ vim configs/ironclaw.yaml
 # 构建（需要 CGO 支持 SQLite）
 make build
 
-# 运行
+# 以 Telegram 渠道运行
 ./bin/ironclaw start
+
+# 或以终端 UI 运行
+./bin/ironclaw tui
 ```
 
 ### Docker
@@ -102,17 +108,16 @@ cp configs/ironclaw.example.yaml configs/ironclaw.yaml
 
 ## 配置说明
 
-IronClaw 使用 YAML 配置文件。完整配置项请参考 [`configs/ironclaw.example.yaml`](configs/ironclaw.example.yaml)。
-
-主要配置项：
+IronClaw 使用 YAML 配置文件，支持环境变量展开（`${VAR_NAME}`）。完整配置项请参考 [`configs/ironclaw.example.yaml`](configs/ironclaw.example.yaml)。
 
 | 配置段 | 说明 |
 |--------|------|
 | `llm` | AI 提供商配置（API Key、模型、最大 Token 数） |
 | `telegram` | Bot Token 和允许的用户 ID |
-| `agent` | 模式（simple/cognitive）、最大迭代次数、系统提示词、人格 |
+| `tui` | 终端 UI 设置（auto_approve 模式） |
+| `agent` | 模式（simple/cognitive）、最大迭代次数、RL 配置 |
 | `store` | SQLite 数据库路径 |
-| `memory` | 事实提取、作用域、相似度阈值、聚合、BM25/向量权重 |
+| `memory` | 存储目录、事实提取、相似度阈值、反思/压缩阈值、保留策略 |
 | `knowledge` | 文档摄取目录、分块大小、混合检索、重排序、知识图谱 |
 | `skills` | 启用/禁用、额外技能目录 |
 | `scheduler` | Cron 任务调度器 |
@@ -120,30 +125,112 @@ IronClaw 使用 YAML 配置文件。完整配置项请参考 [`configs/ironclaw.
 | `server` | 可选的 HTTP API 端点 |
 | `log` | 日志级别和格式 |
 
-配置值中可使用 `${VAR_NAME}` 语法引用环境变量。
+## 记忆系统
+
+IronClaw 使用**文件优先的记忆架构**，融合认知科学理论，包含五层记忆处理管线：
+
+```
+Layer 0: 工作上下文（当前对话）
+    ↓ 事实提取
+Layer 1: 会话事实（情景/语义/程序，含重要性与情感标注）
+    ↓ 聚合提升（24h，强度 ≥ 0.5）
+Layer 2: 用户事实（从会话提升）
+    ↓ 压缩（同类别 ≥ 8 条事实）
+Layer 3: 摘要（LLM 合并的结构化摘要）
+    ↓ 反思（L1 模式识别 → L2 战略洞察）
+Layer 4: 用户画像（身份、偏好、当前关注点）
+```
+
+### 记忆类型
+
+| 类型 | 衰减速率 | 说明 |
+|------|---------|------|
+| **情景记忆 (episodic)** | 快（12h × 重要性） | 有时间线的具体事件和经历 |
+| **语义记忆 (semantic)** | 标准（24h × 重要性） | 通用知识、偏好、稳定事实 |
+| **程序记忆 (procedural)** | 慢（48h × 重要性） | 行为模式、工作流程——越用越强 |
+
+### 存储结构
+
+```
+~/.ironclaw/memory/
+├── MEMORY.md              # 所有活跃记忆的索引
+├── user/                  # 长期记忆 + 摘要 + 画像
+├── session/               # 会话级临时记忆
+├── feedback/              # 用户修正
+├── global/                # 跨用户系统记忆
+└── archived/              # 自动归档的低强度记忆
+```
+
+每个记忆文件使用 YAML frontmatter：
+
+```markdown
+---
+id: abc123
+scope: user
+type: semantic
+importance: 7
+emotion: neutral
+sensitivity: public
+strength: 0.85
+created_at: 2026-03-28T10:00:00Z
+---
+
+用户偏好简洁的回答，不需要冗长的解释。
+```
+
+### 核心机制
+
+- **混合搜索**：BM25 (FTS5) + 向量（余弦相似度）+ RRF 融合 + 强度加权
+- **遗忘曲线**：基于 Ebbinghaus 的衰减 `R(t) = e^(-t/S)`，含类型相关的稳定性和访问加成
+- **生命周期管理**：LLM 驱动的 ADD/UPDATE/DELETE/NOOP 决策，含冲突检测（mem0 风格）
+- **反思机制**：混合触发（计数 ≥ 10 或主题漂移余弦 < 0.7），生成多层级洞察
+- **隐私保护**：自动 PII 检测，敏感度分级，用户侧 `memory_manage` 工具支持选择性遗忘
+- **图谱同步**：记忆生命周期事件自动同步到知识图谱（实体提取、溯源、边权弱化）
+
+### 从旧版存储迁移
+
+```bash
+ironclaw memory migrate            # 从 SQLite 迁移到文件存储
+ironclaw memory migrate --dry-run  # 仅预览
+ironclaw memory restore            # 从备份恢复
+```
+
+## 知识图谱
+
+时序知识图谱追踪实体关系并保留版本历史：
+
+- **时序边**：`valid_from`/`valid_to` 时间戳，支持时间点查询和关系版本化
+- **记忆同步**：记忆 ADD → 实体提取；UPDATE → 溯源迁移；DELETE → 边权弱化（非删除）
+- **图谱衰减**：后台任务清理孤立溯源，衰减无支撑的边权，移除失效边
+- **多跳遍历**：带时序谓词的递归 CTE，支持当前状态和历史查询
+- **图谱增强检索**：记忆搜索结果通过图谱连通性评分进行增强
+
+## 渠道
+
+### Telegram
+
+全功能 Telegram Bot，支持流式消息更新、内联键盘审批工具执行和重规划决策、用户级访问控制。
+
+### 终端 UI (TUI)
+
+基于 [Bubble Tea](https://github.com/charmbracelet/bubbletea) 和 [Glamour](https://github.com/charmbracelet/glamour) 的交互式终端界面，支持丰富的 Markdown 渲染。
+
+```bash
+ironclaw tui                # 启动交互式终端 UI
+ironclaw tui --auto-approve # 自动审批所有工具调用
+```
 
 ## 技能管理
 
 IronClaw 支持通过 SKILL.md 文件扩展技能，并集成 [ClawHub](https://clawhub.ai) 公共注册中心。
 
 ```bash
-# 列出已安装的技能（包括内置）
-ironclaw skill list
-
-# 搜索技能
-ironclaw skill search "web scraping"
-
-# 安装技能
-ironclaw skill install <slug>
-
-# 更新所有技能
-ironclaw skill update
-
-# 移除技能
-ironclaw skill remove <name>
+ironclaw skill list              # 列出已安装的技能（包括内置）
+ironclaw skill search "web"      # 搜索 ClawHub
+ironclaw skill install <slug>    # 安装技能
+ironclaw skill update            # 更新所有技能
+ironclaw skill remove <name>     # 移除技能
 ```
-
-技能存储在 `~/.IronClaw/skills/`。需要 `clawhub` CLI（`npm install -g clawhub`）。
 
 ## 用户目录
 
@@ -152,30 +239,29 @@ ironclaw skill remove <name>
 - `Soul.md` — Agent 人格与沟通风格
 - `Memory.md` — 持久化规则与偏好
 - `Agent.md` — 核心系统提示词模板
+- `config.yaml` — 用户覆盖配置
 - `skills/` — 用户安装的技能
 - `mcp/` — MCP 服务器配置（YAML，支持热重载）
+- `memory/` — 长期记忆（Markdown + SQLite 索引）
 
 ## 开发指南
 
 ```bash
-# 构建
-make build
-
-# 运行测试
-make test
-
-# 代码检查（需要 golangci-lint）
-make lint
-
-# 格式化代码
-make fmt
-
-# 构建 Docker 镜像
-make docker
-
-# 查看所有目标
-make help
+make build          # 构建二进制（CGO_ENABLED=1, -tags fts5）
+make test           # 运行所有测试
+make lint           # 运行 golangci-lint
+make fmt            # 格式化代码（goimports + go fmt）
+make docker         # 构建 Docker 镜像
+make help           # 查看所有目标
 ```
+
+单个测试：
+
+```bash
+CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/package/ -v
+```
+
+> **注意**：所有构建/测试命令都需要 `CGO_ENABLED=1` 和 `-tags fts5` —— SQLite 使用 cgo，FTS5 需要在编译时启用。
 
 ## 路线图
 
@@ -186,6 +272,8 @@ make help
 - [ ] Webhook 触发器
 - [x] ~~自定义工具插件系统~~（技能系统 + MCP）
 - [x] ~~RAG 文档摄取~~（知识库 + 知识图谱）
+- [x] ~~终端 UI~~（Bubble Tea TUI 渠道）
+- [x] ~~高级记忆~~（类型分类、反思、压缩、隐私）
 
 ## 贡献
 
