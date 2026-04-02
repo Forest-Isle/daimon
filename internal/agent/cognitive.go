@@ -36,6 +36,7 @@ type CognitiveAgent struct {
 	memStore           memory.Store
 	skillMgr        *skill.Manager
 	agentMgr        *AgentManager
+	orchestrator    *AgentOrchestrator
 	entityExtractor *graph.LLMEntityExtractor
 	rlPolicy        RLPolicy  // RL policy interface (nil if disabled)
 	rlTrainer       RLTrainer // RL trainer interface (nil if disabled)
@@ -136,6 +137,11 @@ func (ca *CognitiveAgent) SetSkillManager(m *skill.Manager) {
 func (ca *CognitiveAgent) SetAgentManager(m *AgentManager) {
 	ca.agentMgr = m
 	ca.runtime.SetAgentManager(m)
+}
+
+// SetOrchestrator injects an agent orchestrator into the cognitive agent.
+func (ca *CognitiveAgent) SetOrchestrator(o *AgentOrchestrator) {
+	ca.orchestrator = o
 }
 
 // SetRLPolicy injects an RL policy into the cognitive agent.

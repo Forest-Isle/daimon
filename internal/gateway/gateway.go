@@ -399,8 +399,15 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}
 		agentMgr.RegisterAll(tools)
 		runtime.SetAgentManager(agentMgr)
+		// Agent orchestrator for parallel scheduling
+		orchestrator := agent.NewAgentOrchestrator(agentMgr, 4)
+		runtime.SetOrchestrator(orchestrator)
+		slog.Info("agent orchestrator initialized", "max_parallel", 4)
 		if cognitiveAgent != nil {
 			cognitiveAgent.SetAgentManager(agentMgr)
+		}
+		if cognitiveAgent != nil {
+			cognitiveAgent.SetOrchestrator(orchestrator)
 		}
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
 	}

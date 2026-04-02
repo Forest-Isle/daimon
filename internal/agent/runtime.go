@@ -33,6 +33,7 @@ type Runtime struct {
 	memStore       memory.Store
 	skillMgr       *skill.Manager
 	agentMgr       *AgentManager
+	orchestrator   *AgentOrchestrator
 	compressor     *memory.IncrementalCompressor
 	memoryBaseDir  string // base directory for file-based memory storage
 	concurrentCfg  config.ConcurrentExecutionConfig
@@ -57,6 +58,12 @@ func (r *Runtime) SetSkillManager(m *skill.Manager) { r.skillMgr = m }
 
 // SetAgentManager attaches an agent manager to the runtime.
 func (r *Runtime) SetAgentManager(m *AgentManager) { r.agentMgr = m }
+
+// SetOrchestrator attaches an agent orchestrator to the runtime.
+func (r *Runtime) SetOrchestrator(o *AgentOrchestrator) { r.orchestrator = o }
+
+// Orchestrator returns the attached orchestrator, or nil.
+func (r *Runtime) Orchestrator() *AgentOrchestrator { return r.orchestrator }
 
 // SetCompressor attaches an incremental compressor to the runtime.
 func (r *Runtime) SetCompressor(c *memory.IncrementalCompressor) { r.compressor = c }
