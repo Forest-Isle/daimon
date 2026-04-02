@@ -351,10 +351,10 @@ type PermissionEvaluator struct {
 ```
 
 Evaluation logic:
-- `bypass` — allow everything
-- `accept_edits` — auto-approve read/write, bubble dangerous operations
-- `bubble` — send all permission requests to parent Runtime
-- default — evaluate static rules
+- `bypass` — allow everything (use only for trusted, read-only agents like planners)
+- `accept_edits` — auto-approve read/write, bubble dangerous operations (dangerous = `rm -rf`, `chmod 777`, `kill`, network-modifying commands; maintained as a blocklist in `policy.go`)
+- `bubble` — send all permission requests to parent Runtime via channel; parent responds with allow/deny
+- default (empty string) — evaluate static rules from existing `tool/policy.go` permission checks
 
 **File**: `internal/agent/permission.go` (new)
 
