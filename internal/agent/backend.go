@@ -1,0 +1,158 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+// BackendType identifies which execution backend to use.
+type BackendType string
+
+const (
+	BackendInProcess  BackendType = "in_process"  // goroutine (default)
+	BackendSubprocess BackendType = "subprocess"  // os/exec child process
+	BackendDocker     BackendType = "docker"      // container execution
+)
+
+// BackendConfig holds everything an execution backend needs to run an agent.
+type BackendConfig struct {
+	Spec          *AgentSpec
+	Task          string
+	TaskContext   string // optional context from upstream tasks
+	ParentRuntime *Runtime
+	EnvVars       map[string]string
+}
+
+// ExecutionBackend abstracts the environment in which a sub-agent runs.
+type ExecutionBackend interface {
+	// Execute runs the agent task and returns a result channel.
+	// The channel receives exactly one result, then is closed.
+	Execute(ctx context.Context, config BackendConfig) (<-chan *AgentResult, error)
+
+	// Available returns true if this backend can be used.
+	Available() bool
+
+	// Name returns the backend identifier.
+	Name() string
+
+	// Cleanup releases resources held by this backend.
+	Cleanup() error
+}
+
+// --- InProcessBackend ---
+
+// InProcessBackend executes agents as goroutines within the current process.
+// This is the default backend with zero spawn overhead.
+type InProcessBackend struct {
+	// executor is the function that actually runs the agent.
+	// Injected for testability; in production this calls AgentTool.executeSpawn.
+	executor func(ctx context.Context, cfg BackendConfig) (*AgentResult, error)
+}
+
+// NewInProcessBackend creates a new in-process backend.
+// If executor is nil, a default no-op executor is used (wire the real one at integration time).
+func NewInProcessBackend(executor func(ctx context.Context, cfg BackendConfig) (*AgentResult, error)) *InProcessBackend {
+	return &InProcessBackend{executor: executor}
+}
+
+func (b *InProcessBackend) Execute(ctx context.Context, cfg BackendConfig) (<-chan *AgentResult, error) {
+	if b.executor == nil {
+		return nil, fmt.Errorf("in-process backend: no executor configured")
+	}
+
+	ch := make(chan *AgentResult, 1)
+	go func() {
+		defer close(ch)
+		start := time.Now()
+		result, err := b.executor(ctx, cfg)
+		if err != nil {
+			ch <- &AgentResult{
+				AgentName: cfg.Spec.Name,
+				Error:     err,
+				Duration:  time.Since(start),
+			}
+			return
+		}
+		result.Duration = time.Since(start)
+		ch <- result
+	}()
+	return ch, nil
+}
+
+func (b *InProcessBackend) Available() bool { return true }
+func (b *InProcessBackend) Name() string    { return string(BackendInProcess) }
+func (b *InProcessBackend) Cleanup() error  { return nil }
+
+// --- SubprocessBackend ---
+
+// SubprocessBackend executes agents as child processes via os/exec.
+// This provides process-level isolation but requires the ironclaw binary.
+// NOTE: This is a placeholder for future implementation.
+type SubprocessBackend struct {
+	binaryPath string
+}
+
+// NewSubprocessBackend creates a subprocess backend.
+func NewSubprocessBackend(binaryPath string) *SubprocessBackend {
+	return &SubprocessBackend{binaryPath: binaryPath}
+}
+
+func (b *SubprocessBackend) Execute(ctx context.Context, cfg BackendConfig) (<-chan *AgentResult, error) {
+	return nil, fmt.Errorf("subprocess backend: not yet implemented")
+}
+
+func (b *SubprocessBackend) Available() bool {
+	// Check if binary exists
+	if b.binaryPath == "" {
+		return false
+	}
+	return true
+}
+
+func (b *SubprocessBackend) Name() string   { return string(BackendSubprocess) }
+func (b *SubprocessBackend) Cleanup() error { return nil }
+
+// --- DockerBackend ---
+
+// DockerBackend executes agents in Docker containers for full isolation.
+// NOTE: This is a placeholder for future implementation.
+type DockerBackend struct {
+	image   string
+	network string
+}
+
+// NewDockerBackend creates a Docker backend.
+func NewDockerBackend(image, network string) *DockerBackend {
+	return &DockerBackend{image: image, network: network}
+}
+
+func (b *DockerBackend) Execute(ctx context.Context, cfg BackendConfig) (<-chan *AgentResult, error) {
+	return nil, fmt.Errorf("docker backend: not yet implemented")
+}
+
+func (b *DockerBackend) Available() bool  { return false } // requires docker
+func (b *DockerBackend) Name() string     { return string(BackendDocker) }
+func (b *DockerBackend) Cleanup() error   { return nil }
+
+// SelectBackend returns the appropriate backend for the given type.
+// Falls back to InProcessBackend if the requested backend is unavailable.
+func SelectBackend(backendType BackendType, executor func(ctx context.Context, cfg BackendConfig) (*AgentResult, error)) ExecutionBackend {
+	switch backendType {
+	case BackendSubprocess:
+		be := NewSubprocessBackend("ironclaw")
+		if be.Available() {
+			return be
+		}
+		// fallback
+		return NewInProcessBackend(executor)
+	case BackendDocker:
+		be := NewDockerBackend("ironclaw:latest", "")
+		if be.Available() {
+			return be
+		}
+		return NewInProcessBackend(executor)
+	default:
+		return NewInProcessBackend(executor)
+	}
+}
