@@ -214,11 +214,16 @@ hooks:
           - ":(){ :|:& };:"
   post_tool_use:
     - type: audit_logger
-  # on_user_message:           # Phase 3: context injectors
-  #   - type: git_context
-  #     config:
-  #       timeout_ms: 2000
-  #   - type: workdir_context
+    # - type: permission_audit    # Writes permission decisions to SQLite audit log
+  on_user_message:               # Context injectors — inject environment info into system prompt
+    - type: git_context           # Git branch + status
+      config:
+        timeout_ms: 2000
+        include_diff_stat: false
+    - type: workdir_context       # Current directory + file listing
+      config:
+        include_ls: true
+        max_files: 20
   # pre_compact: []
 
 server:

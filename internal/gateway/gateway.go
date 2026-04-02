@@ -84,7 +84,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 	for i, h := range hookCfg.PreCompact {
 		preCompactCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
 	}
-	hookMgr := hook.BuildManager(preToolUseCfg, postToolUseCfg, onUserMsgCfg, preCompactCfg)
+	hookMgr := hook.BuildManager(preToolUseCfg, postToolUseCfg, onUserMsgCfg, preCompactCfg, &hook.BuildManagerOpts{DB: db.DB})
 	slog.Info("hook system initialized")
 
 	// Permission engine

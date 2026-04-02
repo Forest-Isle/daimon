@@ -15,12 +15,15 @@ import (
 
 // toolResult holds the result of a single tool execution.
 type toolResult struct {
-	toolUseID string
-	output    string
-	status    string
-	duration  int64
-	toolName  string
-	toolInput string
+	toolUseID        string
+	output           string
+	status           string
+	duration         int64
+	toolName         string
+	toolInput        string
+	permissionAction string
+	permissionReason string
+	permissionRule   string
 }
 
 // executeTools executes a batch of tool calls, using concurrent execution for
@@ -111,6 +114,9 @@ func (r *Runtime) executeToolCall(
 		return toolResult{toolUseID: tc.ID, output: "tool not found: " + tc.Name, status: "error", toolName: tc.Name, toolInput: tc.Input}
 	}
 
+	// Track permission decision metadata
+	var permAction, permReason, permRule string
+
 	// Fire PreToolUse hooks
 	skipApproval := false
 	if r.hookMgr != nil && r.hookMgr.HasPreToolUseHandlers() {
@@ -126,9 +132,12 @@ func (r *Runtime) executeToolCall(
 		if hookErr == nil {
 			switch hookResult.Action {
 			case "deny":
-				return toolResult{toolUseID: tc.ID, output: "denied by hook: " + hookResult.Reason, status: "denied", toolName: tc.Name, toolInput: tc.Input}
+				return toolResult{toolUseID: tc.ID, output: "denied by hook: " + hookResult.Reason, status: "denied", toolName: tc.Name, toolInput: tc.Input,
+					permissionAction: "deny", permissionReason: "hook_deny", permissionRule: hookResult.Reason}
 			case "allow":
 				skipApproval = true
+				permAction = "allow"
+				permReason = "hook_allow"
 			}
 		}
 	}
@@ -139,9 +148,13 @@ func (r *Runtime) executeToolCall(
 		permResult := r.permEngine.Evaluate(tc.Name, tc.Input, caps)
 		switch permResult.Action {
 		case tool.PermissionDeny:
-			return toolResult{toolUseID: tc.ID, output: "denied by permission engine: " + permResult.Reason, status: "denied", toolName: tc.Name, toolInput: tc.Input}
+			return toolResult{toolUseID: tc.ID, output: "denied by permission engine: " + permResult.Reason, status: "denied", toolName: tc.Name, toolInput: tc.Input,
+				permissionAction: "deny", permissionReason: "rule_match", permissionRule: permResult.Reason}
 		case tool.PermissionAllow:
 			skipApproval = true
+			permAction = "allow"
+			permReason = "rule_match"
+			permRule = permResult.Reason
 		}
 	}
 
@@ -149,7 +162,16 @@ func (r *Runtime) executeToolCall(
 	if !skipApproval && t.RequiresApproval() && r.approvalFunc != nil {
 		approved, err := r.approvalFunc(ctx, ch, target, tc.Name, tc.Input)
 		if err != nil || !approved {
-			return toolResult{toolUseID: tc.ID, output: "tool execution denied by user", status: "denied", toolName: tc.Name, toolInput: tc.Input}
+			return toolResult{toolUseID: tc.ID, output: "tool execution denied by user", status: "denied", toolName: tc.Name, toolInput: tc.Input,
+				permissionAction: "ask_denied", permissionReason: "user_denial"}
+		}
+		permAction = "ask_approved"
+		permReason = "user_approval"
+	} else if !skipApproval {
+		// No approval needed — auto-allow
+		if permAction == "" {
+			permAction = "allow"
+			permReason = "no_approval_required"
 		}
 	}
 
@@ -191,19 +213,24 @@ func (r *Runtime) executeToolCall(
 			errStr = result.Error
 		}
 		postResult, _ := r.hookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
-			ToolName:   tc.Name,
-			Input:      tc.Input,
-			Output:     output,
-			Error:      errStr,
-			Status:     status,
-			DurationMs: duration,
+			ToolName:         tc.Name,
+			Input:            tc.Input,
+			Output:           output,
+			Error:            errStr,
+			Status:           status,
+			DurationMs:       duration,
+			SessionID:        sess.ID,
+			PermissionAction: permAction,
+			PermissionReason: permReason,
+			PermissionRule:   permRule,
 		})
 		if postResult.ModifiedOutput != nil {
 			output = *postResult.ModifiedOutput
 		}
 	}
 
-	return toolResult{toolUseID: tc.ID, output: output, status: status, duration: duration, toolName: tc.Name, toolInput: tc.Input}
+	return toolResult{toolUseID: tc.ID, output: output, status: status, duration: duration, toolName: tc.Name, toolInput: tc.Input,
+		permissionAction: permAction, permissionReason: permReason, permissionRule: permRule}
 }
 
 // executeSingleTool executes a tool and immediately adds the result to the session.
