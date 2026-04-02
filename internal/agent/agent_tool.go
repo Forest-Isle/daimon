@@ -37,6 +37,8 @@ type AgentTool struct {
 	llmCfg    config.LLMConfig
 	breaker   *CircuitBreaker
 	bgManager *BackgroundManager
+	agentMCP  *AgentMCPManager
+	hookRunner *AgentHookRunner // built from spec.Hooks on each execution
 }
 
 // NewAgentTool creates a new AgentTool for the given spec.
@@ -65,6 +67,9 @@ func NewAgentTool(
 
 // SetBackgroundManager attaches a background manager to this agent tool.
 func (a *AgentTool) SetBackgroundManager(bm *BackgroundManager) { a.bgManager = bm }
+
+// SetAgentMCPManager attaches a per-agent MCP manager.
+func (a *AgentTool) SetAgentMCPManager(m *AgentMCPManager) { a.agentMCP = m }
 
 func (a *AgentTool) Name() string {
 	return "agent_" + a.spec.Name
@@ -143,6 +148,20 @@ func (a *AgentTool) executeSpawn(ctx context.Context, in agentToolInput) (tool.R
 	// Build scoped tool registry
 	scopedTools := a.buildScopedRegistry()
 
+	// Build hook runner from spec
+	hooks := BuildAgentHooks(a.spec.Hooks)
+	hookRunner := NewAgentHookRunner(hooks)
+
+	// Fire OnStart hooks
+	agentID := fmt.Sprintf("spawn_%s_%d", a.spec.Name, time.Now().UnixNano())
+	if hookRunner.HasHooks() {
+		hookRunner.RunOnStart(ctx, &AgentHookContext{
+			AgentID:   agentID,
+			AgentName: a.spec.Name,
+			Task:      in.Task,
+		})
+	}
+
 	// Build sub-agent config with spec overrides
 	subCfg := a.cfg
 	subCfg.MaxIterations = a.spec.MaxIterations
@@ -182,6 +201,15 @@ func (a *AgentTool) executeSpawn(ctx context.Context, in agentToolInput) (tool.R
 
 	if err := subRuntime.HandleMessage(ctx, capture, msg); err != nil {
 		a.breaker.RecordFailure()
+		// Fire OnError hooks
+		if hookRunner.HasHooks() {
+			hookRunner.RunOnError(ctx, &AgentHookContext{
+				AgentID:   agentID,
+				AgentName: a.spec.Name,
+				Task:      in.Task,
+				Error:     err,
+			})
+		}
 		return tool.Result{Error: "sub-agent error: " + err.Error()}, nil
 	}
 
@@ -196,6 +224,16 @@ func (a *AgentTool) executeSpawn(ctx context.Context, in agentToolInput) (tool.R
 		"agent", a.spec.Name,
 		"output_len", len(output),
 	)
+
+	// Fire OnComplete hooks
+	if hookRunner.HasHooks() {
+		hookRunner.RunOnComplete(ctx, &AgentHookContext{
+			AgentID:   agentID,
+			AgentName: a.spec.Name,
+			Task:      in.Task,
+			Result:    &AgentResult{AgentName: a.spec.Name, Output: output},
+		})
+	}
 
 	return tool.Result{Output: output}, nil
 }
@@ -220,6 +258,10 @@ func (a *AgentTool) executeFork(ctx context.Context, in agentToolInput) (tool.Re
 
 	// Build scoped tool registry
 	scopedTools := a.buildScopedRegistry()
+
+	// Build hook runner from spec
+	forkHooks := BuildAgentHooks(a.spec.Hooks)
+	forkHookRunner := NewAgentHookRunner(forkHooks)
 
 	// Build sub-agent config with spec overrides
 	subCfg := a.cfg
@@ -255,6 +297,16 @@ func (a *AgentTool) executeFork(ctx context.Context, in agentToolInput) (tool.Re
 	subRuntime.SetParentID(parentID)
 	subRuntime.SetDepth(depth)
 	subRuntime.SetChainID(chainID)
+
+	// Fire OnStart hooks
+	if forkHookRunner.HasHooks() {
+		forkHookRunner.RunOnStart(ctx, &AgentHookContext{
+			AgentID:   agentID,
+			AgentName: a.spec.Name,
+			ParentID:  parentID,
+			Task:      in.Task,
+		})
+	}
 
 	// Build SubagentContext
 	childCtx, childCancel := context.WithCancel(ctx)
@@ -300,6 +352,16 @@ func (a *AgentTool) executeFork(ctx context.Context, in agentToolInput) (tool.Re
 
 	if err := subRuntime.HandleMessage(childCtx, capture, msg); err != nil {
 		a.breaker.RecordFailure()
+		// Fire OnError hooks
+		if forkHookRunner.HasHooks() {
+			forkHookRunner.RunOnError(ctx, &AgentHookContext{
+				AgentID:   agentID,
+				AgentName: a.spec.Name,
+				ParentID:  parentID,
+				Task:      in.Task,
+				Error:     err,
+			})
+		}
 		return tool.Result{Error: "sub-agent fork error: " + err.Error()}, nil
 	}
 
@@ -316,6 +378,17 @@ func (a *AgentTool) executeFork(ctx context.Context, in agentToolInput) (tool.Re
 		"depth", depth,
 		"output_len", len(output),
 	)
+
+	// Fire OnComplete hooks
+	if forkHookRunner.HasHooks() {
+		forkHookRunner.RunOnComplete(ctx, &AgentHookContext{
+			AgentID:   agentID,
+			AgentName: a.spec.Name,
+			ParentID:  parentID,
+			Task:      in.Task,
+			Result:    &AgentResult{AgentName: a.spec.Name, Output: output},
+		})
+	}
 
 	return tool.Result{Output: output}, nil
 }

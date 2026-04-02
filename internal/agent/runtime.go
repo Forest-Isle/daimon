@@ -47,6 +47,7 @@ type Runtime struct {
 	chainID   string // invocation chain ID
 	bgManager *BackgroundManager
 	promptCache *PromptCache
+	agentMCP *AgentMCPManager
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -120,6 +121,12 @@ func (r *Runtime) SetPromptCache(pc *PromptCache) { r.promptCache = pc }
 
 // PromptCache returns the attached prompt cache, or nil.
 func (r *Runtime) PromptCache() *PromptCache { return r.promptCache }
+
+// SetAgentMCPManager attaches a per-agent MCP manager to the runtime.
+func (r *Runtime) SetAgentMCPManager(m *AgentMCPManager) { r.agentMCP = m }
+
+// AgentMCPManager returns the attached per-agent MCP manager, or nil.
+func (r *Runtime) AgentMCPManager() *AgentMCPManager { return r.agentMCP }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.

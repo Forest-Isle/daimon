@@ -28,6 +28,7 @@ type AgentManager struct {
 	cfg       config.AgentConfig
 	llmCfg    config.LLMConfig
 	bgManager *BackgroundManager
+	agentMCP  *AgentMCPManager
 }
 
 // NewAgentManager creates a new AgentManager.
@@ -56,6 +57,13 @@ func (m *AgentManager) SetBackgroundManager(bm *BackgroundManager) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.bgManager = bm
+}
+
+// SetAgentMCPManager sets the per-agent MCP manager for all agent tools.
+func (m *AgentManager) SetAgentMCPManager(mgr *AgentMCPManager) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.agentMCP = mgr
 }
 
 // Add adds an inline AgentSpec definition.
@@ -127,6 +135,9 @@ func (m *AgentManager) RegisterAll(registry *tool.Registry) {
 		registry.Register(at)
 		if m.bgManager != nil {
 			at.SetBackgroundManager(m.bgManager)
+		}
+		if m.agentMCP != nil {
+			at.SetAgentMCPManager(m.agentMCP)
 		}
 		slog.Info("agent_manager: registered agent tool",
 			"name", at.Name(),
