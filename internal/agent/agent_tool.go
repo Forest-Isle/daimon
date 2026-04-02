@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/config"
 	"github.com/punkopunko/ironclaw/internal/memory"
@@ -90,7 +91,7 @@ func (a *AgentTool) RequiresApproval() bool {
 	return a.spec.RequiresApproval
 }
 
-// Execute creates a scoped tool registry, a temporary Runtime, and runs the sub-agent.
+// Execute dispatches to executeSpawn or executeFork based on the spec's ExecutionMode.
 func (a *AgentTool) Execute(ctx context.Context, input []byte) (tool.Result, error) {
 	// Check circuit breaker
 	if err := a.breaker.Allow(); err != nil {
@@ -120,8 +121,24 @@ func (a *AgentTool) Execute(ctx context.Context, input []byte) (tool.Result, err
 		"agent", a.spec.Name,
 		"task_len", len(in.Task),
 		"timeout", timeout,
+		"mode", a.spec.ExecutionMode,
 	)
 
+	switch a.spec.ExecutionMode {
+	case ExecModeFork:
+		return a.executeFork(ctx, in)
+	case ExecModeBackground:
+		slog.Warn("agent_tool: background mode not yet implemented, falling back to spawn",
+			"agent", a.spec.Name,
+		)
+		return a.executeSpawn(ctx, in)
+	default:
+		return a.executeSpawn(ctx, in)
+	}
+}
+
+// executeSpawn creates an independent Runtime and runs the sub-agent (current / default behavior).
+func (a *AgentTool) executeSpawn(ctx context.Context, in agentToolInput) (tool.Result, error) {
 	// Build scoped tool registry
 	scopedTools := a.buildScopedRegistry()
 
@@ -176,6 +193,126 @@ func (a *AgentTool) Execute(ctx context.Context, input []byte) (tool.Result, err
 	a.breaker.RecordSuccess()
 	slog.Info("agent_tool: sub-agent completed",
 		"agent", a.spec.Name,
+		"output_len", len(output),
+	)
+
+	return tool.Result{Output: output}, nil
+}
+
+// executeFork inherits the parent Runtime's session context and runs as a fork agent.
+func (a *AgentTool) executeFork(ctx context.Context, in agentToolInput) (tool.Result, error) {
+	// Get parent Runtime from context
+	parentRuntime := RuntimeFromContext(ctx)
+	if parentRuntime == nil {
+		slog.Warn("agent_tool: fork mode requested but no parent Runtime in context, falling back to spawn",
+			"agent", a.spec.Name,
+		)
+		return a.executeSpawn(ctx, in)
+	}
+
+	// Check fork depth using parent's SubagentContext (if any)
+	parentSC := SubagentContextFromCtx(ctx)
+	if err := CheckForkDepth(parentSC); err != nil {
+		a.breaker.RecordFailure()
+		return tool.Result{Error: "fork depth limit reached: " + err.Error()}, nil
+	}
+
+	// Build scoped tool registry
+	scopedTools := a.buildScopedRegistry()
+
+	// Build sub-agent config with spec overrides
+	subCfg := a.cfg
+	subCfg.MaxIterations = a.spec.MaxIterations
+	if a.spec.SystemPrompt != "" {
+		subCfg.SystemPrompt = a.spec.SystemPrompt
+	}
+
+	subLLMCfg := a.llmCfg
+	if a.spec.Model != "" {
+		subLLMCfg.Model = a.spec.Model
+	}
+	if a.spec.MaxTokens > 0 {
+		subLLMCfg.MaxTokens = a.spec.MaxTokens
+	}
+
+	// Create sub-Runtime
+	subRuntime := NewRuntime(a.provider, scopedTools, a.sessions, a.db, subCfg, subLLMCfg)
+	if a.memStore != nil {
+		subRuntime.SetMemoryStore(a.memStore)
+	}
+
+	// Set lineage tracking
+	agentID := uuid.New().String()
+	parentID := parentRuntime.AgentID()
+	depth := parentRuntime.Depth() + 1
+	chainID := parentRuntime.ChainID()
+	if chainID == "" {
+		chainID = uuid.New().String()
+	}
+
+	subRuntime.SetAgentID(agentID)
+	subRuntime.SetParentID(parentID)
+	subRuntime.SetDepth(depth)
+	subRuntime.SetChainID(chainID)
+
+	// Build SubagentContext
+	childCtx, childCancel := context.WithCancel(ctx)
+	sc := &SubagentContext{
+		ToolRegistry:  scopedTools,
+		Permission:    a.spec.PermissionMode,
+		Cancel:        childCancel,
+		AbortOnParent: true,
+		Memory:        a.memStore,
+		Sessions:      a.sessions,
+		DB:            a.db,
+		AgentID:       agentID,
+		ParentID:      parentID,
+		Depth:         depth,
+		ChainID:       chainID,
+	}
+
+	// Inherit parent messages for fork context
+	if parentSC != nil {
+		sc.ParentMessages = parentSC.ParentMessages
+		sc.SystemPrompt = parentSC.SystemPrompt
+	}
+
+	// Inject SubagentContext and child Runtime into child context
+	childCtx = SubagentContextToCtx(childCtx, sc)
+	childCtx = RuntimeToContext(childCtx, subRuntime)
+
+	// Build user message with optional context
+	userText := in.Task
+	if in.Context != "" {
+		userText = fmt.Sprintf("Context from previous tasks:\n%s\n\nTask:\n%s", in.Context, in.Task)
+	}
+
+	// Create captureChannel and run
+	capture := newCaptureChannel()
+	msg := channel.InboundMessage{
+		Channel:   "agent",
+		ChannelID: fmt.Sprintf("agent_%s", a.spec.Name),
+		UserID:    "orchestrator",
+		UserName:  "orchestrator",
+		Text:      userText,
+	}
+
+	if err := subRuntime.HandleMessage(childCtx, capture, msg); err != nil {
+		a.breaker.RecordFailure()
+		return tool.Result{Error: "sub-agent fork error: " + err.Error()}, nil
+	}
+
+	// Collect output from captureChannel
+	output := capture.Collect()
+	if output == "" {
+		output = "(no output from sub-agent)"
+	}
+
+	a.breaker.RecordSuccess()
+	slog.Info("agent_tool: fork sub-agent completed",
+		"agent", a.spec.Name,
+		"agent_id", agentID,
+		"depth", depth,
 		"output_len", len(output),
 	)
 
