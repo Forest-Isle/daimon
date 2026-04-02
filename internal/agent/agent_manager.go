@@ -18,15 +18,16 @@ import (
 
 // AgentManager loads, validates, and registers sub-agent specs as tools.
 type AgentManager struct {
-	mu       sync.RWMutex
-	specs    []*AgentSpec
-	provider Provider
-	sessions *session.Manager
-	db       *store.DB
-	memStore memory.Store
-	tools    *tool.Registry
-	cfg      config.AgentConfig
-	llmCfg   config.LLMConfig
+	mu        sync.RWMutex
+	specs     []*AgentSpec
+	provider  Provider
+	sessions  *session.Manager
+	db        *store.DB
+	memStore  memory.Store
+	tools     *tool.Registry
+	cfg       config.AgentConfig
+	llmCfg    config.LLMConfig
+	bgManager *BackgroundManager
 }
 
 // NewAgentManager creates a new AgentManager.
@@ -48,6 +49,13 @@ func NewAgentManager(
 		cfg:      cfg,
 		llmCfg:   llmCfg,
 	}
+}
+
+// SetBackgroundManager sets the background manager for all agent tools.
+func (m *AgentManager) SetBackgroundManager(bm *BackgroundManager) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bgManager = bm
 }
 
 // Add adds an inline AgentSpec definition.
@@ -117,6 +125,9 @@ func (m *AgentManager) RegisterAll(registry *tool.Registry) {
 	for _, spec := range m.specs {
 		at := NewAgentTool(spec, m.provider, m.sessions, m.db, m.memStore, m.tools, m.cfg, m.llmCfg)
 		registry.Register(at)
+		if m.bgManager != nil {
+			at.SetBackgroundManager(m.bgManager)
+		}
 		slog.Info("agent_manager: registered agent tool",
 			"name", at.Name(),
 			"tools", spec.Tools,

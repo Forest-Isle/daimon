@@ -45,6 +45,7 @@ type Runtime struct {
 	parentID  string // parent agent ID (empty for top-level)
 	depth     int    // nesting depth
 	chainID   string // invocation chain ID
+	bgManager *BackgroundManager
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -106,6 +107,12 @@ func (r *Runtime) ChainID() string { return r.chainID }
 
 // SetChainID sets the invocation chain identifier.
 func (r *Runtime) SetChainID(id string) { r.chainID = id }
+
+// SetBackgroundManager attaches a background manager to the runtime.
+func (r *Runtime) SetBackgroundManager(bm *BackgroundManager) { r.bgManager = bm }
+
+// BackgroundManager returns the attached background manager, or nil.
+func (r *Runtime) BackgroundManager() *BackgroundManager { return r.bgManager }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.

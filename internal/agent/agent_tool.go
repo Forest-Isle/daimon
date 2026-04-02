@@ -27,15 +27,16 @@ type agentToolInput struct {
 // AgentTool wraps an AgentSpec as a tool.Tool, creating a temporary Runtime
 // for each invocation that captures output via captureChannel.
 type AgentTool struct {
-	spec     *AgentSpec
-	provider Provider
-	sessions *session.Manager
-	db       *store.DB
-	memStore memory.Store
-	tools    *tool.Registry // parent registry (for scoping)
-	cfg      config.AgentConfig
-	llmCfg   config.LLMConfig
-	breaker  *CircuitBreaker
+	spec      *AgentSpec
+	provider  Provider
+	sessions  *session.Manager
+	db        *store.DB
+	memStore  memory.Store
+	tools     *tool.Registry // parent registry (for scoping)
+	cfg       config.AgentConfig
+	llmCfg    config.LLMConfig
+	breaker   *CircuitBreaker
+	bgManager *BackgroundManager
 }
 
 // NewAgentTool creates a new AgentTool for the given spec.
@@ -61,6 +62,9 @@ func NewAgentTool(
 		breaker:  NewCircuitBreaker(),
 	}
 }
+
+// SetBackgroundManager attaches a background manager to this agent tool.
+func (a *AgentTool) SetBackgroundManager(bm *BackgroundManager) { a.bgManager = bm }
 
 func (a *AgentTool) Name() string {
 	return "agent_" + a.spec.Name
@@ -128,10 +132,7 @@ func (a *AgentTool) Execute(ctx context.Context, input []byte) (tool.Result, err
 	case ExecModeFork:
 		return a.executeFork(ctx, in)
 	case ExecModeBackground:
-		slog.Warn("agent_tool: background mode not yet implemented, falling back to spawn",
-			"agent", a.spec.Name,
-		)
-		return a.executeSpawn(ctx, in)
+		return a.executeBackground(ctx, in)
 	default:
 		return a.executeSpawn(ctx, in)
 	}
@@ -317,6 +318,56 @@ func (a *AgentTool) executeFork(ctx context.Context, in agentToolInput) (tool.Re
 	)
 
 	return tool.Result{Output: output}, nil
+}
+
+// executeBackground launches the agent in the background and returns immediately
+// with the background agent's ID. The caller can query the result later via
+// the BackgroundManager.
+func (a *AgentTool) executeBackground(ctx context.Context, in agentToolInput) (tool.Result, error) {
+	if a.bgManager == nil {
+		slog.Warn("agent_tool: no BackgroundManager available, falling back to spawn",
+			"agent", a.spec.Name,
+		)
+		return a.executeSpawn(ctx, in)
+	}
+
+	runner := func(bgCtx context.Context) (*AgentResult, error) {
+		start := time.Now()
+		result, err := a.executeSpawn(bgCtx, in)
+		duration := time.Since(start)
+
+		if err != nil {
+			return &AgentResult{
+				AgentName: a.spec.Name,
+				Error:     err,
+				Duration:  duration,
+			}, nil
+		}
+		if result.Error != "" {
+			return &AgentResult{
+				AgentName: a.spec.Name,
+				Error:     fmt.Errorf("%s", result.Error),
+				Duration:  duration,
+			}, nil
+		}
+		return &AgentResult{
+			AgentName: a.spec.Name,
+			Output:    result.Output,
+			Duration:  duration,
+		}, nil
+	}
+
+	agentID := a.bgManager.Spawn(ctx, a.spec, runner)
+	a.breaker.RecordSuccess()
+
+	slog.Info("agent_tool: background agent spawned",
+		"agent", a.spec.Name,
+		"agent_id", agentID,
+	)
+
+	return tool.Result{
+		Output: fmt.Sprintf("Background agent started: %s\nAgent ID: %s\nUse the background manager to query results.", a.spec.Name, agentID),
+	}, nil
 }
 
 // buildScopedRegistry creates a new Registry containing only the tools

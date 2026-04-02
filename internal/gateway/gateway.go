@@ -399,6 +399,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}
 		agentMgr.RegisterAll(tools)
 		runtime.SetAgentManager(agentMgr)
+		// Background agent manager
+		bgManager := agent.NewBackgroundManager()
+		agentMgr.SetBackgroundManager(bgManager)
+		runtime.SetBackgroundManager(bgManager)
+		slog.Info("background agent manager initialized")
 		// Agent orchestrator for parallel scheduling
 		orchestrator := agent.NewAgentOrchestrator(agentMgr, 4)
 		runtime.SetOrchestrator(orchestrator)
