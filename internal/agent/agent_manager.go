@@ -149,9 +149,13 @@ func (m *AgentManager) BuildPromptSection() string {
 	sb.WriteString("You can delegate tasks to specialized agents using the corresponding agent_* tools.\n")
 	sb.WriteString("Each agent runs independently with its own tool set and iteration budget.\n")
 	sb.WriteString("Pass context from previous tasks via the \"context\" field to enable pipeline collaboration.\n\n")
+	sb.WriteString("Execution modes: spawn (independent), fork (inherits conversation context), background (async).\n\n")
 
 	for _, spec := range m.specs {
 		sb.WriteString(fmt.Sprintf("- **agent_%s**: %s", spec.Name, spec.Description))
+		if spec.ExecutionMode != "" && spec.ExecutionMode != ExecModeSpawn {
+			sb.WriteString(fmt.Sprintf(" [mode: %s]", spec.ExecutionMode))
+		}
 		if len(spec.Tags) > 0 {
 			sb.WriteString(fmt.Sprintf(" [tags: %s]", strings.Join(spec.Tags, ", ")))
 		}
