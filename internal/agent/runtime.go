@@ -40,6 +40,10 @@ type Runtime struct {
 	compressionPipeline *CompressionPipeline
 	hookMgr        *hook.Manager
 	permEngine     *tool.PermissionEngine
+	agentID   string // unique ID for this runtime instance
+	parentID  string // parent agent ID (empty for top-level)
+	depth     int    // nesting depth
+	chainID   string // invocation chain ID
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -72,6 +76,52 @@ func (r *Runtime) SetHookManager(m *hook.Manager) { r.hookMgr = m }
 // SetPermissionEngine attaches a permission engine to the runtime.
 func (r *Runtime) SetPermissionEngine(pe *tool.PermissionEngine) { r.permEngine = pe }
 
+// AgentID returns this runtime's unique agent identifier.
+func (r *Runtime) AgentID() string { return r.agentID }
+
+// SetAgentID sets this runtime's agent identifier.
+func (r *Runtime) SetAgentID(id string) { r.agentID = id }
+
+// ParentID returns the parent agent's identifier.
+func (r *Runtime) ParentID() string { return r.parentID }
+
+// SetParentID sets the parent agent's identifier.
+func (r *Runtime) SetParentID(id string) { r.parentID = id }
+
+// Depth returns the nesting depth of this runtime.
+func (r *Runtime) Depth() int { return r.depth }
+
+// SetDepth sets the nesting depth.
+func (r *Runtime) SetDepth(d int) { r.depth = d }
+
+// ChainID returns the invocation chain identifier.
+func (r *Runtime) ChainID() string { return r.chainID }
+
+// SetChainID sets the invocation chain identifier.
+func (r *Runtime) SetChainID(id string) { r.chainID = id }
+
+// GetMessages returns a snapshot of the current session's message history.
+// Returns nil if no session is active. Used by fork agents to inherit context.
+func (r *Runtime) GetMessages(ctx context.Context, channelName, channelID string) []session.Message {
+	sess, err := r.sessions.Get(ctx, channelName, channelID)
+	if err != nil {
+		return nil
+	}
+	history := sess.History()
+	out := make([]session.Message, len(history))
+	copy(out, history)
+	return out
+}
+
+// GetSystemPrompt builds and returns the current system prompt.
+// Used by fork agents to reuse the parent's prompt.
+func (r *Runtime) GetSystemPrompt(ctx context.Context, userText string) string {
+	return r.buildSystemPrompt(ctx, userText)
+}
+
+// GetTools returns the runtime's tool registry.
+func (r *Runtime) GetTools() *tool.Registry { return r.tools }
+
 func NewRuntime(
 	provider Provider,
 	tools *tool.Registry,
@@ -97,6 +147,9 @@ func (r *Runtime) SetApprovalFunc(fn ApprovalFunc) {
 
 // HandleMessage processes an inbound message through the agent loop.
 func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
+	// Store this runtime in context so sub-agents can access the parent.
+	ctx = RuntimeToContext(ctx, r)
+
 	sess, err := r.sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
