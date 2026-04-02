@@ -31,6 +31,32 @@ func (d duration) Duration() time.Duration {
 	return time.Duration(d)
 }
 
+// ExecutionMode determines how a sub-agent is launched.
+type ExecutionMode string
+
+const (
+	// ExecModeSpawn creates an independent Runtime (default, current behavior).
+	ExecModeSpawn ExecutionMode = "spawn"
+	// ExecModeFork inherits the parent Runtime's full session context.
+	ExecModeFork ExecutionMode = "fork"
+	// ExecModeBackground runs asynchronously in a goroutine (Phase 2).
+	ExecModeBackground ExecutionMode = "background"
+)
+
+// PermissionMode controls how a sub-agent handles tool permission checks.
+type PermissionMode string
+
+const (
+	// PermModeDefault follows the parent's permission behavior.
+	PermModeDefault PermissionMode = ""
+	// PermModeBubble sends permission requests to the parent Runtime.
+	PermModeBubble PermissionMode = "bubble"
+	// PermModeAcceptEdits auto-approves read/write, bubbles dangerous ops.
+	PermModeAcceptEdits PermissionMode = "accept_edits"
+	// PermModeBypass skips all permission checks (use for trusted read-only agents).
+	PermModeBypass PermissionMode = "bypass"
+)
+
 // AgentSpec defines a specialized sub-agent that can be registered as a tool.
 type AgentSpec struct {
 	Name          string   `yaml:"name"`
@@ -45,6 +71,11 @@ type AgentSpec struct {
 	Timeout       duration `yaml:"timeout"`         // execution timeout, default 120s
 	RequiresApproval bool  `yaml:"requires_approval"` // require user approval before execution
 	MaxRetries    int      `yaml:"max_retries"`     // retry count on failure, default 0
+
+	ExecutionMode   ExecutionMode  `yaml:"execution_mode"`    // "spawn" (default) | "fork" | "background"
+	PermissionMode  PermissionMode `yaml:"permission_mode"`   // "" | "bubble" | "accept_edits" | "bypass"
+	InheritContext  bool           `yaml:"inherit_context"`   // fork mode: inherit parent context
+	MaxOutputTokens int            `yaml:"max_output_tokens"` // limit output tokens (0 = no limit)
 
 	// Phase 3: A2A remote agent support (reserved, not implemented)
 	Remote *RemoteAgentConfig `yaml:"remote,omitempty"`
@@ -81,6 +112,24 @@ func (s *AgentSpec) Validate() error {
 	}
 	if s.Timeout == 0 {
 		s.Timeout = duration(120 * time.Second)
+	}
+	if s.ExecutionMode == "" {
+		s.ExecutionMode = ExecModeSpawn
+	}
+	switch s.ExecutionMode {
+	case ExecModeSpawn, ExecModeFork, ExecModeBackground:
+		// valid
+	default:
+		return fmt.Errorf("agent spec %q: invalid execution_mode %q", s.Name, s.ExecutionMode)
+	}
+	switch s.PermissionMode {
+	case PermModeDefault, PermModeBubble, PermModeAcceptEdits, PermModeBypass:
+		// valid
+	default:
+		return fmt.Errorf("agent spec %q: invalid permission_mode %q", s.Name, s.PermissionMode)
+	}
+	if s.ExecutionMode == ExecModeFork {
+		s.InheritContext = true // fork always inherits
 	}
 	return nil
 }
