@@ -408,6 +408,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 		promptCache := agent.NewPromptCache()
 		runtime.SetPromptCache(promptCache)
 		slog.Info("agent prompt cache initialized")
+		// Per-agent MCP manager
+		agentMCPMgr := agent.NewAgentMCPManager(nil)
+		agentMgr.SetAgentMCPManager(agentMCPMgr)
+		runtime.SetAgentMCPManager(agentMCPMgr)
+		slog.Info("per-agent MCP manager initialized")
 		// Agent orchestrator for parallel scheduling
 		orchestrator := agent.NewAgentOrchestrator(agentMgr, 4)
 		runtime.SetOrchestrator(orchestrator)
