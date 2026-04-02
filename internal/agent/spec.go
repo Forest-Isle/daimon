@@ -77,6 +77,10 @@ type AgentSpec struct {
 	InheritContext  bool           `yaml:"inherit_context"`   // fork mode: inherit parent context
 	MaxOutputTokens int            `yaml:"max_output_tokens"` // limit output tokens (0 = no limit)
 
+	Backend    BackendType      `yaml:"backend"`      // "in_process" (default) | "subprocess" | "docker"
+	Hooks      AgentHookConfig  `yaml:"hooks"`        // lifecycle hooks
+	MCPServers []AgentMCPConfig `yaml:"mcp_servers"`  // per-agent MCP servers
+
 	// Phase 3: A2A remote agent support (reserved, not implemented)
 	Remote *RemoteAgentConfig `yaml:"remote,omitempty"`
 }
@@ -127,6 +131,12 @@ func (s *AgentSpec) Validate() error {
 		// valid
 	default:
 		return fmt.Errorf("agent spec %q: invalid permission_mode %q", s.Name, s.PermissionMode)
+	}
+	switch s.Backend {
+	case "", BackendInProcess, BackendSubprocess, BackendDocker:
+		// valid
+	default:
+		return fmt.Errorf("agent spec %q: invalid backend %q", s.Name, s.Backend)
 	}
 	if s.ExecutionMode == ExecModeFork {
 		s.InheritContext = true // fork always inherits
