@@ -404,6 +404,10 @@ func New(cfg *config.Config) (*Gateway, error) {
 		agentMgr.SetBackgroundManager(bgManager)
 		runtime.SetBackgroundManager(bgManager)
 		slog.Info("background agent manager initialized")
+		// Prompt cache for sub-agents
+		promptCache := agent.NewPromptCache()
+		runtime.SetPromptCache(promptCache)
+		slog.Info("agent prompt cache initialized")
 		// Agent orchestrator for parallel scheduling
 		orchestrator := agent.NewAgentOrchestrator(agentMgr, 4)
 		runtime.SetOrchestrator(orchestrator)

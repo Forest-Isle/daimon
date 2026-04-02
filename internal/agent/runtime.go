@@ -46,6 +46,7 @@ type Runtime struct {
 	depth     int    // nesting depth
 	chainID   string // invocation chain ID
 	bgManager *BackgroundManager
+	promptCache *PromptCache
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -113,6 +114,12 @@ func (r *Runtime) SetBackgroundManager(bm *BackgroundManager) { r.bgManager = bm
 
 // BackgroundManager returns the attached background manager, or nil.
 func (r *Runtime) BackgroundManager() *BackgroundManager { return r.bgManager }
+
+// SetPromptCache attaches a prompt cache to the runtime.
+func (r *Runtime) SetPromptCache(pc *PromptCache) { r.promptCache = pc }
+
+// PromptCache returns the attached prompt cache, or nil.
+func (r *Runtime) PromptCache() *PromptCache { return r.promptCache }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.
@@ -402,6 +409,17 @@ func (r *Runtime) addToolResult(sess *session.Session, toolUseID, content string
 // buildSystemPrompt returns the system prompt, structured as:
 // Personality → core system prompt → persistent rules → memories → skills.
 func (r *Runtime) buildSystemPrompt(ctx context.Context, userText string) string {
+	// Check prompt cache for sub-agents
+	if r.promptCache != nil && r.agentID != "" {
+		cacheKey := fmt.Sprintf("runtime:%s:%s", r.agentID, sha256Hex(userText)[:8])
+		return r.promptCache.GetOrBuild(cacheKey, func() string {
+			return r.buildSystemPromptUncached(ctx, userText)
+		})
+	}
+	return r.buildSystemPromptUncached(ctx, userText)
+}
+
+func (r *Runtime) buildSystemPromptUncached(ctx context.Context, userText string) string {
 	var sb strings.Builder
 
 	// 1. Personality (Soul.md)
