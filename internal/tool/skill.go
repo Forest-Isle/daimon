@@ -36,6 +36,9 @@ func (s *SkillTool) Description() string {
 }
 func (s *SkillTool) RequiresApproval() bool { return false }
 
+// IsReadOnly returns true because the skill tool only reads skill content.
+func (s *SkillTool) IsReadOnly() bool { return true }
+
 func (s *SkillTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",

@@ -9,6 +9,7 @@ import (
 
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/punkopunko/ironclaw/internal/hook"
 	"github.com/punkopunko/ironclaw/internal/memory"
 	"github.com/punkopunko/ironclaw/internal/session"
 	"github.com/punkopunko/ironclaw/internal/skill"
@@ -34,6 +35,11 @@ type Runtime struct {
 	agentMgr       *AgentManager
 	compressor     *memory.IncrementalCompressor
 	memoryBaseDir  string // base directory for file-based memory storage
+	concurrentCfg  config.ConcurrentExecutionConfig
+	resultStore    *tool.ResultStore
+	compressionPipeline *CompressionPipeline
+	hookMgr        *hook.Manager
+	permEngine     *tool.PermissionEngine
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -50,6 +56,21 @@ func (r *Runtime) SetAgentManager(m *AgentManager) { r.agentMgr = m }
 
 // SetCompressor attaches an incremental compressor to the runtime.
 func (r *Runtime) SetCompressor(c *memory.IncrementalCompressor) { r.compressor = c }
+
+// SetConcurrentConfig sets the concurrent execution configuration.
+func (r *Runtime) SetConcurrentConfig(cfg config.ConcurrentExecutionConfig) { r.concurrentCfg = cfg }
+
+// SetResultStore attaches a result store for persisting large tool outputs.
+func (r *Runtime) SetResultStore(rs *tool.ResultStore) { r.resultStore = rs }
+
+// SetCompressionPipeline attaches a compression pipeline to the runtime.
+func (r *Runtime) SetCompressionPipeline(p *CompressionPipeline) { r.compressionPipeline = p }
+
+// SetHookManager attaches a hook manager to the runtime.
+func (r *Runtime) SetHookManager(m *hook.Manager) { r.hookMgr = m }
+
+// SetPermissionEngine attaches a permission engine to the runtime.
+func (r *Runtime) SetPermissionEngine(pe *tool.PermissionEngine) { r.permEngine = pe }
 
 func NewRuntime(
 	provider Provider,
@@ -92,9 +113,29 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	// Build system prompt, augmented with relevant memories if available
 	systemPrompt := r.buildSystemPrompt(ctx, msg.Text)
 
-	// Compact history if it has grown too large, replacing old messages with a summary
-	if err := CompactHistory(ctx, r.provider, sess, r.llmCfg.Model); err != nil {
-		slog.Warn("history compaction failed", "session", sess.ID, "err", err)
+	// Fire OnUserMessage hooks
+	if r.hookMgr != nil && r.hookMgr.HasOnUserMessageHandlers() {
+		msgResult, _ := r.hookMgr.FireOnUserMessage(ctx, hook.OnUserMessageEvent{
+			Channel:   msg.Channel,
+			ChannelID: msg.ChannelID,
+			UserID:    msg.UserID,
+			Text:      msg.Text,
+		})
+		if len(msgResult.InjectedContext) > 0 {
+			systemPrompt += "\n\n## Environment Context\n" + strings.Join(msgResult.InjectedContext, "\n")
+		}
+	}
+
+	// Compress context if needed
+	if r.cfg.Compression.Strategy == "layered" && r.compressionPipeline != nil {
+		if err := r.compressionPipeline.Run(ctx, sess, systemPrompt); err != nil {
+			slog.Warn("compression pipeline failed", "session", sess.ID, "err", err)
+		}
+	} else {
+		// Legacy mode: use original compaction
+		if err := CompactHistory(ctx, r.provider, sess, r.llmCfg.Model); err != nil {
+			slog.Warn("history compaction failed", "session", sess.ID, "err", err)
+		}
 	}
 
 	// Agent loop — each iteration gets its own streaming message so that
@@ -205,49 +246,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		updater.Finish(statusText)
 
 		// Execute tool calls
-		for _, tc := range toolCalls {
-			t, err := r.tools.Get(tc.Name)
-			if err != nil {
-				r.addToolResult(sess, tc.ID, "tool not found: "+tc.Name)
-				continue
-			}
-
-			// Check approval — sends a separate inline-keyboard message
-			if t.RequiresApproval() && r.approvalFunc != nil {
-				approved, err := r.approvalFunc(ctx, ch, target, tc.Name, tc.Input)
-				if err != nil || !approved {
-					r.addToolResult(sess, tc.ID, "tool execution denied by user")
-					session.LogToolExecution(ctx, r.db, sess.ID, tc.Name, tc.Input, "", "denied", 0)
-					continue
-				}
-			}
-
-			// Execute tool
-			start := time.Now()
-			result, err := t.Execute(ctx, []byte(tc.Input))
-			duration := time.Since(start).Milliseconds()
-
-			var output string
-			status := "success"
-			if err != nil {
-				output = "error: " + err.Error()
-				status = "error"
-			} else if result.Error != "" {
-				output = "error: " + result.Error
-				status = "error"
-			} else {
-				output = result.Output
-				// Compress long tool outputs
-				if r.compressor != nil {
-					output = r.compressor.CompressToolResult(output)
-				}
-			}
-
-			session.LogToolExecution(ctx, r.db, sess.ID, tc.Name, tc.Input, output, status, duration)
-			r.addToolResult(sess, tc.ID, output)
-
-			slog.Info("tool executed", "tool", tc.Name, "status", status, "duration_ms", duration)
-		}
+		r.executeTools(ctx, ch, sess, target, toolCalls)
 		// Next iteration will create a new streaming message for the LLM's follow-up.
 	}
 
@@ -314,32 +313,7 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 			break
 		}
 
-		for _, tc := range resp.ToolCalls {
-			t, err := r.tools.Get(tc.Name)
-			if err != nil {
-				r.addToolResult(sess, tc.ID, "tool not found: "+tc.Name)
-				continue
-			}
-
-			start := time.Now()
-			result, execErr := t.Execute(ctx, []byte(tc.Input))
-			duration := time.Since(start).Milliseconds()
-
-			var output, status string
-			if execErr != nil {
-				output = "error: " + execErr.Error()
-				status = "error"
-			} else if result.Error != "" {
-				output = "error: " + result.Error
-				status = "error"
-			} else {
-				output = result.Output
-				status = "success"
-			}
-
-			session.LogToolExecution(ctx, r.db, sess.ID, tc.Name, tc.Input, output, status, duration)
-			r.addToolResult(sess, tc.ID, output)
-		}
+		r.executeTools(ctx, ch, sess, target, resp.ToolCalls)
 	}
 
 	if err := r.sessions.Persist(ctx, sess); err != nil {

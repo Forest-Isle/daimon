@@ -63,6 +63,17 @@ agent:
       efficiency_weight: 0.3
       safety_weight: 0.15
       user_satisfaction_weight: 0.05
+  # Context compression strategy (Phase 1 performance optimization)
+  # "layered": progressive multi-layer compression (recommended)
+  # "legacy": original single-pass LLM compression
+  compression:
+    strategy: layered
+    layers:
+      tool_eviction_pct: 30   # Layer 1: persist large tool results to disk
+      summarize_pct: 50       # Layer 2: LLM-summarize old conversation turns
+      slim_prompt_pct: 70     # Layer 3: trim low-priority context
+      emergency_pct: 90       # Layer 4: drop oldest messages (no LLM call)
+    token_estimate_ratio: 0.25  # chars-to-tokens ratio (4 chars ≈ 1 token)
   system_prompt: |
     You are IronClaw, a helpful AI assistant with access to tools.
     You can execute shell commands, read/write files, and make HTTP requests.
@@ -138,6 +149,21 @@ tools:
   # MCP (Model Context Protocol) 工具集成
   # 通过 STDIO 传输连接外部 MCP Server，动态加载工具
   # 工具命名格式: mcp_{server名}_{tool名}
+  # Concurrent execution of read-only tools (Phase 1 performance optimization)
+  # When the LLM returns multiple tool calls, read-only tools execute in parallel
+  concurrent_execution:
+    enabled: true
+    max_concurrency: 4  # maximum parallel read-only tools
+
+  # Disk persistence for large tool results (Phase 1 performance optimization)
+  # Results exceeding threshold are written to disk; only a preview stays in context
+  result_persistence:
+    enabled: true
+    threshold_bytes: 8192   # persist results larger than this (8KB)
+    preview_chars: 2000     # characters to keep inline as preview
+    cache_dir: ""           # default: ~/.ironclaw/cache/tool-results/
+    ttl_hours: 24           # auto-cleanup after this duration
+
   mcp:
     servers:
       # GitHub MCP Server 示例
@@ -152,6 +178,48 @@ tools:
       #   command: "npx"
       #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
       #   requires_approval: false
+
+# Permission rules — configurable security policies for tool execution
+# Rules are evaluated top-to-bottom, first match wins
+# If no rules are configured, falls back to legacy blocked_commands behavior
+permissions:
+  default: ask   # "allow", "deny", "ask" — action when no rule matches
+  rules:
+    - tool: bash
+      pattern: "git *"
+      action: allow
+    - tool: bash
+      pattern: "rm -rf *"
+      action: deny
+    - tool: bash
+      pattern: "shutdown"
+      action: deny
+    - tool: bash
+      pattern: "DROP TABLE *"
+      action: deny
+    - tool: file
+      path_pattern: "/etc/*"
+      action: deny
+    # - tool: "*"
+    #   action: ask   # catch-all fallback
+
+# Hook event system — pluggable handlers at lifecycle points
+hooks:
+  pre_tool_use:
+    - type: safety_analyzer
+      config:
+        block_patterns:
+          - "rm -rf /"
+          - "DROP TABLE"
+          - ":(){ :|:& };:"
+  post_tool_use:
+    - type: audit_logger
+  # on_user_message:           # Phase 3: context injectors
+  #   - type: git_context
+  #     config:
+  #       timeout_ms: 2000
+  #   - type: workdir_context
+  # pre_compact: []
 
 server:
   addr: ":8080"

@@ -12,6 +12,7 @@ import (
 	"github.com/punkopunko/ironclaw/internal/agent"
 	"github.com/punkopunko/ironclaw/internal/channel"
 	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/punkopunko/ironclaw/internal/hook"
 	"github.com/punkopunko/ironclaw/internal/knowledge"
 	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
 	"github.com/punkopunko/ironclaw/internal/mcp"
@@ -37,6 +38,7 @@ type Gateway struct {
 	sched          *scheduler.Scheduler
 	mcpManager     *mcp.Manager
 	rlTrainer      *rl.Trainer
+	resultStore    *tool.ResultStore
 	mu             sync.Mutex
 }
 
@@ -64,11 +66,71 @@ func New(cfg *config.Config) (*Gateway, error) {
 		tools.Register(tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval))
 	}
 
+	// Hook event system
+	hookCfg := cfg.Hooks
+	preToolUseCfg := make([]hook.HandlerConfig, len(hookCfg.PreToolUse))
+	for i, h := range hookCfg.PreToolUse {
+		preToolUseCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
+	}
+	postToolUseCfg := make([]hook.HandlerConfig, len(hookCfg.PostToolUse))
+	for i, h := range hookCfg.PostToolUse {
+		postToolUseCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
+	}
+	onUserMsgCfg := make([]hook.HandlerConfig, len(hookCfg.OnUserMessage))
+	for i, h := range hookCfg.OnUserMessage {
+		onUserMsgCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
+	}
+	preCompactCfg := make([]hook.HandlerConfig, len(hookCfg.PreCompact))
+	for i, h := range hookCfg.PreCompact {
+		preCompactCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
+	}
+	hookMgr := hook.BuildManager(preToolUseCfg, postToolUseCfg, onUserMsgCfg, preCompactCfg)
+	slog.Info("hook system initialized")
+
+	// Permission engine
+	permRules := make([]tool.PermissionRule, len(cfg.Permissions.Rules))
+	for i, r := range cfg.Permissions.Rules {
+		permRules[i] = tool.PermissionRule{
+			Tool: r.Tool, Pattern: r.Pattern, PathPattern: r.PathPattern, Action: r.Action,
+		}
+	}
+	permEngine := tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
+
 	// LLM provider
 	provider := agent.NewClaudeProvider(cfg.LLM.APIKey, cfg.LLM.Model, cfg.LLM.BaseURL)
 
 	// Agent runtime
 	runtime := agent.NewRuntime(provider, tools, sessions, db, cfg.Agent, cfg.LLM)
+
+	// Wire hook manager and permission engine
+	runtime.SetHookManager(hookMgr)
+	runtime.SetPermissionEngine(permEngine)
+
+	// Tool result persistence
+	var resultStore *tool.ResultStore
+	if cfg.Tools.ResultPersistence.Enabled {
+		resultStore = tool.NewResultStore(
+			cfg.Tools.ResultPersistence.CacheDir,
+			cfg.Tools.ResultPersistence.ThresholdBytes,
+			cfg.Tools.ResultPersistence.PreviewChars,
+			cfg.Tools.ResultPersistence.TTLHours,
+		)
+		runtime.SetResultStore(resultStore)
+		// Startup cleanup sweep
+		if err := resultStore.Cleanup(); err != nil {
+			slog.Warn("gateway: result store startup cleanup failed", "err", err)
+		}
+		slog.Info("tool result persistence enabled",
+			"threshold", cfg.Tools.ResultPersistence.ThresholdBytes,
+			"ttl_hours", cfg.Tools.ResultPersistence.TTLHours,
+		)
+	}
+
+	// Concurrent tool execution
+	runtime.SetConcurrentConfig(cfg.Tools.ConcurrentExecution)
+	if cfg.Tools.ConcurrentExecution.Enabled {
+		slog.Info("concurrent tool execution enabled", "max_concurrency", cfg.Tools.ConcurrentExecution.MaxConcurrency)
+	}
 
 	// Memory store
 	var memStore memory.Store
@@ -343,6 +405,15 @@ func New(cfg *config.Config) (*Gateway, error) {
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
 	}
 
+	// Compression pipeline
+	if cfg.Agent.Compression.Strategy == "layered" {
+		pipeline := agent.NewCompressionPipeline(
+			provider, cfg.LLM.Model, cfg.Agent.Compression, resultStore, 200000,
+		)
+		runtime.SetCompressionPipeline(pipeline)
+		slog.Info("layered compression pipeline enabled")
+	}
+
 	// Scheduler
 	sched := scheduler.New(db, cfg.Scheduler.PollInterval)
 
@@ -357,6 +428,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		sched:          sched,
 		mcpManager:     mcp.NewManager(),
 		rlTrainer:      rlTrainer,
+		resultStore:    resultStore,
 	}
 
 	// Set up approval function
@@ -395,6 +467,24 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 	// Start MCP hot-reload watcher (polls ~/.IronClaw/mcp/ for new/removed configs)
 	go gw.watchMCPDir(ctx)
+
+	// Start result store cleanup goroutine
+	if gw.resultStore != nil {
+		go func() {
+			ticker := time.NewTicker(1 * time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := gw.resultStore.Cleanup(); err != nil {
+						slog.Warn("gateway: result store cleanup failed", "err", err)
+					}
+				}
+			}
+		}()
+	}
 
 	// Start channels
 	for name, ch := range gw.channels {

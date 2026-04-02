@@ -7,10 +7,24 @@ import (
 	"sync"
 )
 
+// ResultType indicates the semantic type of tool output.
+type ResultType string
+
+const (
+	ResultText      ResultType = "text"
+	ResultImage     ResultType = "image"
+	ResultFile      ResultType = "file"
+	ResultReference ResultType = "reference"
+)
+
 // Result is the output of a tool execution.
 type Result struct {
-	Output string
-	Error  string
+	Output    string         `json:"output"`
+	Error     string         `json:"error,omitempty"`
+	Type      ResultType     `json:"type,omitempty"`       // defaults to "text"
+	FilePath  string         `json:"file_path,omitempty"`  // associated file path
+	IsPartial bool           `json:"is_partial,omitempty"` // true if output was truncated
+	Metadata  map[string]any `json:"metadata,omitempty"`   // extensible key-value pairs
 }
 
 // Tool is the interface all tools must implement.
@@ -20,6 +34,57 @@ type Tool interface {
 	InputSchema() map[string]any
 	Execute(ctx context.Context, input []byte) (Result, error)
 	RequiresApproval() bool
+}
+
+// ReadOnlyTool is an optional interface that tools can implement to indicate
+// they only read data and have no side effects. Tools implementing this interface
+// with IsReadOnly() returning true are eligible for concurrent execution.
+type ReadOnlyTool interface {
+	IsReadOnly() bool
+}
+
+// ToolCapabilities describes a tool's behavioral characteristics.
+type ToolCapabilities struct {
+	IsReadOnly      bool   // tool only reads, no side effects
+	IsDestructive   bool   // tool may cause irreversible changes
+	RequiresNetwork bool   // tool needs network access
+	ApprovalMode    string // "never", "always", "auto" (default: "auto")
+}
+
+// CapableTool is an optional interface for tools to declare rich capabilities.
+// It subsumes ReadOnlyTool — if a tool implements CapableTool, IsReadOnly()
+// is derived from Capabilities().IsReadOnly.
+type CapableTool interface {
+	Capabilities() ToolCapabilities
+}
+
+// GetCapabilities returns a tool's capabilities, using safe defaults
+// if the tool doesn't implement CapableTool.
+func GetCapabilities(t Tool) ToolCapabilities {
+	if ct, ok := t.(CapableTool); ok {
+		return ct.Capabilities()
+	}
+	// Fallback: check ReadOnlyTool for backward compatibility
+	readOnly := false
+	if ro, ok := t.(ReadOnlyTool); ok {
+		readOnly = ro.IsReadOnly()
+	}
+	return ToolCapabilities{
+		IsReadOnly:   readOnly,
+		ApprovalMode: "auto",
+	}
+}
+
+// IsToolReadOnly checks if a tool implements CapableTool or ReadOnlyTool and returns true.
+// Tools that do not implement either interface are treated as write-capable (false).
+func IsToolReadOnly(t Tool) bool {
+	if ct, ok := t.(CapableTool); ok {
+		return ct.Capabilities().IsReadOnly
+	}
+	if ro, ok := t.(ReadOnlyTool); ok {
+		return ro.IsReadOnly()
+	}
+	return false
 }
 
 // Registry holds all registered tools.

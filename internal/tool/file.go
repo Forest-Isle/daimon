@@ -25,6 +25,20 @@ func (f *FileTool) Name() string        { return "file" }
 func (f *FileTool) Description() string  { return "Read, write, or list files and directories." }
 func (f *FileTool) RequiresApproval() bool { return f.approval }
 
+// IsReadOnly returns false because the file tool can perform write operations.
+// Individual read/list operations are safe, but the tool itself is not purely read-only.
+func (f *FileTool) IsReadOnly() bool { return false }
+
+// Capabilities returns the file tool's capabilities.
+func (f *FileTool) Capabilities() ToolCapabilities {
+	return ToolCapabilities{
+		IsReadOnly:      false, // file tool can write
+		IsDestructive:   false, // writes are not irreversible (can overwrite)
+		RequiresNetwork: false,
+		ApprovalMode:    "auto",
+	}
+}
+
 func (f *FileTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -63,7 +77,7 @@ func (f *FileTool) Execute(_ context.Context, input []byte) (Result, error) {
 		if len(output) > maxOutputSize {
 			output = output[:maxOutputSize] + "\n... (truncated)"
 		}
-		return Result{Output: output}, nil
+		return Result{Output: output, Type: ResultFile, FilePath: in.Path}, nil
 
 	case "write":
 		dir := filepath.Dir(in.Path)
@@ -88,7 +102,7 @@ func (f *FileTool) Execute(_ context.Context, input []byte) (Result, error) {
 			}
 			listing += prefix + e.Name() + "\n"
 		}
-		return Result{Output: listing}, nil
+		return Result{Output: listing, Type: ResultText}, nil
 
 	default:
 		return Result{Error: "unknown action: " + in.Action}, nil

@@ -22,8 +22,38 @@ type Config struct {
 	Tools     ToolsConfig     `yaml:"tools"`
 	Server    ServerConfig    `yaml:"server"`
 	Log       LogConfig       `yaml:"log"`
-	Skills    SkillsConfig    `yaml:"skills"`
-	Agents    AgentsConfig    `yaml:"agents"`
+	Skills      SkillsConfig      `yaml:"skills"`
+	Agents      AgentsConfig      `yaml:"agents"`
+	Permissions PermissionsConfig `yaml:"permissions"`
+	Hooks       HooksConfig       `yaml:"hooks"`
+}
+
+// HooksConfig configures the hook event system.
+type HooksConfig struct {
+	PreToolUse    []HookHandlerConfig `yaml:"pre_tool_use"`
+	PostToolUse   []HookHandlerConfig `yaml:"post_tool_use"`
+	OnUserMessage []HookHandlerConfig `yaml:"on_user_message"`
+	PreCompact    []HookHandlerConfig `yaml:"pre_compact"`
+}
+
+// HookHandlerConfig configures a single hook handler.
+type HookHandlerConfig struct {
+	Type   string         `yaml:"type"`
+	Config map[string]any `yaml:"config"`
+}
+
+// PermissionsConfig configures the permission engine.
+type PermissionsConfig struct {
+	Default string           `yaml:"default"` // "allow", "deny", "ask" (default: "ask")
+	Rules   []PermissionRule `yaml:"rules"`
+}
+
+// PermissionRule defines a single permission rule.
+type PermissionRule struct {
+	Tool        string `yaml:"tool"`         // tool name or "*" wildcard
+	Pattern     string `yaml:"pattern"`      // glob pattern for command/input
+	PathPattern string `yaml:"path_pattern"` // glob pattern for file paths
+	Action      string `yaml:"action"`       // "allow", "deny", "ask"
 }
 
 // TUIConfig configures the TUI (terminal UI) channel.
@@ -79,13 +109,29 @@ type TelegramConfig struct {
 }
 
 type AgentConfig struct {
-	MaxIterations   int             `yaml:"max_iterations"`
-	SystemPrompt    string          `yaml:"system_prompt"`
-	Personality     string          `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
-	PersistentRules string          `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
-	Mode            string          `yaml:"mode"` // "simple" | "cognitive"
-	Cognitive       CognitiveConfig `yaml:"cognitive"`
-	RL              RLConfig        `yaml:"rl"`
+	MaxIterations   int               `yaml:"max_iterations"`
+	SystemPrompt    string            `yaml:"system_prompt"`
+	Personality     string            `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
+	PersistentRules string            `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
+	Mode            string            `yaml:"mode"` // "simple" | "cognitive"
+	Cognitive       CognitiveConfig   `yaml:"cognitive"`
+	RL              RLConfig          `yaml:"rl"`
+	Compression     CompressionConfig `yaml:"compression"`
+}
+
+// CompressionConfig controls the context compression strategy.
+type CompressionConfig struct {
+	Strategy           string            `yaml:"strategy"` // "layered" | "legacy"
+	Layers             CompressionLayers `yaml:"layers"`
+	TokenEstimateRatio float64           `yaml:"token_estimate_ratio"`
+}
+
+// CompressionLayers defines thresholds for each compression layer.
+type CompressionLayers struct {
+	ToolEvictionPct int `yaml:"tool_eviction_pct"`
+	SummarizePct    int `yaml:"summarize_pct"`
+	SlimPromptPct   int `yaml:"slim_prompt_pct"`
+	EmergencyPct    int `yaml:"emergency_pct"`
 }
 
 // CognitiveConfig holds configuration for the five-step cognitive agent loop.
@@ -220,10 +266,27 @@ type SchedulerConfig struct {
 }
 
 type ToolsConfig struct {
-	Bash BashToolConfig `yaml:"bash"`
-	File FileToolConfig `yaml:"file"`
-	HTTP HTTPToolConfig `yaml:"http"`
-	MCP  MCPConfig      `yaml:"mcp"`
+	Bash                BashToolConfig            `yaml:"bash"`
+	File                FileToolConfig            `yaml:"file"`
+	HTTP                HTTPToolConfig            `yaml:"http"`
+	MCP                 MCPConfig                 `yaml:"mcp"`
+	ConcurrentExecution ConcurrentExecutionConfig `yaml:"concurrent_execution"`
+	ResultPersistence   ResultPersistenceConfig   `yaml:"result_persistence"`
+}
+
+// ConcurrentExecutionConfig controls parallel execution of read-only tools.
+type ConcurrentExecutionConfig struct {
+	Enabled        bool `yaml:"enabled"`
+	MaxConcurrency int  `yaml:"max_concurrency"`
+}
+
+// ResultPersistenceConfig controls disk persistence of large tool results.
+type ResultPersistenceConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	ThresholdBytes int    `yaml:"threshold_bytes"`
+	PreviewChars   int    `yaml:"preview_chars"`
+	CacheDir       string `yaml:"cache_dir"`
+	TTLHours       int    `yaml:"ttl_hours"`
 }
 
 type MCPConfig struct {
@@ -356,6 +419,16 @@ func defaultConfig() Config {
 					UserSatisfactionWeight: 0.05,
 				},
 			},
+			Compression: CompressionConfig{
+				Strategy: "layered",
+				Layers: CompressionLayers{
+					ToolEvictionPct: 30,
+					SummarizePct:    50,
+					SlimPromptPct:   70,
+					EmergencyPct:    90,
+				},
+				TokenEstimateRatio: 0.25,
+			},
 		},
 		Store: StoreConfig{
 			Path: "./data/ironclaw.db",
@@ -383,6 +456,16 @@ func defaultConfig() Config {
 				Enabled: true,
 				Timeout: 30 * time.Second,
 			},
+			ConcurrentExecution: ConcurrentExecutionConfig{
+				Enabled:        true,
+				MaxConcurrency: 4,
+			},
+			ResultPersistence: ResultPersistenceConfig{
+				Enabled:        true,
+				ThresholdBytes: 8192,
+				PreviewChars:   2000,
+				TTLHours:       24,
+			},
 		},
 		Skills: SkillsConfig{
 			Enabled: true,
@@ -392,6 +475,9 @@ func defaultConfig() Config {
 			ChunkOverlap: 64,
 			BM25Weight:   0.4,
 			VectorWeight: 0.6,
+		},
+		Permissions: PermissionsConfig{
+			Default: "ask",
 		},
 	}
 }

@@ -33,6 +33,19 @@ func (h *HTTPTool) Name() string        { return "http" }
 func (h *HTTPTool) Description() string  { return "Make HTTP requests to external APIs." }
 func (h *HTTPTool) RequiresApproval() bool { return h.approval }
 
+// IsReadOnly returns false because HTTP tool can make POST/PUT/DELETE requests.
+func (h *HTTPTool) IsReadOnly() bool { return false }
+
+// Capabilities returns the HTTP tool's capabilities.
+func (h *HTTPTool) Capabilities() ToolCapabilities {
+	return ToolCapabilities{
+		IsReadOnly:      false, // can make POST/PUT/DELETE
+		IsDestructive:   false,
+		RequiresNetwork: true,
+		ApprovalMode:    "auto",
+	}
+}
+
 func (h *HTTPTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -91,5 +104,11 @@ func (h *HTTPTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	}
 
 	output := fmt.Sprintf("HTTP %d %s\n\n%s", resp.StatusCode, resp.Status, string(body))
-	return Result{Output: output}, nil
+	return Result{
+		Output: output,
+		Metadata: map[string]any{
+			"status_code":  resp.StatusCode,
+			"content_type": resp.Header.Get("Content-Type"),
+		},
+	}, nil
 }

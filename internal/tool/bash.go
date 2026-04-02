@@ -29,6 +29,19 @@ func (b *BashTool) Name() string        { return "bash" }
 func (b *BashTool) Description() string  { return "Execute a shell command and return its output." }
 func (b *BashTool) RequiresApproval() bool { return b.approval }
 
+// IsReadOnly returns false because bash commands may have arbitrary side effects.
+func (b *BashTool) IsReadOnly() bool { return false }
+
+// Capabilities returns the bash tool's capabilities.
+func (b *BashTool) Capabilities() ToolCapabilities {
+	return ToolCapabilities{
+		IsReadOnly:      false, // bash can have arbitrary side effects
+		IsDestructive:   true,  // bash can delete files, kill processes, etc.
+		RequiresNetwork: false,
+		ApprovalMode:    "always",
+	}
+}
+
 func (b *BashTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
