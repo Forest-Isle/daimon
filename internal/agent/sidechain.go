@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -223,4 +224,75 @@ func RecoverFromSidechain(store SidechainStore, agentID string) ([]SidechainEntr
 		return nil, fmt.Errorf("recover sidechain for %s: %w", agentID, err)
 	}
 	return entries, nil
+}
+
+// --- SQLiteSidechainStore ---
+
+// SQLiteSidechainStore persists sidechain entries to a SQLite database.
+// Uses the existing store.DB migrations for schema setup.
+type SQLiteSidechainStore struct {
+	db *sql.DB
+}
+
+// NewSQLiteSidechainStore creates a SQLite-based sidechain store.
+func NewSQLiteSidechainStore(db *sql.DB) *SQLiteSidechainStore {
+	return &SQLiteSidechainStore{db: db}
+}
+
+func (ss *SQLiteSidechainStore) Append(entry SidechainEntry) error {
+	chainID := ""
+	if entry.Metadata != nil {
+		chainID = entry.Metadata["chain_id"]
+	}
+
+	metaJSON, err := json.Marshal(entry.Metadata)
+	if err != nil {
+		metaJSON = []byte("{}")
+	}
+
+	_, err = ss.db.Exec(
+		`INSERT INTO sidechain_entries (id, agent_id, parent_id, chain_id, entry_type, content, metadata, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		entry.ID, entry.AgentID, entry.ParentID, chainID,
+		entry.Type, entry.Content, string(metaJSON), entry.Timestamp,
+	)
+	return err
+}
+
+func (ss *SQLiteSidechainStore) GetByAgent(agentID string) ([]SidechainEntry, error) {
+	rows, err := ss.db.Query(
+		`SELECT id, agent_id, parent_id, chain_id, entry_type, content, metadata, created_at
+		 FROM sidechain_entries WHERE agent_id = ? ORDER BY created_at ASC`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSidechainRows(rows)
+}
+
+func (ss *SQLiteSidechainStore) GetByChain(chainID string) ([]SidechainEntry, error) {
+	rows, err := ss.db.Query(
+		`SELECT id, agent_id, parent_id, chain_id, entry_type, content, metadata, created_at
+		 FROM sidechain_entries WHERE chain_id = ? ORDER BY created_at ASC`, chainID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSidechainRows(rows)
+}
+
+func scanSidechainRows(rows *sql.Rows) ([]SidechainEntry, error) {
+	var entries []SidechainEntry
+	for rows.Next() {
+		var e SidechainEntry
+		var chainID, metaJSON string
+		if err := rows.Scan(&e.ID, &e.AgentID, &e.ParentID, &chainID, &e.Type, &e.Content, &metaJSON, &e.Timestamp); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(metaJSON), &e.Metadata); err != nil {
+			e.Metadata = map[string]string{"chain_id": chainID}
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
 }
