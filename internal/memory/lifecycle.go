@@ -158,10 +158,10 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 // decide calls the LLM to choose ADD/UPDATE/DELETE/NOOP for the given fact and candidates.
 func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, candidates []SearchResult) (*LifecycleDecision, error) {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("NEW FACT: %s\n\nEXISTING SIMILAR MEMORIES:\n", fact.Content))
+	_, _ = fmt.Fprintf(&sb, "NEW FACT: %s\n\nEXISTING SIMILAR MEMORIES:\n", fact.Content)
 	for _, c := range candidates {
-		sb.WriteString(fmt.Sprintf("- ID: %s, Score: %.3f\n  Content: %s\n",
-			c.Entry.ID, c.Score, c.Entry.Content))
+		_, _ = fmt.Fprintf(&sb, "- ID: %s, Score: %.3f\n  Content: %s\n",
+			c.Entry.ID, c.Score, c.Entry.Content)
 	}
 
 	resp, err := lm.completer.Complete(ctx, lifecycleSystemPrompt, sb.String())

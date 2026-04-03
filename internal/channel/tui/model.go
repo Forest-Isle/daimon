@@ -311,13 +311,13 @@ func (m Model) renderChat() string {
 		switch msg.role {
 		case "user":
 			label := userLabelStyle.Render("You")
-			b.WriteString(fmt.Sprintf("%s %s: %s\n\n", ts, label, msg.content))
+			_, _ = fmt.Fprintf(&b, "%s %s: %s\n\n", ts, label, msg.content)
 		case "agent":
 			label := agentLabelStyle.Render("Agent")
 			rendered := renderMarkdown(msg.content)
-			b.WriteString(fmt.Sprintf("%s %s:\n%s\n", ts, label, rendered))
+			_, _ = fmt.Fprintf(&b, "%s %s:\n%s\n", ts, label, rendered)
 		case "system":
-			b.WriteString(fmt.Sprintf("%s %s\n\n", ts, systemStyle.Render(msg.content)))
+			_, _ = fmt.Fprintf(&b, "%s %s\n\n", ts, systemStyle.Render(msg.content))
 		}
 	}
 
@@ -326,7 +326,7 @@ func (m Model) renderChat() string {
 		ts := timestampStyle.Render(time.Now().Format("15:04"))
 		label := agentLabelStyle.Render("Agent")
 		indicator := streamingStyle.Render(" ▊")
-		b.WriteString(fmt.Sprintf("%s %s:\n%s%s\n", ts, label, m.streamingText, indicator))
+		_, _ = fmt.Fprintf(&b, "%s %s:\n%s%s\n", ts, label, m.streamingText, indicator)
 	}
 
 	return b.String()

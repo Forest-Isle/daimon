@@ -22,7 +22,7 @@ func startHTTPServer(addr string, db *store.DB) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		type sessionInfo struct {
 			ID        string `json:"id"`

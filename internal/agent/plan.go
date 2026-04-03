@@ -114,8 +114,8 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 	var toolsSB strings.Builder
 	for _, t := range tools.All() {
 		schemaBytes, _ := json.Marshal(t.InputSchema())
-		toolsSB.WriteString(fmt.Sprintf("- %s: %s\n  Schema: %s\n",
-			t.Name(), t.Description(), string(schemaBytes)))
+		_, _ = fmt.Fprintf(&toolsSB, "- %s: %s\n  Schema: %s\n",
+			t.Name(), t.Description(), string(schemaBytes))
 	}
 
 	// Memories section
@@ -145,7 +145,7 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 			if len(content) > 200 {
 				content = content[:200] + "..."
 			}
-			histSB.WriteString(fmt.Sprintf("[%s]: %s\n", role, content))
+			_, _ = fmt.Fprintf(&histSB, "[%s]: %s\n", role, content)
 		}
 	}
 
@@ -161,7 +161,7 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 		knowledgeSB.WriteString("(none)")
 	} else {
 		for i, k := range state.KnowledgeContext {
-			knowledgeSB.WriteString(fmt.Sprintf("[%d] %s\n\n", i+1, k))
+			_, _ = fmt.Fprintf(&knowledgeSB, "[%d] %s\n\n", i+1, k)
 		}
 	}
 	msg = strings.ReplaceAll(msg, "{{KNOWLEDGE}}", knowledgeSB.String())

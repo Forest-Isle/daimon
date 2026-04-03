@@ -49,7 +49,7 @@ func (db *DB) QueryAuditLogs(ctx context.Context, sessionID, toolName string, li
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var entries []AuditLogEntry
 	for rows.Next() {

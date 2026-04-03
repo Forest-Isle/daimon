@@ -147,7 +147,7 @@ func (t *MemoryManageTool) handleForget(ctx context.Context, in memoryManageInpu
 		if len(content) > 100 {
 			content = content[:97] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("- ID: %s | Score: %.2f | Content: %s\n", r.Entry.ID, r.Score, content))
+		_, _ = fmt.Fprintf(&sb, "- ID: %s | Score: %.2f | Content: %s\n", r.Entry.ID, r.Score, content)
 	}
 	return Result{Output: sb.String()}, nil
 }
@@ -163,7 +163,7 @@ func (t *MemoryManageTool) handleList(ctx context.Context, in memoryManageInput)
 	if err != nil {
 		return Result{Error: "query failed: " + err.Error()}, nil
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var sb strings.Builder
 	sb.WriteString("Your memories (most recent first):\n\n")
@@ -175,8 +175,8 @@ func (t *MemoryManageTool) handleList(ctx context.Context, in memoryManageInput)
 		if err := rows.Scan(&memID, &scope, &memType, &strength, &sensitivity, &filePath); err != nil {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("- ID: %s | Scope: %s | Type: %s | Strength: %.2f | Sensitivity: %s\n",
-			memID, scope, memType, strength, sensitivity))
+		_, _ = fmt.Fprintf(&sb, "- ID: %s | Scope: %s | Type: %s | Strength: %.2f | Sensitivity: %s\n",
+			memID, scope, memType, strength, sensitivity)
 		count++
 	}
 
@@ -184,7 +184,7 @@ func (t *MemoryManageTool) handleList(ctx context.Context, in memoryManageInput)
 		return Result{Output: "No memories found."}, nil
 	}
 
-	sb.WriteString(fmt.Sprintf("\nTotal: %d memories shown.", count))
+	_, _ = fmt.Fprintf(&sb, "\nTotal: %d memories shown.", count)
 	return Result{Output: sb.String()}, nil
 }
 

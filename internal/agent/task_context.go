@@ -90,9 +90,9 @@ func (tc *TaskContext) BuildContextForTask(taskID string, plan *TaskPlan) string
 		if !ok {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("--- Task %s (%s) ---\n", depID, result.AgentName))
+		_, _ = fmt.Fprintf(&sb, "--- Task %s (%s) ---\n", depID, result.AgentName)
 		if result.Error != "" {
-			sb.WriteString(fmt.Sprintf("Error: %s\n", result.Error))
+			_, _ = fmt.Fprintf(&sb, "Error: %s\n", result.Error)
 		} else {
 			sb.WriteString(result.Output)
 			sb.WriteString("\n")

@@ -84,7 +84,7 @@ func (m *Manager) Persist(ctx context.Context, sess *Session) error {
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, msg := range sess.History() {
 		if _, err := stmt.ExecContext(ctx, msg.ID, sess.ID, msg.Role, msg.Content, msg.ToolName, msg.ToolInput, msg.CreatedAt); err != nil {
@@ -119,7 +119,7 @@ func (m *Manager) loadFromDB(ctx context.Context, channel, channelID string) (*S
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var msg Message

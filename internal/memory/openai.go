@@ -51,7 +51,7 @@ func (o *OpenAIEmbedding) Embed(ctx context.Context, text string) ([]float32, er
 	if err != nil {
 		return nil, fmt.Errorf("openai request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		var errBody struct {
@@ -99,7 +99,7 @@ func (o *OpenAIEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]f
 	if err != nil {
 		return nil, fmt.Errorf("openai batch request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		var errBody struct {

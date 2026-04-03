@@ -126,7 +126,7 @@ func (fc *ForgettingCurveManager) FadeWeakMemories(ctx context.Context, baseDir 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	faded := 0
 	for rows.Next() {
@@ -257,7 +257,7 @@ func (fc *ForgettingCurveManager) FadeByRetentionPolicy(ctx context.Context, bas
 			}
 			archived++
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 
 	if archived > 0 {

@@ -60,7 +60,7 @@ func benchmarkFileStoreSearch(b *testing.B, dataSize int) {
 
 	// Create a simple in-memory DB for index
 	f, _ := os.Create(dbPath)
-	f.Close()
+	_ = f.Close()
 
 	embedder := &mockEmbedder{dimension: 128, delay: 0}
 	cfg := MemoryConfig{VectorDimension: 128}

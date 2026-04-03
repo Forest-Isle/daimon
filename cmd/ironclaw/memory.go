@@ -42,7 +42,7 @@ func newMemoryReindexCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("open database: %w", err)
 			}
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 
 			home, _ := os.UserHomeDir()
 			memoryDir := filepath.Join(home, ".IronClaw", "memory")

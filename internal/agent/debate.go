@@ -123,18 +123,18 @@ func SynthesizeDebate(observations []Observation, proposerAgent, criticAgent str
 
 	round := 1
 	for i := 0; i < len(observations); i += 2 {
-		sb.WriteString(fmt.Sprintf("### Round %d\n\n", round))
+		_, _ = fmt.Fprintf(&sb, "### Round %d\n\n", round)
 
 		// Proposal
 		if i < len(observations) {
 			obs := observations[i]
-			sb.WriteString(fmt.Sprintf("**%s (Proposal):**\n%s\n\n", proposerAgent, truncateDebateOutput(obs.Output)))
+			_, _ = fmt.Fprintf(&sb, "**%s (Proposal):**\n%s\n\n", proposerAgent, truncateDebateOutput(obs.Output))
 		}
 
 		// Critique
 		if i+1 < len(observations) {
 			obs := observations[i+1]
-			sb.WriteString(fmt.Sprintf("**%s (Critique):**\n%s\n\n", criticAgent, truncateDebateOutput(obs.Output)))
+			_, _ = fmt.Fprintf(&sb, "**%s (Critique):**\n%s\n\n", criticAgent, truncateDebateOutput(obs.Output))
 		}
 
 		round++

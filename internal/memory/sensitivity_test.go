@@ -19,10 +19,10 @@ func setupTestFileStore(t *testing.T) (*FileMemoryStore, func()) {
 	memDir := filepath.Join(tmpDir, "memory")
 	fs, err := NewFileMemoryStore(memDir, db.DB, &NoopEmbedding{}, MemoryConfig{})
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		t.Fatal(err)
 	}
-	return fs, func() { db.Close() }
+	return fs, func() { _ = db.Close() }
 }
 
 func TestSecretMemoryExcludedFromSearch(t *testing.T) {

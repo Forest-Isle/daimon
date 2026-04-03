@@ -64,14 +64,14 @@ func (m *Manager) startServer(ctx context.Context, name string, srv config.MCPSe
 		Version: "1.0.0",
 	}
 	if _, err := c.Initialize(ctx, initReq); err != nil {
-		c.Close()
+		_ = c.Close()
 		return fmt.Errorf("initialize: %w", err)
 	}
 
 	// Discover tools
 	toolsResp, err := c.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
-		c.Close()
+		_ = c.Close()
 		return fmt.Errorf("list tools: %w", err)
 	}
 

@@ -37,7 +37,7 @@ func (w *WebIngester) Extract(ctx context.Context, uri string) (string, string, 
 	if err != nil {
 		return "", "", fmt.Errorf("web ingest: fetch %s: %w", uri, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return "", "", fmt.Errorf("web ingest: HTTP %d for %s", resp.StatusCode, uri)

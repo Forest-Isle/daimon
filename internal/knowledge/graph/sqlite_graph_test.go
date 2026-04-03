@@ -16,7 +16,7 @@ func setupTestGraph(t *testing.T) (*SQLiteGraph, func()) {
 		t.Fatal(err)
 	}
 	g := NewSQLiteGraph(db)
-	return g, func() { db.Close() }
+	return g, func() { _ = db.Close() }
 }
 
 func TestUpsertEdgeVersioning(t *testing.T) {

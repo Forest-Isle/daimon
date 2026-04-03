@@ -195,9 +195,9 @@ func (r *Reflector) saveExperience(_ context.Context, state *CognitiveState, pla
 
 		// Fallback: save raw cognitive experience to the legacy memories table.
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("GOAL: %s\n", state.Goal.Raw))
-		sb.WriteString(fmt.Sprintf("PLAN: %s\n", plan.Summary))
-		sb.WriteString(fmt.Sprintf("OUTCOME: succeeded=%v, confidence=%.2f\n", reflection.Succeeded, reflection.OverallConfidence))
+		_, _ = fmt.Fprintf(&sb, "GOAL: %s\n", state.Goal.Raw)
+		_, _ = fmt.Fprintf(&sb, "PLAN: %s\n", plan.Summary)
+		_, _ = fmt.Fprintf(&sb, "OUTCOME: succeeded=%v, confidence=%.2f\n", reflection.Succeeded, reflection.OverallConfidence)
 		if len(reflection.LessonsLearned) > 0 {
 			sb.WriteString("LESSONS:\n")
 			for _, lesson := range reflection.LessonsLearned {
@@ -242,17 +242,17 @@ func buildReflectUserMessage(state *CognitiveState, plan *TaskPlan, obsResult *O
 		obsSB.WriteString("(no tool executions)")
 	} else {
 		for _, obs := range obsResult.Observations {
-			obsSB.WriteString(fmt.Sprintf("- SubTask %s [%s]:\n", obs.SubTaskID, obs.ToolName))
+			_, _ = fmt.Fprintf(&obsSB, "- SubTask %s [%s]:\n", obs.SubTaskID, obs.ToolName)
 			if obs.Denied {
 				obsSB.WriteString("  Status: DENIED\n")
 			} else if obs.Error != "" {
-				obsSB.WriteString(fmt.Sprintf("  Status: FAILED\n  Error: %s\n", obs.Error))
+				_, _ = fmt.Fprintf(&obsSB, "  Status: FAILED\n  Error: %s\n", obs.Error)
 			} else {
 				output := obs.Output
 				if len(output) > 500 {
 					output = output[:500] + "...[truncated]"
 				}
-				obsSB.WriteString(fmt.Sprintf("  Status: SUCCESS\n  Output: %s\n", output))
+				_, _ = fmt.Fprintf(&obsSB, "  Status: SUCCESS\n  Output: %s\n", output)
 			}
 		}
 	}

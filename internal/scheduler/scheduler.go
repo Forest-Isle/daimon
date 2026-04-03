@@ -85,7 +85,7 @@ func (s *Scheduler) syncTasks(ctx context.Context) {
 		slog.Error("failed to load scheduled tasks", "err", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	activeIDs := make(map[string]struct{})
 

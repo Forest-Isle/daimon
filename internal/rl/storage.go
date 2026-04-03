@@ -165,7 +165,7 @@ func (s *Storage) GetRecentEpisodes(ctx context.Context, limit int) ([]Episode, 
 	if err != nil {
 		return nil, fmt.Errorf("get recent episodes: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var episodes []Episode
 	for rows.Next() {

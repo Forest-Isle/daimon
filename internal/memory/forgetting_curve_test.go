@@ -15,7 +15,7 @@ func TestAccessLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	log := NewAccessLog(db)
 	ctx := context.Background()
@@ -49,7 +49,7 @@ func TestForgettingCurve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Create manager
 	fc := NewForgettingCurveManager(db)
@@ -93,7 +93,7 @@ func TestFadeWeakMemoriesFromFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	fc := NewForgettingCurveManager(db)
 	ctx := context.Background()
@@ -162,7 +162,7 @@ func TestTypeDependentDecay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	fc := NewForgettingCurveManager(db)
 	ctx := context.Background()
@@ -202,7 +202,7 @@ func TestProceduralAccessBonus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	fc := NewForgettingCurveManager(db)
 	ctx := context.Background()

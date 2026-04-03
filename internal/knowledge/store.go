@@ -206,7 +206,7 @@ func (kb *SQLiteKnowledgeBase) vectorSearch(ctx context.Context, query Knowledge
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type scored struct {
 		chunk Chunk
@@ -254,7 +254,7 @@ func (kb *SQLiteKnowledgeBase) fts5Search(ctx context.Context, query KnowledgeQu
 		slog.Warn("knowledge: FTS5 search failed", "err", err)
 		return kb.likeSearch(ctx, query)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanChunkResults(rows)
 }
 
@@ -270,7 +270,7 @@ func (kb *SQLiteKnowledgeBase) likeSearch(ctx context.Context, query KnowledgeQu
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanChunkResults(rows)
 }
 
@@ -286,7 +286,7 @@ func (kb *SQLiteKnowledgeBase) Sources(ctx context.Context) ([]Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var sources []Source
 	for rows.Next() {

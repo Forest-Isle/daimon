@@ -220,7 +220,7 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 	if err != nil {
 		return nil, fmt.Errorf("query memory_index: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var indexResults []indexResult
 	for rows.Next() {
@@ -309,7 +309,7 @@ func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, i
 			LIMIT 100
 		`, query.Text)
 		if err == nil {
-			defer rows.Close()
+			defer func() { _ = rows.Close() }()
 			for rows.Next() {
 				var id string
 				var rank float64
@@ -483,7 +483,7 @@ func (s *FileMemoryStore) writeFileAtomic(path string, mf MemoryFile) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := f.WriteString("---\n"); err != nil {
 		return err
@@ -493,7 +493,7 @@ func (s *FileMemoryStore) writeFileAtomic(path string, mf MemoryFile) error {
 	if err := enc.Encode(mf); err != nil {
 		return err
 	}
-	enc.Close()
+	_ = enc.Close()
 
 	if _, err := f.WriteString("---\n\n"); err != nil {
 		return err
@@ -506,7 +506,7 @@ func (s *FileMemoryStore) writeFileAtomic(path string, mf MemoryFile) error {
 	if err := f.Sync(); err != nil {
 		return err
 	}
-	f.Close()
+	_ = f.Close()
 
 	return os.Rename(tmpPath, path)
 }

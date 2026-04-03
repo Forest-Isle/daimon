@@ -33,7 +33,7 @@ func Open(path string) (*DB, error) {
 	db.SetMaxOpenConns(1) // SQLite single-writer
 
 	if err := migrate(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 

@@ -60,7 +60,7 @@ func (mi *MemoryIndex) AddEntry(scope, filePath, title, summary string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	relPath, _ := filepath.Rel(mi.baseDir, filePath)
 	line := fmt.Sprintf("- [%s](%s) — %s\n", title, relPath, summary)
@@ -114,13 +114,13 @@ func (mi *MemoryIndex) writeIndex(entries map[string][]IndexEntry) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	w := bufio.NewWriter(f)
-	defer w.Flush()
+	defer func() { _ = w.Flush() }()
 
-	fmt.Fprintf(w, "# Memory Index\n\n")
-	fmt.Fprintf(w, "Last updated: %s\n\n", time.Now().Format(time.RFC3339))
+	_, _ = fmt.Fprintf(w, "# Memory Index\n\n")
+	_, _ = fmt.Fprintf(w, "Last updated: %s\n\n", time.Now().Format(time.RFC3339))
 
 	scopeTitles := map[string]string{
 		"user":     "User Memories",
@@ -134,16 +134,16 @@ func (mi *MemoryIndex) writeIndex(entries map[string][]IndexEntry) error {
 			continue
 		}
 
-		fmt.Fprintf(w, "## %s\n\n", scopeTitles[scope])
+		_, _ = fmt.Fprintf(w, "## %s\n\n", scopeTitles[scope])
 
 		sort.Slice(entries[scope], func(i, j int) bool {
 			return entries[scope][i].FilePath < entries[scope][j].FilePath
 		})
 
 		for _, entry := range entries[scope] {
-			fmt.Fprintf(w, "- [%s](%s) — %s\n", entry.Title, entry.FilePath, entry.Summary)
+			_, _ = fmt.Fprintf(w, "- [%s](%s) — %s\n", entry.Title, entry.FilePath, entry.Summary)
 		}
-		fmt.Fprintf(w, "\n")
+		_, _ = fmt.Fprintf(w, "\n")
 	}
 
 	return nil

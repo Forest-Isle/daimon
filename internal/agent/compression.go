@@ -192,7 +192,7 @@ func (l *TurnSummarizationLayer) Compress(ctx context.Context, sess *session.Ses
 		if len(content) > 500 {
 			content = content[:500] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("[%s]: %s\n", m.Role, content))
+		_, _ = fmt.Fprintf(&sb, "[%s]: %s\n", m.Role, content)
 	}
 
 	req := CompletionRequest{

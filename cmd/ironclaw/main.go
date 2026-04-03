@@ -122,10 +122,10 @@ func newSkillListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tVERSION\tAUTHOR\tTAGS\tDESCRIPTION")
+			_, _ = fmt.Fprintln(w, "NAME\tVERSION\tAUTHOR\tTAGS\tDESCRIPTION")
 			for _, s := range skills {
 				tags := strings.Join(s.Tags, ", ")
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 					s.Name, s.Version, s.Author, tags, truncate(s.Description, 50))
 			}
 			return w.Flush()

@@ -120,7 +120,7 @@ func (g *SQLiteGraph) NeighborsAt(ctx context.Context, nodeID, edgeType string, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanTriples(rows, nodeID)
 }
 
@@ -176,7 +176,7 @@ func (g *SQLiteGraph) TraverseAt(ctx context.Context, nodeID string, maxDepth in
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanTraverseTriples(rows)
 }
 
@@ -202,7 +202,7 @@ func (g *SQLiteGraph) FindByName(ctx context.Context, name string) ([]Node, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var nodes []Node
 	for rows.Next() {
@@ -235,7 +235,7 @@ func (g *SQLiteGraph) FindEdgesByProvenance(ctx context.Context, sourceID string
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var edges []Edge
 	for rows.Next() {

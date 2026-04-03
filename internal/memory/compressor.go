@@ -68,7 +68,7 @@ func (c *IncrementalCompressor) GenerateDailySummary(ctx context.Context, messag
 	// Format new messages
 	var formatted strings.Builder
 	for _, msg := range messages {
-		formatted.WriteString(fmt.Sprintf("%s: %s\n", msg["role"], msg["content"]))
+		_, _ = fmt.Fprintf(&formatted, "%s: %s\n", msg["role"], msg["content"])
 	}
 
 	prompt := fmt.Sprintf(`现有摘要:

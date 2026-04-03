@@ -86,7 +86,7 @@ func (p *Profiler) GenerateProfile(ctx context.Context, userID string) error {
 	var promptBuilder strings.Builder
 	promptBuilder.WriteString("Reflections about this user:\n\n")
 	for i, r := range reflections {
-		promptBuilder.WriteString(fmt.Sprintf("--- Reflection %d ---\n%s\n\n", i+1, r))
+		_, _ = fmt.Fprintf(&promptBuilder, "--- Reflection %d ---\n%s\n\n", i+1, r)
 	}
 
 	if existingProfile != "" {
@@ -287,7 +287,7 @@ func writeProfileAtomic(path string, mf MemoryFile) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := f.WriteString("---\n"); err != nil {
 		return err
@@ -297,7 +297,7 @@ func writeProfileAtomic(path string, mf MemoryFile) error {
 	if err := enc.Encode(mf); err != nil {
 		return err
 	}
-	enc.Close()
+	_ = enc.Close()
 
 	if _, err := f.WriteString("---\n\n"); err != nil {
 		return err
@@ -310,7 +310,7 @@ func writeProfileAtomic(path string, mf MemoryFile) error {
 	if err := f.Sync(); err != nil {
 		return err
 	}
-	f.Close()
+	_ = f.Close()
 
 	return os.Rename(tmpPath, path)
 }

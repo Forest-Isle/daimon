@@ -174,12 +174,12 @@ func (m *AgentManager) BuildPromptSection() string {
 	sb.WriteString("Execution modes: spawn (independent), fork (inherits conversation context), background (async).\n\n")
 
 	for _, spec := range m.specs {
-		sb.WriteString(fmt.Sprintf("- **agent_%s**: %s", spec.Name, spec.Description))
+		_, _ = fmt.Fprintf(&sb, "- **agent_%s**: %s", spec.Name, spec.Description)
 		if spec.ExecutionMode != "" && spec.ExecutionMode != ExecModeSpawn {
-			sb.WriteString(fmt.Sprintf(" [mode: %s]", spec.ExecutionMode))
+			_, _ = fmt.Fprintf(&sb, " [mode: %s]", spec.ExecutionMode)
 		}
 		if len(spec.Tags) > 0 {
-			sb.WriteString(fmt.Sprintf(" [tags: %s]", strings.Join(spec.Tags, ", ")))
+			_, _ = fmt.Fprintf(&sb, " [tags: %s]", strings.Join(spec.Tags, ", "))
 		}
 		sb.WriteString("\n")
 	}

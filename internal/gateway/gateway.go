@@ -545,13 +545,13 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		gw.sched.Stop()
 	}
 
-	gw.mcpManager.Close()
+	_ = gw.mcpManager.Close()
 
 	if gw.rlTrainer != nil {
 		gw.rlTrainer.Stop()
 	}
 
-	gw.db.Close()
+	_ = gw.db.Close()
 	slog.Info("gateway stopped")
 	return nil
 }

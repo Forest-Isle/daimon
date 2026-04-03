@@ -265,7 +265,7 @@ func (ss *SQLiteSidechainStore) GetByAgent(agentID string) ([]SidechainEntry, er
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanSidechainRows(rows)
 }
 
@@ -276,7 +276,7 @@ func (ss *SQLiteSidechainStore) GetByChain(chainID string) ([]SidechainEntry, er
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanSidechainRows(rows)
 }
 

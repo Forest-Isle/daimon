@@ -41,13 +41,13 @@ func (r *LLMReranker) Rerank(ctx context.Context, query string, results []Knowle
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("QUERY: %s\n\nDOCUMENTS:\n", query))
+	_, _ = fmt.Fprintf(&sb, "QUERY: %s\n\nDOCUMENTS:\n", query)
 	for i, res := range results {
 		content := res.Chunk.Content
 		if len(content) > 300 {
 			content = content[:300] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("[%d] ID: %s\n%s\n\n", i, res.Chunk.ID, content))
+		_, _ = fmt.Fprintf(&sb, "[%d] ID: %s\n%s\n\n", i, res.Chunk.ID, content)
 	}
 
 	resp, err := r.completer.Complete(ctx, rerankerSystemPrompt, sb.String())

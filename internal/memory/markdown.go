@@ -196,14 +196,14 @@ func (p *MarkdownParser) Serialize(doc *MarkdownDocument) ([]byte, error) {
 			buf.WriteString("\n---\n\n")
 		}
 
-		buf.WriteString(fmt.Sprintf("## %s\n", fact.ID))
-		buf.WriteString(fmt.Sprintf("**Category**: %s\n", fact.Category))
-		buf.WriteString(fmt.Sprintf("**Version**: %d\n", fact.Version))
-		buf.WriteString(fmt.Sprintf("**Created**: %s\n", fact.CreatedAt.Format(time.RFC3339)))
-		buf.WriteString(fmt.Sprintf("**Updated**: %s\n", fact.UpdatedAt.Format(time.RFC3339)))
+		_, _ = fmt.Fprintf(&buf, "## %s\n", fact.ID)
+		_, _ = fmt.Fprintf(&buf, "**Category**: %s\n", fact.Category)
+		_, _ = fmt.Fprintf(&buf, "**Version**: %d\n", fact.Version)
+		_, _ = fmt.Fprintf(&buf, "**Created**: %s\n", fact.CreatedAt.Format(time.RFC3339))
+		_, _ = fmt.Fprintf(&buf, "**Updated**: %s\n", fact.UpdatedAt.Format(time.RFC3339))
 
 		if fact.ExpiresAt != nil {
-			buf.WriteString(fmt.Sprintf("**Expires**: %s\n", fact.ExpiresAt.Format(time.RFC3339)))
+			_, _ = fmt.Fprintf(&buf, "**Expires**: %s\n", fact.ExpiresAt.Format(time.RFC3339))
 		} else {
 			buf.WriteString("**Expires**: null\n")
 		}

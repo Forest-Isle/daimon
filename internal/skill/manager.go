@@ -56,19 +56,19 @@ func (m *Manager) LoadBuiltin() error {
 		}
 		tmpPath := filepath.Join(tmpDir, "SKILL.md")
 		if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-			os.RemoveAll(tmpDir)
+			_ = os.RemoveAll(tmpDir)
 			continue
 		}
 
 		s, err := ParseSkill(tmpPath)
 		if err != nil {
 			slog.Warn("skill: failed to parse builtin", "name", e.Name(), "err", err)
-			os.RemoveAll(tmpDir)
+			_ = os.RemoveAll(tmpDir)
 			continue
 		}
 
 		if s.Name == "" || existing[s.Name] {
-			os.RemoveAll(tmpDir)
+			_ = os.RemoveAll(tmpDir)
 			continue
 		}
 

@@ -191,7 +191,7 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 
 func (it *claudeStreamIterator) Close() {
 	if it.stream != nil {
-		it.stream.Close()
+		_ = it.stream.Close()
 	}
 }
 

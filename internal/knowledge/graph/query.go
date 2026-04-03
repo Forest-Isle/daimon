@@ -28,11 +28,11 @@ func DescribeNode(ctx context.Context, g Graph, nodeType, name string) (string, 
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s (%s)", node.Name, node.Type))
+	_, _ = fmt.Fprintf(&sb, "%s (%s)", node.Name, node.Type)
 	if len(triples) > 0 {
 		sb.WriteString(" is related to:")
 		for _, t := range triples {
-			sb.WriteString(fmt.Sprintf("\n  - [%s] %s (%s)", t.Predicate, t.Object.Name, t.Object.Type))
+			_, _ = fmt.Fprintf(&sb, "\n  - [%s] %s (%s)", t.Predicate, t.Object.Name, t.Object.Type)
 		}
 	}
 	return sb.String(), nil

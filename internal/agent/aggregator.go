@@ -37,13 +37,13 @@ func (a *Aggregator) Aggregate(ctx context.Context, taskCtx *TaskContext, plan *
 	// Build aggregation prompt
 	var sb strings.Builder
 	sb.WriteString("You are synthesizing results from multiple specialized agents.\n\n")
-	sb.WriteString(fmt.Sprintf("Original Goal: %s\n\n", taskCtx.Goal))
+	_, _ = fmt.Fprintf(&sb, "Original Goal: %s\n\n", taskCtx.Goal)
 	sb.WriteString("Agent Outputs:\n\n")
 
 	for i, result := range agentResults {
-		sb.WriteString(fmt.Sprintf("### Agent %d: %s\n\n", i+1, result.AgentName))
+		_, _ = fmt.Fprintf(&sb, "### Agent %d: %s\n\n", i+1, result.AgentName)
 		if result.Error != "" {
-			sb.WriteString(fmt.Sprintf("Error: %s\n\n", result.Error))
+			_, _ = fmt.Fprintf(&sb, "Error: %s\n\n", result.Error)
 		} else {
 			sb.WriteString(result.Output)
 			sb.WriteString("\n\n")

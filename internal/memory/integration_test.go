@@ -16,7 +16,7 @@ func TestConsolidator_FileMove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	memDir := filepath.Join(tmpDir, "memory")
 	fileStore, err := NewFileMemoryStore(memDir, db.DB, &NoopEmbedding{}, MemoryConfig{})
@@ -84,7 +84,7 @@ func TestIndexRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	memDir := filepath.Join(tmpDir, "memory")
 	fileStore, err := NewFileMemoryStore(memDir, db.DB, &NoopEmbedding{}, MemoryConfig{})

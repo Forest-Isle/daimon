@@ -16,7 +16,7 @@ func TestFileMemoryStore_SaveAndSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	memDir := filepath.Join(tmpDir, "memory")
 	fileStore, err := NewFileMemoryStore(memDir, db.DB, &NoopEmbedding{}, MemoryConfig{})
@@ -67,7 +67,7 @@ func TestFileMemoryStore_Delete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	memDir := filepath.Join(tmpDir, "memory")
 	fileStore, err := NewFileMemoryStore(memDir, db.DB, &NoopEmbedding{}, MemoryConfig{})
@@ -107,7 +107,7 @@ func TestFileMemoryStore_RebuildIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	memDir := filepath.Join(tmpDir, "memory")
 	fileStore, err := NewFileMemoryStore(memDir, db.DB, &NoopEmbedding{}, MemoryConfig{})

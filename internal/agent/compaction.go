@@ -47,7 +47,7 @@ func CompactHistory(ctx context.Context, provider Provider, sess *session.Sessio
 	// Build a summary request
 	var sb strings.Builder
 	for _, m := range oldMessages {
-		sb.WriteString(fmt.Sprintf("[%s]: %s\n", m.Role, truncate(m.Content, 500)))
+		_, _ = fmt.Fprintf(&sb, "[%s]: %s\n", m.Role, truncate(m.Content, 500))
 	}
 
 	req := CompletionRequest{

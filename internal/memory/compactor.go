@@ -139,7 +139,7 @@ func (c *Compactor) findCompactionCandidates(ctx context.Context) (map[string][]
 	if err != nil {
 		return nil, fmt.Errorf("query memory_index: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	// Group memories by category extracted from file metadata
 	type memInfo struct {
@@ -192,9 +192,9 @@ func (c *Compactor) findCompactionCandidates(ctx context.Context) (map[string][]
 func (c *Compactor) generateSummary(ctx context.Context, category string, factIDs []string, factContents []string) error {
 	// Build user prompt with all fact contents
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Category: %s\n\nFacts to merge:\n\n", category))
+	_, _ = fmt.Fprintf(&sb, "Category: %s\n\nFacts to merge:\n\n", category)
 	for i, content := range factContents {
-		sb.WriteString(fmt.Sprintf("--- Fact %d ---\n%s\n\n", i+1, content))
+		_, _ = fmt.Fprintf(&sb, "--- Fact %d ---\n%s\n\n", i+1, content)
 	}
 	sb.WriteString("Please merge these facts into a single structured summary.")
 

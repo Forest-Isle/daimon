@@ -92,13 +92,13 @@ func (rs *ResultStore) Cleanup() error {
 			if path != rs.cacheDir {
 				entries, readErr := os.ReadDir(path)
 				if readErr == nil && len(entries) == 0 {
-					os.Remove(path)
+					_ = os.Remove(path)
 				}
 			}
 			return nil
 		}
 		if info.ModTime().Before(cutoff) {
-			os.Remove(path)
+			_ = os.Remove(path)
 		}
 		return nil
 	})

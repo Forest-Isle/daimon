@@ -96,7 +96,7 @@ func (h *HTTPTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	if err != nil {
 		return Result{Error: err.Error()}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxOutputSize)))
 	if err != nil {
