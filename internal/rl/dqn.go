@@ -4,8 +4,8 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/rl/nn"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/rl/nn"
 )
 
 // DQN implements Deep Q-Network for replan decisions.

@@ -3,8 +3,8 @@ package rl
 import (
 	"math"
 
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/rl/nn"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/rl/nn"
 )
 
 // PPO implements Proximal Policy Optimization for plan strategy.

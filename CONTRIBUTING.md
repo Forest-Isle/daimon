@@ -70,8 +70,8 @@ Prefixes: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`
 
 ## Reporting Issues
 
-- Use the [Bug Report](https://github.com/punkopunko/ironclaw/issues/new?template=bug_report.md) template for bugs
-- Use the [Feature Request](https://github.com/punkopunko/ironclaw/issues/new?template=feature_request.md) template for new ideas
+- Use the [Bug Report](https://github.com/Forest-Isle/IronClaw/issues/new?template=bug_report.md) template for bugs
+- Use the [Feature Request](https://github.com/Forest-Isle/IronClaw/issues/new?template=feature_request.md) template for new ideas
 - Search existing issues before creating a new one
 
 ## Code of Conduct

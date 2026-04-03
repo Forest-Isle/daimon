@@ -3,7 +3,7 @@ package agent
 import (
 	"strings"
 
-	"github.com/punkopunko/ironclaw/internal/rl"
+	"github.com/Forest-Isle/IronClaw/internal/rl"
 )
 
 // buildInitialRLState creates an RLState from a CognitiveState after the PERCEIVE phase.

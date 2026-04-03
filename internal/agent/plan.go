@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
 // Planner implements the PLAN phase: single LLM call → structured TaskPlan.

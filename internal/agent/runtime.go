@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/channel"
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/hook"
-	"github.com/punkopunko/ironclaw/internal/memory"
-	"github.com/punkopunko/ironclaw/internal/session"
-	"github.com/punkopunko/ironclaw/internal/skill"
-	"github.com/punkopunko/ironclaw/internal/store"
-	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/skill"
+	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
 // ApprovalFunc is called when a tool requires user approval.
@@ -243,7 +243,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 
 		stream, err := r.provider.Stream(ctx, req)
 		if err != nil {
-			updater.Finish("Error: " + err.Error())
+			_ = updater.Finish("Error: " + err.Error())
 			return fmt.Errorf("llm stream: %w", err)
 		}
 
@@ -255,13 +255,13 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 			delta, err := stream.Next()
 			if err != nil {
 				stream.Close()
-				updater.Finish("Error: " + err.Error())
+				_ = updater.Finish("Error: " + err.Error())
 				return fmt.Errorf("stream next: %w", err)
 			}
 
 			if delta.Text != "" {
 				fullText += delta.Text
-				updater.Update(fullText)
+				_ = updater.Update(fullText)
 			}
 
 			if delta.ToolCall != nil {
@@ -284,7 +284,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		if stopReason == StopToolUse && len(toolCalls) == 0 {
 			resp, err := r.provider.Complete(ctx, req)
 			if err != nil {
-				updater.Finish("Error: " + err.Error())
+				_ = updater.Finish("Error: " + err.Error())
 				return err
 			}
 			fullText = resp.Text
@@ -386,7 +386,7 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 		}
 
 		if len(resp.ToolCalls) == 0 {
-			ch.Send(ctx, channel.OutboundMessage{
+			_ = ch.Send(ctx, channel.OutboundMessage{
 				Channel:   target.Channel,
 				ChannelID: target.ChannelID,
 				Text:      resp.Text,

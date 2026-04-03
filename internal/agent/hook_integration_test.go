@@ -6,10 +6,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/punkopunko/ironclaw/internal/channel"
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/hook"
-	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
 // --- Mock hook handlers ---

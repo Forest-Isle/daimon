@@ -117,7 +117,6 @@ func (r *SidechainRecorder) Entries() []SidechainEntry {
 // Suitable for debugging and lightweight usage.
 type FileSidechainStore struct {
 	baseDir string
-	mu      sync.Mutex
 }
 
 // NewFileSidechainStore creates a new file-based sidechain store.

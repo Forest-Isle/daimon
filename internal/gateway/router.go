@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/punkopunko/ironclaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
 )
 
 // Router maps inbound messages to sessions.

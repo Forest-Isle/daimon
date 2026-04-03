@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/memory"
-	"github.com/punkopunko/ironclaw/internal/rl"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/rl"
 )
 
 // TaskComplexity classifies how complex a user request is.

@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/punkopunko/ironclaw/internal/channel"
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/memory"
-	"github.com/punkopunko/ironclaw/internal/session"
-	"github.com/punkopunko/ironclaw/internal/store"
-	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
 // agentToolInput is the JSON input format for AgentTool.
@@ -38,7 +38,6 @@ type AgentTool struct {
 	breaker   *CircuitBreaker
 	bgManager *BackgroundManager
 	agentMCP  *AgentMCPManager
-	hookRunner *AgentHookRunner // built from spec.Hooks on each execution
 }
 
 // NewAgentTool creates a new AgentTool for the given spec.

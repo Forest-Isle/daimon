@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/punkopunko/ironclaw/internal/knowledge"
-	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
-	"github.com/punkopunko/ironclaw/internal/memory"
-	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/session"
 )
 
 // Perceiver implements the PERCEIVE phase: parse goal, retrieve memories, assess complexity.
@@ -187,12 +187,6 @@ func extractIntent(lower string) string {
 		}
 	}
 	return "query"
-}
-
-// queryGraph extracts key terms from the user message and queries the knowledge graph.
-func (p *Perceiver) queryGraph(ctx context.Context, userMsg string) []string {
-	results, _ := p.queryGraphWithEntities(ctx, userMsg)
-	return results
 }
 
 // queryGraphWithEntities extracts key terms from the user message, queries the knowledge

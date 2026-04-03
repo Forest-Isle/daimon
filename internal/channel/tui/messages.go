@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/punkopunko/ironclaw/internal/channel"
+import "github.com/Forest-Isle/IronClaw/internal/channel"
 
 // Custom tea.Msg types for communication between the adapter goroutines
 // and the Bubble Tea main loop.

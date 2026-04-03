@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/session"
 )
 
 const compactionThreshold = 40 // Trigger compaction when history exceeds this

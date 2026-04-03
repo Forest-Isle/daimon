@@ -59,7 +59,7 @@ func (o *OpenAIEmbedding) Embed(ctx context.Context, text string) ([]float32, er
 				Message string `json:"message"`
 			} `json:"error"`
 		}
-		json.NewDecoder(resp.Body).Decode(&errBody)
+		_ = json.NewDecoder(resp.Body).Decode(&errBody)
 		return nil, fmt.Errorf("openai API %d: %s", resp.StatusCode, errBody.Error.Message)
 	}
 
@@ -107,7 +107,7 @@ func (o *OpenAIEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]f
 				Message string `json:"message"`
 			} `json:"error"`
 		}
-		json.NewDecoder(resp.Body).Decode(&errBody)
+		_ = json.NewDecoder(resp.Body).Decode(&errBody)
 		return nil, fmt.Errorf("openai API %d: %s", resp.StatusCode, errBody.Error.Message)
 	}
 

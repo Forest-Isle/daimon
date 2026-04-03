@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 // SQLiteGraph implements Graph using SQLite adjacency tables + recursive CTE.

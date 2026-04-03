@@ -1,7 +1,7 @@
 package rl
 
 import (
-	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/config"
 )
 
 // RewardComponents holds the decomposed reward values.

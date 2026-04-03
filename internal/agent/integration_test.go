@@ -6,46 +6,6 @@ import (
 	"time"
 )
 
-// mockProvider implements Provider for testing.
-type mockProvider struct {
-	completeFunc func(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)
-}
-
-func (m *mockProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
-	if m.completeFunc != nil {
-		return m.completeFunc(ctx, req)
-	}
-	return &CompletionResponse{Text: "mock response", StopReason: StopEndTurn}, nil
-}
-
-func (m *mockProvider) Stream(ctx context.Context, req CompletionRequest) (StreamIterator, error) {
-	resp, err := m.Complete(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	return &mockStreamIterator{resp: resp}, nil
-}
-
-type mockStreamIterator struct {
-	resp *CompletionResponse
-	done bool
-}
-
-func (m *mockStreamIterator) Next() (StreamDelta, error) {
-	if m.done {
-		return StreamDelta{}, nil
-	}
-	m.done = true
-	return StreamDelta{
-		Text:       m.resp.Text,
-		Done:       true,
-		StopReason: m.resp.StopReason,
-		ToolCalls:  m.resp.ToolCalls,
-	}, nil
-}
-
-func (m *mockStreamIterator) Close() {}
-
 func TestAgentSpec_ForkMode_Validation(t *testing.T) {
 	spec := &AgentSpec{
 		Name:          "test-fork",

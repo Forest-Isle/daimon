@@ -7,16 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/channel"
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/knowledge"
-	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
-	"github.com/punkopunko/ironclaw/internal/memory"
-	"github.com/punkopunko/ironclaw/internal/rl"
-	"github.com/punkopunko/ironclaw/internal/session"
-	"github.com/punkopunko/ironclaw/internal/skill"
-	"github.com/punkopunko/ironclaw/internal/store"
-	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/rl"
+	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/skill"
+	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
 const MaxReplanAttempts = 2
@@ -300,7 +300,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult)
 		if err != nil {
 			slog.Error("cognitive: reflect failed", "err", err)
-			finalAnswer = "Task completed."
 			break
 		}
 

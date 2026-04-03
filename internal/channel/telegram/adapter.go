@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -95,7 +95,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 
 		// Acknowledge callback
 		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-		a.bot.Request(callback)
+		_, _ = a.bot.Request(callback)
 		return
 	}
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 func setupTestGraph(t *testing.T) (*SQLiteGraph, func()) {
@@ -153,7 +153,9 @@ func TestNeighborsAtWithNilReturnsActive(t *testing.T) {
 	aID, _ := g.UpsertNode(ctx, Node{Type: "person", Name: "A"})
 	bID, _ := g.UpsertNode(ctx, Node{Type: "person", Name: "B"})
 
-	g.UpsertEdge(ctx, Edge{SourceID: aID, TargetID: bID, Type: "knows"})
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: aID, TargetID: bID, Type: "knows"}); err != nil {
+		t.Fatal(err)
+	}
 
 	// nil asOf should return only active edges (same as Neighbors)
 	triples, err := g.NeighborsAt(ctx, aID, "", nil)
@@ -174,8 +176,12 @@ func TestTraverseCurrentState(t *testing.T) {
 	bID, _ := g.UpsertNode(ctx, Node{Type: "person", Name: "B"})
 	cID, _ := g.UpsertNode(ctx, Node{Type: "person", Name: "C"})
 
-	g.UpsertEdge(ctx, Edge{SourceID: aID, TargetID: bID, Type: "knows"})
-	g.UpsertEdge(ctx, Edge{SourceID: bID, TargetID: cID, Type: "knows"})
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: aID, TargetID: bID, Type: "knows"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: bID, TargetID: cID, Type: "knows"}); err != nil {
+		t.Fatal(err)
+	}
 
 	triples, err := g.Traverse(ctx, aID, 2)
 	if err != nil {
@@ -206,8 +212,12 @@ func TestTraverseDepthLimit(t *testing.T) {
 	bID, _ := g.UpsertNode(ctx, Node{Type: "person", Name: "B"})
 	cID, _ := g.UpsertNode(ctx, Node{Type: "person", Name: "C"})
 
-	g.UpsertEdge(ctx, Edge{SourceID: aID, TargetID: bID, Type: "knows"})
-	g.UpsertEdge(ctx, Edge{SourceID: bID, TargetID: cID, Type: "knows"})
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: aID, TargetID: bID, Type: "knows"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: bID, TargetID: cID, Type: "knows"}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Depth 1 should only reach B, not C
 	triples, err := g.Traverse(ctx, aID, 1)
@@ -246,8 +256,12 @@ func TestFindNodeAndFindByName(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	g.UpsertNode(ctx, Node{Type: "person", Name: "Alice"})
-	g.UpsertNode(ctx, Node{Type: "person", Name: "Bob"})
+	if _, err := g.UpsertNode(ctx, Node{Type: "person", Name: "Alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.UpsertNode(ctx, Node{Type: "person", Name: "Bob"}); err != nil {
+		t.Fatal(err)
+	}
 
 	// FindNode exact match
 	node, err := g.FindNode(ctx, "person", "Alice")

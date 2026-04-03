@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/channel"
-	"github.com/punkopunko/ironclaw/internal/hook"
-	"github.com/punkopunko/ironclaw/internal/session"
-	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -83,7 +83,7 @@ func (r *Runtime) executeTools(
 				return nil // don't propagate errors — handle per-tool
 			})
 		}
-		g.Wait()
+		_ = g.Wait()
 
 		// Apply results in original order
 		for i, tc := range readOnly {

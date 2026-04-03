@@ -29,8 +29,10 @@ func TestGitContextInjectorInGitRepo(t *testing.T) {
 func TestGitContextInjectorNotGitRepo(t *testing.T) {
 	// Run in /tmp which is not a git repo
 	origDir, _ := os.Getwd()
-	os.Chdir(os.TempDir())
-	defer os.Chdir(origDir)
+	if err := os.Chdir(os.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
 
 	g := &GitContextInjector{TimeoutMs: 2000}
 	result, err := g.OnUserMessage(context.Background(), OnUserMessageEvent{})
@@ -59,13 +61,21 @@ func TestWorkdirContextInjectorBasic(t *testing.T) {
 func TestWorkdirContextInjectorWithLS(t *testing.T) {
 	// Create temp dir with some files
 	tmpDir := t.TempDir()
-	os.WriteFile(tmpDir+"/a.txt", []byte("a"), 0o644)
-	os.WriteFile(tmpDir+"/b.txt", []byte("b"), 0o644)
-	os.Mkdir(tmpDir+"/subdir", 0o755)
+	if err := os.WriteFile(tmpDir+"/a.txt", []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmpDir+"/b.txt", []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(tmpDir+"/subdir", 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	origDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(origDir)
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
 
 	w := &WorkdirContextInjector{IncludeLS: true, MaxFiles: 10}
 	result, err := w.OnUserMessage(context.Background(), OnUserMessageEvent{})
@@ -87,12 +97,16 @@ func TestWorkdirContextInjectorWithLS(t *testing.T) {
 func TestWorkdirContextInjectorMaxFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	for i := 0; i < 5; i++ {
-		os.WriteFile(tmpDir+"/"+string(rune('a'+i))+".txt", []byte("x"), 0o644)
+		if err := os.WriteFile(tmpDir+"/"+string(rune('a'+i))+".txt", []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	origDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
-	defer os.Chdir(origDir)
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
 
 	w := &WorkdirContextInjector{IncludeLS: true, MaxFiles: 3}
 	result, err := w.OnUserMessage(context.Background(), OnUserMessageEvent{})

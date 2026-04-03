@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/session"
 )
 
 const forkDirectiveTag = "fork-directive"

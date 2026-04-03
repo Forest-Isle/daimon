@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/memory"
-	"github.com/punkopunko/ironclaw/internal/rl"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/rl"
 )
 
 func TestBuildInitialRLState(t *testing.T) {

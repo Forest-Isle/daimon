@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/config"
 )
 
 // Trainer coordinates RL training in the background.
@@ -93,10 +93,18 @@ func (t *Trainer) RecordEpisode(ctx context.Context, params EpisodeParams) error
 	}
 
 	// Store reward components
-	t.policy.GetStorage().AddReward(ctx, episodeID, "task_success", rc.TaskSuccess, rewardCfg.TaskSuccessWeight)
-	t.policy.GetStorage().AddReward(ctx, episodeID, "efficiency", rc.Efficiency, rewardCfg.EfficiencyWeight)
-	t.policy.GetStorage().AddReward(ctx, episodeID, "safety", rc.Safety, rewardCfg.SafetyWeight)
-	t.policy.GetStorage().AddReward(ctx, episodeID, "user_satisfaction", rc.UserSatisfaction, rewardCfg.UserSatisfactionWeight)
+	if err := t.policy.GetStorage().AddReward(ctx, episodeID, "task_success", rc.TaskSuccess, rewardCfg.TaskSuccessWeight); err != nil {
+		slog.Warn("rl trainer: failed to store reward component", "component", "task_success", "err", err)
+	}
+	if err := t.policy.GetStorage().AddReward(ctx, episodeID, "efficiency", rc.Efficiency, rewardCfg.EfficiencyWeight); err != nil {
+		slog.Warn("rl trainer: failed to store reward component", "component", "efficiency", "err", err)
+	}
+	if err := t.policy.GetStorage().AddReward(ctx, episodeID, "safety", rc.Safety, rewardCfg.SafetyWeight); err != nil {
+		slog.Warn("rl trainer: failed to store reward component", "component", "safety", "err", err)
+	}
+	if err := t.policy.GetStorage().AddReward(ctx, episodeID, "user_satisfaction", rc.UserSatisfaction, rewardCfg.UserSatisfactionWeight); err != nil {
+		slog.Warn("rl trainer: failed to store reward component", "component", "user_satisfaction", "err", err)
+	}
 
 	// Store trajectories
 	for i, exp := range params.Experiences {
@@ -106,7 +114,9 @@ func (t *Trainer) RecordEpisode(ctx context.Context, params EpisodeParams) error
 		if exp.NextState != nil {
 			nextStateBytes = exp.NextState.Encode()
 		}
-		t.policy.GetStorage().AddTrajectory(ctx, episodeID, i, exp.Level, stateBytes, actionBytes, exp.Reward, nextStateBytes, exp.Done)
+		if err := t.policy.GetStorage().AddTrajectory(ctx, episodeID, i, exp.Level, stateBytes, actionBytes, exp.Reward, nextStateBytes, exp.Done); err != nil {
+			slog.Warn("rl trainer: failed to store trajectory", "step", i, "err", err)
+		}
 	}
 
 	slog.Info("rl trainer: episode recorded",

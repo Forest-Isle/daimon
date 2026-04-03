@@ -1,4 +1,4 @@
-module github.com/punkopunko/ironclaw
+module github.com/Forest-Isle/IronClaw
 
 go 1.24.2
 

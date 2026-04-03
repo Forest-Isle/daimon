@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 func TestFileMemoryStore_SaveAndSearch(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

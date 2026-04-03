@@ -4,10 +4,10 @@
 
 [中文文档](README_zh.md)
 
-[![CI](https://github.com/punkopunko/ironclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/punkopunko/ironclaw/actions/workflows/ci.yml)
+[![CI](https://github.com/Forest-Isle/IronClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/Forest-Isle/IronClaw/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/punkopunko/ironclaw)](go.mod)
-[![Release](https://img.shields.io/github/v/release/punkopunko/ironclaw)](https://github.com/punkopunko/ironclaw/releases)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/Forest-Isle/IronClaw)](go.mod)
+[![Release](https://img.shields.io/github/v/release/Forest-Isle/IronClaw)](https://github.com/Forest-Isle/IronClaw/releases)
 
 IronClaw is a self-hosted AI agent runtime that runs entirely on your own infrastructure. It connects Claude AI with real-world tools — shell commands, file operations, HTTP requests, browser automation — and exposes them through multiple channels (Telegram, Terminal UI). All data stays local in SQLite and Markdown files.
 
@@ -62,7 +62,7 @@ IronClaw is a self-hosted AI agent runtime that runs entirely on your own infras
 
 ```bash
 # Clone
-git clone https://github.com/punkopunko/ironclaw.git
+git clone https://github.com/Forest-Isle/IronClaw.git
 cd ironclaw
 
 # Copy and edit config
@@ -92,11 +92,11 @@ docker compose up -d
 
 ### Pre-built Binaries
 
-Download from the [Releases](https://github.com/punkopunko/ironclaw/releases) page.
+Download from the [Releases](https://github.com/Forest-Isle/IronClaw/releases) page.
 
 ```bash
 # Download (example for Linux amd64)
-curl -LO https://github.com/punkopunko/ironclaw/releases/latest/download/ironclaw_linux_amd64.tar.gz
+curl -LO https://github.com/Forest-Isle/IronClaw/releases/latest/download/ironclaw_linux_amd64.tar.gz
 tar xzf ironclaw_linux_amd64.tar.gz
 
 # Copy and edit config

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/session"
 )
 
 func TestEstimateUtilization(t *testing.T) {

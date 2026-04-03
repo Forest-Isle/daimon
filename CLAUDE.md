@@ -22,7 +22,7 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 
 ## Architecture
 
-**Module**: `github.com/punkopunko/ironclaw`
+**Module**: `github.com/Forest-Isle/IronClaw`
 
 **Entry point**: `cmd/ironclaw/main.go` — Cobra CLI with `start`, `tui`, `version`, `skill` commands.
 

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 // Manager handles session lifecycle: lookup, creation, persistence.
@@ -69,7 +69,7 @@ func (m *Manager) Persist(ctx context.Context, sess *Session) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Update session timestamp
 	if _, err := tx.ExecContext(ctx,

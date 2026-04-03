@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/knowledge/ingest"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge/ingest"
 )
 
 // IngestPipeline orchestrates document ingestion: parse -> chunk -> embed -> store.

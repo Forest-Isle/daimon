@@ -25,8 +25,8 @@ type IncrementalCompressor struct {
 }
 
 func NewIncrementalCompressor(storageDir string, completer Completer) *IncrementalCompressor {
-	os.MkdirAll(filepath.Join(storageDir, "tool_results"), 0755)
-	os.MkdirAll(filepath.Join(storageDir, "sessions"), 0755)
+	_ = os.MkdirAll(filepath.Join(storageDir, "tool_results"), 0755)
+	_ = os.MkdirAll(filepath.Join(storageDir, "sessions"), 0755)
 
 	return &IncrementalCompressor{
 		storageDir: storageDir,

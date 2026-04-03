@@ -6,7 +6,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/config"
 )
 
 // ContextualBandit implements Thompson Sampling with Beta distributions.

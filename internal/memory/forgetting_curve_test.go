@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 func TestAccessLog(t *testing.T) {
@@ -101,7 +101,9 @@ func TestFadeWeakMemoriesFromFiles(t *testing.T) {
 	// Create temp directory structure
 	baseDir := t.TempDir()
 	for _, dir := range []string{"user", "session", "archived"} {
-		os.MkdirAll(filepath.Join(baseDir, dir), 0755)
+		if err := os.MkdirAll(filepath.Join(baseDir, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// Write a weak memory file (very old, low strength)

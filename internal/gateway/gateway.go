@@ -6,24 +6,23 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/agent"
-	"github.com/punkopunko/ironclaw/internal/channel"
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/hook"
-	"github.com/punkopunko/ironclaw/internal/knowledge"
-	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
-	"github.com/punkopunko/ironclaw/internal/mcp"
-	"github.com/punkopunko/ironclaw/internal/memory"
-	"github.com/punkopunko/ironclaw/internal/rl"
-	"github.com/punkopunko/ironclaw/internal/scheduler"
-	"github.com/punkopunko/ironclaw/internal/session"
-	"github.com/punkopunko/ironclaw/internal/skill"
-	"github.com/punkopunko/ironclaw/internal/store"
-	"github.com/punkopunko/ironclaw/internal/tool"
-	"github.com/punkopunko/ironclaw/internal/userdir"
+	"github.com/Forest-Isle/IronClaw/internal/agent"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
+	"github.com/Forest-Isle/IronClaw/internal/mcp"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/rl"
+	"github.com/Forest-Isle/IronClaw/internal/scheduler"
+	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/skill"
+	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/userdir"
 )
 
 // Gateway is the central coordinator that wires all modules together.
@@ -39,7 +38,6 @@ type Gateway struct {
 	mcpManager     *mcp.Manager
 	rlTrainer      *rl.Trainer
 	resultStore    *tool.ResultStore
-	mu             sync.Mutex
 }
 
 func New(cfg *config.Config) (*Gateway, error) {
@@ -197,8 +195,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 			factExtractor = memory.NewLLMFactExtractor(completer, memCfg)
 
 			// Create reflection tracker for automatic L1/L2 reflections
-			var reflector *memory.ReflectionTracker
-			reflector = memory.NewReflectionTracker(memStore, completer, embedder, memCfg, db.DB)
+			reflector := memory.NewReflectionTracker(memStore, completer, embedder, memCfg, db.DB)
 			slog.Info("memory: reflection tracker enabled")
 
 			lifecycleMgr = memory.NewLifecycleManager(memStore, embedder, completer, memCfg, reflector)

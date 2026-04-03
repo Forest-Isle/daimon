@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 	"gopkg.in/yaml.v3"
 )
 

@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/punkopunko/ironclaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
 )
 
 // Adapter implements channel.Channel, channel.ApprovalSender, and
@@ -32,7 +31,6 @@ type Adapter struct {
 	// converts them to InboundMessages for the gateway.
 	userInputCh chan string
 
-	mu sync.Mutex
 }
 
 // New creates a new TUI adapter.

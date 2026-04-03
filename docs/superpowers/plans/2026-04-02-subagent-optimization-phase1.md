@@ -108,10 +108,10 @@ package agent
 import (
 	"context"
 
-	"github.com/punkopunko/ironclaw/internal/memory"
-	"github.com/punkopunko/ironclaw/internal/session"
-	"github.com/punkopunko/ironclaw/internal/store"
-	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
 // MaxForkDepth is the maximum nesting depth for fork agents.
@@ -320,7 +320,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/session"
 )
 
 func TestBuildForkMessages(t *testing.T) {
@@ -416,7 +416,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/session"
 )
 
 const forkDirectiveTag = "fork-directive"

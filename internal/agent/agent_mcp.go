@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/mcp"
-	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/mcp"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
 // AgentMCPConfig is the per-agent MCP server configuration in agent spec YAML.

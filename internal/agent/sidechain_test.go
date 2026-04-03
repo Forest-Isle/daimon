@@ -63,8 +63,12 @@ func TestFileSidechainStore_AppendAndGetByAgent(t *testing.T) {
 	}
 
 	recorder := NewSidechainRecorder("agent-a", "parent-x", "chain-x", store)
-	recorder.RecordMessage("user", "hello")
-	recorder.RecordMessage("assistant", "world")
+	if err := recorder.RecordMessage("user", "hello"); err != nil {
+		t.Fatalf("record message: %v", err)
+	}
+	if err := recorder.RecordMessage("assistant", "world"); err != nil {
+		t.Fatalf("record message: %v", err)
+	}
 
 	// Read back
 	entries, err := store.GetByAgent("agent-a")
@@ -100,8 +104,12 @@ func TestFileSidechainStore_GetByChain(t *testing.T) {
 	r1 := NewSidechainRecorder("agent-1", "", "chain-abc", store)
 	r2 := NewSidechainRecorder("agent-2", "agent-1", "chain-abc", store)
 
-	r1.RecordMessage("user", "msg from agent-1")
-	r2.RecordMessage("user", "msg from agent-2")
+	if err := r1.RecordMessage("user", "msg from agent-1"); err != nil {
+		t.Fatalf("record message: %v", err)
+	}
+	if err := r2.RecordMessage("user", "msg from agent-2"); err != nil {
+		t.Fatalf("record message: %v", err)
+	}
 
 	entries, err := store.GetByChain("chain-abc")
 	if err != nil {
@@ -136,8 +144,12 @@ func TestRecoverFromSidechain(t *testing.T) {
 	}
 
 	r := NewSidechainRecorder("recover-agent", "parent", "chain", store)
-	r.RecordMessage("user", "question")
-	r.RecordToolCall("bash", "ls")
+	if err := r.RecordMessage("user", "question"); err != nil {
+		t.Fatalf("record message: %v", err)
+	}
+	if err := r.RecordToolCall("bash", "ls"); err != nil {
+		t.Fatalf("record tool call: %v", err)
+	}
 	r.RecordToolResult("bash", "output", "success")
 	r.RecordMessage("assistant", "answer")
 

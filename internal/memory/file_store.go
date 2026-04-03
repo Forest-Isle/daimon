@@ -271,7 +271,7 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 
 		// Track access
 		if err := s.trackAccess(ctx, results[i].Entry.ID, filePath, mf); err != nil {
-			// Log but don't fail
+			_ = err // Log but don't fail
 		}
 	}
 
@@ -575,7 +575,7 @@ func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath s
 	}
 
 	// Update memory_fts table (FTS5 doesn't support UPSERT, use DELETE+INSERT)
-	s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, entry.ID)
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, entry.ID)
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)
 	`, entry.ID, entry.Content)

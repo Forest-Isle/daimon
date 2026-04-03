@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/channel"
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/knowledge/graph"
-	"github.com/punkopunko/ironclaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
 
 // ReflectionCallback is called by the Gateway when the user responds to a replan keyboard.

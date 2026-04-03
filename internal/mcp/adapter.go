@@ -8,7 +8,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/punkopunko/ironclaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
 // ToolAdapter wraps an MCP tool as an IronClaw tool.Tool.

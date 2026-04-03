@@ -116,19 +116,29 @@ func TestResultStoreCleanup(t *testing.T) {
 
 	// Create a session dir with an old file
 	sessionDir := filepath.Join(tmpDir, "old_session")
-	os.MkdirAll(sessionDir, 0o755)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	oldFile := filepath.Join(sessionDir, "old_result.txt")
-	os.WriteFile(oldFile, []byte("old content"), 0o644)
+	if err := os.WriteFile(oldFile, []byte("old content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Set file modification time to 2 hours ago
 	oldTime := time.Now().Add(-2 * time.Hour)
-	os.Chtimes(oldFile, oldTime, oldTime)
+	if err := os.Chtimes(oldFile, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
 
 	// Create a recent file
 	recentDir := filepath.Join(tmpDir, "recent_session")
-	os.MkdirAll(recentDir, 0o755)
+	if err := os.MkdirAll(recentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	recentFile := filepath.Join(recentDir, "recent_result.txt")
-	os.WriteFile(recentFile, []byte("recent content"), 0o644)
+	if err := os.WriteFile(recentFile, []byte("recent content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Cleanup
 	err := rs.Cleanup()

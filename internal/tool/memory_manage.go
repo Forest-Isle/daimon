@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
 
 // MemoryManageTool allows users to manage their memories through conversation.

@@ -124,11 +124,15 @@ func TestSyncOnUpdateMovesProvenance(t *testing.T) {
 	edgeID, _ := g.UpsertEdge(ctx, Edge{SourceID: aID, TargetID: bID, Type: "knows"})
 
 	// Add provenance with old fact ID
-	g.AddProvenance(ctx, edgeID, "memory", "old_fact_1")
+	if err := g.AddProvenance(ctx, edgeID, "memory", "old_fact_1"); err != nil {
+		t.Fatal(err)
+	}
 
 	// Sync update: old_fact_1 → new_fact_1
 	gs := NewGraphSync(g, nil)
-	gs.SyncOnUpdate(ctx, "old_fact_1", "new_fact_1", "Charlie knows Rust")
+	if err := gs.SyncOnUpdate(ctx, "old_fact_1", "new_fact_1", "Charlie knows Rust"); err != nil {
+		t.Fatal(err)
+	}
 
 	// Old provenance should be gone
 	edges, err := g.FindEdgesByProvenance(ctx, "old_fact_1")

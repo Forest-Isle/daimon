@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 type AccessLog struct {
@@ -43,7 +43,7 @@ func (al *AccessLog) updateStats(factID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	al.db.ExecContext(ctx, `
+	_, _ = al.db.ExecContext(ctx, `
 		INSERT INTO memory_access_stats (fact_id, access_count, last_access, first_access)
 		SELECT ?, COUNT(*), MAX(accessed_at), MIN(accessed_at)
 		FROM memory_access_log

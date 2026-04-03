@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 func setupTestFileStore(t *testing.T) (*FileMemoryStore, func()) {

@@ -134,7 +134,7 @@ package memory
 import (
     "context"
     "time"
-    "github.com/punkopunko/ironclaw/internal/store"
+    "github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 type HistoryManager struct {
@@ -403,7 +403,7 @@ package memory
 import (
     "context"
     "log/slog"
-    "github.com/punkopunko/ironclaw/internal/knowledge/graph"
+    "github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 )
 
 type GraphIntegrator struct {

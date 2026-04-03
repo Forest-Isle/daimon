@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/punkopunko/ironclaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/config"
 )
 
 // Policy is the unified interface for all RL components.

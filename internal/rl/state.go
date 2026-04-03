@@ -109,13 +109,13 @@ func (s *RLState) FromVector(v []float64) {
 func (s *RLState) ContextHash() string {
 	h := sha256.New()
 	// Hash complexity one-hot
-	binary.Write(h, binary.LittleEndian, s.ComplexitySimple)
-	binary.Write(h, binary.LittleEndian, s.ComplexityModerate)
-	binary.Write(h, binary.LittleEndian, s.ComplexityComplex)
+	_ = binary.Write(h, binary.LittleEndian, s.ComplexitySimple)
+	_ = binary.Write(h, binary.LittleEndian, s.ComplexityModerate)
+	_ = binary.Write(h, binary.LittleEndian, s.ComplexityComplex)
 	// Discretize continuous features into buckets
-	binary.Write(h, binary.LittleEndian, discretize(s.MemoryCount, 3))
-	binary.Write(h, binary.LittleEndian, discretize(s.ToolCount, 3))
-	binary.Write(h, binary.LittleEndian, discretize(s.WordCount, 3))
+	_ = binary.Write(h, binary.LittleEndian, discretize(s.MemoryCount, 3))
+	_ = binary.Write(h, binary.LittleEndian, discretize(s.ToolCount, 3))
+	_ = binary.Write(h, binary.LittleEndian, discretize(s.WordCount, 3))
 	return fmt.Sprintf("%x", h.Sum(nil))[:16]
 }
 

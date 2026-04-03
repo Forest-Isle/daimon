@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	tuichannel "github.com/punkopunko/ironclaw/internal/channel/tui"
-	"github.com/punkopunko/ironclaw/internal/config"
-	"github.com/punkopunko/ironclaw/internal/gateway"
-	"github.com/punkopunko/ironclaw/internal/userdir"
+	tuichannel "github.com/Forest-Isle/IronClaw/internal/channel/tui"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/gateway"
+	"github.com/Forest-Isle/IronClaw/internal/userdir"
 	"github.com/spf13/cobra"
 )
 

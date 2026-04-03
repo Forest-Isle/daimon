@@ -70,8 +70,8 @@ refactor: 简化会话管理逻辑
 
 ## 报告问题
 
-- 使用 [Bug 报告](https://github.com/punkopunko/ironclaw/issues/new?template=bug_report.md) 模板报告缺陷
-- 使用 [功能请求](https://github.com/punkopunko/ironclaw/issues/new?template=feature_request.md) 模板提出新想法
+- 使用 [Bug 报告](https://github.com/Forest-Isle/IronClaw/issues/new?template=bug_report.md) 模板报告缺陷
+- 使用 [功能请求](https://github.com/Forest-Isle/IronClaw/issues/new?template=feature_request.md) 模板提出新想法
 - 创建新 Issue 前请先搜索已有 Issue
 
 ## 行为准则

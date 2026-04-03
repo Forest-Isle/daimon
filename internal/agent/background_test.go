@@ -137,7 +137,9 @@ func TestBackgroundManager_Cleanup(t *testing.T) {
 	})
 
 	// Wait for completion
-	bm.Wait(context.Background(), agentID)
+	if _, err := bm.Wait(context.Background(), agentID); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
 
 	removed := bm.Cleanup()
 	if removed != 1 {

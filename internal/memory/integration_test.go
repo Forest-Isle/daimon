@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/punkopunko/ironclaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 func TestConsolidator_FileMove(t *testing.T) {
@@ -47,7 +47,9 @@ func TestConsolidator_FileMove(t *testing.T) {
 		t.Fatal("Expected session file to exist")
 	}
 	oldTime := time.Now().Add(-25 * time.Hour)
-	os.Chtimes(sessionFiles[0], oldTime, oldTime)
+	if err := os.Chtimes(sessionFiles[0], oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
 
 	// Update the file's frontmatter with high strength
 	mf, err := fileStore.parseFile(sessionFiles[0])
@@ -59,7 +61,9 @@ func TestConsolidator_FileMove(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Re-backdate after rewrite
-	os.Chtimes(sessionFiles[0], oldTime, oldTime)
+	if err := os.Chtimes(sessionFiles[0], oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
 
 	// Run consolidation
 	consolidator := NewConsolidator(fileStore, db.DB, memDir, 24*time.Hour)
@@ -105,8 +109,12 @@ func TestIndexRebuild(t *testing.T) {
 	}
 
 	// Clear index
-	db.Exec(`DELETE FROM memory_index`)
-	db.Exec(`DELETE FROM memory_fts`)
+	if _, err := db.Exec(`DELETE FROM memory_index`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM memory_fts`); err != nil {
+		t.Fatal(err)
+	}
 
 	// Rebuild
 	if err := fileStore.RebuildIndex(ctx); err != nil {
@@ -115,7 +123,9 @@ func TestIndexRebuild(t *testing.T) {
 
 	// Verify index populated
 	var count int
-	db.QueryRow(`SELECT COUNT(*) FROM memory_index`).Scan(&count)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM memory_index`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
 	if count != 5 {
 		t.Errorf("Expected 5 index entries, got %d", count)
 	}
