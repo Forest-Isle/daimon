@@ -314,7 +314,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 
 		// If no tool calls, we're done — finalize this message
 		if len(toolCalls) == 0 {
-			updater.Finish(fullText)
+			_ = updater.Finish(fullText)
 			break
 		}
 
@@ -324,7 +324,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		if fullText != "" {
 			statusText = fullText + "\n\n🔧 Calling tools..."
 		}
-		updater.Finish(statusText)
+		_ = updater.Finish(statusText)
 
 		// Execute tool calls
 		r.executeTools(ctx, ch, sess, target, toolCalls)

@@ -117,7 +117,9 @@ updated_at: 2020-01-01T00:00:00Z
 This is a very old memory that should be archived.
 `
 	weakPath := filepath.Join(baseDir, "session", "memory_20200101_weak_fact.md")
-	os.WriteFile(weakPath, []byte(weakContent), 0644)
+	if err := os.WriteFile(weakPath, []byte(weakContent), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write a strong memory file (recent)
 	strongContent := `---

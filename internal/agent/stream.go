@@ -62,7 +62,7 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 			}
 			for _, tc := range m.ToolBlocks {
 				var input any
-				json.Unmarshal([]byte(tc.Input), &input)
+				_ = json.Unmarshal([]byte(tc.Input), &input)
 				blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
 			}
 			messages = append(messages, anthropic.NewAssistantMessage(blocks...))
@@ -151,7 +151,7 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 
 	for it.stream.Next() {
 		event := it.stream.Current()
-		it.accum.Accumulate(event)
+		_ = it.accum.Accumulate(event)
 
 		switch e := event.AsAny().(type) {
 		case anthropic.ContentBlockDeltaEvent:

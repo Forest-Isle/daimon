@@ -383,7 +383,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 	// Multi-agent system
 	if cfg.Agents.Enabled {
 		agentMgr := agent.NewAgentManager(provider, sessions, db, memStore, tools, cfg.Agent, cfg.LLM)
-		agentMgr.LoadDir(userdir.AgentsDir())
+		_ = agentMgr.LoadDir(userdir.AgentsDir())
 		for _, dir := range cfg.Agents.ExtraDirs {
 			if err := agentMgr.LoadDir(dir); err != nil {
 				slog.Warn("gateway: failed to load agents from extra dir", "dir", dir, "err", err)
@@ -572,14 +572,14 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	if msg.Text == "/new" || msg.Text == "/start" {
 		if err := gw.sessions.Reset(ctx, msg.Channel, msg.ChannelID); err != nil {
 			slog.Error("session reset failed", "err", err)
-			ch.Send(ctx, channel.OutboundMessage{
+			_ = ch.Send(ctx, channel.OutboundMessage{
 				Channel:   msg.Channel,
 				ChannelID: msg.ChannelID,
 				Text:      "⚠️ Failed to reset session: " + err.Error(),
 			})
 			return
 		}
-		ch.Send(ctx, channel.OutboundMessage{
+		_ = ch.Send(ctx, channel.OutboundMessage{
 			Channel:   msg.Channel,
 			ChannelID: msg.ChannelID,
 			Text:      "🔄 New conversation started.",
@@ -592,7 +592,7 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	if gw.cognitiveAgent != nil {
 		if err := gw.cognitiveAgent.HandleMessage(ctx, ch, msg); err != nil {
 			slog.Error("cognitive agent error", "err", err)
-			ch.Send(ctx, channel.OutboundMessage{
+			_ = ch.Send(ctx, channel.OutboundMessage{
 				Channel:   msg.Channel,
 				ChannelID: msg.ChannelID,
 				Text:      "⚠️ Error: " + err.Error(),

@@ -6,8 +6,9 @@
 
 [![CI](https://github.com/Forest-Isle/IronClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/Forest-Isle/IronClaw/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/Forest-Isle/IronClaw)](go.mod)
-[![Release](https://img.shields.io/github/v/release/Forest-Isle/IronClaw)](https://github.com/Forest-Isle/IronClaw/releases)
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![SQLite](https://img.shields.io/badge/SQLite-本地优先-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org)
+[![Anthropic](https://img.shields.io/badge/Claude-AI_驱动-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com)
 
 IronClaw 是一个自托管的 AI Agent 运行时，完全运行在你自己的基础设施上。它将 Claude AI 与实际工具（Shell 命令、文件操作、HTTP 请求、浏览器自动化）连接起来，并通过多种渠道（Telegram、终端 UI）进行交互。所有数据本地存储在 SQLite 和 Markdown 文件中。
 

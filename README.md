@@ -6,8 +6,9 @@
 
 [![CI](https://github.com/Forest-Isle/IronClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/Forest-Isle/IronClaw/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/Forest-Isle/IronClaw)](go.mod)
-[![Release](https://img.shields.io/github/v/release/Forest-Isle/IronClaw)](https://github.com/Forest-Isle/IronClaw/releases)
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![SQLite](https://img.shields.io/badge/SQLite-Local--first-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org)
+[![Anthropic](https://img.shields.io/badge/Claude-AI_Powered-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com)
 
 IronClaw is a self-hosted AI agent runtime that runs entirely on your own infrastructure. It connects Claude AI with real-world tools — shell commands, file operations, HTTP requests, browser automation — and exposes them through multiple channels (Telegram, Terminal UI). All data stays local in SQLite and Markdown files.
 

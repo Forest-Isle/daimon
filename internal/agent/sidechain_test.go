@@ -150,8 +150,12 @@ func TestRecoverFromSidechain(t *testing.T) {
 	if err := r.RecordToolCall("bash", "ls"); err != nil {
 		t.Fatalf("record tool call: %v", err)
 	}
-	r.RecordToolResult("bash", "output", "success")
-	r.RecordMessage("assistant", "answer")
+	if err := r.RecordToolResult("bash", "output", "success"); err != nil {
+		t.Fatalf("record tool result: %v", err)
+	}
+	if err := r.RecordMessage("assistant", "answer"); err != nil {
+		t.Fatalf("record message: %v", err)
+	}
 
 	entries, err := RecoverFromSidechain(store, "recover-agent")
 	if err != nil {

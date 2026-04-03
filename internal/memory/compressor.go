@@ -44,7 +44,7 @@ func (c *IncrementalCompressor) CompressToolResult(result string) string {
 	// Save full output
 	id := uuid.New().String()
 	path := filepath.Join(c.storageDir, "tool_results", id+".txt")
-	os.WriteFile(path, []byte(result), 0644)
+	_ = os.WriteFile(path, []byte(result), 0644)
 
 	// Return truncated + reference
 	return fmt.Sprintf(
@@ -91,7 +91,7 @@ func (c *IncrementalCompressor) GenerateDailySummary(ctx context.Context, messag
 	}
 
 	// Save summary
-	os.WriteFile(summaryPath, []byte(summary), 0644)
+	_ = os.WriteFile(summaryPath, []byte(summary), 0644)
 
 	return summary, nil
 }

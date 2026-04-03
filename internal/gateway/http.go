@@ -13,7 +13,7 @@ func startHTTPServer(addr string, db *store.DB) {
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
 	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -35,12 +35,14 @@ func startHTTPServer(addr string, db *store.DB) {
 		var sessions []sessionInfo
 		for rows.Next() {
 			var s sessionInfo
-			rows.Scan(&s.ID, &s.Channel, &s.ChannelID, &s.CreatedAt, &s.UpdatedAt)
+			if err := rows.Scan(&s.ID, &s.Channel, &s.ChannelID, &s.CreatedAt, &s.UpdatedAt); err != nil {
+				continue
+			}
 			sessions = append(sessions, s)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(sessions)
+		_ = json.NewEncoder(w).Encode(sessions)
 	})
 
 	slog.Info("http admin server starting", "addr", addr)

@@ -231,7 +231,7 @@ func newSkillRemoveCmd() *cobra.Command {
 
 			fmt.Printf("Remove skill %q from %s? [y/N] ", name, dir)
 			var answer string
-			fmt.Scanln(&answer)
+			_, _ = fmt.Scanln(&answer)
 			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
 				fmt.Println("Aborted.")
 				return nil
