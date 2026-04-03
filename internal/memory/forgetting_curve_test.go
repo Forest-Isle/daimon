@@ -132,7 +132,9 @@ updated_at: ` + time.Now().Format(time.RFC3339) + `
 This is a recent memory that should not be archived.
 `
 	strongPath := filepath.Join(baseDir, "session", "memory_20260330_strong_fact.md")
-	os.WriteFile(strongPath, []byte(strongContent), 0644)
+	if err := os.WriteFile(strongPath, []byte(strongContent), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Run fade
 	err = fc.FadeWeakMemoriesFromFiles(ctx, baseDir)

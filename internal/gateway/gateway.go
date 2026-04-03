@@ -603,7 +603,7 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 
 	if err := gw.runtime.HandleMessage(ctx, ch, msg); err != nil {
 		slog.Error("agent error", "err", err)
-		ch.Send(ctx, channel.OutboundMessage{
+		_ = ch.Send(ctx, channel.OutboundMessage{
 			Channel:   msg.Channel,
 			ChannelID: msg.ChannelID,
 			Text:      "⚠️ Error: " + err.Error(),
