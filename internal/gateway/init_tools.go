@@ -16,7 +16,10 @@ func (gw *Gateway) initToolsAndHooks() error {
 		gw.tools.Register(tool.NewBashTool(gw.cfg.Tools.Bash.Timeout, gw.cfg.Tools.Bash.RequiresApproval, policy))
 	}
 	if gw.cfg.Tools.File.Enabled {
-		gw.tools.Register(tool.NewFileTool(gw.cfg.Tools.File.RequiresApproval))
+		gw.tools.Register(tool.NewFileReadTool())
+		gw.tools.Register(tool.NewFileWriteTool(gw.cfg.Tools.File.RequiresApproval))
+		gw.tools.Register(tool.NewFileEditTool(gw.cfg.Tools.File.RequiresApproval))
+		gw.tools.Register(tool.NewFileListTool())
 	}
 	if gw.cfg.Tools.HTTP.Enabled {
 		gw.tools.Register(tool.NewHTTPTool(gw.cfg.Tools.HTTP.Timeout, gw.cfg.Tools.HTTP.RequiresApproval))

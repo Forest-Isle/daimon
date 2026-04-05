@@ -124,10 +124,16 @@ func TestBuiltinToolsReadOnly(t *testing.T) {
 		t.Error("BashTool should not be read-only")
 	}
 
-	// FileTool should not be read-only
-	file := NewFileTool(false)
+	// FileWriteTool should not be read-only
+	file := NewFileWriteTool(false)
 	if IsToolReadOnly(file) {
-		t.Error("FileTool should not be read-only")
+		t.Error("FileWriteTool should not be read-only")
+	}
+
+	// FileReadTool should be read-only
+	fileRead := NewFileReadTool()
+	if !IsToolReadOnly(fileRead) {
+		t.Error("FileReadTool should be read-only")
 	}
 
 	// HTTPTool should not be read-only
