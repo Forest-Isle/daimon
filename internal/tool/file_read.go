@@ -93,7 +93,7 @@ func (t *FileReadTool) Execute(_ context.Context, input []byte) (Result, error) 
 	var sb strings.Builder
 	lineNum := start + 1
 	for _, line := range lines {
-		sb.WriteString(fmt.Sprintf("%6d\t%s\n", lineNum, line))
+		fmt.Fprintf(&sb, "%6d\t%s\n", lineNum, line)
 		lineNum++
 	}
 
