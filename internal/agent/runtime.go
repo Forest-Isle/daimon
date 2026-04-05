@@ -39,6 +39,7 @@ type Runtime struct {
 	concurrentCfg  config.ConcurrentExecutionConfig
 	resultStore    *tool.ResultStore
 	compressionPipeline *CompressionPipeline
+	tokenBudget    *TokenBudget
 	hookMgr        *hook.Manager
 	permEngine     *tool.PermissionEngine
 	agentID   string // unique ID for this runtime instance
@@ -79,6 +80,9 @@ func (r *Runtime) SetResultStore(rs *tool.ResultStore) { r.resultStore = rs }
 
 // SetCompressionPipeline attaches a compression pipeline to the runtime.
 func (r *Runtime) SetCompressionPipeline(p *CompressionPipeline) { r.compressionPipeline = p }
+
+// SetTokenBudget attaches a token budget monitor to the runtime.
+func (r *Runtime) SetTokenBudget(tb *TokenBudget) { r.tokenBudget = tb }
 
 // SetHookManager attaches a hook manager to the runtime.
 func (r *Runtime) SetHookManager(m *hook.Manager) { r.hookMgr = m }
@@ -204,6 +208,17 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		})
 		if len(msgResult.InjectedContext) > 0 {
 			systemPrompt += "\n\n## Environment Context\n" + strings.Join(msgResult.InjectedContext, "\n")
+		}
+	}
+
+	// Token budget check — triggers compression if needed
+	if r.tokenBudget != nil {
+		check := r.tokenBudget.Check(sess.History(), systemPrompt)
+		if check.Action > BudgetOK {
+			slog.Info("token budget triggered compression",
+				"usage_ratio", fmt.Sprintf("%.1f%%", check.UsageRatio*100),
+				"action", check.Action,
+			)
 		}
 	}
 
@@ -352,6 +367,16 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 }
 
 func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, systemPrompt string) error {
+	if r.tokenBudget != nil {
+		check := r.tokenBudget.Check(sess.History(), systemPrompt)
+		if check.Action > BudgetOK {
+			slog.Info("token budget triggered compression (non-streaming)",
+				"usage_ratio", fmt.Sprintf("%.1f%%", check.UsageRatio*100),
+				"action", check.Action,
+			)
+		}
+	}
+
 	for iteration := 0; iteration < r.cfg.MaxIterations; iteration++ {
 		req := CompletionRequest{
 			Model:     r.llmCfg.Model,

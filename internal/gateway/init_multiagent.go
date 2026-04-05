@@ -58,6 +58,22 @@ func (gw *Gateway) initMultiAgent() error {
 		)
 		gw.runtime.SetCompressionPipeline(pipeline)
 		slog.Info("layered compression pipeline enabled")
+
+		// Token budget monitor
+		tokenBudget := agent.NewTokenBudget(
+			200000, // TODO: derive from model name
+			float64(gw.cfg.Agent.Compression.Layers.ToolEvictionPct)/100.0,
+			float64(gw.cfg.Agent.Compression.Layers.SummarizePct)/100.0,
+			float64(gw.cfg.Agent.Compression.Layers.SlimPromptPct)/100.0,
+			gw.cfg.Agent.Compression.TokenEstimateRatio,
+		)
+		gw.runtime.SetTokenBudget(tokenBudget)
+		slog.Info("token budget monitor enabled",
+			"model_limit", 200000,
+			"light_pct", gw.cfg.Agent.Compression.Layers.ToolEvictionPct,
+			"medium_pct", gw.cfg.Agent.Compression.Layers.SummarizePct,
+			"heavy_pct", gw.cfg.Agent.Compression.Layers.SlimPromptPct,
+		)
 	}
 
 	return nil
