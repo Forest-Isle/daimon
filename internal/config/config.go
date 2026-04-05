@@ -96,11 +96,19 @@ type AgentDefinition struct {
 }
 
 type LLMConfig struct {
-	Provider  string `yaml:"provider"`
-	APIKey    string `yaml:"api_key"`
-	BaseURL   string `yaml:"base_url"`
-	Model     string `yaml:"model"`
-	MaxTokens int    `yaml:"max_tokens"`
+	Provider  string      `yaml:"provider"`
+	APIKey    string      `yaml:"api_key"`
+	BaseURL   string      `yaml:"base_url"`
+	Model     string      `yaml:"model"`
+	MaxTokens int         `yaml:"max_tokens"`
+	Retry     RetryConfig `yaml:"retry"`
+}
+
+// RetryConfig controls retry behavior for LLM API calls.
+type RetryConfig struct {
+	MaxRetries int           `yaml:"max_retries"`
+	BaseDelay  time.Duration `yaml:"base_delay"`
+	MaxDelay   time.Duration `yaml:"max_delay"`
 }
 
 type TelegramConfig struct {
@@ -369,6 +377,11 @@ func defaultConfig() Config {
 			Provider:  "claude",
 			Model:     "claude-sonnet-4-20250514",
 			MaxTokens: 8192,
+			Retry: RetryConfig{
+				MaxRetries: 3,
+				BaseDelay:  1 * time.Second,
+				MaxDelay:   30 * time.Second,
+			},
 		},
 		Agent: AgentConfig{
 			MaxIterations: 20,
