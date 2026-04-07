@@ -19,7 +19,7 @@ func TestAuditLoggerWritesToDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Create the audit table
 	_, err = db.Exec(`
@@ -73,7 +73,7 @@ func TestAuditLoggerMultipleEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS memory_audit_log (
