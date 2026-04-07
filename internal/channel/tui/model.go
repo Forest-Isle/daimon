@@ -158,6 +158,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addMessage("system", "⚠️ Error: "+msg.err.Error())
 		m.viewport.SetContent(m.renderChat())
 		m.viewport.GotoBottom()
+
+	case notificationMsg:
+		m.addMessage("system", msg.text)
+		m.viewport.SetContent(m.renderChat())
+		m.viewport.GotoBottom()
 	}
 
 	// Update sub-components

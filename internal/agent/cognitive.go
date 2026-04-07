@@ -158,6 +158,11 @@ func (ca *CognitiveAgent) SetRLTrainer(trainer RLTrainer) {
 	ca.rlTrainer = trainer
 }
 
+// SetMemoryNotifyFunc injects a callback for sending memory operation summaries.
+func (ca *CognitiveAgent) SetMemoryNotifyFunc(fn MemoryNotifyFunc) {
+	ca.reflector.SetMemoryNotifyFunc(fn)
+}
+
 // HandleMessage processes an inbound message through the cognitive loop.
 func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
 	sess, err := ca.sessions.Get(ctx, msg.Channel, msg.ChannelID)

@@ -43,3 +43,8 @@ type errorMsg struct {
 
 // sessionResetMsg signals that the session was reset.
 type sessionResetMsg struct{}
+
+// notificationMsg displays a lightweight status notification in the output area.
+type notificationMsg struct {
+	text string
+}

@@ -24,6 +24,9 @@ func (gw *Gateway) initCognitiveAgent() error {
 		gw.cognitiveAgent.SetLifecycleManager(gw.lifecycleMgr)
 	}
 
+	// Inject memory notification callback
+	gw.cognitiveAgent.SetMemoryNotifyFunc(gw.sendMemoryNotification)
+
 	// RL System (requires cognitive agent)
 	if gw.cfg.Agent.RL.Enabled {
 		rlStorage := rl.NewStorage(gw.db)

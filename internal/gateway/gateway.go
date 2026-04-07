@@ -250,6 +250,17 @@ func (gw *Gateway) handleApproval(ctx context.Context, ch channel.Channel, targe
 	return true, nil
 }
 
+// sendMemoryNotification sends a lightweight memory operation summary via the channel.
+// Channels that implement channel.NotificationSender get the notification;
+// all others silently skip it.
+func (gw *Gateway) sendMemoryNotification(ctx context.Context, ch channel.Channel, target channel.MessageTarget, summary string) {
+	if sender, ok := ch.(channel.NotificationSender); ok {
+		if err := sender.SendNotification(ctx, target, summary); err != nil {
+			slog.Warn("gateway: memory notification failed", "err", err)
+		}
+	}
+}
+
 // completerAdapter bridges agent.Provider to memory.Completer.
 type completerAdapter struct {
 	provider agent.Provider

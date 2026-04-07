@@ -44,3 +44,10 @@ type ApprovalSender interface {
 type ReflectionSender interface {
 	SendReflectionRequest(ctx context.Context, target MessageTarget, reason string, confidence float64) (ReplanDecision, error)
 }
+
+// NotificationSender is an optional interface for channels that support
+// lightweight status notifications (e.g., memory operation summaries).
+// Channels that do not implement this interface simply skip notifications.
+type NotificationSender interface {
+	SendNotification(ctx context.Context, target MessageTarget, text string) error
+}

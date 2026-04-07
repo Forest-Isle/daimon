@@ -203,6 +203,17 @@ func (a *Adapter) SendReflectionRequest(ctx context.Context, target channel.Mess
 	}
 }
 
+// ---------- channel.NotificationSender ----------
+
+// SendNotification displays a dim status notification in the TUI output area.
+func (a *Adapter) SendNotification(_ context.Context, target channel.MessageTarget, text string) error {
+	if a.program == nil {
+		return nil
+	}
+	a.program.Send(notificationMsg{text: text})
+	return nil
+}
+
 // ---------- modelWrapper ----------
 
 // modelWrapper wraps Model and captures user input on Enter.

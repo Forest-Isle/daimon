@@ -80,6 +80,7 @@ func (gw *Gateway) initMemorySystem() error {
 		slog.Info("memory: reflection tracker enabled")
 
 		gw.lifecycleMgr = memory.NewLifecycleManager(gw.memStore, embedder, completer, memCfg, reflector)
+		gw.lifecycleMgr.SetAuditLogger(memory.NewAuditLogger(gw.db.DB))
 
 		// Start compactor background task
 		compactor := memory.NewCompactor(gw.memStore, completer, gw.db.DB, storageDir, memCfg)

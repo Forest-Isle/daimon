@@ -17,6 +17,9 @@ import (
 // ReflectionCallback is called by the Gateway when the user responds to a replan keyboard.
 type ReflectionCallback func(key string, decision ReplanDecision)
 
+// MemoryNotifyFunc is called after memory operations complete to notify the user.
+type MemoryNotifyFunc func(ctx context.Context, ch channel.Channel, target channel.MessageTarget, summary string)
+
 // Reflector implements the REFLECT phase: LLM evaluation + confidence approval + memory.md write.
 type Reflector struct {
 	provider       Provider
@@ -26,7 +29,8 @@ type Reflector struct {
 	graphExtractor *graph.LLMEntityExtractor
 	cfg            config.CognitiveConfig
 	llmModel       string
-	rlPolicy       RLPolicy // optional RL policy
+	rlPolicy       RLPolicy       // optional RL policy
+	memoryNotify   MemoryNotifyFunc // optional notification callback
 }
 
 // NewReflector creates a new Reflector.
@@ -66,6 +70,11 @@ func (r *Reflector) SetEntityExtractor(e *graph.LLMEntityExtractor) {
 // SetRLPolicy injects an optional RL policy.
 func (r *Reflector) SetRLPolicy(policy RLPolicy) {
 	r.rlPolicy = policy
+}
+
+// SetMemoryNotifyFunc injects a callback for sending memory operation summaries.
+func (r *Reflector) SetMemoryNotifyFunc(fn MemoryNotifyFunc) {
+	r.memoryNotify = fn
 }
 
 // Run executes the REFLECT phase. Returns a Reflection (with FinalAnswer).
@@ -122,7 +131,7 @@ func (r *Reflector) Run(
 	)
 
 	// Write experience to memory.md regardless of success/failure
-	r.saveExperience(ctx, state, plan, reflection)
+	r.saveExperience(ctx, ch, target, state, plan, reflection)
 
 	return reflection, nil
 }
@@ -165,7 +174,7 @@ func (r *Reflector) RequestReplanApproval(
 // It runs asynchronously (fire-and-forget) to avoid blocking the main cognitive loop.
 // The incoming ctx is intentionally not forwarded to the goroutine; a fresh background
 // context is used so the write is not cancelled when the request context expires.
-func (r *Reflector) saveExperience(_ context.Context, state *CognitiveState, plan *TaskPlan, reflection *Reflection) {
+func (r *Reflector) saveExperience(_ context.Context, ch channel.Channel, target channel.MessageTarget, state *CognitiveState, plan *TaskPlan, reflection *Reflection) {
 	if r.memStore == nil {
 		return
 	}
@@ -179,10 +188,27 @@ func (r *Reflector) saveExperience(_ context.Context, state *CognitiveState, pla
 			if err != nil {
 				slog.Warn("reflect: fact extraction failed", "err", err)
 			} else {
+				var summary memory.MemoryOperationSummary
 				for _, fact := range facts {
-					if err := r.lifecycleMgr.Process(bgCtx, fact, state.SessionID, state.UserID, memory.ScopeSession); err != nil {
+					result, err := r.lifecycleMgr.Process(bgCtx, fact, state.SessionID, state.UserID, memory.ScopeSession)
+					if err != nil {
 						slog.Warn("reflect: lifecycle process failed", "err", err, "fact", fact.Content)
+						continue
 					}
+					if result != nil {
+						switch result.Action {
+						case memory.ActionADD:
+							summary.Added++
+						case memory.ActionUPDATE:
+							summary.Updated++
+						case memory.ActionDELETE:
+							summary.Deleted++
+						}
+					}
+				}
+				// Send notification if there were changes
+				if summary.HasChanges() && r.memoryNotify != nil {
+					r.memoryNotify(bgCtx, ch, target, summary.String())
 				}
 				if len(facts) > 0 {
 					// Facts extracted and lifecycle-managed; skip raw experience save.

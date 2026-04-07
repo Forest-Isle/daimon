@@ -306,6 +306,21 @@ func (a *Adapter) SendReflectionRequest(ctx context.Context, target channel.Mess
 	}
 }
 
+// ---------- channel.NotificationSender ----------
+
+// SendNotification sends a silent notification message to the Telegram chat.
+func (a *Adapter) SendNotification(_ context.Context, target channel.MessageTarget, text string) error {
+	chatID, err := strconv.ParseInt(target.ChannelID, 10, 64)
+	if err != nil || chatID == 0 {
+		return nil
+	}
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.DisableNotification = true
+	_, err = a.bot.Send(msg)
+	return err
+}
+
 // ---------- streamUpdater ----------
 
 type streamUpdater struct {
