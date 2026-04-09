@@ -196,6 +196,7 @@ type DQNConfig struct {
 	EpsilonDecay     float64 `yaml:"epsilon_decay"`
 	TargetUpdateFreq int     `yaml:"target_update_freq"`
 	BufferSize       int     `yaml:"buffer_size"`
+	ReplanWeight     float64 `yaml:"replan_weight"` // DQN influence on replan decision (0-1, default 0.3)
 }
 
 // RewardConfig configures reward weights for the RL system.
@@ -424,6 +425,7 @@ func defaultConfig() Config {
 					EpsilonDecay:     0.995,
 					TargetUpdateFreq: 500,
 					BufferSize:       10000,
+					ReplanWeight:     0.3,
 				},
 				Reward: RewardConfig{
 					TaskSuccessWeight:      0.5,

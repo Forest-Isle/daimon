@@ -318,12 +318,29 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			slog.Warn("cognitive: stream final answer failed", "err", err)
 		}
 
-		// RL: update reflection confidence and record DQN suggestion
+		// RL: update reflection confidence and apply DQN replan adjustment
 		if rlEnabled && rlState != nil && reflection != nil {
 			rlState.ReflectionConfidence = clampRL(reflection.OverallConfidence, 0, 1)
 			if reflection.NeedsReplan {
 				dqnAction := ca.rlPolicy.SelectReplanAction(rlState)
-				slog.Info("cognitive: DQN replan suggestion", "action", dqnAction.String())
+				dqnWeight := ca.cfg.RL.DQN.ReplanWeight
+				if dqnWeight <= 0 {
+					dqnWeight = 0.3
+				}
+				adjConfidence, shouldAbort := applyDQNReplanAdjustment(
+					reflection.OverallConfidence, dqnAction, dqnWeight,
+				)
+				slog.Info("cognitive: DQN replan adjustment",
+					"action", dqnAction.String(),
+					"original_confidence", reflection.OverallConfidence,
+					"adjusted_confidence", adjConfidence,
+					"should_abort", shouldAbort,
+				)
+				if shouldAbort {
+					slog.Info("cognitive: DQN recommends abort", "session", sess.ID)
+					goto persist
+				}
+				reflection.OverallConfidence = adjConfidence
 			}
 		}
 

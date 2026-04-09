@@ -233,3 +233,62 @@ func TestPPOStrategyApplication(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyDQNReplanAdjustment(t *testing.T) {
+	tests := []struct {
+		name           string
+		llmConfidence  float64
+		dqnAction      rl.ReplanActionType
+		dqnWeight      float64
+		wantConfidence float64
+		wantAbort      bool
+	}{
+		{
+			name:           "DQN continue boosts confidence",
+			llmConfidence:  0.4,
+			dqnAction:      rl.ReplanActionContinue,
+			dqnWeight:      0.3,
+			wantConfidence: 0.4*0.7 + 1.0*0.3, // 0.58
+			wantAbort:      false,
+		},
+		{
+			name:           "DQN adjust keeps confidence unchanged",
+			llmConfidence:  0.4,
+			dqnAction:      rl.ReplanActionAdjust,
+			dqnWeight:      0.3,
+			wantConfidence: 0.4*0.7 + 0.5*0.3, // 0.43
+			wantAbort:      false,
+		},
+		{
+			name:           "DQN abort signals abort",
+			llmConfidence:  0.4,
+			dqnAction:      rl.ReplanActionAbort,
+			dqnWeight:      0.3,
+			wantConfidence: 0.4, // unchanged
+			wantAbort:      true,
+		},
+		{
+			name:           "zero weight means DQN has no effect",
+			llmConfidence:  0.4,
+			dqnAction:      rl.ReplanActionContinue,
+			dqnWeight:      0.0,
+			wantConfidence: 0.4,
+			wantAbort:      false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			adj, abort := applyDQNReplanAdjustment(tc.llmConfidence, tc.dqnAction, tc.dqnWeight)
+			if abort != tc.wantAbort {
+				t.Errorf("abort: got %v, want %v", abort, tc.wantAbort)
+			}
+			if !abort {
+				diff := adj - tc.wantConfidence
+				if diff < -0.01 || diff > 0.01 {
+					t.Errorf("confidence: got %.4f, want %.4f", adj, tc.wantConfidence)
+				}
+			}
+		})
+	}
+}
