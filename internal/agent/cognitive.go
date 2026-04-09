@@ -245,6 +245,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	var obsResult *ObservationResult
 	var reflection *Reflection
 	var ppoStrategy *rl.PlanStrategyAction
+	var dqnReplanAction rl.ReplanActionType
 
 	for attempt := 0; attempt <= maxReplans; attempt++ {
 		if attempt > 0 {
@@ -322,13 +323,13 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if rlEnabled && rlState != nil && reflection != nil {
 			rlState.ReflectionConfidence = clampRL(reflection.OverallConfidence, 0, 1)
 			if reflection.NeedsReplan {
-				dqnAction := ca.rlPolicy.SelectReplanAction(rlState)
+				dqnReplanAction = ca.rlPolicy.SelectReplanAction(rlState)
 				dqnWeight := ca.cfg.RL.DQN.ReplanWeight
 				adjConfidence, shouldAbort := applyDQNReplanAdjustment(
-					reflection.OverallConfidence, dqnAction, dqnWeight,
+					reflection.OverallConfidence, dqnReplanAction, dqnWeight,
 				)
 				slog.Info("cognitive: DQN replan adjustment",
-					"action", dqnAction.String(),
+					"action", dqnReplanAction.String(),
 					"original_confidence", reflection.OverallConfidence,
 					"adjusted_confidence", adjConfidence,
 					"should_abort", shouldAbort,
@@ -369,14 +370,17 @@ persist:
 		// Attempt to collect user feedback from channel
 		var userFeedback float64
 		if sender, ok := ch.(channel.FeedbackSender); ok {
-			fb, err := sender.SendFeedbackRequest(ctx, target)
+			// Use a short timeout for feedback — don't block the loop for long
+			feedbackCtx, feedbackCancel := context.WithTimeout(ctx, 20*time.Second)
+			fb, err := sender.SendFeedbackRequest(feedbackCtx, target)
+			feedbackCancel()
 			if err != nil {
 				slog.Debug("cognitive: feedback collection failed", "err", err)
 			} else {
 				userFeedback = fb
 			}
 		}
-		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector, userFeedback)
+		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector, userFeedback, dqnReplanAction)
 	}
 
 	// Persist session
@@ -514,6 +518,7 @@ func (ca *CognitiveAgent) recordRLEpisode(
 	ppoStrategy *rl.PlanStrategyAction,
 	collector *EpisodeCollector,
 	userFeedback float64,
+	dqnAction rl.ReplanActionType,
 ) {
 	rlState := collector.State
 	episodeReward := computeSimpleEpisodeReward(reflection, obsResult)
@@ -533,7 +538,6 @@ func (ca *CognitiveAgent) recordRLEpisode(
 
 	// Record DQN experience (replan decision → episode outcome)
 	if reflection != nil && reflection.NeedsReplan {
-		dqnAction := ca.rlPolicy.SelectReplanAction(rlState)
 		collector.Add(rl.Experience{
 			State:     rlState,
 			Action:    []float64{float64(dqnAction)},
