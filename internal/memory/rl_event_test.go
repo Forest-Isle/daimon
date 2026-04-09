@@ -27,7 +27,7 @@ type rlDeleteEvent struct {
 }
 
 type rlConflictEvent struct {
-	factID      string
+	content     string
 	conflictIDs []string
 }
 
@@ -43,8 +43,8 @@ func (m *mockRLEventHandler) OnMemoryDelete(_ context.Context, factID string) {
 	m.deleteCalls = append(m.deleteCalls, rlDeleteEvent{factID})
 }
 
-func (m *mockRLEventHandler) OnMemoryConflict(_ context.Context, factID string, conflictIDs []string) {
-	m.conflictCalls = append(m.conflictCalls, rlConflictEvent{factID, conflictIDs})
+func (m *mockRLEventHandler) OnMemoryConflict(_ context.Context, content string, conflictIDs []string) {
+	m.conflictCalls = append(m.conflictCalls, rlConflictEvent{content, conflictIDs})
 }
 
 func TestMockRLEventHandlerSatisfiesInterface(t *testing.T) {
@@ -55,7 +55,7 @@ func TestMockRLEventHandlerSatisfiesInterface(t *testing.T) {
 	h.OnMemoryAdd(context.Background(), "id1", "test content", 5)
 	h.OnMemoryUpdate(context.Background(), "id1", "id2", "updated content")
 	h.OnMemoryDelete(context.Background(), "id1")
-	h.OnMemoryConflict(context.Background(), "id1", []string{"id2", "id3"})
+	h.OnMemoryConflict(context.Background(), "conflicting fact content", []string{"id2", "id3"})
 }
 
 // TestLifecycleManagerEmitsRLEvents verifies SetRLEventHandler stores the handler.

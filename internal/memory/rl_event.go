@@ -18,5 +18,7 @@ type RLEventHandler interface {
 	OnMemoryDelete(ctx context.Context, factID string)
 
 	// OnMemoryConflict is called when a new fact conflicts with existing memories.
-	OnMemoryConflict(ctx context.Context, factID string, conflictIDs []string)
+	// content is the text of the incoming fact (it has no ID yet at conflict-detection time);
+	// conflictIDs are the IDs of the existing memories that were flagged as conflicting.
+	OnMemoryConflict(ctx context.Context, content string, conflictIDs []string)
 }
