@@ -57,3 +57,13 @@ func TestMockRLEventHandlerSatisfiesInterface(t *testing.T) {
 	h.OnMemoryDelete(context.Background(), "id1")
 	h.OnMemoryConflict(context.Background(), "id1", []string{"id2", "id3"})
 }
+
+// TestLifecycleManagerEmitsRLEvents verifies SetRLEventHandler stores the handler.
+func TestLifecycleManagerEmitsRLEvents(t *testing.T) {
+	handler := &mockRLEventHandler{}
+	lm := &LifecycleManager{}
+	lm.SetRLEventHandler(handler)
+	if lm.rlHandler != handler {
+		t.Fatal("rlHandler not set")
+	}
+}

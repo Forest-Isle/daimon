@@ -70,6 +70,7 @@ type LifecycleManager struct {
 	reflector *ReflectionTracker
 	graphSync GraphSyncer
 	audit     *AuditLogger
+	rlHandler RLEventHandler
 }
 
 // NewLifecycleManager creates a new LifecycleManager.
@@ -90,6 +91,13 @@ func NewLifecycleManager(store Store, embedder EmbeddingProvider, completer Comp
 // the lifecycle manager is created.
 func (lm *LifecycleManager) SetGraphSync(gs GraphSyncer) {
 	lm.graphSync = gs
+}
+
+// SetRLEventHandler attaches an optional RL event handler to the lifecycle manager.
+// This is called after construction because the RL subsystem may be initialized
+// after the lifecycle manager is created.
+func (lm *LifecycleManager) SetRLEventHandler(h RLEventHandler) {
+	lm.rlHandler = h
 }
 
 // SetAuditLogger attaches an optional audit logger to the lifecycle manager.
@@ -166,6 +174,12 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 		"fact", contentPreview,
 		"reason", decision.Reason,
 	)
+
+	// Emit RL conflict event before executing the action — the new fact has no ID yet,
+	// so fact.Content is passed as the identifier for the incoming fact.
+	if lm.rlHandler != nil && len(decision.ConflictingIDs) > 0 {
+		lm.rlHandler.OnMemoryConflict(ctx, fact.Content, decision.ConflictingIDs)
+	}
 
 	// Execute the lifecycle action.
 	var memoryID string
@@ -299,6 +313,11 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 		lm.audit.Log(ctx, factID, "ADD", "lifecycle", contentPreview)
 	}
 
+	// Emit RL add event after successful storage.
+	if lm.rlHandler != nil {
+		lm.rlHandler.OnMemoryAdd(ctx, factID, fact.Content, fact.Importance)
+	}
+
 	return factID, nil
 }
 
@@ -358,6 +377,11 @@ func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, 
 		lm.audit.Log(ctx, newFactID, "UPDATE", "lifecycle", fmt.Sprintf("from %s: %s", targetID, contentPreview))
 	}
 
+	// Emit RL update event after successful storage.
+	if lm.rlHandler != nil {
+		lm.rlHandler.OnMemoryUpdate(ctx, targetID, newFactID, fact.Content)
+	}
+
 	return newFactID, nil
 }
 
@@ -377,6 +401,11 @@ func (lm *LifecycleManager) executeDelete(ctx context.Context, targetID string) 
 	// Audit log
 	if lm.audit != nil {
 		lm.audit.Log(ctx, targetID, "DELETE", "lifecycle", "memory deleted")
+	}
+
+	// Emit RL delete event after successful archival.
+	if lm.rlHandler != nil {
+		lm.rlHandler.OnMemoryDelete(ctx, targetID)
 	}
 
 	return nil
