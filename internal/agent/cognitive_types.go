@@ -103,6 +103,36 @@ type ObservationResult struct {
 	ErrorPatterns   []string
 }
 
+// DimensionScore represents a single evaluation dimension in reflection scoring.
+type DimensionScore struct {
+	Score       int    `json:"score"`                // 0–25
+	Explanation string `json:"explanation,omitempty"` // justification for the score
+}
+
+// ReflectReasoning captures the multi-dimensional evaluation breakdown.
+// Each dimension is scored 0–25; overall_confidence = sum / 100.
+type ReflectReasoning struct {
+	Completeness   DimensionScore `json:"completeness"`
+	Accuracy       DimensionScore `json:"accuracy"`
+	Efficiency     DimensionScore `json:"efficiency"`
+	Relevance      DimensionScore `json:"relevance"`
+	KeyImprovement string         `json:"key_improvement,omitempty"`
+}
+
+// DerivedConfidence computes confidence from dimension scores (sum / 100),
+// clamped to [0.0, 1.0].
+func (r *ReflectReasoning) DerivedConfidence() float64 {
+	sum := r.Completeness.Score + r.Accuracy.Score + r.Efficiency.Score + r.Relevance.Score
+	c := float64(sum) / 100.0
+	if c < 0 {
+		return 0
+	}
+	if c > 1 {
+		return 1
+	}
+	return c
+}
+
 // Reflection is the output of the REFLECT phase.
 type Reflection struct {
 	OverallConfidence   float64
@@ -112,6 +142,7 @@ type Reflection struct {
 	FinalAnswer         string
 	NeedsReplan         bool
 	ReplanReason        string
+	Reasoning           *ReflectReasoning // multi-dimensional evaluation breakdown (nil for legacy responses)
 }
 
 // planJSON is the raw JSON structure returned by the LLM during PLAN.
@@ -133,13 +164,14 @@ type subTaskJSON struct {
 
 // reflectJSON is the raw JSON structure returned by the LLM during REFLECT.
 type reflectJSON struct {
-	OverallConfidence   float64  `json:"overall_confidence"`
-	Succeeded           bool     `json:"succeeded"`
-	LessonsLearned      []string `json:"lessons_learned"`
-	SuggestedAdjustment string   `json:"suggested_adjustment"`
-	FinalAnswer         string   `json:"final_answer"`
-	NeedsReplan         bool     `json:"needs_replan"`
-	ReplanReason        string   `json:"replan_reason"`
+	OverallConfidence   float64           `json:"overall_confidence"`
+	Succeeded           bool              `json:"succeeded"`
+	LessonsLearned      []string          `json:"lessons_learned"`
+	SuggestedAdjustment string            `json:"suggested_adjustment"`
+	FinalAnswer         string            `json:"final_answer"`
+	NeedsReplan         bool              `json:"needs_replan"`
+	ReplanReason        string            `json:"replan_reason"`
+	Reasoning           *ReflectReasoning `json:"reasoning,omitempty"`
 }
 
 // RLPolicy is the interface for RL policy integration.

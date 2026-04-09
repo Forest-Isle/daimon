@@ -89,7 +89,7 @@ func (r *Reflector) Run(
 	userMsg := buildReflectUserMessage(state, plan, obsResult)
 	maxTokens := r.cfg.ReflectMaxTokens
 	if maxTokens <= 0 {
-		maxTokens = 1024
+		maxTokens = 2048
 	}
 
 	// Build system prompt, appending personality and persistent rules if available
@@ -122,6 +122,13 @@ func (r *Reflector) Run(
 			Succeeded:         obsResult.SuccessCount > 0,
 			FinalAnswer:       "Task completed with partial results.",
 		}
+	}
+
+	// Cross-check overall_confidence against dimension-derived score.
+	if reflection.Reasoning != nil {
+		reflection.OverallConfidence = validateConfidenceFromDimensions(
+			reflection.OverallConfidence, reflection.Reasoning,
+		)
 	}
 
 	slog.Info("reflect complete",
@@ -275,8 +282,8 @@ func buildReflectUserMessage(state *CognitiveState, plan *TaskPlan, obsResult *O
 				_, _ = fmt.Fprintf(&obsSB, "  Status: FAILED\n  Error: %s\n", obs.Error)
 			} else {
 				output := obs.Output
-				if len(output) > 500 {
-					output = output[:500] + "...[truncated]"
+				if len(output) > 1500 {
+					output = output[:1500] + "...[truncated]"
 				}
 				_, _ = fmt.Fprintf(&obsSB, "  Status: SUCCESS\n  Output: %s\n", output)
 			}
@@ -338,5 +345,41 @@ func reflectJSONToReflection(rj reflectJSON) *Reflection {
 		FinalAnswer:         rj.FinalAnswer,
 		NeedsReplan:         rj.NeedsReplan,
 		ReplanReason:        rj.ReplanReason,
+		Reasoning:           rj.Reasoning,
 	}
+}
+
+// confidenceDivergenceThreshold is the maximum allowed deviation between the
+// LLM's self-reported overall_confidence and the score derived from the
+// individual dimension scores. If the gap exceeds this, the dimension-derived
+// value is used instead — acting as an automatic calibration guardrail.
+const confidenceDivergenceThreshold = 0.15
+
+// validateConfidenceFromDimensions cross-checks the LLM's overall_confidence
+// against the sum of its own dimension scores. When the deviation exceeds
+// confidenceDivergenceThreshold, the dimension-derived value is trusted
+// because the per-dimension scoring (with explicit anchors and CoT reasoning)
+// is more grounded than a single free-form float.
+func validateConfidenceFromDimensions(llmConfidence float64, reasoning *ReflectReasoning) float64 {
+	if reasoning == nil {
+		return llmConfidence
+	}
+
+	derived := reasoning.DerivedConfidence()
+
+	deviation := llmConfidence - derived
+	if deviation < 0 {
+		deviation = -deviation
+	}
+
+	if deviation > confidenceDivergenceThreshold {
+		slog.Warn("reflect: confidence diverges from dimension scores, using derived value",
+			"llm_confidence", llmConfidence,
+			"derived_confidence", derived,
+			"deviation", deviation,
+		)
+		return derived
+	}
+
+	return llmConfidence
 }
