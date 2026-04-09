@@ -303,7 +303,7 @@ func TestApplyDQNReplanAdjustment(t *testing.T) {
 			wantAbort:      false,
 		},
 		{
-			name:           "DQN adjust keeps confidence unchanged",
+			name:           "DQN adjust blends neutral signal",
 			llmConfidence:  0.4,
 			dqnAction:      rl.ReplanActionAdjust,
 			dqnWeight:      0.3,

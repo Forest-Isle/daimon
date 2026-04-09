@@ -4,12 +4,14 @@ import "context"
 
 // RLEventHandler receives notifications about memory lifecycle events.
 // Implementations convert these events into RL reward signals.
-// All methods are fire-and-forget — errors are logged internally, not propagated.
+// All methods are fire-and-forget: they must not block and must not return errors.
+// Implementations should handle failures silently (e.g., via structured logging).
 type RLEventHandler interface {
 	// OnMemoryAdd is called after a new memory is successfully stored.
 	OnMemoryAdd(ctx context.Context, factID, content string, importance int)
 
-	// OnMemoryUpdate is called after an existing memory is archived and replaced.
+	// OnMemoryUpdate is called when a memory is replaced with an updated version.
+	// oldID is the archived fact ID, newID is the new fact ID, content is the new content.
 	OnMemoryUpdate(ctx context.Context, oldID, newID, content string)
 
 	// OnMemoryDelete is called after a memory is archived (invalidated).
