@@ -324,9 +324,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			if reflection.NeedsReplan {
 				dqnAction := ca.rlPolicy.SelectReplanAction(rlState)
 				dqnWeight := ca.cfg.RL.DQN.ReplanWeight
-				if dqnWeight <= 0 {
-					dqnWeight = 0.3
-				}
 				adjConfidence, shouldAbort := applyDQNReplanAdjustment(
 					reflection.OverallConfidence, dqnAction, dqnWeight,
 				)
