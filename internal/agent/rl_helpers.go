@@ -55,6 +55,23 @@ func computeSimpleEpisodeReward(reflection *Reflection, obs *ObservationResult) 
 	return reward
 }
 
+// computeReflectionBonus returns an additional reward based on the richness
+// of the reflection output. Richer reflections (with lessons, adjustments)
+// indicate better self-awareness, which deserves positive reinforcement.
+func computeReflectionBonus(reflection *Reflection) float64 {
+	if reflection == nil {
+		return 0.0
+	}
+	bonus := 0.0
+	if len(reflection.LessonsLearned) > 0 {
+		bonus += 0.15
+	}
+	if reflection.SuggestedAdjustment != "" {
+		bonus += 0.05
+	}
+	return bonus
+}
+
 func normalizeRL(val, maxVal float64) float64 {
 	if maxVal <= 0 {
 		return 0

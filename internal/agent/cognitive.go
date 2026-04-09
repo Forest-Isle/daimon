@@ -506,6 +506,7 @@ func (ca *CognitiveAgent) recordRLEpisode(
 ) {
 	rlState := collector.State
 	episodeReward := computeSimpleEpisodeReward(reflection, obsResult)
+	episodeReward += computeReflectionBonus(reflection)
 
 	// Record PPO experience (plan strategy → episode outcome)
 	if ppoStrategy != nil {
