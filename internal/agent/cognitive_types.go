@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/rl"
 )
@@ -155,6 +156,12 @@ type RLTrainer interface {
 	AddExperience(exp rl.Experience)
 	RecordEpisode(ctx context.Context, params rl.EpisodeParams) error
 }
+
+// FeedbackCollector collects user satisfaction feedback from the channel.
+// Returns feedback in [-1, 1]: negative, neutral, or positive.
+// Channels that do not implement FeedbackSender yield 0 (neutral).
+// Errors (e.g., timeout, network issue) also yield 0 (neutral).
+type FeedbackCollector func(ctx context.Context, ch channel.Channel, target channel.MessageTarget) float64
 
 // EpisodeCollector accumulates RL experiences during one cognitive loop pass.
 type EpisodeCollector struct {

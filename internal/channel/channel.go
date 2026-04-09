@@ -51,3 +51,12 @@ type ReflectionSender interface {
 type NotificationSender interface {
 	SendNotification(ctx context.Context, target MessageTarget, text string) error
 }
+
+// FeedbackSender is an optional interface for channels that support
+// collecting user satisfaction feedback (e.g., 👍/👎 after a response).
+// The call blocks until the user responds or a timeout is reached.
+// Returns a value in [-1, 1]: -1 (negative), 0 (neutral/timeout), 1 (positive).
+// Channels that do not implement this interface yield 0 (neutral).
+type FeedbackSender interface {
+	SendFeedbackRequest(ctx context.Context, target MessageTarget) (float64, error)
+}

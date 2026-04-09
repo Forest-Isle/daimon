@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/Forest-Isle/IronClaw/internal/channel"
 )
 
 // mode controls how key events are routed.
@@ -17,6 +17,7 @@ type mode int
 const (
 	modeChat       mode = iota // normal: keys go to textarea
 	modeApproval               // y/n/a intercepted for tool approval
+	modeFeedback               // y/n intercepted for feedback rating
 	modeReflection             // 1/2/3 intercepted for replan decision
 )
 
@@ -50,6 +51,9 @@ type Model struct {
 	reflectReason     string
 	reflectConfidence float64
 	reflectCh         chan channel.ReplanDecision
+
+	// Feedback state
+	feedbackCh chan float64
 
 	// Layout
 	width  int
@@ -108,6 +112,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.mode {
 		case modeApproval:
 			return m.handleApprovalKey(msg)
+		case modeFeedback:
+			return m.handleFeedbackKey(msg)
 		case modeReflection:
 			return m.handleReflectionKey(msg)
 		default:
@@ -147,6 +153,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reflectReason = msg.reason
 		m.reflectConfidence = msg.confidence
 		m.reflectCh = msg.resultCh
+
+	case feedbackRequestMsg:
+		m.mode = modeFeedback
+		m.feedbackCh = msg.resultCh
 
 	case sessionResetMsg:
 		m.messages = m.messages[:0]
@@ -235,6 +245,30 @@ func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) handleFeedbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		m.addMessage("system", "👍 Feedback: helpful (+1.0)")
+		if m.feedbackCh != nil {
+			m.feedbackCh <- 1.0
+			m.feedbackCh = nil
+		}
+		m.mode = modeChat
+		m.viewport.SetContent(m.renderChat())
+		m.viewport.GotoBottom()
+	case "n", "N", "esc":
+		m.addMessage("system", "👎 Feedback: not helpful (-1.0)")
+		if m.feedbackCh != nil {
+			m.feedbackCh <- -1.0
+			m.feedbackCh = nil
+		}
+		m.mode = modeChat
+		m.viewport.SetContent(m.renderChat())
+		m.viewport.GotoBottom()
+	}
+	return m, nil
+}
+
 func (m *Model) handleReflectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "1", "c", "C":
@@ -298,6 +332,8 @@ func (m Model) View() string {
 	switch m.mode {
 	case modeApproval:
 		b.WriteString(m.renderApprovalDialog())
+	case modeFeedback:
+		b.WriteString(m.renderFeedbackDialog())
 	case modeReflection:
 		b.WriteString(m.renderReflectionDialog())
 	default:
@@ -350,6 +386,15 @@ func (m Model) renderApprovalDialog() string {
 		approvalHintStyle.Render("[y] Approve  [n] Deny  [a] Always approve"),
 	)
 	return approvalBoxStyle.Width(m.width - 4).Render(content)
+}
+
+func (m Model) renderFeedbackDialog() string {
+	content := fmt.Sprintf(
+		"%s\n\n%s",
+		approvalToolStyle.Render("👍 Was this response helpful?"),
+		approvalHintStyle.Render("[y] Yes (+1.0)  [n] No (-1.0)"),
+	)
+	return feedbackBoxStyle.Width(m.width - 4).Render(content)
 }
 
 func (m Model) renderReflectionDialog() string {

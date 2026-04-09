@@ -55,6 +55,23 @@ func computeSimpleEpisodeReward(reflection *Reflection, obs *ObservationResult) 
 	return reward
 }
 
+// computeReflectionBonus returns an additional reward based on the richness
+// of the reflection output. Richer reflections (with lessons, adjustments)
+// indicate better self-awareness, which deserves positive reinforcement.
+func computeReflectionBonus(reflection *Reflection) float64 {
+	if reflection == nil {
+		return 0.0
+	}
+	bonus := 0.0
+	if len(reflection.LessonsLearned) > 0 {
+		bonus += 0.15
+	}
+	if reflection.SuggestedAdjustment != "" {
+		bonus += 0.05
+	}
+	return bonus
+}
+
 func normalizeRL(val, maxVal float64) float64 {
 	if maxVal <= 0 {
 		return 0
@@ -77,4 +94,32 @@ func clampRL(v, lo, hi float64) float64 {
 		return hi
 	}
 	return v
+}
+
+// applyDQNReplanAdjustment blends DQN replan output with LLM confidence.
+// Returns the adjusted confidence and whether the DQN recommends aborting.
+// When dqnWeight is 0, LLM confidence passes through unchanged.
+func applyDQNReplanAdjustment(llmConfidence float64, dqnAction rl.ReplanActionType, dqnWeight float64) (adjustedConfidence float64, shouldAbort bool) {
+	if dqnWeight <= 0 {
+		return llmConfidence, false
+	}
+	if dqnWeight > 1 {
+		dqnWeight = 1
+	}
+
+	switch dqnAction {
+	case rl.ReplanActionAbort:
+		// DQN recommends abort — confidence is not adjusted; caller must handle abort.
+		return llmConfidence, true
+	case rl.ReplanActionContinue:
+		// DQN says "continue" → blend in a high-confidence signal (1.0).
+		llmWeight := 1.0 - dqnWeight
+		return clampRL(llmConfidence*llmWeight+1.0*dqnWeight, 0, 1), false
+	case rl.ReplanActionAdjust:
+		// DQN says "adjust" → blend in a neutral signal (0.5).
+		llmWeight := 1.0 - dqnWeight
+		return clampRL(llmConfidence*llmWeight+0.5*dqnWeight, 0, 1), false
+	default:
+		return llmConfidence, false
+	}
 }

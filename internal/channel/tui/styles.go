@@ -41,6 +41,13 @@ var (
 				Foreground(lipgloss.Color("#626262")).
 				Italic(true)
 
+	// Feedback dialog
+	feedbackBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#04B575")).
+				Padding(0, 1).
+				MarginTop(1)
+
 	// Reflection dialog
 	reflectionBoxStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).

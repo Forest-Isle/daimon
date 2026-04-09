@@ -38,6 +38,14 @@ func (gw *Gateway) initCognitiveAgent() error {
 		gw.cognitiveAgent.SetRLPolicy(rlPolicy)
 		gw.cognitiveAgent.SetRLTrainer(gw.rlTrainer)
 		slog.Info("RL system initialized")
+
+		// Bridge memory lifecycle events to RL system
+		if gw.lifecycleMgr != nil {
+			memoryRewards := rl.DefaultMemoryRLRewards()
+			memRLHandler := rl.NewMemoryRLHandler(gw.rlTrainer, memoryRewards)
+			gw.lifecycleMgr.SetRLEventHandler(memRLHandler)
+			slog.Info("RL-memory bridge connected")
+		}
 	}
 
 	return nil

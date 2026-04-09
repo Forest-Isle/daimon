@@ -245,6 +245,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	var obsResult *ObservationResult
 	var reflection *Reflection
 	var ppoStrategy *rl.PlanStrategyAction
+	var dqnReplanAction rl.ReplanActionType
 
 	for attempt := 0; attempt <= maxReplans; attempt++ {
 		if attempt > 0 {
@@ -318,12 +319,26 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			slog.Warn("cognitive: stream final answer failed", "err", err)
 		}
 
-		// RL: update reflection confidence and record DQN suggestion
+		// RL: update reflection confidence and apply DQN replan adjustment
 		if rlEnabled && rlState != nil && reflection != nil {
 			rlState.ReflectionConfidence = clampRL(reflection.OverallConfidence, 0, 1)
 			if reflection.NeedsReplan {
-				dqnAction := ca.rlPolicy.SelectReplanAction(rlState)
-				slog.Info("cognitive: DQN replan suggestion", "action", dqnAction.String())
+				dqnReplanAction = ca.rlPolicy.SelectReplanAction(rlState)
+				dqnWeight := ca.cfg.RL.DQN.ReplanWeight
+				adjConfidence, shouldAbort := applyDQNReplanAdjustment(
+					reflection.OverallConfidence, dqnReplanAction, dqnWeight,
+				)
+				slog.Info("cognitive: DQN replan adjustment",
+					"action", dqnReplanAction.String(),
+					"original_confidence", reflection.OverallConfidence,
+					"adjusted_confidence", adjConfidence,
+					"should_abort", shouldAbort,
+				)
+				if shouldAbort {
+					slog.Info("cognitive: DQN recommends abort", "session", sess.ID)
+					goto persist
+				}
+				reflection.OverallConfidence = adjConfidence
 			}
 		}
 
@@ -350,9 +365,22 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	}
 
 persist:
-	// RL: record PPO/DQN experiences and episode
+	// RL: collect user feedback and record episode
 	if rlEnabled && episodeCollector != nil && ca.rlTrainer != nil {
-		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector)
+		// Attempt to collect user feedback from channel
+		var userFeedback float64
+		if sender, ok := ch.(channel.FeedbackSender); ok {
+			// Use a short timeout for feedback — don't block the loop for long
+			feedbackCtx, feedbackCancel := context.WithTimeout(ctx, 20*time.Second)
+			fb, err := sender.SendFeedbackRequest(feedbackCtx, target)
+			feedbackCancel()
+			if err != nil {
+				slog.Debug("cognitive: feedback collection failed", "err", err)
+			} else {
+				userFeedback = fb
+			}
+		}
+		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector, userFeedback, dqnReplanAction)
 	}
 
 	// Persist session
@@ -489,9 +517,12 @@ func (ca *CognitiveAgent) recordRLEpisode(
 	reflection *Reflection,
 	ppoStrategy *rl.PlanStrategyAction,
 	collector *EpisodeCollector,
+	userFeedback float64,
+	dqnAction rl.ReplanActionType,
 ) {
 	rlState := collector.State
 	episodeReward := computeSimpleEpisodeReward(reflection, obsResult)
+	episodeReward += computeReflectionBonus(reflection)
 
 	// Record PPO experience (plan strategy → episode outcome)
 	if ppoStrategy != nil {
@@ -507,7 +538,6 @@ func (ca *CognitiveAgent) recordRLEpisode(
 
 	// Record DQN experience (replan decision → episode outcome)
 	if reflection != nil && reflection.NeedsReplan {
-		dqnAction := ca.rlPolicy.SelectReplanAction(rlState)
 		collector.Add(rl.Experience{
 			State:     rlState,
 			Action:    []float64{float64(dqnAction)},
@@ -553,6 +583,7 @@ func (ca *CognitiveAgent) recordRLEpisode(
 			SuccessCount:  successCount,
 			FailureCount:  failureCount,
 			DeniedCount:   deniedCount,
+			UserFeedback:  userFeedback,
 			Experiences:   experiences,
 		}); err != nil {
 			slog.Warn("cognitive: failed to record RL episode", "err", err)
