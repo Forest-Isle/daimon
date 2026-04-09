@@ -48,14 +48,27 @@ func (m *mockRLEventHandler) OnMemoryConflict(_ context.Context, content string,
 }
 
 func TestMockRLEventHandlerSatisfiesInterface(t *testing.T) {
-	var h RLEventHandler = &mockRLEventHandler{}
-	if h == nil {
-		t.Fatal("mock does not implement RLEventHandler")
-	}
+	// Compile-time interface check.
+	var _ RLEventHandler = (*mockRLEventHandler)(nil)
+
+	h := &mockRLEventHandler{}
 	h.OnMemoryAdd(context.Background(), "id1", "test content", 5)
 	h.OnMemoryUpdate(context.Background(), "id1", "id2", "updated content")
 	h.OnMemoryDelete(context.Background(), "id1")
 	h.OnMemoryConflict(context.Background(), "conflicting fact content", []string{"id2", "id3"})
+
+	if len(h.addCalls) != 1 || h.addCalls[0].factID != "id1" {
+		t.Errorf("OnMemoryAdd not recorded correctly: %+v", h.addCalls)
+	}
+	if len(h.updateCalls) != 1 || h.updateCalls[0].oldID != "id1" {
+		t.Errorf("OnMemoryUpdate not recorded correctly: %+v", h.updateCalls)
+	}
+	if len(h.deleteCalls) != 1 || h.deleteCalls[0].factID != "id1" {
+		t.Errorf("OnMemoryDelete not recorded correctly: %+v", h.deleteCalls)
+	}
+	if len(h.conflictCalls) != 1 || len(h.conflictCalls[0].conflictIDs) != 2 {
+		t.Errorf("OnMemoryConflict not recorded correctly: %+v", h.conflictCalls)
+	}
 }
 
 // TestLifecycleManagerEmitsRLEvents verifies SetRLEventHandler stores the handler.
