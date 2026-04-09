@@ -285,57 +285,6 @@ func TestPPOStrategyApplication(t *testing.T) {
 	}
 }
 
-func TestComputeReflectionBonus(t *testing.T) {
-	tests := []struct {
-		name       string
-		reflection *Reflection
-		want       float64
-	}{
-		{
-			name:       "nil reflection",
-			reflection: nil,
-			want:       0.0,
-		},
-		{
-			name: "lessons learned gives bonus",
-			reflection: &Reflection{
-				LessonsLearned: []string{"avoid timeout with large files"},
-			},
-			want: 0.15,
-		},
-		{
-			name: "suggested adjustment gives small bonus",
-			reflection: &Reflection{
-				SuggestedAdjustment: "try streaming approach",
-			},
-			want: 0.05,
-		},
-		{
-			name: "all bonuses combined",
-			reflection: &Reflection{
-				LessonsLearned:      []string{"lesson 1", "lesson 2"},
-				SuggestedAdjustment: "try different approach",
-			},
-			want: 0.20, // 0.15 + 0.05
-		},
-		{
-			name:       "empty reflection gives no bonus",
-			reflection: &Reflection{},
-			want:       0.0,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := computeReflectionBonus(tc.reflection)
-			diff := got - tc.want
-			if diff < -0.001 || diff > 0.001 {
-				t.Errorf("got %f, want %f", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestApplyDQNReplanAdjustment(t *testing.T) {
 	tests := []struct {
 		name           string
