@@ -48,3 +48,8 @@ type sessionResetMsg struct{}
 type notificationMsg struct {
 	text string
 }
+
+// feedbackRequestMsg asks the user to rate the last response (1.0 = good, -1.0 = bad).
+type feedbackRequestMsg struct {
+	resultCh chan float64
+}

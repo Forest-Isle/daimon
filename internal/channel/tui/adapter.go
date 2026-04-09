@@ -7,19 +7,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Adapter implements channel.Channel, channel.ApprovalSender, and
-// channel.ReflectionSender for an interactive terminal UI.
+// Adapter implements channel.Channel, channel.ApprovalSender,
+// channel.ReflectionSender, channel.NotificationSender, and
+// channel.FeedbackSender for an interactive terminal UI.
 type Adapter struct {
-	program    *tea.Program
-	handler    channel.InboundHandler
-	model      *Model
-	stopCh     chan struct{}
-	agentMode  string
-	version    string
+	program     *tea.Program
+	handler     channel.InboundHandler
+	model       *Model
+	stopCh      chan struct{}
+	agentMode   string
+	version     string
 	autoApprove bool
 
 	// approvalTimeout is the max time to wait for the user to respond
@@ -30,7 +31,6 @@ type Adapter struct {
 	// The Model writes here on Enter; the adapter's goroutine
 	// converts them to InboundMessages for the gateway.
 	userInputCh chan string
-
 }
 
 // New creates a new TUI adapter.
@@ -200,6 +200,32 @@ func (a *Adapter) SendReflectionRequest(ctx context.Context, target channel.Mess
 		return channel.ReplanContinue, nil
 	case <-ctx.Done():
 		return channel.ReplanContinue, ctx.Err()
+	}
+}
+
+// ---------- channel.FeedbackSender ----------
+
+// SendFeedbackRequest displays a "Was this helpful? (y/n)" dialog in the TUI
+// and blocks until the user responds, the approvalTimeout expires, or ctx is
+// cancelled.  Returns 1.0 (helpful), -1.0 (not helpful), or 0.0 on timeout.
+func (a *Adapter) SendFeedbackRequest(ctx context.Context, target channel.MessageTarget) (float64, error) {
+	if a.program == nil {
+		return 0, nil
+	}
+
+	resultCh := make(chan float64, 1)
+	a.program.Send(feedbackRequestMsg{
+		resultCh: resultCh,
+	})
+
+	select {
+	case feedback := <-resultCh:
+		return feedback, nil
+	case <-time.After(a.approvalTimeout):
+		slog.Info("tui: feedback timed out, defaulting to neutral")
+		return 0, nil
+	case <-ctx.Done():
+		return 0, ctx.Err()
 	}
 }
 
