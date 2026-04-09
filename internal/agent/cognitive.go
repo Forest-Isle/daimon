@@ -364,9 +364,19 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	}
 
 persist:
-	// RL: record PPO/DQN experiences and episode
+	// RL: collect user feedback and record episode
 	if rlEnabled && episodeCollector != nil && ca.rlTrainer != nil {
-		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector)
+		// Attempt to collect user feedback from channel
+		var userFeedback float64
+		if sender, ok := ch.(channel.FeedbackSender); ok {
+			fb, err := sender.SendFeedbackRequest(ctx, target)
+			if err != nil {
+				slog.Debug("cognitive: feedback collection failed", "err", err)
+			} else {
+				userFeedback = fb
+			}
+		}
+		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector, userFeedback)
 	}
 
 	// Persist session
@@ -503,6 +513,7 @@ func (ca *CognitiveAgent) recordRLEpisode(
 	reflection *Reflection,
 	ppoStrategy *rl.PlanStrategyAction,
 	collector *EpisodeCollector,
+	userFeedback float64,
 ) {
 	rlState := collector.State
 	episodeReward := computeSimpleEpisodeReward(reflection, obsResult)
@@ -568,6 +579,7 @@ func (ca *CognitiveAgent) recordRLEpisode(
 			SuccessCount:  successCount,
 			FailureCount:  failureCount,
 			DeniedCount:   deniedCount,
+			UserFeedback:  userFeedback,
 			Experiences:   experiences,
 		}); err != nil {
 			slog.Warn("cognitive: failed to record RL episode", "err", err)
