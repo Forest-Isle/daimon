@@ -284,50 +284,55 @@ func (e *Executor) executeSubTask(
 	durationMs := time.Since(start).Milliseconds()
 	obs.DurationMs = durationMs
 
+	// Determine execution status
+	execStatus := "success"
+	var execErrStr string
 	if execErr != nil {
 		subtask.Status = SubTaskFailed
 		obs.Error = execErr.Error()
+		execStatus = "error"
+		execErrStr = execErr.Error()
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
 		slog.Info("subtask failed", "id", subtask.ID, "tool", subtask.ToolName, "err", execErr)
-		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
-		return obs
-	}
-
-	if result.Error != "" {
+	} else if result.Error != "" {
 		subtask.Status = SubTaskFailed
 		obs.Error = result.Error
+		execStatus = "error"
+		execErrStr = result.Error
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
 		slog.Info("subtask failed", "id", subtask.ID, "tool", subtask.ToolName, "result_err", result.Error)
-		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
-		return obs
+	} else {
+		subtask.Status = SubTaskDone
+		obs.Output = result.Output
 	}
 
-	subtask.Status = SubTaskDone
-	obs.Output = result.Output
-
-	// ── PostToolUse hooks (may modify output) ─────────────────────────────────
+	// ── PostToolUse hooks (fires on all outcomes; may modify output) ───────────
 	if e.hookMgr != nil && e.hookMgr.HasPostToolUseHandlers() {
-		var errStr string
-		if execErr != nil {
-			errStr = execErr.Error()
-		} else if result.Error != "" {
-			errStr = result.Error
+		hookOutput := obs.Output
+		if execStatus == "error" {
+			hookOutput = obs.Error
 		}
 		postResult, _ := e.hookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
 			ToolName:         subtask.ToolName,
 			Input:            subtask.ToolInput,
-			Output:           obs.Output,
-			Error:            errStr,
-			Status:           "success",
+			Output:           hookOutput,
+			Error:            execErrStr,
+			Status:           execStatus,
 			DurationMs:       durationMs,
 			SessionID:        sess.ID,
 			PermissionAction: permAction,
 			PermissionReason: permReason,
 			PermissionRule:   permRule,
 		})
-		if postResult.ModifiedOutput != nil {
+		if postResult.ModifiedOutput != nil && execStatus == "success" {
 			obs.Output = *postResult.ModifiedOutput
 		}
+	}
+
+	// Early return on execution failure (after PostToolUse hooks have fired)
+	if execStatus == "error" {
+		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
+		return obs
 	}
 
 	// Store result in TaskContext if available
