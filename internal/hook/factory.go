@@ -55,7 +55,14 @@ func BuildManager(
 		m.RegisterOnUserMessage(h)
 	}
 
-	// PreCompact handlers will be added in a future phase
+	for _, cfg := range preCompact {
+		h, err := buildPreCompactHandler(cfg)
+		if err != nil {
+			slog.Warn("hook: failed to build PreCompact handler", "type", cfg.Type, "err", err)
+			continue
+		}
+		m.RegisterPreCompact(h)
+	}
 
 	return m
 }
@@ -92,6 +99,16 @@ func buildPostToolUseHandler(cfg HandlerConfig, opts *BuildManagerOpts) (PostToo
 		return nil, fmt.Errorf("permission_audit handler requires database connection")
 	default:
 		return nil, fmt.Errorf("unknown PostToolUse handler type: %s", cfg.Type)
+	}
+}
+
+func buildPreCompactHandler(cfg HandlerConfig) (PreCompactHandler, error) {
+	switch cfg.Type {
+	case "message_preserver":
+		patterns := extractStringSlice(cfg.Config, "preserve_patterns")
+		return NewMessagePreserver(patterns), nil
+	default:
+		return nil, fmt.Errorf("unknown PreCompact handler type: %s", cfg.Type)
 	}
 }
 
