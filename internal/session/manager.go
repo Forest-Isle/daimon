@@ -189,6 +189,7 @@ func (m *Manager) GetSessionChain(ctx context.Context, sessionID string) ([]*Ses
 			return nil, fmt.Errorf("load session %s: %w", currentID, err)
 		}
 
+		sess.SetPreviousSummary(prevSummary)
 		chain = append(chain, &sess)
 		currentID = sess.ParentSessionID
 	}
