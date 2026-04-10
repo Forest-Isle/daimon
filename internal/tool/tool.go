@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -56,16 +57,28 @@ const (
 	ParallelPathScoped ParallelSafety = "path_scoped"
 )
 
-// TODO(phase2): PathScopedTool is a reserved extension point for path-based
-// concurrent execution deduplication. Currently no built-in tools implement it;
-// add path canonicalization helpers when adoption begins.
-//
-// PathScopedTool is an optional interface for tools that need path-based deduplication.
-// Tools that implement this interface with ParallelPathScoped safety can run concurrently
-// as long as they operate on different resource paths.
+// PathScopedTool is an optional interface for tools that need path-based deduplication
+// in concurrent execution. Tools that implement this interface with ParallelPathScoped
+// safety can run concurrently as long as they operate on different resource paths.
+// Write-oriented file tools (file_write, file_edit) implement this to prevent concurrent
+// writes to the same file while allowing parallel writes to different files.
 type PathScopedTool interface {
 	// ExtractPaths returns all filesystem or resource paths that this tool call accesses.
 	ExtractPaths(input []byte) ([]string, error)
+}
+
+// CanonicalizePath returns a clean, absolute path for conflict detection.
+// Returns the cleaned path as-is if Abs fails (e.g., no working directory).
+func CanonicalizePath(p string) string {
+	if p == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(p)
+	abs, err := filepath.Abs(cleaned)
+	if err != nil {
+		return cleaned
+	}
+	return abs
 }
 
 // ToolCapabilities describes a tool's behavioral characteristics.

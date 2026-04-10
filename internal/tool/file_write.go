@@ -27,7 +27,22 @@ func (t *FileWriteTool) Capabilities() ToolCapabilities {
 		IsDestructive:   false,
 		RequiresNetwork: false,
 		ApprovalMode:    "auto",
+		ParallelSafety:  ParallelPathScoped,
 	}
+}
+
+// ExtractPaths returns the target file path for concurrent write conflict detection.
+func (t *FileWriteTool) ExtractPaths(input []byte) ([]string, error) {
+	var in struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(input, &in); err != nil {
+		return nil, err
+	}
+	if p := CanonicalizePath(in.Path); p != "" {
+		return []string{p}, nil
+	}
+	return nil, nil
 }
 
 func (t *FileWriteTool) InputSchema() map[string]any {
