@@ -27,8 +27,9 @@ type AgentManager struct {
 	tools     *tool.Registry
 	cfg       config.AgentConfig
 	llmCfg    config.LLMConfig
-	bgManager *BackgroundManager
-	agentMCP  *AgentMCPManager
+	bgManager      *BackgroundManager
+	agentMCP       *AgentMCPManager
+	sidechainStore SidechainStore
 }
 
 // NewAgentManager creates a new AgentManager.
@@ -64,6 +65,20 @@ func (m *AgentManager) SetAgentMCPManager(mgr *AgentMCPManager) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.agentMCP = mgr
+}
+
+// SetSidechainStore sets the sidechain store for sub-agent execution history.
+func (m *AgentManager) SetSidechainStore(store SidechainStore) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sidechainStore = store
+}
+
+// GetSidechainStore returns the sidechain store, or nil if not configured.
+func (m *AgentManager) GetSidechainStore() SidechainStore {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sidechainStore
 }
 
 // Add adds an inline AgentSpec definition.

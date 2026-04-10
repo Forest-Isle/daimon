@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/userdir"
@@ -24,6 +26,17 @@ func (gw *Gateway) initMultiAgent() error {
 		}
 		agentMgr.RegisterAll(gw.tools)
 		gw.runtime.SetAgentManager(agentMgr)
+		// Initialize sidechain store for sub-agent execution history persistence
+		if home, err := os.UserHomeDir(); err == nil {
+			sidechainDir := filepath.Join(home, ".IronClaw", "data", "sidechain")
+			sidechainStore, err := agent.NewFileSidechainStore(sidechainDir)
+			if err != nil {
+				slog.Warn("gateway: sidechain store init failed, sub-agent history will not persist", "err", err)
+			} else {
+				agentMgr.SetSidechainStore(sidechainStore)
+				slog.Info("sidechain store initialized", "dir", sidechainDir)
+			}
+		}
 		// Background agent manager
 		bgManager := agent.NewBackgroundManager()
 		agentMgr.SetBackgroundManager(bgManager)
