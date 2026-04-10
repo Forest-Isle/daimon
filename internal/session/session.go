@@ -56,6 +56,23 @@ func (s *Session) TrimHistory(n int) {
 	}
 }
 
+// UpdateLastToolResult finds the last tool_result message in the history and
+// appends suffix to its content. This is an O(1)-amortized in-place update that
+// avoids rebuilding the entire message slice. Returns true if a tool_result was
+// found and updated, false otherwise.
+func (s *Session) UpdateLastToolResult(suffix string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.Messages) - 1; i >= 0; i-- {
+		if s.Messages[i].Role == "tool_result" {
+			s.Messages[i].Content += suffix
+			s.UpdatedAt = time.Now()
+			return true
+		}
+	}
+	return false
+}
+
 // GetPreviousSummary returns the stored previous summary for incremental updates.
 func (s *Session) GetPreviousSummary() string {
 	s.mu.Lock()

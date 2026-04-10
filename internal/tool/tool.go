@@ -56,6 +56,10 @@ const (
 	ParallelPathScoped ParallelSafety = "path_scoped"
 )
 
+// TODO(phase2): PathScopedTool is a reserved extension point for path-based
+// concurrent execution deduplication. Currently no built-in tools implement it;
+// add path canonicalization helpers when adoption begins.
+//
 // PathScopedTool is an optional interface for tools that need path-based deduplication.
 // Tools that implement this interface with ParallelPathScoped safety can run concurrently
 // as long as they operate on different resource paths.

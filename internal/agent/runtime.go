@@ -639,20 +639,8 @@ func (r *Runtime) executeToolsWithBudget(
 	// Execute tools normally
 	r.executeTools(ctx, ch, sess, target, toolCalls)
 
-	// Append budget warning to the last tool_result message in the session
-	history := sess.History()
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == "tool_result" {
-			// Rebuild the session with the modified last tool result
-			sess.TrimHistory(0)
-			for j, m := range history {
-				if j == i {
-					m.Content += budgetWarning
-				}
-				sess.AddMessage(m)
-			}
-			slog.Debug("budget pressure signal injected", "warning", budgetWarning)
-			return
-		}
+	// Append budget warning to the last tool_result message (O(1) in-place update)
+	if sess.UpdateLastToolResult(budgetWarning) {
+		slog.Debug("budget pressure signal injected", "warning", budgetWarning)
 	}
 }

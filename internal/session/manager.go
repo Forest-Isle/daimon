@@ -71,9 +71,10 @@ func (m *Manager) Persist(ctx context.Context, sess *Session) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Update session timestamp
+	// Update session timestamp and persisted summary
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, sess.ID); err != nil {
+		`UPDATE sessions SET updated_at = CURRENT_TIMESTAMP, previous_summary = ? WHERE id = ?`,
+		sess.GetPreviousSummary(), sess.ID); err != nil {
 		return err
 	}
 
@@ -97,7 +98,7 @@ func (m *Manager) Persist(ctx context.Context, sess *Session) error {
 
 func (m *Manager) loadFromDB(ctx context.Context, channel, channelID string) (*Session, error) {
 	row := m.db.QueryRowContext(ctx,
-		`SELECT id, COALESCE(parent_session_id,''), created_at, updated_at FROM sessions WHERE channel = ? AND channel_id = ?`,
+		`SELECT id, COALESCE(parent_session_id,''), created_at, updated_at, COALESCE(previous_summary,'') FROM sessions WHERE channel = ? AND channel_id = ?`,
 		channel, channelID)
 
 	var sess Session
@@ -105,12 +106,14 @@ func (m *Manager) loadFromDB(ctx context.Context, channel, channelID string) (*S
 	sess.ChannelID = channelID
 	sess.Metadata = make(map[string]string)
 
-	if err := row.Scan(&sess.ID, &sess.ParentSessionID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+	var previousSummary string
+	if err := row.Scan(&sess.ID, &sess.ParentSessionID, &sess.CreatedAt, &sess.UpdatedAt, &previousSummary); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	sess.SetPreviousSummary(previousSummary)
 
 	// Load messages
 	rows, err := m.db.QueryContext(ctx,
@@ -172,13 +175,14 @@ func (m *Manager) GetSessionChain(ctx context.Context, sessionID string) ([]*Ses
 		seen[currentID] = true
 
 		row := m.db.QueryRowContext(ctx,
-			`SELECT id, channel, channel_id, COALESCE(parent_session_id,''), created_at, updated_at
+			`SELECT id, channel, channel_id, COALESCE(parent_session_id,''), created_at, updated_at, COALESCE(previous_summary,'')
 			 FROM sessions WHERE id = ?`, currentID)
 
 		var sess Session
+		var prevSummary string
 		sess.Metadata = make(map[string]string)
 		if err := row.Scan(&sess.ID, &sess.Channel, &sess.ChannelID,
-			&sess.ParentSessionID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+			&sess.ParentSessionID, &sess.CreatedAt, &sess.UpdatedAt, &prevSummary); err != nil {
 			if err == sql.ErrNoRows {
 				break
 			}
