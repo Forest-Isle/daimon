@@ -19,12 +19,13 @@ const (
 )
 
 // BackendConfig holds everything an execution backend needs to run an agent.
+// ParentRuntime is intentionally excluded — it is not serializable and backends
+// that run out-of-process (subprocess, docker) cannot receive it.
 type BackendConfig struct {
-	Spec          *AgentSpec
-	Task          string
-	TaskContext   string // optional context from upstream tasks
-	ParentRuntime *Runtime
-	EnvVars       map[string]string
+	Spec        *AgentSpec
+	Task        string
+	TaskContext string            // optional context from upstream tasks
+	EnvVars     map[string]string // extra environment variables for out-of-process backends
 }
 
 // ExecutionBackend abstracts the environment in which a sub-agent runs.
@@ -87,75 +88,26 @@ func (b *InProcessBackend) Available() bool { return true }
 func (b *InProcessBackend) Name() string    { return string(BackendInProcess) }
 func (b *InProcessBackend) Cleanup() error  { return nil }
 
-// --- SubprocessBackend ---
-
-// SubprocessBackend executes agents as child processes via os/exec.
-// This provides process-level isolation but requires the ironclaw binary.
-//
-// Status: Phase 3 placeholder. Execute returns ErrBackendNotImplemented.
-// SelectBackend automatically falls back to InProcessBackend when this is unavailable.
-type SubprocessBackend struct {
-	binaryPath string
-}
-
-// NewSubprocessBackend creates a subprocess backend.
-func NewSubprocessBackend(binaryPath string) *SubprocessBackend {
-	return &SubprocessBackend{binaryPath: binaryPath}
-}
-
-func (b *SubprocessBackend) Execute(ctx context.Context, cfg BackendConfig) (<-chan *AgentResult, error) {
-	return nil, fmt.Errorf("subprocess: %w", ErrBackendNotImplemented)
-}
-
-func (b *SubprocessBackend) Available() bool {
-	// Check if binary exists
-	if b.binaryPath == "" {
-		return false
-	}
-	return true
-}
-
-func (b *SubprocessBackend) Name() string   { return string(BackendSubprocess) }
-func (b *SubprocessBackend) Cleanup() error { return nil }
-
-// --- DockerBackend ---
-
-// DockerBackend executes agents in Docker containers for full isolation.
-//
-// Status: Phase 3 placeholder. Execute returns ErrBackendNotImplemented.
-// SelectBackend automatically falls back to InProcessBackend when this is unavailable.
-type DockerBackend struct {
-	image   string
-	network string
-}
-
-// NewDockerBackend creates a Docker backend.
-func NewDockerBackend(image, network string) *DockerBackend {
-	return &DockerBackend{image: image, network: network}
-}
-
-func (b *DockerBackend) Execute(ctx context.Context, cfg BackendConfig) (<-chan *AgentResult, error) {
-	return nil, fmt.Errorf("docker: %w", ErrBackendNotImplemented)
-}
-
-func (b *DockerBackend) Available() bool  { return false } // requires docker
-func (b *DockerBackend) Name() string     { return string(BackendDocker) }
-func (b *DockerBackend) Cleanup() error   { return nil }
-
 // SelectBackend returns the appropriate backend for the given type.
-// If the requested backend is unavailable (Phase 3 backends return false from Available),
-// it transparently falls back to InProcessBackend to ensure the system always works.
-func SelectBackend(backendType BackendType, executor func(ctx context.Context, cfg BackendConfig) (*AgentResult, error)) ExecutionBackend {
+// If the requested backend is unavailable, it transparently falls back to
+// InProcessBackend to ensure the system always works.
+func SelectBackend(backendType BackendType, executor func(ctx context.Context, cfg BackendConfig) (*AgentResult, error), opts ...BackendOption) ExecutionBackend {
+	o := backendOptions{
+		dockerImage: "ironclaw:latest",
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	switch backendType {
 	case BackendSubprocess:
-		be := NewSubprocessBackend("ironclaw")
+		be := NewSubprocessBackend(o.configPath)
 		if be.Available() {
 			return be
 		}
-		// fallback
 		return NewInProcessBackend(executor)
 	case BackendDocker:
-		be := NewDockerBackend("ironclaw:latest", "")
+		be := NewDockerBackend(o.dockerImage, o.dockerNetwork)
 		if be.Available() {
 			return be
 		}
@@ -163,4 +115,25 @@ func SelectBackend(backendType BackendType, executor func(ctx context.Context, c
 	default:
 		return NewInProcessBackend(executor)
 	}
+}
+
+// --- BackendOption ---
+
+// BackendOption configures backend selection via SelectBackend.
+type BackendOption func(*backendOptions)
+
+type backendOptions struct {
+	configPath    string // config file path for SubprocessBackend
+	dockerImage   string // container image for DockerBackend
+	dockerNetwork string // Docker network for DockerBackend
+}
+
+// WithConfigPath provides the config file path for SubprocessBackend.
+func WithConfigPath(p string) BackendOption {
+	return func(o *backendOptions) { o.configPath = p }
+}
+
+// WithDockerImage provides the Docker image and network for DockerBackend.
+func WithDockerImage(img, network string) BackendOption {
+	return func(o *backendOptions) { o.dockerImage = img; o.dockerNetwork = network }
 }

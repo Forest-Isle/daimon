@@ -24,6 +24,9 @@ func (gw *Gateway) initToolsAndHooks() error {
 	if gw.cfg.Tools.HTTP.Enabled {
 		gw.tools.Register(tool.NewHTTPTool(gw.cfg.Tools.HTTP.Timeout, gw.cfg.Tools.HTTP.RequiresApproval))
 	}
+	if gw.cfg.Tools.Browser.Enabled {
+		gw.tools.Register(tool.NewBrowserTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
+	}
 
 	// Hook event system
 	hookCfg := gw.cfg.Hooks

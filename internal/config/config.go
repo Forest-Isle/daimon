@@ -278,6 +278,7 @@ type ToolsConfig struct {
 	Bash                BashToolConfig            `yaml:"bash"`
 	File                FileToolConfig            `yaml:"file"`
 	HTTP                HTTPToolConfig            `yaml:"http"`
+	Browser             BrowserToolConfig         `yaml:"browser"`
 	MCP                 MCPConfig                 `yaml:"mcp"`
 	ConcurrentExecution ConcurrentExecutionConfig `yaml:"concurrent_execution"`
 	ResultPersistence   ResultPersistenceConfig   `yaml:"result_persistence"`
@@ -322,6 +323,13 @@ type FileToolConfig struct {
 }
 
 type HTTPToolConfig struct {
+	Enabled          bool          `yaml:"enabled"`
+	RequiresApproval bool          `yaml:"requires_approval"`
+	Timeout          time.Duration `yaml:"timeout"`
+}
+
+// BrowserToolConfig holds configuration for the browser (HTTP GET) tool.
+type BrowserToolConfig struct {
 	Enabled          bool          `yaml:"enabled"`
 	RequiresApproval bool          `yaml:"requires_approval"`
 	Timeout          time.Duration `yaml:"timeout"`
@@ -468,6 +476,10 @@ func defaultConfig() Config {
 				Enabled: true,
 			},
 			HTTP: HTTPToolConfig{
+				Enabled: true,
+				Timeout: 30 * time.Second,
+			},
+			Browser: BrowserToolConfig{
 				Enabled: true,
 				Timeout: 30 * time.Second,
 			},

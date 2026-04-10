@@ -94,7 +94,7 @@ func TestGetCapabilities(t *testing.T) {
 	}
 
 	// Tool with CapableTool (browser)
-	browser := NewBrowserTool()
+	browser := NewBrowserTool(0, false)
 	caps = GetCapabilities(browser)
 	if !caps.IsReadOnly {
 		t.Error("BrowserTool should be read-only")
@@ -113,7 +113,7 @@ func TestGetCapabilities(t *testing.T) {
 
 func TestBuiltinToolsReadOnly(t *testing.T) {
 	// BrowserTool should be read-only
-	browser := NewBrowserTool()
+	browser := NewBrowserTool(0, false)
 	if !IsToolReadOnly(browser) {
 		t.Error("BrowserTool should be read-only")
 	}

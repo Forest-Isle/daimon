@@ -13,7 +13,8 @@ import (
 // BrowserTool fetches the content of a URL via HTTP GET and returns it as text.
 // It is a read-only tool that requires network access.
 type BrowserTool struct {
-	client *http.Client
+	client   *http.Client
+	approval bool
 }
 
 // browserInput represents the input parameters for the browser tool.
@@ -21,16 +22,21 @@ type browserInput struct {
 	URL string `json:"url"`
 }
 
-// NewBrowserTool creates a new BrowserTool with a default 30-second timeout.
-func NewBrowserTool() *BrowserTool {
+// NewBrowserTool creates a new BrowserTool with configurable timeout and approval requirement.
+// A non-positive timeout defaults to 30 seconds.
+func NewBrowserTool(timeout time.Duration, requiresApproval bool) *BrowserTool {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
 	return &BrowserTool{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client:   &http.Client{Timeout: timeout},
+		approval: requiresApproval,
 	}
 }
 
 func (b *BrowserTool) Name() string          { return "browser" }
 func (b *BrowserTool) Description() string   { return "Fetch and return the content of a URL via HTTP GET." }
-func (b *BrowserTool) RequiresApproval() bool { return false }
+func (b *BrowserTool) RequiresApproval() bool { return b.approval }
 func (b *BrowserTool) IsReadOnly() bool       { return true }
 
 // Capabilities declares BrowserTool as read-only with network access.

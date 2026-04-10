@@ -142,11 +142,10 @@ func (a *AgentTool) Execute(ctx context.Context, input []byte) (tool.Result, err
 	}
 }
 
-// executeSpawn creates an independent Runtime and runs the sub-agent (current / default behavior).
+// executeSpawn runs the sub-agent using the configured ExecutionBackend.
+// Hooks and circuit breaker are managed at this layer; the backend only
+// handles "where to execute" (in-process, subprocess, docker).
 func (a *AgentTool) executeSpawn(ctx context.Context, in agentToolInput) (tool.Result, error) {
-	// Build scoped tool registry
-	scopedTools := a.buildScopedRegistry()
-
 	// Build hook runner from spec
 	hooks := BuildAgentHooks(a.spec.Hooks)
 	hookRunner := NewAgentHookRunner(hooks)
@@ -161,46 +160,15 @@ func (a *AgentTool) executeSpawn(ctx context.Context, in agentToolInput) (tool.R
 		})
 	}
 
-	// Build sub-agent config with spec overrides
-	subCfg := a.cfg
-	subCfg.MaxIterations = a.spec.MaxIterations
-	if a.spec.SystemPrompt != "" {
-		subCfg.SystemPrompt = a.spec.SystemPrompt
-	}
-
-	subLLMCfg := a.llmCfg
-	if a.spec.Model != "" {
-		subLLMCfg.Model = a.spec.Model
-	}
-	if a.spec.MaxTokens > 0 {
-		subLLMCfg.MaxTokens = a.spec.MaxTokens
-	}
-
-	// Create temporary Runtime
-	subRuntime := NewRuntime(a.provider, scopedTools, a.sessions, a.db, subCfg, subLLMCfg)
-	if a.memStore != nil {
-		subRuntime.SetMemoryStore(a.memStore)
-	}
-
-	// Build user message with optional context
-	userText := in.Task
-	if in.Context != "" {
-		userText = fmt.Sprintf("Context from previous tasks:\n%s\n\nTask:\n%s", in.Context, in.Task)
-	}
-
-	// Create captureChannel and run
-	capture := newCaptureChannel()
-	msg := channel.InboundMessage{
-		Channel:   "agent",
-		ChannelID: fmt.Sprintf("agent_%s", a.spec.Name),
-		UserID:    "orchestrator",
-		UserName:  "orchestrator",
-		Text:      userText,
-	}
-
-	if err := subRuntime.HandleMessage(ctx, capture, msg); err != nil {
+	// Execute via the configured backend
+	backend := SelectBackend(a.spec.Backend, a.executeAgentCore)
+	ch, err := backend.Execute(ctx, BackendConfig{
+		Spec:        a.spec,
+		Task:        in.Task,
+		TaskContext: in.Context,
+	})
+	if err != nil {
 		a.breaker.RecordFailure()
-		// Fire OnError hooks
 		if hookRunner.HasHooks() {
 			hookRunner.RunOnError(ctx, &AgentHookContext{
 				AgentID:   agentID,
@@ -209,11 +177,25 @@ func (a *AgentTool) executeSpawn(ctx context.Context, in agentToolInput) (tool.R
 				Error:     err,
 			})
 		}
-		return tool.Result{Error: "sub-agent error: " + err.Error()}, nil
+		return tool.Result{Error: "sub-agent backend error: " + err.Error()}, nil
 	}
 
-	// Collect output from captureChannel
-	output := capture.Collect()
+	result := <-ch
+
+	if result.Error != nil {
+		a.breaker.RecordFailure()
+		if hookRunner.HasHooks() {
+			hookRunner.RunOnError(ctx, &AgentHookContext{
+				AgentID:   agentID,
+				AgentName: a.spec.Name,
+				Task:      in.Task,
+				Error:     result.Error,
+			})
+		}
+		return tool.Result{Error: "sub-agent error: " + result.Error.Error()}, nil
+	}
+
+	output := result.Output
 	if output == "" {
 		output = "(no output from sub-agent)"
 	}
@@ -230,11 +212,64 @@ func (a *AgentTool) executeSpawn(ctx context.Context, in agentToolInput) (tool.R
 			AgentID:   agentID,
 			AgentName: a.spec.Name,
 			Task:      in.Task,
-			Result:    &AgentResult{AgentName: a.spec.Name, Output: output},
+			Result:    result,
 		})
 	}
 
 	return tool.Result{Output: output}, nil
+}
+
+// executeAgentCore is the in-process executor function used by InProcessBackend.
+// It builds a scoped tool registry, creates a temporary Runtime, runs
+// HandleMessage, and returns the captured output as an AgentResult.
+// Errors from HandleMessage are embedded in AgentResult.Error, not returned
+// as a Go error, so the Backend channel always receives exactly one result.
+func (a *AgentTool) executeAgentCore(ctx context.Context, cfg BackendConfig) (*AgentResult, error) {
+	// Build scoped tool registry
+	scopedTools := a.buildScopedRegistry()
+
+	// Build sub-agent config with spec overrides
+	subCfg := a.cfg
+	subCfg.MaxIterations = cfg.Spec.MaxIterations
+	if cfg.Spec.SystemPrompt != "" {
+		subCfg.SystemPrompt = cfg.Spec.SystemPrompt
+	}
+
+	subLLMCfg := a.llmCfg
+	if cfg.Spec.Model != "" {
+		subLLMCfg.Model = cfg.Spec.Model
+	}
+	if cfg.Spec.MaxTokens > 0 {
+		subLLMCfg.MaxTokens = cfg.Spec.MaxTokens
+	}
+
+	// Create temporary Runtime
+	subRuntime := NewRuntime(a.provider, scopedTools, a.sessions, a.db, subCfg, subLLMCfg)
+	if a.memStore != nil {
+		subRuntime.SetMemoryStore(a.memStore)
+	}
+
+	// Build user message with optional context
+	userText := cfg.Task
+	if cfg.TaskContext != "" {
+		userText = fmt.Sprintf("Context from previous tasks:\n%s\n\nTask:\n%s", cfg.TaskContext, cfg.Task)
+	}
+
+	// Create captureChannel and run
+	capture := newCaptureChannel()
+	msg := channel.InboundMessage{
+		Channel:   "agent",
+		ChannelID: fmt.Sprintf("agent_%s", cfg.Spec.Name),
+		UserID:    "orchestrator",
+		UserName:  "orchestrator",
+		Text:      userText,
+	}
+
+	if err := subRuntime.HandleMessage(ctx, capture, msg); err != nil {
+		return &AgentResult{AgentName: cfg.Spec.Name, Error: err}, nil
+	}
+
+	return &AgentResult{AgentName: cfg.Spec.Name, Output: capture.Collect()}, nil
 }
 
 // executeFork inherits the parent Runtime's session context and runs as a fork agent.

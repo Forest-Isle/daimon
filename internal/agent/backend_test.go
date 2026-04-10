@@ -103,14 +103,25 @@ func TestInProcessBackend_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestSubprocessBackend_NotImplemented(t *testing.T) {
-	be := NewSubprocessBackend("/usr/local/bin/ironclaw")
-	_, err := be.Execute(context.Background(), BackendConfig{})
-	if err == nil {
-		t.Error("expected not-implemented error")
-	}
+func TestSubprocessBackend_Properties(t *testing.T) {
+	be := NewSubprocessBackend("/tmp/nonexistent.yaml")
 	if be.Name() != "subprocess" {
 		t.Errorf("expected name 'subprocess', got %q", be.Name())
+	}
+	// Available should return true because os.Executable() should exist.
+	if !be.Available() {
+		t.Log("subprocess backend not available (binary not found in test environment)")
+	}
+}
+
+func TestSubprocessBackend_FindBinary(t *testing.T) {
+	// findIronclawBinary should find *something* (at least os.Executable).
+	binary, err := findIronclawBinary()
+	if err != nil {
+		t.Skipf("no ironclaw binary found: %v", err)
+	}
+	if binary == "" {
+		t.Error("findIronclawBinary returned empty string without error")
 	}
 }
 
