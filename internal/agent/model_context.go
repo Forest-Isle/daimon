@@ -4,22 +4,32 @@ import "strings"
 
 // ModelContextWindow returns the context window size for a given model name.
 // Falls back to 200000 (Claude default) if model is unknown.
+//
+// Context windows for known models:
+// - Claude 4 Opus: 800K (with extrapolation)
+// - Claude 4 Sonnet: 400K (2025 models like sonnet-4-20250514)
+// - Claude 3.5 Opus/Sonnet/Haiku: 200K
+// - GPT-4 Turbo: 128K
+// - GPT-4: 8K
+// - GPT-3.5-turbo: 4K
 func ModelContextWindow(model string) int {
-	// Claude models
+	// Claude 4 models (2025+)
+	if strings.Contains(model, "opus-4-1") || strings.Contains(model, "opus-4-20") {
+		return 800000 // Claude 4 Opus
+	}
+	if strings.Contains(model, "sonnet-4-20") {
+		return 400000 // Claude 4 Sonnet (2025)
+	}
+
+	// Claude 3.5 models (earlier versions)
 	if strings.Contains(model, "opus") {
-		if strings.Contains(model, "opus-4") {
-			return 800000 // Claude 4 Opus (200K legacy context, 800K with extrapolation)
-		}
-		return 200000 // Claude 3.5 Opus
+		return 200000
 	}
 	if strings.Contains(model, "sonnet") {
-		if strings.Contains(model, "sonnet-4") {
-			return 400000 // Claude 4 Sonnet (400K context)
-		}
-		return 200000 // Claude 3.5 Sonnet
+		return 200000
 	}
 	if strings.Contains(model, "haiku") {
-		return 200000 // Claude 3.5 Haiku
+		return 200000
 	}
 
 	// GPT models (if provider switches to OpenAI)
@@ -33,6 +43,6 @@ func ModelContextWindow(model string) int {
 		return 4096
 	}
 
-	// Default fallback (Claude default)
+	// Default fallback (Claude 3.5 default)
 	return 200000
 }
