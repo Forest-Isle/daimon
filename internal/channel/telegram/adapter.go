@@ -14,8 +14,9 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// Adapter implements channel.Channel, channel.ApprovalSender, and
-// channel.ReflectionSender for Telegram.
+// Adapter implements channel.Channel, channel.ApprovalSender,
+// channel.ReflectionSender, channel.FeedbackSender, and
+// channel.NotificationSender for Telegram.
 type Adapter struct {
 	bot            *tgbotapi.BotAPI
 	allowedUserIDs map[int64]bool
@@ -25,6 +26,7 @@ type Adapter struct {
 	// Approval tracking — moved from Gateway so the adapter fully owns the flow.
 	pendingApprovals    sync.Map // key: toolName → chan bool
 	pendingReflections  sync.Map // key: string → chan channel.ReplanDecision
+	pendingFeedbacks    sync.Map // key: string → chan float64
 	approvalTimeoutSecs int
 }
 
@@ -131,6 +133,25 @@ func (a *Adapter) handleCallback(data string) {
 	}
 
 	action, key := parts[0], parts[1]
+
+	// Handle feedback responses
+	switch action {
+	case "feedback_yes", "feedback_no":
+		var score float64
+		if action == "feedback_yes" {
+			score = 1.0
+		} else {
+			score = -1.0
+		}
+		if v, ok := a.pendingFeedbacks.Load(key); ok {
+			ch := v.(chan float64)
+			select {
+			case ch <- score:
+			default:
+			}
+		}
+		return
+	}
 
 	// Handle reflection replan decisions
 	switch action {
@@ -303,6 +324,52 @@ func (a *Adapter) SendReflectionRequest(ctx context.Context, target channel.Mess
 		return channel.ReplanContinue, nil
 	case <-ctx.Done():
 		return channel.ReplanContinue, ctx.Err()
+	}
+}
+
+// ---------- channel.FeedbackSender ----------
+
+// SendFeedbackRequest sends a Telegram inline keyboard asking "Was this helpful?"
+// and blocks until the user responds or the timeout expires.
+// Returns 1.0 (positive), -1.0 (negative), or 0.0 on timeout.
+func (a *Adapter) SendFeedbackRequest(ctx context.Context, target channel.MessageTarget) (float64, error) {
+	chatID, err := strconv.ParseInt(target.ChannelID, 10, 64)
+	if err != nil || chatID == 0 {
+		return 0, nil // fallback: neutral
+	}
+
+	key := fmt.Sprintf("feedback_%s_%d", target.ChannelID, time.Now().UnixNano())
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("👍", "feedback_yes:"+key),
+			tgbotapi.NewInlineKeyboardButtonData("👎", "feedback_no:"+key),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, "Was this helpful?")
+	msg.ReplyMarkup = keyboard
+
+	if _, err := a.bot.Send(msg); err != nil {
+		slog.Warn("telegram: failed to send feedback request", "err", err)
+		return 0, nil
+	}
+
+	// Wait for callback
+	resultCh := make(chan float64, 1)
+	a.pendingFeedbacks.Store(key, resultCh)
+	defer a.pendingFeedbacks.Delete(key)
+
+	timeout := time.Duration(a.approvalTimeoutSecs) * time.Second
+	select {
+	case score := <-resultCh:
+		slog.Info("telegram: feedback received", "score", score)
+		return score, nil
+	case <-time.After(timeout):
+		slog.Info("telegram: feedback timed out, defaulting to neutral")
+		return 0, nil
+	case <-ctx.Done():
+		return 0, ctx.Err()
 	}
 }
 
