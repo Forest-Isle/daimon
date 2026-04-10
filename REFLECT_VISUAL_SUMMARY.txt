@@ -1,0 +1,316 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║                   REFLECT PHASE - VISUAL SUMMARY                            ║
+║                                                                              ║
+║                      IronClaw Cognitive Agent                               ║
+║                      Generated: 2026-04-09                                  ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ COGNITIVE LOOP                                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│    User Message                                                             │
+│         ↓                                                                   │
+│    ┌────────────┐                                                          │
+│    │ PERCEIVE   │  Parse goal, fetch memories, knowledge                   │
+│    └────────────┘                                                          │
+│         ↓                                                                   │
+│    ┌────────────┐                                                          │
+│    │   PLAN     │  Generate execution strategy + subtasks                  │
+│    └────────────┘                                                          │
+│         ↓                                                                   │
+│    ┌────────────┐                                                          │
+│    │    ACT     │  Execute subtasks, call tools                            │
+│    └────────────┘                                                          │
+│         ↓                                                                   │
+│    ┌────────────┐                                                          │
+│    │  OBSERVE   │  Compute statistics from observations                    │
+│    └────────────┘                                                          │
+│         ↓                                                                   │
+│    ╔════════════╗                                                          │
+│    ║  REFLECT   ║  ◄─── YOU ARE HERE                                       │
+│    ║ (scoring)  ║                                                          │
+│    ╚════════════╝                                                          │
+│         ↓                                                                   │
+│    Replan?                                                                 │
+│    ├─ YES ──→ Loop back to PLAN                                           │
+│    └─ NO  ──→ Return final answer                                         │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ REFLECT PHASE DETAIL                                                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  INPUT (from OBSERVE phase):                                               │
+│  ├─ ObservationResult                                                       │
+│  │  ├─ SuccessCount: # of successful tools                                 │
+│  │  ├─ FailureCount: # of failed tools                                     │
+│  │  ├─ DeniedCount: # of denied tools                                      │
+│  │  ├─ OverallProgress: 0.0-1.0 (success/total)                           │
+│  │  └─ ErrorPatterns: ["permission_error", "network_error", ...]         │
+│  ├─ TaskPlan (what was executed)                                           │
+│  ├─ CognitiveState (original goal + context)                              │
+│  └─ Channel (for user communication)                                       │
+│                                                                              │
+│  PROCESSING:                                                               │
+│  ├─ 1. Build LLM prompt with observations + statistics                     │
+│  ├─ 2. Call LLM: "Evaluate this outcome"                                  │
+│  ├─ 3. Parse JSON response (3 fallback strategies)                        │
+│  └─ 4. Extract confidence score + replan decision                         │
+│                                                                              │
+│  OUTPUT (Reflection):                                                      │
+│  ├─ overall_confidence: 0.0-1.0 (confidence in outcome)                  │
+│  ├─ succeeded: boolean (core objectives met?)                             │
+│  ├─ final_answer: string (user-visible response)                          │
+│  ├─ needs_replan: boolean (should we retry?)                              │
+│  ├─ suggested_adjustment: string (revised goal if replanning)            │
+│  ├─ lessons_learned: [string] (actionable insights)                       │
+│  └─ replan_reason: string (why replan is needed)                          │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ DECISION LOGIC                                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│    if confidence < threshold (0.6) && needs_replan == true:                 │
+│        │                                                                    │
+│        ├─→ Ask user for approval                                           │
+│        │                                                                    │
+│        └─→ User chooses:                                                   │
+│            │                                                                │
+│            ├─ ABORT  ───→ Stop, return current answer                      │
+│            │                                                                │
+│            ├─ CONTINUE ─→ Accept result, skip replanning                   │
+│            │                                                                │
+│            └─ ADJUST ────→ Update goal + loop back to PLAN                 │
+│                                                                              │
+│    else:                                                                   │
+│        └─→ Return final answer                                             │
+│                                                                              │
+│    Replan loop limit: 3 total attempts (default: 1 + 2 retries)           │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ CONFIDENCE SCORE INTERPRETATION                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1.0 ═══════════════════════════════════════════════════════════════════    │
+│      Perfect success, all objectives met, high confidence                   │
+│                                                                              │
+│  0.9 ═══════════════════════════════════════════════════════════            │
+│      Excellent success with minor concerns                                  │
+│                                                                              │
+│  0.75 ═════════════════════════════════════════════════════                 │
+│       Good success, some uncertainty                                        │
+│                                                                              │
+│  0.6  ════════════════════════════════════════                              │
+│       Marginal success, notable concerns                                    │
+│       ↑ DEFAULT THRESHOLD ↑                                                │
+│       (below this + needs_replan=true → ask for approval)                  │
+│                                                                              │
+│  0.5  ═══════════════════════════════════                                   │
+│       Partial success, significant concerns                                 │
+│       (fallback value when parsing fails)                                   │
+│                                                                              │
+│  0.3  ═══════════════════════                                               │
+│       Major gaps in outcome, low confidence                                 │
+│                                                                              │
+│  0.0  ══════                                                                │
+│       Complete failure, no objectives met                                   │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ JSON PARSING (3 FALLBACK STRATEGY)                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  LLM Output: {"overall_confidence": 0.85, "succeeded": true, ...}          │
+│       ↓                                                                     │
+│  Attempt 1: Direct JSON parse                                              │
+│  ├─ Success? ──→ Use it                                                    │
+│  └─ Fail? ────→ Continue                                                   │
+│       ↓                                                                     │
+│  Attempt 2: Extract from ```json {...}``` block                            │
+│  ├─ Found? ───→ Parse it                                                   │
+│  │ Success? ──→ Use it                                                    │
+│  │ Fail? ────→ Continue                                                   │
+│  └─ Not found? ─→ Continue                                                │
+│       ↓                                                                     │
+│  Attempt 3: Extract first {...} block with regex                           │
+│  ├─ Found? ───→ Parse it                                                   │
+│  │ Success? ──→ Use it                                                    │
+│  └─ Fail? ────→ Continue                                                   │
+│       ↓                                                                     │
+│  All failed? ──→ Use FALLBACK VALUES:                                      │
+│                 ├─ overall_confidence = 0.5                                │
+│                 ├─ succeeded = (any_success)                               │
+│                 ├─ final_answer = "Task completed with partial results."   │
+│                 ├─ needs_replan = false                                    │
+│                 └─ others = empty                                          │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ LLM PROMPTS                                                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SYSTEM PROMPT:                                                            │
+│  ┌────────────────────────────────────────────────────────────────────┐    │
+│  │ "You are a reflective agent that evaluates task outcomes and       │    │
+│  │  extracts lessons. Given a goal, plan, and observations, produce   │    │
+│  │  a JSON reflection.                                                │    │
+│  │                                                                    │    │
+│  │  IMPORTANT RULES:                                                 │    │
+│  │  1. Output ONLY valid JSON, no prose                              │    │
+│  │  2. overall_confidence: 0.0-1.0 confidence in outcome             │    │
+│  │  3. succeeded: true only if core objectives met                   │    │
+│  │  4. lessons_learned: concrete and actionable                      │    │
+│  │  5. needs_replan: true if failures suggest plan revision          │    │
+│  │  ..."                                                             │    │
+│  └────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  USER PROMPT:                                                              │
+│  ┌────────────────────────────────────────────────────────────────────┐    │
+│  │ ORIGINAL GOAL:                                                    │    │
+│  │ Find documentation for library X and summarize                    │    │
+│  │                                                                    │    │
+│  │ PLAN SUMMARY:                                                     │    │
+│  │ 1. Search GitHub repo, 2. Read README, 3. Synthesize summary     │    │
+│  │                                                                    │    │
+│  │ EXECUTION OBSERVATIONS:                                           │    │
+│  │ - SubTask t1 [web_search]:                                        │    │
+│  │   Status: SUCCESS                                                │    │
+│  │   Output: Found repo at github.com/foo/bar                       │    │
+│  │ - SubTask t2 [read_file]:                                         │    │
+│  │   Status: SUCCESS                                                │    │
+│  │   Output: README shows features...                               │    │
+│  │                                                                    │    │
+│  │ STATISTICS:                                                       │    │
+│  │ Success: 2, Failures: 0, Denied: 0, Progress: 100%, Error: none  │    │
+│  │                                                                    │    │
+│  │ Produce the JSON reflection now.                                 │    │
+│  └────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ CONFIGURATION DEFAULTS                                                       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  agent.cognitive.confidence_threshold    = 0.6     [0.0-1.0]              │
+│  agent.cognitive.max_replan_attempts     = 2       [1-5]                  │
+│  agent.cognitive.reflect_max_tokens      = 1024    [512-2048]            │
+│  agent.cognitive.reflect_model           = ""      (use default model)    │
+│  agent.cognitive.approval_timeout_seconds = 120    [30-600]              │
+│                                                                              │
+│  How to customize:                                                         │
+│  ┌────────────────────────────────────────────────────────────────────┐    │
+│  │ agent:                                                             │    │
+│  │   cognitive:                                                       │    │
+│  │     confidence_threshold: 0.75       # Less replanning            │    │
+│  │     max_replan_attempts: 3           # More attempts              │    │
+│  │     reflect_model: "claude-opus-4"   # Better model               │    │
+│  └────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ RL INTEGRATION (Optional)                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  If RL policy is enabled:                                                   │
+│                                                                              │
+│  Episode Reward Calculation:                                               │
+│  ┌────────────────────────────────────────────────────────────────────┐    │
+│  │ reward = 0                                                         │    │
+│  │ if succeeded:                                                      │    │
+│  │     reward += 1.0                                                 │    │
+│  │ else:                                                              │    │
+│  │     reward -= 1.0                                                 │    │
+│  │ reward += overall_progress * 0.5                                  │    │
+│  │                                                                    │    │
+│  │ Range: -1.5 (fail, no progress) to +1.5 (succeed, 100% progress) │    │
+│  └────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  PPO & DQN can observe and learn from reflection scores to improve         │
+│  future planning and replan decisions.                                      │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ CORE FILES & LINE NUMBERS                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  internal/agent/reflect.go                                                  │
+│  ├─ Run() [L81-137]           Main reflection logic                         │
+│  ├─ buildReflectUserMessage() [L264-302]  Format observations              │
+│  ├─ parseReflectResponse() [L304-342]     JSON parsing with fallbacks      │
+│  ├─ saveExperience() [L177-250]           Async memory operations          │
+│  └─ RequestReplanApproval() [L142-171]    User approval flow               │
+│                                                                              │
+│  internal/agent/cognitive.go                                                │
+│  ├─ HandleMessage() [L167-376]            Main cognitive loop              │
+│  ├─ Replan trigger logic [L330-350]       CRITICAL DECISION POINT          │
+│  ├─ Replan loop [L249-350]                Try up to max_replan_attempts    │
+│  └─ recordRLEpisode() [L485-566]          RL integration                   │
+│                                                                              │
+│  internal/config/config.go                                                  │
+│  ├─ CognitiveConfig [L145-155]            Configuration schema             │
+│  ├─ Default values [L389-396]             Default 0.6 threshold, 2 retries │
+│  └─ Load() [L353-372]                     YAML config loading             │
+│                                                                              │
+│  internal/agent/observe.go                                                  │
+│  ├─ Run() [L14-47]                        Compute statistics              │
+│  ├─ OverallProgress formula [L40]         success_count / effective_total  │
+│  └─ detectErrorPatterns() [L50-88]        Error classification            │
+│                                                                              │
+│  internal/agent/rl_helpers.go                                               │
+│  ├─ computeSimpleEpisodeReward() [L42-56] Reward calculation              │
+│  └─ normalizeRL() / clampRL() [L58-80]    RL utilities                     │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ QUICK DEBUGGING CHECKLIST                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  □ Check log: "reflect complete" - Are confidence/succeeded values shown?  │
+│  □ Verify: Is confidence < 0.6?                                            │
+│  □ Verify: Is needs_replan true?                                           │
+│  □ Check: Did JSON parse fail? (confidence=0.5 is fallback)               │
+│  □ Verify: Are observations passed correctly from OBSERVE?                 │
+│  □ Check: Did max_replan_attempts limit get hit?                          │
+│  □ Verify: Can channel support ReplanApproval?                            │
+│  □ Check: Error patterns detected correctly?                               │
+│  □ Verify: Progress calculation makes sense?                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ DOCUMENTATION FILES GENERATED                                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. REFLECT_PHASE_INDEX.md         ← START HERE                            │
+│     Master index with navigation guide and FAQs                            │
+│                                                                              │
+│  2. REFLECT_QUICK_REFERENCE.md     ← For quick lookups                    │
+│     ~15 minutes, covers basics and debugging                               │
+│                                                                              │
+│  3. REFLECT_SCORING_MECHANISM.md   ← For deep understanding              │
+│     ~45 minutes, comprehensive architecture and mechanisms                 │
+│                                                                              │
+│  4. REFLECT_CODE_WALKTHROUGH.md    ← For implementation details           │
+│     ~30 minutes, code examples and line-by-line explanations               │
+│                                                                              │
+│  5. REFLECT_VISUAL_SUMMARY.txt     ← You are here                         │
+│     Visual reference guide with ASCII diagrams                             │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Created: 2026-04-09
+Total lines of documentation: 1960+

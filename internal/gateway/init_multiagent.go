@@ -53,15 +53,18 @@ func (gw *Gateway) initMultiAgent() error {
 
 	// Compression pipeline
 	if gw.cfg.Agent.Compression.Strategy == "layered" {
+		// Derive context window from model name
+		contextWindow := agent.ModelContextWindow(gw.cfg.LLM.Model)
+
 		pipeline := agent.NewCompressionPipeline(
-			gw.provider, gw.cfg.LLM.Model, gw.cfg.Agent.Compression, gw.resultStore, 200000,
+			gw.provider, gw.cfg.LLM.Model, gw.cfg.Agent.Compression, gw.resultStore, contextWindow,
 		)
 		gw.runtime.SetCompressionPipeline(pipeline)
 		slog.Info("layered compression pipeline enabled")
 
 		// Token budget monitor
 		tokenBudget := agent.NewTokenBudget(
-			200000, // TODO: derive from model name
+			contextWindow,
 			float64(gw.cfg.Agent.Compression.Layers.ToolEvictionPct)/100.0,
 			float64(gw.cfg.Agent.Compression.Layers.SummarizePct)/100.0,
 			float64(gw.cfg.Agent.Compression.Layers.SlimPromptPct)/100.0,
@@ -69,7 +72,8 @@ func (gw *Gateway) initMultiAgent() error {
 		)
 		gw.runtime.SetTokenBudget(tokenBudget)
 		slog.Info("token budget monitor enabled",
-			"model_limit", 200000,
+			"model", gw.cfg.LLM.Model,
+			"model_limit", contextWindow,
 			"light_pct", gw.cfg.Agent.Compression.Layers.ToolEvictionPct,
 			"medium_pct", gw.cfg.Agent.Compression.Layers.SummarizePct,
 			"heavy_pct", gw.cfg.Agent.Compression.Layers.SlimPromptPct,
