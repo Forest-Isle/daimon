@@ -216,10 +216,10 @@ func (p *PreferenceLearner) BuildPromptSection() string {
 	}
 
 	if len(replanPrefs) > 0 {
-		top := replanPrefs[0]
-		if top.Key == "uses_replans" {
+		switch replanPrefs[0].Key {
+		case "uses_replans":
 			b.WriteString("- This user benefits from replanning on failure\n")
-		} else if top.Key == "no_replans" {
+		case "no_replans":
 			b.WriteString("- This user prefers direct execution without replanning\n")
 		}
 	}

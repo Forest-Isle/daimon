@@ -124,7 +124,7 @@ func (mr *ModelRouter) Stats() string {
 			continue
 		}
 		sr := float64(s.successes) / float64(s.uses) * 100
-		b.WriteString(fmt.Sprintf("  %s: %d uses, %.0f%% success\n", level, s.uses, sr))
+		fmt.Fprintf(&b, "  %s: %d uses, %.0f%% success\n", level, s.uses, sr)
 	}
 	if b.Len() == 0 {
 		return "  (no routing data yet)\n"

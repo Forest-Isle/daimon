@@ -236,17 +236,17 @@ func generateRecommendations(r *InsightsReport) []string {
 func (r *InsightsReport) FormatMarkdown() string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("# IronClaw Insights — %s\n\n", r.Period))
-	b.WriteString(fmt.Sprintf("Generated: %s\n\n", r.GeneratedAt.Format(time.RFC3339)))
+	fmt.Fprintf(&b, "# IronClaw Insights — %s\n\n", r.Period)
+	fmt.Fprintf(&b, "Generated: %s\n\n", r.GeneratedAt.Format(time.RFC3339))
 
 	b.WriteString("## Summary\n\n")
-	b.WriteString(fmt.Sprintf("| Metric | Value |\n|--------|-------|\n"))
-	b.WriteString(fmt.Sprintf("| Total episodes | %d |\n", r.TotalEpisodes))
-	b.WriteString(fmt.Sprintf("| Success rate | %.1f%% |\n", r.SuccessRate*100))
-	b.WriteString(fmt.Sprintf("| Avg duration | %s |\n", formatDuration(r.AvgDurationMs)))
-	b.WriteString(fmt.Sprintf("| Avg replans | %.1f |\n", r.AvgReplanCount))
+	b.WriteString("| Metric | Value |\n|--------|-------|\n")
+	fmt.Fprintf(&b, "| Total episodes | %d |\n", r.TotalEpisodes)
+	fmt.Fprintf(&b, "| Success rate | %.1f%% |\n", r.SuccessRate*100)
+	fmt.Fprintf(&b, "| Avg duration | %s |\n", formatDuration(r.AvgDurationMs))
+	fmt.Fprintf(&b, "| Avg replans | %.1f |\n", r.AvgReplanCount)
 	if r.AvgUserFeedback != 0 {
-		b.WriteString(fmt.Sprintf("| Avg user feedback | %.2f |\n", r.AvgUserFeedback))
+		fmt.Fprintf(&b, "| Avg user feedback | %.2f |\n", r.AvgUserFeedback)
 	}
 	b.WriteString("\n")
 
@@ -255,8 +255,8 @@ func (r *InsightsReport) FormatMarkdown() string {
 		b.WriteString("| Tool | Uses | Success Rate | Avg Duration |\n")
 		b.WriteString("|------|------|-------------|-------------|\n")
 		for _, t := range r.TopTools {
-			b.WriteString(fmt.Sprintf("| %s | %d | %.0f%% | %s |\n",
-				t.Name, t.Uses, t.SuccessRate*100, formatDuration(t.AvgDuration)))
+			fmt.Fprintf(&b, "| %s | %d | %.0f%% | %s |\n",
+				t.Name, t.Uses, t.SuccessRate*100, formatDuration(t.AvgDuration))
 		}
 		b.WriteString("\n")
 	}
@@ -266,8 +266,8 @@ func (r *InsightsReport) FormatMarkdown() string {
 		b.WriteString("| Level | Count | Success Rate |\n")
 		b.WriteString("|-------|-------|--------------|\n")
 		for _, cs := range r.ComplexityStats {
-			b.WriteString(fmt.Sprintf("| %s | %d | %.0f%% |\n",
-				cs.Level, cs.Count, cs.SuccessRate*100))
+			fmt.Fprintf(&b, "| %s | %d | %.0f%% |\n",
+				cs.Level, cs.Count, cs.SuccessRate*100)
 		}
 		b.WriteString("\n")
 	}
@@ -275,7 +275,7 @@ func (r *InsightsReport) FormatMarkdown() string {
 	if len(r.FailurePatterns) > 0 {
 		b.WriteString("## Failure Patterns\n\n")
 		for _, fp := range r.FailurePatterns {
-			b.WriteString(fmt.Sprintf("- %s (%d occurrences)\n", fp.Description, fp.Occurrences))
+			fmt.Fprintf(&b, "- %s (%d occurrences)\n", fp.Description, fp.Occurrences)
 		}
 		b.WriteString("\n")
 	}
@@ -283,7 +283,7 @@ func (r *InsightsReport) FormatMarkdown() string {
 	if len(r.Recommendations) > 0 {
 		b.WriteString("## Recommendations\n\n")
 		for _, rec := range r.Recommendations {
-			b.WriteString(fmt.Sprintf("- %s\n", rec))
+			fmt.Fprintf(&b, "- %s\n", rec)
 		}
 		b.WriteString("\n")
 	}

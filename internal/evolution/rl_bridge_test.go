@@ -1,6 +1,7 @@
 package evolution
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,14 +64,14 @@ func TestConvertFromDir(t *testing.T) {
 	tr := NewTrajectoryRecorder(dir)
 
 	now := time.Now()
-	tr.OnEpisodeComplete(nil, EpisodeEvent{
+	tr.OnEpisodeComplete(context.Background(), EpisodeEvent{
 		SessionID:    "s1",
 		Succeeded:    true,
 		Complexity:   "moderate",
 		ToolSequence: []string{"bash"},
 		Timestamp:    now,
 	})
-	tr.Close()
+	_ = tr.Close()
 
 	exps, err := ConvertFromDir(dir, now.Add(-time.Hour))
 	if err != nil {

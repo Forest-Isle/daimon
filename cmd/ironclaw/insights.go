@@ -101,7 +101,7 @@ func newInsightsExportCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("create output file: %w", err)
 				}
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 				w = f
 			}
 

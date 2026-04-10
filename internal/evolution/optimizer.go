@@ -429,8 +429,8 @@ func (so *StrategyOptimizer) BuildPromptSection() string {
 	}
 	var b strings.Builder
 	b.WriteString("STRATEGY HINTS (from self-evolution):\n")
-	b.WriteString(fmt.Sprintf("- Replan threshold: %.2f (%s)\n",
-		so.strategy.ReplanThreshold.Value, so.strategy.ReplanThreshold.Reason))
+	fmt.Fprintf(&b, "- Replan threshold: %.2f (%s)\n",
+		so.strategy.ReplanThreshold.Value, so.strategy.ReplanThreshold.Reason)
 	if len(so.strategy.ToolPriorities) > 0 {
 		b.WriteString("- Tool priority adjustments:\n")
 		for tool, param := range so.strategy.ToolPriorities {
@@ -441,12 +441,12 @@ func (so *StrategyOptimizer) BuildPromptSection() string {
 				} else if param.Value < defaultToolPriority-0.1 {
 					label = "less preferred"
 				}
-				b.WriteString(fmt.Sprintf("  - %s: %.2f (%s, %s)\n", tool, param.Value, label, param.Reason))
+				fmt.Fprintf(&b, "  - %s: %.2f (%s, %s)\n", tool, param.Value, label, param.Reason)
 			}
 		}
 	}
-	b.WriteString(fmt.Sprintf("- Historical success rate: %.0f%% (%d episodes)\n",
-		so.strategy.Metrics.OverallSuccessRate*100, so.strategy.Metrics.EpisodesAnalyzed))
+	fmt.Fprintf(&b, "- Historical success rate: %.0f%% (%d episodes)\n",
+		so.strategy.Metrics.OverallSuccessRate*100, so.strategy.Metrics.EpisodesAnalyzed)
 	return b.String()
 }
 

@@ -12,7 +12,7 @@ import (
 func TestTrajectoryRecorder_WritesJSONL(t *testing.T) {
 	dir := t.TempDir()
 	tr := NewTrajectoryRecorder(dir)
-	defer tr.Close()
+	defer func() { _ = tr.Close() }()
 	ctx := context.Background()
 
 	tr.OnToolExecuted(ctx, ToolExecEvent{
@@ -75,7 +75,7 @@ func TestTrajectoryRecorder_WritesJSONL(t *testing.T) {
 func TestTrajectoryRecorder_FallbackToToolSequence(t *testing.T) {
 	dir := t.TempDir()
 	tr := NewTrajectoryRecorder(dir)
-	defer tr.Close()
+	defer func() { _ = tr.Close() }()
 
 	now := time.Now()
 	tr.OnEpisodeComplete(context.Background(), EpisodeEvent{
@@ -100,7 +100,7 @@ func TestTrajectoryRecorder_FallbackToToolSequence(t *testing.T) {
 func TestTrajectoryRecorder_DailyRotation(t *testing.T) {
 	dir := t.TempDir()
 	tr := NewTrajectoryRecorder(dir)
-	defer tr.Close()
+	defer func() { _ = tr.Close() }()
 
 	day1 := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	day2 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
@@ -121,7 +121,6 @@ func TestTrajectoryRecorder_DailyRotation(t *testing.T) {
 func TestReadTrajectories_TimeFiltering(t *testing.T) {
 	dir := t.TempDir()
 	tr := NewTrajectoryRecorder(dir)
-	defer tr.Close()
 
 	base := time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
@@ -131,7 +130,7 @@ func TestReadTrajectories_TimeFiltering(t *testing.T) {
 			Timestamp: base.Add(time.Duration(i) * 24 * time.Hour),
 		})
 	}
-	tr.Close()
+	_ = tr.Close()
 
 	since := time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 4, 11, 23, 59, 59, 0, time.UTC)
