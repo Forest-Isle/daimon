@@ -11,6 +11,7 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/rl"
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/store"
@@ -24,6 +25,8 @@ type Executor struct {
 	approvalFunc ApprovalFunc
 	cfg          config.CognitiveConfig
 	rlPolicy     RLPolicy // optional RL policy
+	hookMgr      *hook.Manager
+	permEngine   *tool.PermissionEngine
 }
 
 // NewExecutor creates a new Executor.
@@ -39,6 +42,16 @@ func NewExecutor(tools *tool.Registry, db *store.DB, approvalFunc ApprovalFunc, 
 // SetRLPolicy injects an optional RL policy.
 func (e *Executor) SetRLPolicy(policy RLPolicy) {
 	e.rlPolicy = policy
+}
+
+// SetHookManager injects a hook manager for pre/post tool-use hooks.
+func (e *Executor) SetHookManager(mgr *hook.Manager) {
+	e.hookMgr = mgr
+}
+
+// SetPermissionEngine injects a permission engine for rule-based access control.
+func (e *Executor) SetPermissionEngine(pe *tool.PermissionEngine) {
+	e.permEngine = pe
 }
 
 // Run executes the ACT phase — topological ordering + parallel execution.
@@ -179,8 +192,60 @@ func (e *Executor) executeSubTask(
 		return obs
 	}
 
-	// Check approval
-	if t.RequiresApproval() && e.approvalFunc != nil {
+	// Track permission decision metadata
+	var permAction, permReason, permRule string
+
+	// ── PreToolUse hooks ──────────────────────────────────────────────────────
+	skipApproval := false
+	if e.hookMgr != nil && e.hookMgr.HasPreToolUseHandlers() {
+		caps := tool.GetCapabilities(t)
+		hookResult, hookErr := e.hookMgr.FirePreToolUse(ctx, hook.PreToolUseEvent{
+			ToolName: subtask.ToolName,
+			Input:    subtask.ToolInput,
+			Capabilities: map[string]bool{
+				"is_read_only":   caps.IsReadOnly,
+				"is_destructive": caps.IsDestructive,
+			},
+		})
+		if hookErr == nil {
+			switch hookResult.Action {
+			case "deny":
+				subtask.Status = SubTaskFailed
+				obs.Denied = true
+				obs.Error = "denied by hook: " + hookResult.Reason
+				session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "denied", 0)
+				e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
+				return obs
+			case "allow":
+				skipApproval = true
+				permAction = "allow"
+				permReason = "hook_allow"
+			}
+		}
+	}
+
+	// ── Permission engine check ───────────────────────────────────────────────
+	if e.permEngine != nil {
+		caps := tool.GetCapabilities(t)
+		permResult := e.permEngine.Evaluate(subtask.ToolName, subtask.ToolInput, caps)
+		switch permResult.Action {
+		case tool.PermissionDeny:
+			subtask.Status = SubTaskFailed
+			obs.Denied = true
+			obs.Error = "denied by permission engine: " + permResult.Reason
+			session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "denied", 0)
+			e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
+			return obs
+		case tool.PermissionAllow:
+			skipApproval = true
+			permAction = "allow"
+			permReason = "rule_match"
+			permRule = permResult.Reason
+		}
+	}
+
+	// ── Approval check ────────────────────────────────────────────────────────
+	if !skipApproval && t.RequiresApproval() && e.approvalFunc != nil {
 		approved, err := e.approvalFunc(ctx, ch, target, subtask.ToolName, subtask.ToolInput)
 		if err != nil || !approved {
 			subtask.Status = SubTaskFailed
@@ -190,6 +255,11 @@ func (e *Executor) executeSubTask(
 			e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 			return obs
 		}
+		permAction = "ask_approved"
+		permReason = "user_approval"
+	} else if !skipApproval && permAction == "" {
+		permAction = "allow"
+		permReason = "no_approval_required"
 	}
 
 	// If this is an agent_* tool and we have a TaskContext, inject predecessor outputs
@@ -214,26 +284,56 @@ func (e *Executor) executeSubTask(
 	durationMs := time.Since(start).Milliseconds()
 	obs.DurationMs = durationMs
 
+	// Determine execution status
+	execStatus := "success"
+	var execErrStr string
 	if execErr != nil {
 		subtask.Status = SubTaskFailed
 		obs.Error = execErr.Error()
+		execStatus = "error"
+		execErrStr = execErr.Error()
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
 		slog.Info("subtask failed", "id", subtask.ID, "tool", subtask.ToolName, "err", execErr)
-		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
-		return obs
-	}
-
-	if result.Error != "" {
+	} else if result.Error != "" {
 		subtask.Status = SubTaskFailed
 		obs.Error = result.Error
+		execStatus = "error"
+		execErrStr = result.Error
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
 		slog.Info("subtask failed", "id", subtask.ID, "tool", subtask.ToolName, "result_err", result.Error)
+	} else {
+		subtask.Status = SubTaskDone
+		obs.Output = result.Output
+	}
+
+	// ── PostToolUse hooks (fires on all outcomes; may modify output) ───────────
+	if e.hookMgr != nil && e.hookMgr.HasPostToolUseHandlers() {
+		hookOutput := obs.Output
+		if execStatus == "error" {
+			hookOutput = obs.Error
+		}
+		postResult, _ := e.hookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
+			ToolName:         subtask.ToolName,
+			Input:            subtask.ToolInput,
+			Output:           hookOutput,
+			Error:            execErrStr,
+			Status:           execStatus,
+			DurationMs:       durationMs,
+			SessionID:        sess.ID,
+			PermissionAction: permAction,
+			PermissionReason: permReason,
+			PermissionRule:   permRule,
+		})
+		if postResult.ModifiedOutput != nil && execStatus == "success" {
+			obs.Output = *postResult.ModifiedOutput
+		}
+	}
+
+	// Early return on execution failure (after PostToolUse hooks have fired)
+	if execStatus == "error" {
 		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 		return obs
 	}
-
-	subtask.Status = SubTaskDone
-	obs.Output = result.Output
 
 	// Store result in TaskContext if available
 	if taskCtx != nil && strings.HasPrefix(subtask.ToolName, "agent_") {
