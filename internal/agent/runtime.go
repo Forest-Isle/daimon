@@ -48,11 +48,19 @@ type Runtime struct {
 	chainID   string // invocation chain ID
 	bgManager *BackgroundManager
 	promptCache *PromptCache
-	agentMCP *AgentMCPManager
+	agentMCP       *AgentMCPManager
+	factExtractor  *memory.LLMFactExtractor
+	lifecycleMgr   *memory.LifecycleManager
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
 func (r *Runtime) SetMemoryStore(s memory.Store) { r.memStore = s }
+
+// SetFactExtractor attaches a fact extractor to the runtime for lifecycle-managed memory writes.
+func (r *Runtime) SetFactExtractor(fe *memory.LLMFactExtractor) { r.factExtractor = fe }
+
+// SetLifecycleManager attaches a lifecycle manager for ADD/UPDATE/DELETE/NOOP decisions.
+func (r *Runtime) SetLifecycleManager(lm *memory.LifecycleManager) { r.lifecycleMgr = lm }
 
 // SetMemoryBaseDir sets the base directory for file-based memory storage.
 func (r *Runtime) SetMemoryBaseDir(dir string) { r.memoryBaseDir = dir }
@@ -361,6 +369,51 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		}); err != nil {
 			slog.Warn("failed to save memory.md", "err", err)
 		}
+	}
+
+	// Extract facts and run lifecycle management in the background.
+	// This mirrors the cognitive agent's reflect.go behavior but for simple mode.
+	// Uses a detached context with timeout so it doesn't block the response,
+	// but won't run indefinitely if the LLM call hangs.
+	if r.factExtractor != nil && r.lifecycleMgr != nil {
+		// Capture values needed by goroutine before returning.
+		sessID := sess.ID
+		userID := msg.UserID
+		history := sess.History()
+
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Find the last user message and assistant response from session history.
+			var userMsg, assistantMsg string
+			for i := len(history) - 1; i >= 0; i-- {
+				switch {
+				case history[i].Role == "assistant" && assistantMsg == "":
+					assistantMsg = history[i].Content
+				case history[i].Role == "user" && userMsg == "":
+					userMsg = history[i].Content
+				}
+				if userMsg != "" && assistantMsg != "" {
+					break
+				}
+			}
+
+			if userMsg == "" || assistantMsg == "" {
+				return
+			}
+
+			facts, err := r.factExtractor.Extract(bgCtx, userMsg, assistantMsg)
+			if err != nil {
+				slog.Warn("runtime: fact extraction failed", "err", err)
+				return
+			}
+			for _, fact := range facts {
+				if _, err := r.lifecycleMgr.Process(bgCtx, fact, sessID, userID, memory.ScopeSession); err != nil {
+					slog.Warn("runtime: lifecycle process failed", "err", err, "fact", fact.Content)
+				}
+			}
+		}()
 	}
 
 	return nil
