@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
@@ -48,6 +49,7 @@ type Gateway struct {
 	compactor      *memory.Compactor
 	graphDecay     *graph.GraphDecayTask
 	stopCh         chan struct{} // closed in Stop() to signal background goroutines
+	stopOnce       sync.Once    // ensures stopCh is closed exactly once
 }
 
 func New(cfg *config.Config) (*Gateway, error) {
@@ -186,7 +188,7 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	}
 
 	// Stop memory background tasks
-	close(gw.stopCh)
+	gw.stopOnce.Do(func() { close(gw.stopCh) })
 	if gw.consolidator != nil {
 		gw.consolidator.Stop()
 	}
