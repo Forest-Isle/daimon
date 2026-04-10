@@ -328,10 +328,18 @@ func (l *ToolOutputPrePruneLayer) Compress(_ context.Context, sess *session.Sess
 	}
 
 	// Determine the boundary: messages before pruneBefore are eligible for pruning.
-	// Each "turn" is roughly 4 messages (user + assistant + tool_use + tool_result).
-	pruneBefore := len(history) - (l.keepRecentTurns * 4)
-	if pruneBefore < 0 {
-		pruneBefore = 0
+	// Count user messages from the end — each user message marks the start of a
+	// conversation turn, regardless of how many tool calls follow.
+	turnsSeen := 0
+	pruneBefore := 0
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "user" {
+			turnsSeen++
+			if turnsSeen >= l.keepRecentTurns {
+				pruneBefore = i
+				break
+			}
+		}
 	}
 
 	pruned := 0
