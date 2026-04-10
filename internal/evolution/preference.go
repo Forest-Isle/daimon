@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -169,6 +170,56 @@ func (p *PreferenceLearner) GetTopPreferences(n int) []PreferenceEntry {
 		n = len(result)
 	}
 	return result[:n]
+}
+
+// BuildPromptSection returns a human-readable preference summary suitable for
+// injection into the PLAN or PERCEIVE phase prompt. Returns empty string when
+// no preferences have reached MinConfidence yet.
+func (p *PreferenceLearner) BuildPromptSection() string {
+	toolPrefs := p.GetPreferences("tool_preference")
+	compPrefs := p.GetPreferences("complexity_handling")
+	replanPrefs := p.GetPreferences("replan_tendency")
+
+	if len(toolPrefs) == 0 && len(compPrefs) == 0 && len(replanPrefs) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("USER PREFERENCES (learned from past interactions):\n")
+
+	if len(toolPrefs) > 0 {
+		b.WriteString("- Preferred tools: ")
+		names := make([]string, 0, len(toolPrefs))
+		for _, tp := range toolPrefs {
+			if len(names) >= 5 {
+				break
+			}
+			names = append(names, tp.Key)
+		}
+		b.WriteString(strings.Join(names, ", "))
+		b.WriteString("\n")
+	}
+
+	if len(compPrefs) > 0 {
+		b.WriteString("- Handles well: ")
+		levels := make([]string, 0, len(compPrefs))
+		for _, cp := range compPrefs {
+			levels = append(levels, cp.Key+" complexity")
+		}
+		b.WriteString(strings.Join(levels, ", "))
+		b.WriteString("\n")
+	}
+
+	if len(replanPrefs) > 0 {
+		top := replanPrefs[0]
+		if top.Key == "uses_replans" {
+			b.WriteString("- This user benefits from replanning on failure\n")
+		} else if top.Key == "no_replans" {
+			b.WriteString("- This user prefers direct execution without replanning\n")
+		}
+	}
+
+	return b.String()
 }
 
 // ---------------------------------------------------------------------------

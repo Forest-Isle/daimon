@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -401,6 +402,62 @@ func TestOptimizer_OptimizeTriggersOnInterval(t *testing.T) {
 
 	if v2 <= v1 {
 		t.Fatalf("version should have bumped after interval, got %d", v2)
+	}
+}
+
+// ---------- BuildPromptSection ----------
+
+func TestOptimizer_BuildPromptSectionEmpty(t *testing.T) {
+	opt := NewStrategyOptimizer(defaultTestCfg())
+	if s := opt.BuildPromptSection(); s != "" {
+		t.Errorf("expected empty section for fresh optimizer (version=1), got %q", s)
+	}
+}
+
+func TestOptimizer_BuildPromptSectionAfterOptimization(t *testing.T) {
+	cfg := defaultTestCfg()
+	cfg.UpdateInterval = 2
+	opt := NewStrategyOptimizer(cfg)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		opt.OnEpisodeComplete(ctx, EpisodeEvent{
+			Succeeded:    true,
+			TotalReward:  1.0,
+			ToolSequence: []string{"bash"},
+			ReplanCount:  1,
+		})
+	}
+
+	section := opt.BuildPromptSection()
+	if section == "" {
+		t.Fatal("expected non-empty section after optimization")
+	}
+	if !strings.Contains(section, "STRATEGY HINTS") {
+		t.Error("missing header")
+	}
+	if !strings.Contains(section, "Replan threshold") {
+		t.Error("missing replan threshold info")
+	}
+	if !strings.Contains(section, "success rate") {
+		t.Error("missing success rate info")
+	}
+}
+
+// ---------- GetStrategy ----------
+
+func TestOptimizer_GetStrategyReturnsCopy(t *testing.T) {
+	opt := NewStrategyOptimizer(defaultTestCfg())
+	s := opt.GetStrategy()
+	s.ReplanThreshold.Value = 999.0
+	s.ToolPriorities["test"] = StrategyParam{Value: 1.0}
+
+	original := opt.GetStrategy()
+	if original.ReplanThreshold.Value == 999.0 {
+		t.Error("GetStrategy should return a copy, not a reference")
+	}
+	if _, ok := original.ToolPriorities["test"]; ok {
+		t.Error("GetStrategy ToolPriorities should be a copy")
 	}
 }
 

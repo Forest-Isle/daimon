@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -402,6 +403,51 @@ func (so *StrategyOptimizer) saveStrategyLocked(path string) error {
 		return fmt.Errorf("write strategy file: %w", err)
 	}
 	return nil
+}
+
+// GetStrategy returns a copy of the current strategy. Thread-safe.
+func (so *StrategyOptimizer) GetStrategy() Strategy {
+	so.mu.Lock()
+	defer so.mu.Unlock()
+	s := *so.strategy
+	tp := make(map[string]StrategyParam, len(so.strategy.ToolPriorities))
+	for k, v := range so.strategy.ToolPriorities {
+		tp[k] = v
+	}
+	s.ToolPriorities = tp
+	return s
+}
+
+// BuildPromptSection returns a human-readable strategy summary suitable for
+// injection into the PLAN phase prompt. Returns empty string when there is
+// nothing meaningful to report (version <= 1 means no optimization has run).
+func (so *StrategyOptimizer) BuildPromptSection() string {
+	so.mu.Lock()
+	defer so.mu.Unlock()
+	if so.strategy.Version <= 1 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("STRATEGY HINTS (from self-evolution):\n")
+	b.WriteString(fmt.Sprintf("- Replan threshold: %.2f (%s)\n",
+		so.strategy.ReplanThreshold.Value, so.strategy.ReplanThreshold.Reason))
+	if len(so.strategy.ToolPriorities) > 0 {
+		b.WriteString("- Tool priority adjustments:\n")
+		for tool, param := range so.strategy.ToolPriorities {
+			if param.Value != defaultToolPriority {
+				label := "neutral"
+				if param.Value > defaultToolPriority+0.1 {
+					label = "preferred"
+				} else if param.Value < defaultToolPriority-0.1 {
+					label = "less preferred"
+				}
+				b.WriteString(fmt.Sprintf("  - %s: %.2f (%s, %s)\n", tool, param.Value, label, param.Reason))
+			}
+		}
+	}
+	b.WriteString(fmt.Sprintf("- Historical success rate: %.0f%% (%d episodes)\n",
+		so.strategy.Metrics.OverallSuccessRate*100, so.strategy.Metrics.EpisodesAnalyzed))
+	return b.String()
 }
 
 // LoadStrategy reads a strategy from the given YAML path. Thread-safe.

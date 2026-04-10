@@ -177,6 +177,12 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 	}
 	msg = strings.ReplaceAll(msg, "{{GRAPH}}", graphSB.String())
 
+	// Preferences section (from evolution PreferenceLearner)
+	msg = strings.ReplaceAll(msg, "{{PREFERENCES}}", state.Preferences)
+
+	// Strategy hints section (from evolution StrategyOptimizer)
+	msg = strings.ReplaceAll(msg, "{{STRATEGY}}", state.StrategyHints)
+
 	// Append available skills if any
 	if state.Skills != "" {
 		msg += "\n\n" + state.Skills

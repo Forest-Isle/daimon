@@ -57,6 +57,8 @@ KNOWLEDGE GRAPH:
 RECENT CONVERSATION:
 {{HISTORY}}
 
+{{PREFERENCES}}
+{{STRATEGY}}
 Produce the JSON execution plan now.`
 
 // ReflectSystemPrompt is the system prompt for the REFLECT phase LLM call.

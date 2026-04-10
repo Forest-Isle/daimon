@@ -235,6 +235,16 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	state.Personality = ca.cfg.Personality
 	state.PersistentRules = ca.cfg.PersistentRules
 
+	// Inject self-evolution context: learned preferences and strategy hints
+	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
+		if pl := ca.evoEngine.PreferenceLearnerHook(); pl != nil {
+			state.Preferences = pl.BuildPromptSection()
+		}
+		if so := ca.evoEngine.StrategyOptimizerHook(); so != nil {
+			state.StrategyHints = so.BuildPromptSection()
+		}
+	}
+
 	// Delegate simple tasks to the plain Runtime
 	if state.Goal.Complexity == ComplexitySimple {
 		slog.Info("cognitive: simple task, delegating to runtime", "session", sess.ID)

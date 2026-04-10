@@ -172,6 +172,30 @@ func (e *Engine) DispatchToolExec(event ToolExecEvent) {
 	}
 }
 
+// PreferenceLearnerHook returns the first registered PreferenceLearner hook, or nil.
+func (e *Engine) PreferenceLearnerHook() *PreferenceLearner {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, h := range e.hooks {
+		if pl, ok := h.(*PreferenceLearner); ok {
+			return pl
+		}
+	}
+	return nil
+}
+
+// StrategyOptimizerHook returns the first registered StrategyOptimizer hook, or nil.
+func (e *Engine) StrategyOptimizerHook() *StrategyOptimizer {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, h := range e.hooks {
+		if so, ok := h.(*StrategyOptimizer); ok {
+			return so
+		}
+	}
+	return nil
+}
+
 // safeDispatch runs fn with a timeout and panic recovery. Always decrements wg.
 func (e *Engine) safeDispatch(hookName string, fn func(ctx context.Context)) {
 	defer e.wg.Done()

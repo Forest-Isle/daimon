@@ -60,6 +60,8 @@ type CognitiveState struct {
 	GraphContext     []string // relevant knowledge graph relations
 	Personality      string   // from Soul.md — persona/style for final_answer tone
 	PersistentRules  string   // from Memory.md — rules all phases must follow
+	Preferences      string   // learned user preferences from evolution PreferenceLearner
+	StrategyHints    string   // tuned cognitive strategy hints from evolution StrategyOptimizer
 }
 
 // SubTask is a single unit of work within a TaskPlan.

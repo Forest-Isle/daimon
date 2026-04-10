@@ -3,6 +3,7 @@ package evolution
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -411,5 +412,58 @@ func TestPreferenceLearner_OnToolExecutedIsNoop(t *testing.T) {
 	pl.OnToolExecuted(context.Background(), ToolExecEvent{})
 	if got := len(pl.GetTopPreferences(100)); got != 0 {
 		t.Errorf("OnToolExecuted should be noop, got %d prefs", got)
+	}
+}
+
+// ---------- BuildPromptSection ----------
+
+func TestPreferenceLearner_BuildPromptSectionEmpty(t *testing.T) {
+	pl := NewPreferenceLearner(defaultCfg())
+	if s := pl.BuildPromptSection(); s != "" {
+		t.Errorf("expected empty section for fresh learner, got %q", s)
+	}
+}
+
+func TestPreferenceLearner_BuildPromptSectionWithData(t *testing.T) {
+	pl := NewPreferenceLearner(defaultCfg())
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		pl.OnReflectionComplete(ctx, ReflectionEvent{
+			Succeeded:  true,
+			Confidence: 0.8,
+			ToolsUsed:  []string{"bash", "file"},
+			Complexity: "moderate",
+		})
+	}
+
+	section := pl.BuildPromptSection()
+	if section == "" {
+		t.Fatal("expected non-empty prompt section")
+	}
+	if !strings.Contains(section, "USER PREFERENCES") {
+		t.Error("missing header")
+	}
+	if !strings.Contains(section, "bash") {
+		t.Error("missing tool preference")
+	}
+	if !strings.Contains(section, "moderate") {
+		t.Error("missing complexity preference")
+	}
+}
+
+func TestPreferenceLearner_BuildPromptSectionBelowConfidence(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.MinConfidence = 0.9
+	pl := NewPreferenceLearner(cfg)
+
+	pl.OnReflectionComplete(context.Background(), ReflectionEvent{
+		Succeeded:  true,
+		Confidence: 0.8,
+		ToolsUsed:  []string{"bash"},
+	})
+
+	if s := pl.BuildPromptSection(); s != "" {
+		t.Errorf("should be empty when below min confidence, got %q", s)
 	}
 }
