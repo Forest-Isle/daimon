@@ -128,7 +128,7 @@ func TestSubprocessBackend_FindBinary(t *testing.T) {
 func TestDockerBackend_NotAvailable(t *testing.T) {
 	be := NewDockerBackend("ironclaw:latest", "")
 	if be.Available() {
-		t.Error("docker backend should not be available in tests")
+		t.Skip("docker is available in this environment; skipping unavailability test")
 	}
 	if be.Name() != "docker" {
 		t.Errorf("expected name 'docker', got %q", be.Name())
@@ -156,7 +156,11 @@ func TestSelectBackend_DockerFallback(t *testing.T) {
 		return &AgentResult{Output: "ok"}, nil
 	}
 
-	// Docker not available → should fall back to in-process
+	probe := NewDockerBackend("ironclaw:latest", "")
+	if probe.Available() {
+		t.Skip("docker is available; fallback path cannot be tested")
+	}
+
 	be := SelectBackend(BackendDocker, executor)
 	if be.Name() != "in_process" {
 		t.Errorf("expected fallback to in_process, got %q", be.Name())
