@@ -30,6 +30,11 @@ Rules:
 4. Output 2-3 sentences of strategic insight.
 5. Focus on what would fundamentally improve the quality of assistance.`
 
+// ProfilerCallback is notified when reflections complete, enabling profile generation.
+type ProfilerCallback interface {
+	OnReflectionCreated(ctx context.Context, userID string, level int) error
+}
+
 // trackedFact holds a fact ID and its content for reflection.
 type trackedFact struct {
 	ID      string
@@ -44,6 +49,7 @@ type ReflectionTracker struct {
 	embedder  EmbeddingProvider
 	cfg       MemoryConfig
 	db        *sql.DB
+	profilerCB ProfilerCallback
 
 	mu                    sync.Mutex
 	unreflectedFactCount  int
@@ -64,6 +70,11 @@ func NewReflectionTracker(store Store, completer Completer, embedder EmbeddingPr
 		cfg:       cfg,
 		db:        db,
 	}
+}
+
+// SetProfilerCallback registers a callback invoked after each reflection.
+func (rt *ReflectionTracker) SetProfilerCallback(cb ProfilerCallback) {
+	rt.profilerCB = cb
 }
 
 // reflectionCountThreshold returns the configured threshold or the default of 10.
@@ -213,6 +224,12 @@ func (rt *ReflectionTracker) triggerReflection(ctx context.Context) error {
 
 	slog.Info("reflection: L1 reflection saved", "reflection_id", reflectionID)
 
+	if rt.profilerCB != nil {
+		if err := rt.profilerCB.OnReflectionCreated(ctx, rt.lastUserID, 1); err != nil {
+			slog.Warn("reflection: profiler callback failed for L1", "err", err)
+		}
+	}
+
 	if rt.l1CountSinceLastL2 >= rt.reflectionL2Trigger() {
 		if err := rt.triggerL2Reflection(ctx); err != nil {
 			slog.Error("reflection: L2 trigger failed", "error", err)
@@ -286,6 +303,12 @@ func (rt *ReflectionTracker) triggerL2Reflection(ctx context.Context) error {
 	rt.l1ReflectionIDs = nil
 
 	slog.Info("reflection: L2 reflection saved", "reflection_id", reflectionID)
+
+	if rt.profilerCB != nil {
+		if err := rt.profilerCB.OnReflectionCreated(ctx, rt.lastUserID, 2); err != nil {
+			slog.Warn("reflection: profiler callback failed for L2", "err", err)
+		}
+	}
 
 	return nil
 }

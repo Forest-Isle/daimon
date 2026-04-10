@@ -88,11 +88,10 @@ func (gw *Gateway) initMemorySystem() error {
 		compactor.Start(context.Background())
 		slog.Info("memory: compactor enabled")
 
-		// Create profiler (triggered by reflection completion, not a background task)
+		// Create profiler and wire it to the reflection tracker
 		profiler := memory.NewProfiler(gw.memStore, completer, gw.db.DB, storageDir, memCfg)
-		_ = profiler // Profiler is triggered by ReflectionTracker callbacks
-		// TODO: Add profiler callback to reflector once ReflectionTracker supports it
-		slog.Info("memory: profiler created")
+		reflector.SetProfilerCallback(profiler)
+		slog.Info("memory: profiler created and wired to reflection tracker")
 	}
 
 	// Wire fact extractor and lifecycle manager to simple runtime (if enabled).
