@@ -450,6 +450,97 @@ func (so *StrategyOptimizer) BuildPromptSection() string {
 	return b.String()
 }
 
+// ApplyInsights ingests an InsightsReport and adjusts the strategy based on
+// its findings. This allows historical pattern analysis to feed back into
+// real-time cognitive parameter tuning. Thread-safe.
+func (so *StrategyOptimizer) ApplyInsights(report *InsightsReport) int {
+	if report == nil || report.TotalEpisodes == 0 {
+		return 0
+	}
+
+	so.mu.Lock()
+	defer so.mu.Unlock()
+
+	applied := 0
+	adjFraction := so.cfg.MaxAdjustmentPercent / 100.0
+
+	// 1. Adjust tool priorities based on insights tool success rates.
+	for _, ti := range report.TopTools {
+		if ti.Uses < minToolObservations {
+			continue
+		}
+		current, exists := so.strategy.ToolPriorities[ti.Name]
+		prev := defaultToolPriority
+		if exists {
+			prev = current.Value
+		}
+
+		var newVal float64
+		var reason string
+
+		switch {
+		case ti.SuccessRate > toolBoostThreshold:
+			newVal = clamp(prev*(1+adjFraction), minToolPriority, maxToolPriority)
+			reason = fmt.Sprintf("insights: high success (%.0f%% over %d uses)", ti.SuccessRate*100, ti.Uses)
+		case ti.SuccessRate < toolReduceThreshold:
+			newVal = clamp(prev*(1-adjFraction), minToolPriority, maxToolPriority)
+			reason = fmt.Sprintf("insights: low success (%.0f%% over %d uses)", ti.SuccessRate*100, ti.Uses)
+		default:
+			continue
+		}
+
+		so.strategy.ToolPriorities[ti.Name] = StrategyParam{
+			Value:    newVal,
+			Previous: prev,
+			Reason:   reason,
+		}
+		applied++
+	}
+
+	// 2. Adjust replan threshold based on average replan count and success rate.
+	if report.TotalEpisodes >= 5 {
+		prev := so.strategy.ReplanThreshold.Value
+
+		if report.AvgReplanCount > 1.5 && report.SuccessRate < 0.5 {
+			// Too many replans with low success → raise threshold (fewer replans).
+			newVal := clamp(prev*(1+adjFraction), minReplanThreshold, maxReplanThreshold)
+			so.strategy.ReplanThreshold = StrategyParam{
+				Value:    newVal,
+				Previous: prev,
+				Reason:   fmt.Sprintf("insights: high replan (%.1f) + low success (%.0f%%)", report.AvgReplanCount, report.SuccessRate*100),
+			}
+			applied++
+		} else if report.AvgReplanCount < 0.5 && report.SuccessRate > 0.8 {
+			// Rarely replanning and high success → lower threshold to enable replans when needed.
+			newVal := clamp(prev*(1-adjFraction*0.5), minReplanThreshold, maxReplanThreshold)
+			so.strategy.ReplanThreshold = StrategyParam{
+				Value:    newVal,
+				Previous: prev,
+				Reason:   fmt.Sprintf("insights: low replan (%.1f) + high success (%.0f%%)", report.AvgReplanCount, report.SuccessRate*100),
+			}
+			applied++
+		}
+	}
+
+	if applied > 0 {
+		so.strategy.UpdatedAt = time.Now()
+		so.strategy.Version++
+
+		slog.Info("strategy_optimizer: applied insights",
+			"adjustments", applied,
+			"version", so.strategy.Version,
+		)
+
+		if so.cfg.StrategyFile != "" {
+			if err := so.saveStrategyLocked(so.cfg.StrategyFile); err != nil {
+				slog.Error("strategy_optimizer: save after insights failed", "error", err)
+			}
+		}
+	}
+
+	return applied
+}
+
 // LoadStrategy reads a strategy from the given YAML path. Thread-safe.
 func (so *StrategyOptimizer) LoadStrategy(path string) error {
 	so.mu.Lock()

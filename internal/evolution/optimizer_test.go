@@ -462,6 +462,81 @@ func TestOptimizer_GetStrategyReturnsCopy(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ApplyInsights tests
+// ---------------------------------------------------------------------------
+
+func TestApplyInsights_AdjustsToolPriorities(t *testing.T) {
+	opt := NewStrategyOptimizer(defaultTestCfg())
+
+	report := &InsightsReport{
+		TotalEpisodes: 10,
+		SuccessRate:   0.7,
+		TopTools: []ToolInsight{
+			{Name: "bash", Uses: 5, SuccessRate: 0.95},
+			{Name: "http", Uses: 4, SuccessRate: 0.25},
+			{Name: "rare", Uses: 1, SuccessRate: 0.0}, // below minToolObservations
+		},
+	}
+
+	applied := opt.ApplyInsights(report)
+	if applied < 2 {
+		t.Errorf("expected >= 2 adjustments, got %d", applied)
+	}
+
+	s := opt.GetStrategy()
+	bashPrio, ok := s.ToolPriorities["bash"]
+	if !ok || bashPrio.Value <= defaultToolPriority {
+		t.Errorf("bash should be boosted, got %v", bashPrio)
+	}
+
+	httpPrio, ok := s.ToolPriorities["http"]
+	if !ok || httpPrio.Value >= defaultToolPriority {
+		t.Errorf("http should be reduced, got %v", httpPrio)
+	}
+
+	if _, ok := s.ToolPriorities["rare"]; ok {
+		t.Error("rare should not be adjusted (too few observations)")
+	}
+}
+
+func TestApplyInsights_AdjustsReplanThreshold(t *testing.T) {
+	opt := NewStrategyOptimizer(defaultTestCfg())
+	initial := opt.GetStrategy().ReplanThreshold.Value
+
+	report := &InsightsReport{
+		TotalEpisodes:  10,
+		SuccessRate:    0.3,
+		AvgReplanCount: 2.5,
+	}
+	applied := opt.ApplyInsights(report)
+	if applied == 0 {
+		t.Fatal("expected at least 1 adjustment")
+	}
+
+	s := opt.GetStrategy()
+	if s.ReplanThreshold.Value <= initial {
+		t.Errorf("high-replan + low-success should raise threshold: got %.4f <= initial %.4f",
+			s.ReplanThreshold.Value, initial)
+	}
+}
+
+func TestApplyInsights_NilReport(t *testing.T) {
+	opt := NewStrategyOptimizer(defaultTestCfg())
+	applied := opt.ApplyInsights(nil)
+	if applied != 0 {
+		t.Errorf("nil report should return 0, got %d", applied)
+	}
+}
+
+func TestApplyInsights_EmptyReport(t *testing.T) {
+	opt := NewStrategyOptimizer(defaultTestCfg())
+	applied := opt.ApplyInsights(&InsightsReport{})
+	if applied != 0 {
+		t.Errorf("empty report should return 0, got %d", applied)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 

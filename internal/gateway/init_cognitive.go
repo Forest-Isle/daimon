@@ -107,6 +107,7 @@ func (gw *Gateway) registerEvolutionHooks() {
 		slog.Warn("gateway: evolution: trajectory dir unavailable, recorder disabled", "err", err)
 	} else {
 		gw.evoEngine.RegisterHook(evolution.NewTrajectoryRecorder(trajDir))
+		gw.evoEngine.SetTrajectoryDir(trajDir)
 	}
 
 	optCfg := evo.Optimizer

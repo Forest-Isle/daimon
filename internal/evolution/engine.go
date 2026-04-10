@@ -68,13 +68,14 @@ type Hook interface {
 // Engine manages the self-evolution lifecycle and dispatches events to hooks.
 // It is safe for concurrent use.
 type Engine struct {
-	cfg    Config
-	hooks  []Hook
-	router *ModelRouter
-	mu     sync.RWMutex
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cfg     Config
+	hooks   []Hook
+	router  *ModelRouter
+	trajDir string // trajectory directory for insights loop (empty = disabled)
+	mu      sync.RWMutex
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 }
 
 // NewEngine creates a new evolution engine. Call Start() to begin processing.
@@ -91,6 +92,12 @@ func NewEngine(cfg Config) *Engine {
 // Router returns the model router (never nil, even when routing is disabled).
 func (e *Engine) Router() *ModelRouter {
 	return e.router
+}
+
+// SetTrajectoryDir sets the trajectory directory for the insights feedback
+// loop. Must be called before Start().
+func (e *Engine) SetTrajectoryDir(dir string) {
+	e.trajDir = dir
 }
 
 // RegisterHook adds a hook to the dispatch chain. Must be called before Start().
@@ -113,7 +120,61 @@ func (e *Engine) Start() {
 	if hookCount == 0 {
 		slog.Warn("evolution: engine enabled but no hooks registered")
 	}
+
+	// Launch insights → optimizer feedback loop if we have both a trajectory
+	// dir and a strategy optimizer.
+	if e.trajDir != "" && e.StrategyOptimizerHook() != nil {
+		e.wg.Add(1)
+		go e.insightsLoop()
+	}
+
 	slog.Info("evolution: engine started", "hooks", hookCount)
+}
+
+// insightsLoop periodically generates insights from trajectory data and feeds
+// recommendations into the StrategyOptimizer. Runs every 6 hours.
+func (e *Engine) insightsLoop() {
+	defer e.wg.Done()
+
+	const interval = 6 * time.Hour
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-timer.C:
+			e.runInsightsCycle()
+			timer.Reset(interval)
+		}
+	}
+}
+
+func (e *Engine) runInsightsCycle() {
+	so := e.StrategyOptimizerHook()
+	if so == nil {
+		return
+	}
+
+	since := time.Now().Add(-7 * 24 * time.Hour)
+	records, err := ReadTrajectories(e.trajDir, since, time.Now())
+	if err != nil {
+		slog.Warn("evolution: insights cycle read failed", "err", err)
+		return
+	}
+	if len(records) < 5 {
+		return // not enough data
+	}
+
+	report := GenerateInsights(records, "auto-7d")
+	applied := so.ApplyInsights(report)
+	if applied > 0 {
+		slog.Info("evolution: insights cycle complete",
+			"adjustments", applied,
+			"episodes_analyzed", report.TotalEpisodes,
+		)
+	}
 }
 
 // SaveState persists in-memory state for hooks that support it (e.g.
