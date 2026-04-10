@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -429,11 +430,117 @@ func sortByScore(m map[string]float64) []string {
 }
 
 func (s *FileMemoryStore) ListByScope(ctx context.Context, scope MemoryScope, userID string) ([]Entry, error) {
-	return nil, fmt.Errorf("not implemented")
+	scopeDir := filepath.Join(s.baseDir, string(scope))
+	files, err := filepath.Glob(filepath.Join(scopeDir, "*.md"))
+	if err != nil {
+		return nil, fmt.Errorf("glob %s: %w", scopeDir, err)
+	}
+
+	var entries []Entry
+	for _, filePath := range files {
+		mf, err := s.parseFile(filePath)
+		if err != nil {
+			slog.Warn("ListByScope: failed to parse memory file", "path", filePath, "err", err)
+			continue
+		}
+		if userID != "" && mf.UserID != userID {
+			continue
+		}
+		entries = append(entries, Entry{
+			ID:        mf.ID,
+			Scope:     MemoryScope(mf.Scope),
+			UserID:    mf.UserID,
+			SessionID: mf.SessionID,
+			Content:   mf.Content,
+			Metadata:  mf.Metadata,
+			CreatedAt: mf.CreatedAt,
+			UpdatedAt: mf.UpdatedAt,
+		})
+	}
+	return entries, nil
 }
 
 func (s *FileMemoryStore) Update(ctx context.Context, id string, content string, version int) error {
-	return fmt.Errorf("not implemented")
+	// Look up the file path from the index.
+	var filePath string
+	err := s.db.QueryRowContext(ctx, `SELECT file_path FROM memory_index WHERE memory_id = ?`, id).Scan(&filePath)
+	if err != nil {
+		return fmt.Errorf("find memory file: %w", err)
+	}
+
+	// Read the current file.
+	mf, err := s.parseFile(filePath)
+	if err != nil {
+		return fmt.Errorf("parse memory file: %w", err)
+	}
+
+	// Optimistic lock: caller must supply the current version.
+	currentVersion := 1
+	if mf.Metadata != nil {
+		if v, ok := mf.Metadata["version"]; ok {
+			if parsed, parseErr := strconv.Atoi(v); parseErr == nil {
+				currentVersion = parsed
+			}
+		}
+	}
+	if currentVersion != version {
+		return fmt.Errorf("version conflict: file is at version %d, caller expected %d", currentVersion, version)
+	}
+
+	// Archive the old file.
+	archivedDir := filepath.Join(s.baseDir, "archived")
+	if err := os.MkdirAll(archivedDir, 0755); err != nil {
+		return fmt.Errorf("create archived dir: %w", err)
+	}
+	archivedPath := filepath.Join(archivedDir, filepath.Base(filePath))
+	if err := os.Rename(filePath, archivedPath); err != nil {
+		return fmt.Errorf("archive old file: %w", err)
+	}
+
+	// Write updated file with incremented version.
+	newVersion := version + 1
+	if mf.Metadata == nil {
+		mf.Metadata = make(map[string]string)
+	}
+	mf.Metadata["version"] = strconv.Itoa(newVersion)
+	mf.Content = content
+	mf.UpdatedAt = time.Now()
+
+	newFilePath := s.buildFilePath(MemoryScope(mf.Scope), mf.ID, mf.CreatedAt)
+	if err := s.writeFileAtomic(newFilePath, *mf); err != nil {
+		return fmt.Errorf("write updated file: %w", err)
+	}
+
+	// Update the SQLite index.
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE memory_index
+		SET file_path = ?, updated_at = ?
+		WHERE memory_id = ?
+	`, newFilePath, mf.UpdatedAt, id)
+	if err != nil {
+		return fmt.Errorf("update memory_index: %w", err)
+	}
+
+	// Refresh the FTS index (FTS5 has no UPSERT, so delete + insert).
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, id)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)`, id, content)
+	if err != nil {
+		return fmt.Errorf("update memory_fts: %w", err)
+	}
+
+	// Re-embed if an embedder is configured.
+	if s.embedder != nil {
+		if embedding, embErr := s.embedder.Embed(ctx, content); embErr == nil {
+			embBytes := serializeEmbedding(embedding)
+			_, _ = s.db.ExecContext(ctx, `
+				INSERT INTO memory_embeddings (memory_id, embedding, dimension)
+				VALUES (?, ?, ?)
+				ON CONFLICT(memory_id) DO UPDATE SET embedding = excluded.embedding
+			`, id, embBytes, len(embedding))
+		}
+	}
+
+	return nil
 }
 
 func (s *FileMemoryStore) Delete(ctx context.Context, id string) error {

@@ -95,6 +95,15 @@ func (gw *Gateway) initMemorySystem() error {
 		slog.Info("memory: profiler created")
 	}
 
+	// Wire fact extractor and lifecycle manager to simple runtime (if enabled).
+	// These may be nil when FactExtraction is disabled; the runtime does nil checks.
+	if gw.factExtractor != nil {
+		gw.runtime.SetFactExtractor(gw.factExtractor)
+	}
+	if gw.lifecycleMgr != nil {
+		gw.runtime.SetLifecycleManager(gw.lifecycleMgr)
+	}
+
 	// Register memory_manage tool
 	memTool := tool.NewMemoryManageTool(gw.memStore, gw.db.DB, storageDir)
 	gw.tools.Register(memTool)
