@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/session"
@@ -53,8 +54,14 @@ func NewCompressionPipeline(
 		contextWindow: contextWindow,
 	}
 
-	// Register layers in order with their thresholds
+	// Register layers in order with their thresholds.
+	// Layer 0: Pre-prune old tool outputs (cheap, runs first).
+	// Layer 1: Evict large tool results to disk.
+	// Layer 2: Summarize old turns via LLM.
+	// Layer 3: Remove old context entirely.
+	// Layer 4: Emergency truncation (keep only recent turns).
 	p.layers = []layerEntry{
+		{cfg.Layers.ToolEvictionPct, &ToolOutputPrePruneLayer{thresholdChars: 2000, keepRecentTurns: 4, previewChars: 500}},
 		{cfg.Layers.ToolEvictionPct, &ToolEvictionLayer{resultStore: resultStore, thresholdBytes: 8192}},
 		{cfg.Layers.SummarizePct, &TurnSummarizationLayer{provider: provider, model: model}},
 		{cfg.Layers.SlimPromptPct, &OldContextRemovalLayer{}},
@@ -74,7 +81,7 @@ func (p *CompressionPipeline) Run(ctx context.Context, sess *session.Session, sy
 				"utilization_pct", int(utilization*100),
 				"threshold_pct", entry.thresholdPct,
 			)
-			return nil // early exit
+			break // stop running layers, but always repair pairing below
 		}
 
 		slog.Info("compression: running layer",
@@ -88,6 +95,12 @@ func (p *CompressionPipeline) Run(ctx context.Context, sess *session.Session, sy
 			// Continue to next layer on failure
 		}
 	}
+
+	// After all compression layers, ensure tool_use/tool_result pairing integrity.
+	// This runs unconditionally because any layer may have created orphans.
+	// Prevents API errors like "No tool call found for function call output".
+	ensureToolPairing(sess)
+
 	return nil
 }
 
@@ -293,4 +306,136 @@ func (l *EmergencyTruncationLayer) Compress(_ context.Context, sess *session.Ses
 
 	slog.Info("compression: emergency truncation", "kept", keepLast)
 	return nil
+}
+
+// --- Layer 0: Tool Output Pre-Prune ---
+
+// ToolOutputPrePruneLayer truncates old (non-recent) tool outputs that exceed a
+// character threshold. This is a lightweight, non-destructive first pass that
+// reduces context size before heavier compression layers kick in.
+type ToolOutputPrePruneLayer struct {
+	thresholdChars  int // tool outputs exceeding this are truncated
+	keepRecentTurns int // number of recent turns to leave untouched
+	previewChars    int // how many leading characters to preserve
+}
+
+func (l *ToolOutputPrePruneLayer) Name() string { return "tool_output_prune" }
+
+func (l *ToolOutputPrePruneLayer) Compress(_ context.Context, sess *session.Session, _ string) error {
+	history := sess.History()
+	if len(history) == 0 {
+		return nil
+	}
+
+	// Determine the boundary: messages before pruneBefore are eligible for pruning.
+	// Count user messages from the end — each user message marks the start of a
+	// conversation turn, regardless of how many tool calls follow.
+	turnsSeen := 0
+	pruneBefore := 0
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "user" {
+			turnsSeen++
+			if turnsSeen >= l.keepRecentTurns {
+				pruneBefore = i
+				break
+			}
+		}
+	}
+
+	pruned := 0
+	for i := 0; i < pruneBefore; i++ {
+		m := &history[i]
+		if m.Role != "tool_result" || len(m.Content) <= l.thresholdChars {
+			continue
+		}
+		original := len(m.Content)
+		preview := m.Content[:l.previewChars]
+		m.Content = fmt.Sprintf("%s\n... [truncated, original: %d chars]", preview, original)
+		pruned++
+	}
+
+	if pruned > 0 {
+		// History() returns a copy, so we must rebuild the session messages.
+		sess.TrimHistory(0)
+		for _, m := range history {
+			sess.AddMessage(m)
+		}
+		slog.Info("compression: pre-pruned old tool outputs", "truncated_count", pruned)
+	}
+	return nil
+}
+
+// --- Tool Use/Result Pairing Integrity ---
+
+// ensureToolPairing repairs tool_use/tool_result pairing after compression.
+//
+// It enforces two invariants expected by LLM APIs:
+//  1. Every tool_result must reference an existing tool_use (orphan results removed).
+//  2. Every tool_use must be followed by a tool_result (stub inserted if missing).
+//
+// The ToolName field on tool_result messages stores the ID of the corresponding
+// tool_use message, which is how pairing is determined.
+func ensureToolPairing(sess *session.Session) {
+	history := sess.History()
+	if len(history) == 0 {
+		return
+	}
+
+	// Pass 1: collect all tool_use IDs and all tool_result→tool_use mappings.
+	toolUseIDs := make(map[string]bool, len(history)/4)
+	matchedToolUses := make(map[string]bool, len(history)/4)
+	for _, m := range history {
+		switch m.Role {
+		case "tool_use":
+			toolUseIDs[m.ID] = true
+		case "tool_result":
+			matchedToolUses[m.ToolName] = true
+		}
+	}
+
+	// Pass 2: rebuild the history, removing orphan results and inserting stubs.
+	repaired := make([]session.Message, 0, len(history))
+	changed := false
+
+	for _, m := range history {
+		switch m.Role {
+		case "tool_result":
+			if !toolUseIDs[m.ToolName] {
+				// Orphan tool_result — its tool_use was removed by compression.
+				slog.Debug("compression: removed orphan tool_result", "tool_use_id", m.ToolName)
+				changed = true
+				continue
+			}
+			repaired = append(repaired, m)
+
+		case "tool_use":
+			repaired = append(repaired, m)
+			if !matchedToolUses[m.ID] {
+				// Missing tool_result — insert a stub so the API doesn't error.
+				repaired = append(repaired, session.Message{
+					ID:        m.ID + "_stub",
+					Role:      "tool_result",
+					Content:   "[result pruned during compression]",
+					ToolName:  m.ID,
+					CreatedAt: time.Now(),
+				})
+				slog.Debug("compression: inserted stub tool_result", "tool_use_id", m.ID)
+				changed = true
+			}
+
+		default:
+			repaired = append(repaired, m)
+		}
+	}
+
+	if changed {
+		sess.TrimHistory(0)
+		for _, m := range repaired {
+			sess.AddMessage(m)
+		}
+		slog.Info("compression: repaired tool_use/tool_result pairing",
+			"original_count", len(history),
+			"repaired_count", len(repaired),
+		)
+	}
 }

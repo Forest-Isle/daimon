@@ -29,6 +29,12 @@ func (b *BashTool) Name() string        { return "bash" }
 func (b *BashTool) Description() string  { return "Execute a shell command and return its output." }
 func (b *BashTool) RequiresApproval() bool { return b.approval }
 
+// Available checks whether the bash shell executable can be found on the host.
+func (b *BashTool) Available() bool {
+	_, err := exec.LookPath("bash")
+	return err == nil
+}
+
 // IsReadOnly returns false because bash commands may have arbitrary side effects.
 func (b *BashTool) IsReadOnly() bool { return false }
 

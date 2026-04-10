@@ -87,6 +87,23 @@ func IsToolReadOnly(t Tool) bool {
 	return false
 }
 
+// AvailableTool is an optional interface that tools can implement to indicate
+// runtime availability. Tools that do not implement this interface are assumed
+// to always be available. Use this for tools whose prerequisites (e.g. shell,
+// external binary, network) may or may not be present at runtime.
+type AvailableTool interface {
+	Available() bool
+}
+
+// IsToolAvailable returns true if the tool is available for use. Tools that do
+// not implement AvailableTool are always considered available.
+func IsToolAvailable(t Tool) bool {
+	if at, ok := t.(AvailableTool); ok {
+		return at.Available()
+	}
+	return true
+}
+
 // Registry holds all registered tools.
 type Registry struct {
 	mu    sync.RWMutex
@@ -110,14 +127,22 @@ func (r *Registry) Get(name string) (Tool, error) {
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", name)
 	}
+	if !IsToolAvailable(t) {
+		return nil, fmt.Errorf("tool not available: %s", name)
+	}
 	return t, nil
 }
 
+// All returns all registered tools that are currently available.
+// Tools implementing AvailableTool with Available() == false are excluded.
 func (r *Registry) All() []Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]Tool, 0, len(r.tools))
 	for _, t := range r.tools {
+		if !IsToolAvailable(t) {
+			continue
+		}
 		out = append(out, t)
 	}
 	return out

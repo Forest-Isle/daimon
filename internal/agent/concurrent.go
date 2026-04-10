@@ -111,7 +111,7 @@ func (r *Runtime) executeToolCall(
 ) toolResult {
 	t, err := r.tools.Get(tc.Name)
 	if err != nil {
-		return toolResult{toolUseID: tc.ID, output: "tool not found: " + tc.Name, status: "error", toolName: tc.Name, toolInput: tc.Input}
+		return toolResult{toolUseID: tc.ID, output: err.Error(), status: "error", toolName: tc.Name, toolInput: tc.Input}
 	}
 
 	// Track permission decision metadata

@@ -111,6 +111,65 @@ func TestGetCapabilities(t *testing.T) {
 	}
 }
 
+// mockAvailableTool implements Tool + AvailableTool.
+type mockAvailableTool struct {
+	available bool
+	name      string
+}
+
+func (m *mockAvailableTool) Name() string                                        { return m.name }
+func (m *mockAvailableTool) Description() string                                 { return "mock" }
+func (m *mockAvailableTool) InputSchema() map[string]any                         { return nil }
+func (m *mockAvailableTool) Execute(_ context.Context, _ []byte) (Result, error) { return Result{}, nil }
+func (m *mockAvailableTool) RequiresApproval() bool                              { return false }
+func (m *mockAvailableTool) Available() bool                                     { return m.available }
+
+func TestIsToolAvailable(t *testing.T) {
+	tests := []struct {
+		name     string
+		tool     Tool
+		expected bool
+	}{
+		{"available tool", &mockAvailableTool{available: true, name: "a"}, true},
+		{"unavailable tool", &mockAvailableTool{available: false, name: "b"}, false},
+		{"tool without AvailableTool interface", &mockBasicTool{}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsToolAvailable(tt.tool)
+			if got != tt.expected {
+				t.Errorf("IsToolAvailable() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRegistryFiltersUnavailable(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&mockAvailableTool{available: true, name: "tool_a"})
+	reg.Register(&mockAvailableTool{available: false, name: "tool_b"})
+	reg.Register(&mockBasicTool{})
+
+	tools := reg.All()
+	// tool_b should be excluded, tool_a and mock_basic should be present
+	if len(tools) != 2 {
+		t.Fatalf("expected 2 available tools, got %d", len(tools))
+	}
+
+	// Get should fail for unavailable tool
+	_, err := reg.Get("tool_b")
+	if err == nil {
+		t.Error("expected error for unavailable tool")
+	}
+
+	// Get should succeed for available tool
+	_, err = reg.Get("tool_a")
+	if err != nil {
+		t.Errorf("unexpected error for available tool: %v", err)
+	}
+}
+
 func TestBuiltinToolsReadOnly(t *testing.T) {
 	// BrowserTool should be read-only
 	browser := NewBrowserTool(0, false)

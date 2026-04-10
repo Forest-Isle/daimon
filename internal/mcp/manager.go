@@ -5,34 +5,47 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/logging"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
+)
+
+const (
+	// Retry parameters for MCP server connections.
+	maxRetryAttempts = 5
+	initialBackoff   = 1 * time.Second
+	maxBackoff       = 30 * time.Second
+	backoffMultiplier = 2.0
 )
 
 // Manager manages multiple MCP server connections.
 type Manager struct {
-	clients map[string]client.MCPClient
-	mu      sync.RWMutex
+	clients  map[string]client.MCPClient
+	degraded map[string]bool // servers that failed to connect; cleared on success
+	mu       sync.RWMutex
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		clients: make(map[string]client.MCPClient),
+		clients:  make(map[string]client.MCPClient),
+		degraded: make(map[string]bool),
 	}
 }
 
 // StartServers connects to each configured MCP server, discovers tools,
 // and registers them in the tool registry. Individual server failures
-// are logged but do not block other servers.
+// are logged but do not block other servers. Failed servers are marked
+// as degraded and can be retried later via SyncServers.
 func (m *Manager) StartServers(ctx context.Context, servers map[string]config.MCPServerConfig, registry *tool.Registry) error {
 	var errs []error
 
 	for name, srv := range servers {
-		if err := m.startServer(ctx, name, srv, registry); err != nil {
-			slog.Error("mcp server failed to start", "server", name, "err", err)
+		if err := m.startServerWithRetry(ctx, name, srv, registry); err != nil {
+			slog.Error("mcp server failed to start after retries", "server", name, "err", err)
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
 	}
@@ -41,6 +54,62 @@ func (m *Manager) StartServers(ctx context.Context, servers map[string]config.MC
 		return fmt.Errorf("some MCP servers failed: %v", errs)
 	}
 	return nil
+}
+
+// startServerWithRetry wraps startServer with exponential backoff. On success
+// the server's degraded flag is cleared; on exhaustion it remains degraded.
+func (m *Manager) startServerWithRetry(ctx context.Context, name string, srv config.MCPServerConfig, registry *tool.Registry) error {
+	backoff := initialBackoff
+
+	var lastErr error
+	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
+		lastErr = m.startServer(ctx, name, srv, registry)
+		if lastErr == nil {
+			m.mu.Lock()
+			delete(m.degraded, name)
+			m.mu.Unlock()
+			if attempt > 1 {
+				slog.Info("mcp server connected after retry", "server", name, "attempt", attempt)
+			}
+			return nil
+		}
+
+		// Mark as degraded immediately so other code can check status.
+		m.mu.Lock()
+		m.degraded[name] = true
+		m.mu.Unlock()
+
+		if attempt == maxRetryAttempts {
+			break // don't sleep after last attempt
+		}
+
+		slog.Warn("mcp server connection failed, retrying",
+			"server", name,
+			"attempt", attempt,
+			"max_attempts", maxRetryAttempts,
+			"backoff", backoff,
+			"err", logging.Redact(lastErr.Error()),
+		)
+
+		select {
+		case <-time.After(backoff):
+			backoff = time.Duration(float64(backoff) * backoffMultiplier)
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled during retry for %s: %w", name, ctx.Err())
+		}
+	}
+
+	return fmt.Errorf("server %s failed after %d attempts: %w", name, maxRetryAttempts, lastErr)
+}
+
+// IsDegraded reports whether the named server is in a degraded state.
+func (m *Manager) IsDegraded(name string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.degraded[name]
 }
 
 func (m *Manager) startServer(ctx context.Context, name string, srv config.MCPServerConfig, registry *tool.Registry) error {
