@@ -70,6 +70,7 @@ type Hook interface {
 type Engine struct {
 	cfg    Config
 	hooks  []Hook
+	router *ModelRouter
 	mu     sync.RWMutex
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -81,9 +82,15 @@ func NewEngine(cfg Config) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Engine{
 		cfg:    cfg,
+		router: NewModelRouter(cfg.Router),
 		ctx:    ctx,
 		cancel: cancel,
 	}
+}
+
+// Router returns the model router (never nil, even when routing is disabled).
+func (e *Engine) Router() *ModelRouter {
+	return e.router
 }
 
 // RegisterHook adds a hook to the dispatch chain. Must be called before Start().
@@ -107,6 +114,23 @@ func (e *Engine) Start() {
 		slog.Warn("evolution: engine enabled but no hooks registered")
 	}
 	slog.Info("evolution: engine started", "hooks", hookCount)
+}
+
+// SaveState persists in-memory state for hooks that support it (e.g.
+// PreferenceLearner). Call before Stop() for a clean shutdown.
+func (e *Engine) SaveState(prefPath string) {
+	if pl := e.PreferenceLearnerHook(); pl != nil && prefPath != "" {
+		if err := pl.SavePreferences(prefPath); err != nil {
+			slog.Warn("evolution: failed to save preferences", "err", err)
+		} else {
+			slog.Info("evolution: preferences saved", "path", prefPath)
+		}
+	}
+	if so := e.StrategyOptimizerHook(); so != nil && e.cfg.Optimizer.StrategyFile != "" {
+		if err := so.SaveStrategy(e.cfg.Optimizer.StrategyFile); err != nil {
+			slog.Warn("evolution: failed to save strategy on shutdown", "err", err)
+		}
+	}
 }
 
 // Stop gracefully shuts down the engine, waiting for in-flight hooks to finish.

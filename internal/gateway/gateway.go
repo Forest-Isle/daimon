@@ -172,6 +172,12 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	// Start evolution engine
 	if gw.evoEngine != nil {
 		gw.evoEngine.Start()
+
+		// If both RL and evolution are enabled, import historical trajectories
+		// into the RL replay buffer for warm-starting.
+		if gw.rlTrainer != nil && gw.cfg.Evolution.Enabled {
+			go gw.importTrajectoriesToRL()
+		}
 	}
 
 	slog.Info("gateway started")
@@ -196,8 +202,13 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		gw.rlTrainer.Stop()
 	}
 
-	// Stop evolution engine
+	// Persist evolution state and stop engine
 	if gw.evoEngine != nil {
+		prefPath := ""
+		if p, err := gw.resolveEvolutionPreferencePath(gw.cfg.Evolution.PreferenceFile); err == nil {
+			prefPath = p
+		}
+		gw.evoEngine.SaveState(prefPath)
 		gw.evoEngine.Stop()
 	}
 
@@ -373,5 +384,44 @@ func defToSpec(def config.AgentDefinition) *agent.AgentSpec {
 		Tools:         def.Tools,
 		Tags:          def.Tags,
 		Mode:          def.Mode,
+	}
+}
+
+// importTrajectoriesToRL warm-starts the RL replay buffer from historical
+// trajectory data. Runs once in the background at startup.
+func (gw *Gateway) importTrajectoriesToRL() {
+	trajDir, err := gw.resolveEvolutionTrajDir()
+	if err != nil {
+		return
+	}
+	since := time.Now().AddDate(0, 0, -7)
+	exps, err := evolution.ConvertFromDir(trajDir, since)
+	if err != nil {
+		slog.Warn("gateway: RL trajectory import failed", "err", err)
+		return
+	}
+	for _, exp := range exps {
+		gw.rlTrainer.AddExperience(rl.Experience{
+			State: &rl.RLState{
+				ComplexitySimple:   exp.ComplexitySimple,
+				ComplexityModerate: exp.ComplexityModerate,
+				ComplexityComplex:  exp.ComplexityComplex,
+				ToolCount:          exp.ToolCount,
+				SubTaskCount:       exp.SubTaskCount,
+				ReplanCount:        exp.ReplanCount,
+				SuccessCount:       exp.SuccessCount,
+				FailureCount:       exp.FailureCount,
+				Progress:           exp.Progress,
+				PlanConfidence:     exp.PlanConfidence,
+				ReflectionConfidence: exp.ReflectionConf,
+			},
+			Action: []float64{exp.Reward},
+			Reward: exp.Reward,
+			Done:   true,
+			Level:  rl.LevelPPO,
+		})
+	}
+	if len(exps) > 0 {
+		slog.Info("gateway: imported trajectories into RL buffer", "experiences", len(exps))
 	}
 }

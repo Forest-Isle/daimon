@@ -235,13 +235,17 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	state.Personality = ca.cfg.Personality
 	state.PersistentRules = ca.cfg.PersistentRules
 
-	// Inject self-evolution context: learned preferences and strategy hints
+	// Inject self-evolution context: learned preferences, strategy hints, and model routing
 	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
 		if pl := ca.evoEngine.PreferenceLearnerHook(); pl != nil {
 			state.Preferences = pl.BuildPromptSection()
 		}
 		if so := ca.evoEngine.StrategyOptimizerHook(); so != nil {
 			state.StrategyHints = so.BuildPromptSection()
+		}
+		if rr := ca.evoEngine.Router().SelectModel(string(state.Goal.Complexity)); rr.Routed {
+			state.ModelOverride = rr.Model
+			state.MaxTokensOverride = rr.MaxTokens
 		}
 	}
 
@@ -427,8 +431,12 @@ persist:
 		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector, userFeedback, dqnReplanAction)
 	}
 
-	// Evolution: dispatch reflection and episode events for self-improvement loops.
+	// Evolution: record model routing outcome and dispatch events.
 	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
+		if state.ModelOverride != "" {
+			succeeded := reflection != nil && reflection.Succeeded
+			ca.evoEngine.Router().RecordOutcome(string(state.Goal.Complexity), succeeded)
+		}
 		ca.dispatchEvolutionEvents(state, plan, obsResult, reflection, userFeedback, cognitiveTurnStart)
 	}
 

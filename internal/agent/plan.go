@@ -54,8 +54,17 @@ func (p *Planner) Run(ctx context.Context, state *CognitiveState) (*TaskPlan, er
 		system += "\n\nADDITIONAL RULES (must follow):\n" + state.PersistentRules
 	}
 
+	// Allow evolution ModelRouter to override model per-request.
+	model := p.llmModel
+	if state.ModelOverride != "" {
+		model = state.ModelOverride
+	}
+	if state.MaxTokensOverride > 0 {
+		maxTokens = state.MaxTokensOverride
+	}
+
 	req := CompletionRequest{
-		Model:     p.llmModel,
+		Model:     model,
 		System:    system,
 		Messages:  []CompletionMessage{{Role: "user", Content: userMsg}},
 		Tools:     nil, // PLAN phase must not execute tools

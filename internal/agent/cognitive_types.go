@@ -62,6 +62,8 @@ type CognitiveState struct {
 	PersistentRules  string   // from Memory.md — rules all phases must follow
 	Preferences      string   // learned user preferences from evolution PreferenceLearner
 	StrategyHints    string   // tuned cognitive strategy hints from evolution StrategyOptimizer
+	ModelOverride    string   // dynamic model override from evolution ModelRouter (empty = use default)
+	MaxTokensOverride int    // dynamic max_tokens override (0 = use default)
 }
 
 // SubTask is a single unit of work within a TaskPlan.

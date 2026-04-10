@@ -3,6 +3,7 @@ package evolution
 import (
 	"context"
 	"math"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -449,6 +450,86 @@ func TestPreferenceLearner_BuildPromptSectionWithData(t *testing.T) {
 	}
 	if !strings.Contains(section, "moderate") {
 		t.Error("missing complexity preference")
+	}
+}
+
+func TestPreferenceLearner_SaveAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/prefs.yaml"
+	ctx := context.Background()
+
+	pl1 := NewPreferenceLearner(defaultCfg())
+	for i := 0; i < 3; i++ {
+		pl1.OnReflectionComplete(ctx, ReflectionEvent{
+			Succeeded:  true,
+			Confidence: 0.8,
+			ToolsUsed:  []string{"bash"},
+			Complexity: "moderate",
+		})
+	}
+
+	if err := pl1.SavePreferences(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	pl2 := NewPreferenceLearner(defaultCfg())
+	if err := pl2.LoadPreferences(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	prefs := pl2.GetPreferences("tool_preference")
+	if len(prefs) == 0 {
+		t.Fatal("expected loaded preferences for tool_preference")
+	}
+	found := false
+	for _, p := range prefs {
+		if p.Key == "bash" && p.Count == 3 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected bash with count=3 in loaded preferences")
+	}
+}
+
+func TestPreferenceLearner_LoadMergesHigherCount(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/prefs.yaml"
+	ctx := context.Background()
+
+	pl1 := NewPreferenceLearner(defaultCfg())
+	for i := 0; i < 5; i++ {
+		pl1.OnReflectionComplete(ctx, ReflectionEvent{
+			Succeeded: true, Confidence: 0.8, ToolsUsed: []string{"bash"},
+		})
+	}
+	_ = pl1.SavePreferences(path)
+
+	pl2 := NewPreferenceLearner(defaultCfg())
+	pl2.OnReflectionComplete(ctx, ReflectionEvent{
+		Succeeded: true, Confidence: 0.8, ToolsUsed: []string{"bash"},
+	})
+	if err := pl2.LoadPreferences(path); err != nil {
+		t.Fatal(err)
+	}
+
+	prefs := pl2.GetPreferences("tool_preference")
+	for _, p := range prefs {
+		if p.Key == "bash" && p.Count != 5 {
+			t.Errorf("expected count=5 (from file), got %d", p.Count)
+		}
+	}
+}
+
+func TestPreferenceLearner_SaveEmptyIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/prefs.yaml"
+	pl := NewPreferenceLearner(defaultCfg())
+	if err := pl.SavePreferences(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("expected no file for empty preferences")
 	}
 }
 

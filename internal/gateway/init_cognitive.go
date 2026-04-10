@@ -79,7 +79,16 @@ func (gw *Gateway) registerEvolutionHooks() {
 	evo := gw.cfg.Evolution
 
 	if evo.Preference.Enabled {
-		gw.evoEngine.RegisterHook(evolution.NewPreferenceLearner(evo.Preference))
+		pl := evolution.NewPreferenceLearner(evo.Preference)
+		if prefPath, err := gw.resolveEvolutionPreferencePath(evo.PreferenceFile); err == nil && prefPath != "" {
+			if err := pl.LoadPreferences(prefPath); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					slog.Warn("gateway: evolution: failed to load preferences, starting fresh",
+						"path", prefPath, "err", err)
+				}
+			}
+		}
+		gw.evoEngine.RegisterHook(pl)
 	}
 
 	synthCfg := evo.Synthesizer
@@ -158,6 +167,21 @@ func (gw *Gateway) resolveEvolutionStrategyPath(strategyFile string) (string, er
 		return "", err
 	}
 	return filepath.Join(base, "evolution", strategyFile), nil
+}
+
+// resolveEvolutionPreferencePath turns a relative preference_file into an absolute path.
+func (gw *Gateway) resolveEvolutionPreferencePath(prefFile string) (string, error) {
+	if prefFile == "" {
+		return "", nil
+	}
+	if filepath.IsAbs(prefFile) {
+		return prefFile, nil
+	}
+	base, err := gw.ironclawHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "evolution", prefFile), nil
 }
 
 // resolveEvolutionTrajDir returns the absolute path to ~/.IronClaw/evolution/trajectories/.

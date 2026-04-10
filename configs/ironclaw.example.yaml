@@ -100,6 +100,17 @@ evolution:
     max_adjustment_percent: 10
     revert_threshold: 0.15
     strategy_file: strategy.yaml
+  preference_file: preferences.yaml   # persisted to ~/.IronClaw/evolution/
+  # 模型路由：根据任务复杂度动态选择模型（减少简单任务的 API 成本）
+  model_routing:
+    enabled: false
+    simple:
+      model: ""                        # e.g. claude-haiku-3-20250307
+      # max_tokens: 4096
+    moderate:
+      model: ""                        # empty = use default llm.model
+    complex:
+      model: ""                        # e.g. claude-sonnet-4-20250514
 
 store:
   path: "./data/ironclaw.db"

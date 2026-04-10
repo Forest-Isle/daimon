@@ -13,6 +13,11 @@ type Config struct {
 	Preference  PreferenceConfig  `yaml:"preference"`
 	Synthesizer SynthesizerConfig `yaml:"synthesizer"`
 	Optimizer   OptimizerConfig   `yaml:"optimizer"`
+	Router      RouterConfig      `yaml:"model_routing"`
+
+	// PreferenceFile is the YAML path (relative to ~/.IronClaw/evolution/)
+	// where learned preferences are persisted between sessions.
+	PreferenceFile string `yaml:"preference_file"`
 
 	// HookTimeout is the maximum duration for a single hook execution.
 	// Hooks that exceed this timeout are cancelled and logged as warnings.
@@ -48,8 +53,10 @@ type OptimizerConfig struct {
 // DefaultConfig returns sensible defaults with the engine disabled.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:     false,
-		HookTimeout: 10 * time.Second,
+		Enabled:        false,
+		HookTimeout:    10 * time.Second,
+		PreferenceFile: "preferences.yaml",
+		Router:         DefaultRouterConfig(),
 		Preference: PreferenceConfig{
 			Enabled:        true,
 			MaxPreferences: 100,

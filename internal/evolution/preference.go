@@ -2,11 +2,16 @@ package evolution
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // PreferenceLearner implements the Hook interface for Loop 1 of the
@@ -220,6 +225,89 @@ func (p *PreferenceLearner) BuildPromptSection() string {
 	}
 
 	return b.String()
+}
+
+// ---------------------------------------------------------------------------
+// Persistence
+// ---------------------------------------------------------------------------
+
+// persistedEntry is the YAML-friendly form of a PreferenceEntry.
+type persistedEntry struct {
+	Category   string    `yaml:"category"`
+	Key        string    `yaml:"key"`
+	Value      string    `yaml:"value"`
+	Confidence float64   `yaml:"confidence"`
+	Count      int       `yaml:"count"`
+	LastSeen   time.Time `yaml:"last_seen"`
+}
+
+// SavePreferences writes all preferences to the given YAML path. Thread-safe.
+func (p *PreferenceLearner) SavePreferences(path string) error {
+	p.mu.RLock()
+	entries := make([]persistedEntry, 0, len(p.preferences))
+	for _, e := range p.preferences {
+		entries = append(entries, persistedEntry{
+			Category:   e.Category,
+			Key:        e.Key,
+			Value:      e.Value,
+			Confidence: e.Confidence,
+			Count:      e.Count,
+			LastSeen:   e.LastSeen,
+		})
+	}
+	p.mu.RUnlock()
+
+	if len(entries) == 0 {
+		return nil
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create preferences dir: %w", err)
+	}
+
+	data, err := yaml.Marshal(entries)
+	if err != nil {
+		return fmt.Errorf("marshal preferences: %w", err)
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+// LoadPreferences reads preferences from the given YAML path and merges them
+// into the in-memory store. Existing entries with the same key are overwritten
+// only if the loaded entry has a higher count. Thread-safe.
+func (p *PreferenceLearner) LoadPreferences(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var entries []persistedEntry
+	if err := yaml.Unmarshal(data, &entries); err != nil {
+		return fmt.Errorf("unmarshal preferences: %w", err)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, e := range entries {
+		key := prefMapKey(e.Category, e.Key)
+		existing, ok := p.preferences[key]
+		if ok && existing.Count >= e.Count {
+			continue
+		}
+		p.preferences[key] = &PreferenceEntry{
+			Category:   e.Category,
+			Key:        e.Key,
+			Value:      e.Value,
+			Confidence: e.Confidence,
+			Count:      e.Count,
+			LastSeen:   e.LastSeen,
+		}
+	}
+
+	slog.Info("preference_learner: loaded preferences", "count", len(entries), "path", path)
+	return nil
 }
 
 // ---------------------------------------------------------------------------
