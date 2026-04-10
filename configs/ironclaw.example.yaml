@@ -79,6 +79,28 @@ agent:
     You can execute shell commands, read/write files, and make HTTP requests.
     Always explain what you're about to do before using tools.
 
+# 自进化引擎（认知模式 cognitive 下生效）：偏好学习、技能草稿合成、策略统计调优
+# 草稿目录默认 ~/.IronClaw/skills/drafts/，策略文件默认 ~/.IronClaw/evolution/strategy.yaml
+evolution:
+  enabled: false
+  hook_timeout: 10s
+  preference:
+    enabled: true
+    max_preferences: 100
+    min_confidence: 0.3
+  synthesizer:
+    enabled: true
+    pattern_threshold: 3
+    reward_threshold: 0.5
+    drafts_dir: drafts
+    auto_notify: true
+  optimizer:
+    enabled: true
+    update_interval: 10
+    max_adjustment_percent: 10
+    revert_threshold: 0.15
+    strategy_file: strategy.yaml
+
 store:
   path: "./data/ironclaw.db"
 

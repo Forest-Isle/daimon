@@ -9,6 +9,7 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
@@ -42,6 +43,7 @@ type CognitiveAgent struct {
 	entityExtractor *graph.LLMEntityExtractor
 	rlPolicy        RLPolicy  // RL policy interface (nil if disabled)
 	rlTrainer       RLTrainer // RL trainer interface (nil if disabled)
+	evoEngine       *evolution.Engine // self-evolution event dispatcher (nil if disabled)
 	hookMgr         *hook.Manager
 	permEngine      *tool.PermissionEngine
 }
@@ -167,6 +169,11 @@ func (ca *CognitiveAgent) SetOrchestrator(o *AgentOrchestrator) {
 	ca.orchestrator = o
 }
 
+// SetEvolutionEngine injects the self-evolution event dispatcher.
+func (ca *CognitiveAgent) SetEvolutionEngine(e *evolution.Engine) {
+	ca.evoEngine = e
+}
+
 // SetRLPolicy injects an RL policy into the cognitive agent.
 func (ca *CognitiveAgent) SetRLPolicy(policy RLPolicy) {
 	ca.rlPolicy = policy
@@ -269,6 +276,8 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	var reflection *Reflection
 	var ppoStrategy *rl.PlanStrategyAction
 	var dqnReplanAction rl.ReplanActionType
+
+	cognitiveTurnStart := time.Now()
 
 	for attempt := 0; attempt <= maxReplans; attempt++ {
 		if attempt > 0 {
@@ -388,12 +397,12 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	}
 
 persist:
-	// RL: collect user feedback and record episode
-	if rlEnabled && episodeCollector != nil && ca.rlTrainer != nil {
-		// Attempt to collect user feedback from channel
-		var userFeedback float64
+	// Optional user feedback (thumbs up/down) for RL and/or self-evolution.
+	var userFeedback float64
+	needFeedback := (rlEnabled && episodeCollector != nil && ca.rlTrainer != nil) ||
+		(ca.evoEngine != nil && ca.evoEngine.IsEnabled())
+	if needFeedback {
 		if sender, ok := ch.(channel.FeedbackSender); ok {
-			// Use a short timeout for feedback — don't block the loop for long
 			feedbackCtx, feedbackCancel := context.WithTimeout(ctx, 20*time.Second)
 			fb, err := sender.SendFeedbackRequest(feedbackCtx, target)
 			feedbackCancel()
@@ -403,7 +412,14 @@ persist:
 				userFeedback = fb
 			}
 		}
+	}
+	if rlEnabled && episodeCollector != nil && ca.rlTrainer != nil {
 		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector, userFeedback, dqnReplanAction)
+	}
+
+	// Evolution: dispatch reflection and episode events for self-improvement loops.
+	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
+		ca.dispatchEvolutionEvents(state, plan, obsResult, reflection, userFeedback, cognitiveTurnStart)
 	}
 
 	// Persist session
@@ -532,6 +548,96 @@ func (ca *CognitiveAgent) handleDebate(
 	}
 
 	return ca.streamFinalAnswer(ctx, ch, target, sess, finalAnswer)
+}
+
+// dispatchEvolutionEvents fires self-evolution events based on the completed
+// cognitive cycle. This enables the preference learner, skill synthesizer,
+// and strategy optimizer to observe and learn from each interaction.
+func (ca *CognitiveAgent) dispatchEvolutionEvents(
+	state *CognitiveState,
+	plan *TaskPlan,
+	obsResult *ObservationResult,
+	reflection *Reflection,
+	userFeedback float64,
+	turnStart time.Time,
+) {
+	now := time.Now()
+
+	// Collect tool names from observations.
+	var toolsUsed []string
+	if obsResult != nil {
+		for _, obs := range obsResult.Observations {
+			toolsUsed = append(toolsUsed, obs.ToolName)
+		}
+	}
+
+	// Dispatch reflection event (feeds PreferenceLearner).
+	succeeded := reflection != nil && reflection.Succeeded
+	confidence := 0.0
+	var lessons []string
+	var finalAnswer string
+	if reflection != nil {
+		confidence = reflection.OverallConfidence
+		lessons = reflection.LessonsLearned
+		finalAnswer = reflection.FinalAnswer
+	}
+	replanCount := 0
+	if plan != nil {
+		replanCount = plan.ReplanCount
+	}
+
+	ca.evoEngine.DispatchReflection(evolution.ReflectionEvent{
+		SessionID:      state.SessionID,
+		UserID:         state.UserID,
+		Goal:           state.Goal.Raw,
+		Complexity:     string(state.Goal.Complexity),
+		Succeeded:      succeeded,
+		Confidence:     confidence,
+		LessonsLearned: lessons,
+		ToolsUsed:      toolsUsed,
+		ReplanCount:    replanCount,
+		UserFeedback:   userFeedback,
+		FinalAnswer:    finalAnswer,
+		Timestamp:      now,
+	})
+
+	// Dispatch episode event (feeds SkillSynthesizer and StrategyOptimizer).
+	totalReward := 0.0
+	if reflection != nil && obsResult != nil {
+		totalReward = computeSimpleEpisodeReward(reflection, obsResult)
+	}
+	durationMs := int64(0)
+	if !turnStart.IsZero() {
+		durationMs = now.Sub(turnStart).Milliseconds()
+	}
+
+	ca.evoEngine.DispatchEpisode(evolution.EpisodeEvent{
+		SessionID:    state.SessionID,
+		EpisodeID:    fmt.Sprintf("ep_%d", now.UnixNano()),
+		Goal:         state.Goal.Raw,
+		Complexity:   string(state.Goal.Complexity),
+		Succeeded:    succeeded,
+		TotalReward:  totalReward,
+		ToolSequence: toolsUsed,
+		ReplanCount:  replanCount,
+		DurationMs:   durationMs,
+		UserFeedback: userFeedback,
+		Timestamp:    now,
+	})
+
+	// Dispatch individual tool execution events (feeds future hooks).
+	if obsResult != nil {
+		for _, obs := range obsResult.Observations {
+			ca.evoEngine.DispatchToolExec(evolution.ToolExecEvent{
+				SessionID:  state.SessionID,
+				ToolName:   obs.ToolName,
+				Succeeded:  !obs.Denied && obs.Error == "",
+				Denied:     obs.Denied,
+				DurationMs: obs.DurationMs,
+				Timestamp:  now,
+			})
+		}
+	}
 }
 
 // recordRLEpisode records PPO/DQN experiences and the full episode to the trainer.

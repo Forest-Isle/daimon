@@ -73,6 +73,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 	if err := gw.initMemorySystem(); err != nil {
 		return nil, fmt.Errorf("memory: %w", err)
 	}
+	// Evolution engine must exist before cognitive agent registers hooks.
+	gw.evoEngine = evolution.NewEngine(cfg.Evolution)
 	if err := gw.initCognitiveAgent(); err != nil {
 		return nil, fmt.Errorf("cognitive: %w", err)
 	}
@@ -85,9 +87,6 @@ func New(cfg *config.Config) (*Gateway, error) {
 	if err := gw.initMultiAgent(); err != nil {
 		return nil, fmt.Errorf("multi-agent: %w", err)
 	}
-
-	// Initialize evolution engine (self-improvement loops)
-	gw.evoEngine = evolution.NewEngine(cfg.Evolution)
 
 	// Scheduler
 	gw.sched = scheduler.New(gw.db, cfg.Scheduler.PollInterval)
