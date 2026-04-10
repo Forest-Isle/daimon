@@ -249,6 +249,9 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	for iteration := 0; iteration < r.cfg.MaxIterations; iteration++ {
 		slog.Info("agent iteration", "iteration", iteration, "session", sess.ID)
 
+		// Compute budget pressure signal for this iteration
+		budgetWarning := r.computeBudgetPressure(iteration, sess, systemPrompt)
+
 		// Each iteration creates a fresh streaming message
 		updater, err := ch.SendStreaming(ctx, target)
 		if err != nil {
@@ -350,7 +353,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		_ = updater.Finish(statusText)
 
 		// Execute tool calls
-		r.executeTools(ctx, ch, sess, target, toolCalls)
+		r.executeToolsWithBudget(ctx, ch, sess, target, toolCalls, budgetWarning)
 		// Next iteration will create a new streaming message for the LLM's follow-up.
 	}
 
@@ -431,6 +434,8 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 	}
 
 	for iteration := 0; iteration < r.cfg.MaxIterations; iteration++ {
+		budgetWarning := r.computeBudgetPressure(iteration, sess, systemPrompt)
+
 		req := CompletionRequest{
 			Model:     r.llmCfg.Model,
 			System:    systemPrompt,
@@ -472,7 +477,7 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 			break
 		}
 
-		r.executeTools(ctx, ch, sess, target, resp.ToolCalls)
+		r.executeToolsWithBudget(ctx, ch, sess, target, resp.ToolCalls, budgetWarning)
 	}
 
 	if err := r.sessions.Persist(ctx, sess); err != nil {
@@ -580,4 +585,74 @@ func (r *Runtime) buildToolDefs() []ToolDefinition {
 		})
 	}
 	return defs
+}
+
+// computeBudgetPressure generates a warning string based on iteration and token usage pressure.
+// Returns empty string if no warning is needed.
+func (r *Runtime) computeBudgetPressure(iteration int, sess *session.Session, systemPrompt string) string {
+	var warnings []string
+
+	// Iteration budget pressure
+	iterationPct := float64(iteration+1) / float64(r.cfg.MaxIterations) * 100
+	if iterationPct >= 90 {
+		warnings = append(warnings, fmt.Sprintf(
+			"🚨 Critical budget pressure: %.0f%% of iterations used. Finish current task immediately.", iterationPct))
+	} else if iterationPct >= 70 {
+		warnings = append(warnings, fmt.Sprintf(
+			"⚠️ Budget pressure: %.0f%% of iterations used. Consider wrapping up.", iterationPct))
+	}
+
+	// Token budget pressure
+	if r.tokenBudget != nil {
+		check := r.tokenBudget.Check(sess.History(), systemPrompt)
+		tokenPct := check.UsageRatio * 100
+		if tokenPct >= 90 {
+			warnings = append(warnings, fmt.Sprintf(
+				"🚨 Critical token budget: %.0f%% of context window used. Be extremely concise.", tokenPct))
+		} else if tokenPct >= 70 {
+			warnings = append(warnings, fmt.Sprintf(
+				"⚠️ Token budget pressure: %.0f%% of context window used. Consider being more concise.", tokenPct))
+		}
+	}
+
+	if len(warnings) == 0 {
+		return ""
+	}
+	return "\n\n" + strings.Join(warnings, "\n")
+}
+
+// executeToolsWithBudget wraps executeTools, appending a budget pressure signal
+// to the last tool result if one is present.
+func (r *Runtime) executeToolsWithBudget(
+	ctx context.Context,
+	ch channel.Channel,
+	sess *session.Session,
+	target channel.MessageTarget,
+	toolCalls []ToolUseBlock,
+	budgetWarning string,
+) {
+	if budgetWarning == "" {
+		r.executeTools(ctx, ch, sess, target, toolCalls)
+		return
+	}
+
+	// Execute tools normally
+	r.executeTools(ctx, ch, sess, target, toolCalls)
+
+	// Append budget warning to the last tool_result message in the session
+	history := sess.History()
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "tool_result" {
+			// Rebuild the session with the modified last tool result
+			sess.TrimHistory(0)
+			for j, m := range history {
+				if j == i {
+					m.Content += budgetWarning
+				}
+				sess.AddMessage(m)
+			}
+			slog.Debug("budget pressure signal injected", "warning", budgetWarning)
+			return
+		}
+	}
 }

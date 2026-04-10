@@ -44,15 +44,20 @@ func CompactHistory(ctx context.Context, provider Provider, sess *session.Sessio
 
 	oldMessages := history[:cutoff]
 
-	// Build a summary request
+	// Build summarization prompt, incorporating previous summary for incremental updates
 	var sb strings.Builder
+	if prevSummary := sess.GetPreviousSummary(); prevSummary != "" {
+		_, _ = fmt.Fprintf(&sb, "Here is the previous summary:\n%s\n\nPlease update it with the following new turns:\n", prevSummary)
+	} else {
+		sb.WriteString("Please summarize the following conversation turns:\n")
+	}
 	for _, m := range oldMessages {
 		_, _ = fmt.Fprintf(&sb, "[%s]: %s\n", m.Role, truncate(m.Content, 500))
 	}
 
 	req := CompletionRequest{
 		Model:  model,
-		System: "Summarize the following conversation history concisely, preserving key facts, decisions, and context needed for continuing the conversation.",
+		System: "Summarize the following conversation history concisely, preserving key facts, decisions, and context needed for continuing the conversation. If a previous summary is provided, update it incrementally rather than rewriting from scratch.",
 		Messages: []CompletionMessage{
 			{Role: "user", Content: sb.String()},
 		},
@@ -81,6 +86,9 @@ func CompactHistory(ctx context.Context, provider Provider, sess *session.Sessio
 	for _, m := range remaining {
 		sess.AddMessage(m)
 	}
+
+	// Persist summary for future incremental updates
+	sess.SetPreviousSummary(resp.Text)
 
 	slog.Info("history compacted", "session", sess.ID, "old_count", len(oldMessages), "summary_len", len(resp.Text))
 	return nil

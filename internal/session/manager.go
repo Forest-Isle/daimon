@@ -97,7 +97,7 @@ func (m *Manager) Persist(ctx context.Context, sess *Session) error {
 
 func (m *Manager) loadFromDB(ctx context.Context, channel, channelID string) (*Session, error) {
 	row := m.db.QueryRowContext(ctx,
-		`SELECT id, created_at, updated_at FROM sessions WHERE channel = ? AND channel_id = ?`,
+		`SELECT id, COALESCE(parent_session_id,''), created_at, updated_at FROM sessions WHERE channel = ? AND channel_id = ?`,
 		channel, channelID)
 
 	var sess Session
@@ -105,7 +105,7 @@ func (m *Manager) loadFromDB(ctx context.Context, channel, channelID string) (*S
 	sess.ChannelID = channelID
 	sess.Metadata = make(map[string]string)
 
-	if err := row.Scan(&sess.ID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+	if err := row.Scan(&sess.ID, &sess.ParentSessionID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -155,7 +155,81 @@ func (m *Manager) Reset(ctx context.Context, channel, channelID string) error {
 
 func (m *Manager) insertSession(ctx context.Context, sess *Session) error {
 	_, err := m.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, channel, channel_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-		sess.ID, sess.Channel, sess.ChannelID, sess.CreatedAt, sess.UpdatedAt)
+		`INSERT INTO sessions (id, channel, channel_id, parent_session_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		sess.ID, sess.Channel, sess.ChannelID, sess.ParentSessionIDOrNull(), sess.CreatedAt, sess.UpdatedAt)
 	return err
+}
+
+// GetSessionChain returns the full chain of sessions from the given session back to the root.
+// The returned slice is ordered [current, parent, grandparent, ..., root].
+// Circular references are detected and stop the traversal.
+func (m *Manager) GetSessionChain(ctx context.Context, sessionID string) ([]*Session, error) {
+	var chain []*Session
+	seen := make(map[string]bool) // guard against circular references
+
+	currentID := sessionID
+	for currentID != "" && !seen[currentID] {
+		seen[currentID] = true
+
+		row := m.db.QueryRowContext(ctx,
+			`SELECT id, channel, channel_id, COALESCE(parent_session_id,''), created_at, updated_at
+			 FROM sessions WHERE id = ?`, currentID)
+
+		var sess Session
+		sess.Metadata = make(map[string]string)
+		if err := row.Scan(&sess.ID, &sess.Channel, &sess.ChannelID,
+			&sess.ParentSessionID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+			if err == sql.ErrNoRows {
+				break
+			}
+			return nil, fmt.Errorf("load session %s: %w", currentID, err)
+		}
+
+		chain = append(chain, &sess)
+		currentID = sess.ParentSessionID
+	}
+
+	return chain, nil
+}
+
+// GetRootSession returns the root (oldest ancestor) session of the given session's chain.
+// If the session has no parent, it returns the session itself.
+func (m *Manager) GetRootSession(ctx context.Context, sessionID string) (*Session, error) {
+	chain, err := m.GetSessionChain(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if len(chain) == 0 {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	return chain[len(chain)-1], nil
+}
+
+// CreateChildSession creates a new session linked to the given parent session.
+// This is used when compression triggers a new session to maintain continuity.
+func (m *Manager) CreateChildSession(ctx context.Context, parentSess *Session) (*Session, error) {
+	child := &Session{
+		ID:              fmt.Sprintf("sess_%d", time.Now().UnixNano()),
+		Channel:         parentSess.Channel,
+		ChannelID:       parentSess.ChannelID,
+		ParentSessionID: parentSess.ID,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+		Metadata:        make(map[string]string),
+	}
+
+	if err := m.insertSession(ctx, child); err != nil {
+		return nil, fmt.Errorf("insert child session: %w", err)
+	}
+
+	// Update in-memory cache to point to the new child session
+	key := sessionKey(child.Channel, child.ChannelID)
+	m.sessions.Store(key, child)
+
+	slog.Info("child session created",
+		"id", child.ID,
+		"parent_id", parentSess.ID,
+		"channel", child.Channel,
+	)
+	return child, nil
 }
