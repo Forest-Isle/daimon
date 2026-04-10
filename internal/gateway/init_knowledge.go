@@ -95,6 +95,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 
 		// Start graph decay background task
 		graphDecay := graph.NewGraphDecayTask(kg, 24*time.Hour)
+		gw.graphDecay = graphDecay
 		go graphDecay.Start(context.Background())
 		slog.Info("knowledge graph: decay task started")
 

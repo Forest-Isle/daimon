@@ -15,7 +15,7 @@ type Config struct {
 	TUI       TUIConfig       `yaml:"tui"`
 	Agent     AgentConfig     `yaml:"agent"`
 	Store     StoreConfig     `yaml:"store"`
-	Memory    MemoryConfig    `yaml:"memory.md"`
+	Memory    MemoryConfig    `yaml:"memory"`
 	Knowledge KnowledgeConfig `yaml:"knowledge"` // Phase 2 placeholder
 	Graph     GraphConfig     `yaml:"graph"`     // Phase 3 placeholder
 	Scheduler SchedulerConfig `yaml:"scheduler"`

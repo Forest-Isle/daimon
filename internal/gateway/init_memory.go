@@ -84,9 +84,9 @@ func (gw *Gateway) initMemorySystem() error {
 
 		// Start compactor background task
 		compactor := memory.NewCompactor(gw.memStore, completer, gw.db.DB, storageDir, memCfg)
+		gw.compactor = compactor
 		compactor.Start(context.Background())
 		slog.Info("memory: compactor enabled")
-		// Note: compactor.Stop() should be called on shutdown
 
 		// Create profiler (triggered by reflection completion, not a background task)
 		profiler := memory.NewProfiler(gw.memStore, completer, gw.db.DB, storageDir, memCfg)
@@ -100,16 +100,26 @@ func (gw *Gateway) initMemorySystem() error {
 	gw.tools.Register(memTool)
 	slog.Info("memory: memory_manage tool registered")
 
+	// Start consolidator background task (promotes session facts to user scope)
+	gw.consolidator = memory.NewConsolidator(gw.memStore, gw.db.DB, storageDir, gw.cfg.Memory.ConsolidationInterval)
+	gw.consolidator.Start(context.Background())
+	slog.Info("memory: consolidator enabled")
+
 	// Schedule daily retention policy enforcement alongside fade task
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
-		for range ticker.C {
-			if err := forgettingCurve.FadeWeakMemoriesFromFiles(context.Background(), storageDir); err != nil {
-				slog.Warn("memory: fade weak memory files failed", "err", err)
-			}
-			if err := forgettingCurve.FadeByRetentionPolicy(context.Background(), storageDir, memCfg); err != nil {
-				slog.Warn("memory: retention policy enforcement failed", "err", err)
+		for {
+			select {
+			case <-ticker.C:
+				if err := forgettingCurve.FadeWeakMemoriesFromFiles(context.Background(), storageDir); err != nil {
+					slog.Warn("memory: fade weak memory files failed", "err", err)
+				}
+				if err := forgettingCurve.FadeByRetentionPolicy(context.Background(), storageDir, memCfg); err != nil {
+					slog.Warn("memory: retention policy enforcement failed", "err", err)
+				}
+			case <-gw.stopCh:
+				return
 			}
 		}
 	}()

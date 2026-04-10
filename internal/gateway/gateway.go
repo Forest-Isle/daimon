@@ -12,6 +12,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/rl"
@@ -43,12 +44,17 @@ type Gateway struct {
 	mcpManager     *mcp.Manager
 	rlTrainer      *rl.Trainer
 	resultStore    *tool.ResultStore
+	consolidator   *memory.Consolidator
+	compactor      *memory.Compactor
+	graphDecay     *graph.GraphDecayTask
+	stopCh         chan struct{} // closed in Stop() to signal background goroutines
 }
 
 func New(cfg *config.Config) (*Gateway, error) {
 	gw := &Gateway{
 		cfg:      cfg,
 		channels: make(map[string]channel.Channel),
+		stopCh:   make(chan struct{}),
 	}
 
 	if err := gw.initDatabase(); err != nil {
@@ -177,6 +183,18 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 
 	if gw.rlTrainer != nil {
 		gw.rlTrainer.Stop()
+	}
+
+	// Stop memory background tasks
+	close(gw.stopCh)
+	if gw.consolidator != nil {
+		gw.consolidator.Stop()
+	}
+	if gw.compactor != nil {
+		gw.compactor.Stop()
+	}
+	if gw.graphDecay != nil {
+		gw.graphDecay.Stop()
 	}
 
 	_ = gw.db.Close()
