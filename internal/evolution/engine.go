@@ -110,9 +110,20 @@ func (e *Engine) Start() {
 }
 
 // Stop gracefully shuts down the engine, waiting for in-flight hooks to finish.
+// Hooks that implement io.Closer (e.g. TrajectoryRecorder) are closed.
 func (e *Engine) Stop() {
 	e.cancel()
 	e.wg.Wait()
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, h := range e.hooks {
+		if c, ok := h.(interface{ Close() error }); ok {
+			if err := c.Close(); err != nil {
+				slog.Warn("evolution: hook close failed", "hook", h.Name(), "err", err)
+			}
+		}
+	}
 	slog.Info("evolution: engine stopped")
 }
 

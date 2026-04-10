@@ -93,6 +93,13 @@ func (gw *Gateway) registerEvolutionHooks() {
 		}
 	}
 
+	// Trajectory recorder: persists every cognitive cycle as JSONL.
+	if trajDir, err := gw.resolveEvolutionTrajDir(); err != nil {
+		slog.Warn("gateway: evolution: trajectory dir unavailable, recorder disabled", "err", err)
+	} else {
+		gw.evoEngine.RegisterHook(evolution.NewTrajectoryRecorder(trajDir))
+	}
+
 	optCfg := evo.Optimizer
 	if optCfg.Enabled {
 		strategyPath, err := gw.resolveEvolutionStrategyPath(optCfg.StrategyFile)
@@ -151,4 +158,13 @@ func (gw *Gateway) resolveEvolutionStrategyPath(strategyFile string) (string, er
 		return "", err
 	}
 	return filepath.Join(base, "evolution", strategyFile), nil
+}
+
+// resolveEvolutionTrajDir returns the absolute path to ~/.IronClaw/evolution/trajectories/.
+func (gw *Gateway) resolveEvolutionTrajDir() (string, error) {
+	base, err := gw.ironclawHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "evolution", "trajectories"), nil
 }
