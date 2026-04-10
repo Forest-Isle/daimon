@@ -209,6 +209,10 @@ func (p *PreferenceLearner) evictLowestLocked() {
 		}
 	}
 	if evictKey != "" {
+		slog.Debug("preference_learner: evicted entry",
+			"key", evictKey,
+			"confidence", evictConf,
+		)
 		delete(p.preferences, evictKey)
 	}
 }
