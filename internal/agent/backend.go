@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// ErrBackendNotImplemented is returned by backends reserved for future phases.
+var ErrBackendNotImplemented = fmt.Errorf("backend not yet implemented (reserved for Phase 3)")
+
 // BackendType identifies which execution backend to use.
 type BackendType string
 
@@ -88,7 +91,9 @@ func (b *InProcessBackend) Cleanup() error  { return nil }
 
 // SubprocessBackend executes agents as child processes via os/exec.
 // This provides process-level isolation but requires the ironclaw binary.
-// NOTE: This is a placeholder for future implementation.
+//
+// Status: Phase 3 placeholder. Execute returns ErrBackendNotImplemented.
+// SelectBackend automatically falls back to InProcessBackend when this is unavailable.
 type SubprocessBackend struct {
 	binaryPath string
 }
@@ -99,7 +104,7 @@ func NewSubprocessBackend(binaryPath string) *SubprocessBackend {
 }
 
 func (b *SubprocessBackend) Execute(ctx context.Context, cfg BackendConfig) (<-chan *AgentResult, error) {
-	return nil, fmt.Errorf("subprocess backend: not yet implemented")
+	return nil, fmt.Errorf("subprocess: %w", ErrBackendNotImplemented)
 }
 
 func (b *SubprocessBackend) Available() bool {
@@ -116,7 +121,9 @@ func (b *SubprocessBackend) Cleanup() error { return nil }
 // --- DockerBackend ---
 
 // DockerBackend executes agents in Docker containers for full isolation.
-// NOTE: This is a placeholder for future implementation.
+//
+// Status: Phase 3 placeholder. Execute returns ErrBackendNotImplemented.
+// SelectBackend automatically falls back to InProcessBackend when this is unavailable.
 type DockerBackend struct {
 	image   string
 	network string
@@ -128,7 +135,7 @@ func NewDockerBackend(image, network string) *DockerBackend {
 }
 
 func (b *DockerBackend) Execute(ctx context.Context, cfg BackendConfig) (<-chan *AgentResult, error) {
-	return nil, fmt.Errorf("docker backend: not yet implemented")
+	return nil, fmt.Errorf("docker: %w", ErrBackendNotImplemented)
 }
 
 func (b *DockerBackend) Available() bool  { return false } // requires docker
@@ -136,7 +143,8 @@ func (b *DockerBackend) Name() string     { return string(BackendDocker) }
 func (b *DockerBackend) Cleanup() error   { return nil }
 
 // SelectBackend returns the appropriate backend for the given type.
-// Falls back to InProcessBackend if the requested backend is unavailable.
+// If the requested backend is unavailable (Phase 3 backends return false from Available),
+// it transparently falls back to InProcessBackend to ensure the system always works.
 func SelectBackend(backendType BackendType, executor func(ctx context.Context, cfg BackendConfig) (*AgentResult, error)) ExecutionBackend {
 	switch backendType {
 	case BackendSubprocess:

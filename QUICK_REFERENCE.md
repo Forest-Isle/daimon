@@ -1,419 +1,465 @@
-# IronClaw Subagent System - Quick Reference Guide
+# IronClaw Quick Reference Guide
 
-## TL;DR
+## File Organization
 
-IronClaw allows orchestrator agents to delegate tasks to specialized sub-agents via `agent_*` tools. Each sub-agent:
-- Runs with its own scoped tool set (no recursive agent calls)
-- Uses a custom system prompt and LLM configuration
-- Has its own iteration budget and timeout
-- Shares persistent memory with the orchestrator
-- Is protected by a circuit breaker from repeated failures
+### Agent System (56 files)
+- `runtime.go` - Simple agent executor
+- `cognitive.go` - PERCEIVE→PLAN→ACT→OBSERVE→REFLECT pipeline
+- `perceive.go`, `plan.go`, `act.go`, `observe.go`, `reflect.go` - Five phases
+- `provider.go` - LLM provider interface
+- `orchestrator.go` - Multi-agent coordination
+- `debate.go` - Debate mode for collaboration
+- `permission.go` - Tool permission checking
+- `compression.go` - Context compression
+- `rl_helpers.go` - Reinforcement learning integration
+
+### Tool System (21 files)
+- `tool.go` - Tool interface & registry
+- `bash.go`, `file_*.go`, `http.go` - Built-in tools
+- `memory_manage.go` - Memory query/add/update tool
+- `permissions.go` - Permission engine
+- `policy.go` - Permission policy evaluation
+- `resultstore.go` - Large result persistence
+- `skill.go` - Skill tool wrapper
+
+### Memory System (31 files)
+- `file_store.go` - File-based storage (MD with YAML)
+- `lifecycle.go` - ADD/UPDATE/DELETE/NOOP decisions
+- `consolidator.go` - Session→User scope promotion
+- `compactor.go` - Memory compaction
+- `compressor.go` - LLM-based compression
+- `facts.go` - Fact extraction interface
+- `forgetting_curve.go` - Spaced repetition
+- `embedding.go` - Embedding provider
+- `privacy.go` - Sensitivity/privacy controls
+- `profiler.go` - Memory usage profiling
+
+### Knowledge System (11 files)
+- `knowledge.go` - KB interface
+- `retriever.go` - Hybrid BM25+vector retrieval
+- `store.go` - SQLite storage
+- `reranker.go` - LLM reranking
+- `cache.go` - Result caching
+- `chunk.go` - Document chunking
+- `pipeline.go` - Ingestion pipeline
+- `graph/graph.go` - Knowledge graph interface
+- `graph/sqlite_graph.go` - Graph implementation
+- `graph/extractor.go` - Entity/relation extraction
+
+### Support Systems
+- `gateway/gateway.go` - Central orchestrator (363 lines)
+- `tool/registry.go` - Tool registration
+- `channel/telegram/adapter.go` - Telegram integration
+- `channel/tui/adapter.go` - Terminal UI
+- `mcp/manager.go` - MCP server management
+- `scheduler/scheduler.go` - Cron task scheduling
+- `store/db.go` - SQLite wrapper
+- `session/session.go` - Session management
+- `hook/hook.go` - Event hooks
+- `rl/trainer.go` - RL orchestration
+- `skill/manager.go` - Skill loading
+- `config/config.go` - Configuration
 
 ---
 
-## Core Components
+## Data Flow Diagrams
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| **AgentTool** | `agent_tool.go` | Executes sub-agents as tools |
-| **AgentSpec** | `spec.go` | Defines agent configuration (YAML) |
-| **AgentManager** | `agent_manager.go` | Loads specs, registers as tools |
-| **Runtime** | `runtime.go` | Agent loop (reused for sub-agents) |
-| **CircuitBreaker** | `circuit_breaker.go` | Prevents cascading failures |
-| **TaskContext** | `task_context.go` | Multi-agent pipeline coordination |
-| **captureChannel** | `agent_tool.go` | Captures sub-agent output |
+### Message Processing Flow
+```
+Telegram/TUI Input
+    ↓
+Gateway.handleInbound()
+    ↓
+Session.GetOrCreate()
+    ↓
+Check cognitive/simple mode
+    ↓
+CognitiveAgent.HandleMessage() or Runtime.Execute()
+    ↓
+PERCEIVE→PLAN→ACT→OBSERVE→REFLECT
+    ↓
+Channel.Send() response
+```
+
+### Cognitive Agent PERCEIVE Phase
+```
+User message + history
+    ↓
+Search memory (embeddings)
+    ↓
+Search knowledge base (BM25 + vector)
+    ↓
+Build system prompt with context
+    ↓
+Call LLM → generates plan
+```
+
+### Tool Execution (ACT Phase)
+```
+Tool plan from LLM
+    ↓
+Permission check
+    ↓
+Pre-tool hook
+    ↓
+Ask approval if needed
+    ↓
+Execute tool
+    ↓
+Post-tool hook
+    ↓
+Store result (inline or disk if large)
+```
+
+### Memory Lifecycle
+```
+LLM conversation
+    ↓
+Extract facts (LLM-based)
+    ↓
+Normalize and embed
+    ↓
+Search for similar facts
+    ↓
+LLM decides: ADD/UPDATE/DELETE/NOOP
+    ↓
+Execute decision
+    ↓
+Sync to knowledge graph
+```
+
+### Scheduling
+```
+Scheduler.Start()
+    ↓
+Poll DB every 60s
+    ↓
+Find enabled tasks
+    ↓
+Register with cron
+    ↓
+Task fires at scheduled time
+    ↓
+Invoke TaskHandler
+    ↓
+Route task.Prompt to gateway.handleInbound()
+```
 
 ---
 
-## Quick Start: Define a Sub-Agent
+## Key Interfaces
 
-**Create `~/.IronClaw/agents/researcher.yaml`:**
+### Tool Interface
+```go
+type Tool interface {
+    Name() string
+    Description() string
+    InputSchema() map[string]any
+    Execute(ctx context.Context, input []byte) (Result, error)
+    RequiresApproval() bool
+}
+```
 
+### Channel Interface
+```go
+type Channel interface {
+    Name() string
+    Start(ctx context.Context, handler InboundHandler) error
+    Send(ctx context.Context, msg OutboundMessage) error
+    SendStreaming(ctx context.Context, target MessageTarget) (StreamUpdater, error)
+    Stop(ctx context.Context) error
+}
+```
+
+### Memory Store Interface
+```go
+type Store interface {
+    Add(ctx context.Context, fact Fact) error
+    Update(ctx context.Context, fact Fact) error
+    Delete(ctx context.Context, id string) error
+    Get(ctx context.Context, id string) (*Fact, error)
+    Search(ctx context.Context, query MemoryQuery) ([]Fact, error)
+    ListByScope(ctx context.Context, scope, userID string) ([]Fact, error)
+}
+```
+
+### Knowledge Base Interface
+```go
+type KnowledgeBase interface {
+    Search(ctx context.Context, query KnowledgeQuery) ([]KnowledgeResult, error)
+    Ingest(ctx context.Context, uri, sourceType string) error
+    Sources(ctx context.Context) ([]Source, error)
+    DeleteSource(ctx context.Context, sourceID string) error
+}
+```
+
+### Graph Interface
+```go
+type Graph interface {
+    UpsertNode(ctx context.Context, node Node) (string, error)
+    UpsertEdge(ctx context.Context, edge Edge) (string, error)
+    Neighbors(ctx context.Context, nodeID string, edgeType string) ([]Triple, error)
+    Traverse(ctx context.Context, nodeID string, maxDepth int) ([]Triple, error)
+    FindNode(ctx context.Context, nodeType, name string) (*Node, error)
+    FindByName(ctx context.Context, name string) ([]Node, error)
+}
+```
+
+---
+
+## Configuration Highlights
+
+### Critical Settings
 ```yaml
-name: researcher
-description: Searches the web and compiles findings
-system_prompt: |
-  You are a research expert. Search for recent findings
-  and compile them into a concise summary.
-model: claude-3-5-sonnet-20241022      # optional override
-max_tokens: 8000                         # optional override
-max_iterations: 5
-timeout: 180s
+# LLM
+llm:
+  provider: claude
+  model: claude-sonnet-4-20250514
+  max_tokens: 8192
+
+# Agent Mode
+agent:
+  mode: cognitive  # or "simple"
+  max_iterations: 20
+
+# Memory
+memory:
+  enabled: true
+  storage_type: file
+  embedding_model: text-embedding-3-small
+
+# Knowledge Base
+knowledge:
+  enabled: true/false
+  chunk_size: 512
+  chunk_overlap: 64
+
+# Tools
 tools:
-  - http                                 # whitelist: only http, file_read
-  - file_read
-requires_approval: false
-tags:
-  - research
-  - web
+  bash:
+    enabled: true
+    requires_approval: true
+  concurrent_execution:
+    enabled: true
+    max_concurrency: 4
+  result_persistence:
+    enabled: true
+    threshold_bytes: 8192
 ```
 
-**That's it!** On startup, IronClaw will:
-1. Load the spec
-2. Create `AgentTool("researcher")`
-3. Register as `agent_researcher` tool
-4. Orchestrator can now call it
+### Feature Flags
+| Feature | Config | Default |
+|---------|--------|---------|
+| Memory | `memory.enabled` | true |
+| Knowledge Base | `knowledge.enabled` | false |
+| Skills | `skills.enabled` | true |
+| Multi-Agent | `agents.enabled` | false |
+| Cognitive | `agent.mode` | "simple" |
+| RL System | `agent.rl.enabled` | false |
+| Scheduler | `scheduler.enabled` | true |
 
 ---
 
-## How to Call a Sub-Agent (from LLM perspective)
+## Common Tasks
 
-**The LLM sees this in its system prompt:**
+### Add a New Tool
+1. Create file in `internal/tool/`, implement `Tool` interface
+2. Register in `gateway.initToolsAndHooks()`:
+   ```go
+   newTool := mynewpkg.NewMyTool()
+   registry.Register(newTool)
+   ```
 
+### Add a Memory Hook
+1. Create struct implementing `PreCompactHandler`/`PostToolUseHandler`/etc.
+2. Register in config:
+   ```yaml
+   hooks:
+     pre_tool_use:
+       - type: my_hook
+         config: {...}
+   ```
+
+### Add a New Channel
+1. Create struct implementing `channel.Channel` interface
+2. Register in `cmd/ironclaw/main.go`:
+   ```go
+   discord, err := discord.New(cfg.Discord.Token)
+   gw.AddChannel(discord)
+   ```
+
+### Query Memory Programmatically
+```go
+results, err := runtime.memStore.Search(ctx, memory.MemoryQuery{
+    Text: "recent project",
+    Limit: 5,
+})
 ```
-## Available Agents
 
-You can delegate tasks to specialized agents using the corresponding agent_* tools.
-Each agent runs independently with its own tool set and iteration budget.
-
-- **agent_researcher**: Searches the web and compiles findings [tags: research, web]
-- **agent_analyzer**: Analyzes research findings [tags: analysis]
-```
-
-**The LLM can decide to call:**
-
-```json
-{
-  "type": "tool_use",
-  "id": "tc_123",
-  "name": "agent_researcher",
-  "input": {
-    "task": "Research recent AI developments in 2024-2026",
-    "context": ""
-  }
-}
-```
-
-**Result returned to LLM:**
-
-```json
-{
-  "output": "Recent AI developments include: 1) GPT-5... 2) Claude...",
-  "error": ""
-}
-```
-
----
-
-## AgentTool Execution (12-Step Process)
-
-```
-1. Circuit Breaker Check
-   → Fail fast if agent repeatedly errors
-   
-2. Parse Input
-   → Extract task and context strings
-   
-3. Build Scoped Registry
-   → Include only whitelisted tools
-   → Exclude all agent_* tools (prevent recursion)
-   
-4. Merge Configuration
-   → Override MaxIterations, SystemPrompt, Model, MaxTokens from spec
-   
-5. Create Temporary Runtime
-   → NewRuntime(provider, scopedTools, sessions, db, mergedCfg, llmCfg)
-   
-6. Set Shared Resources
-   → subRuntime.SetMemoryStore(memStore) [share persistent memory]
-   
-7. Create Capture Channel
-   → In-memory buffer for collecting output
-   
-8. Build Task Message
-   → Combine context (if any) with task
-   
-9. Execute Sub-Agent
-   → subRuntime.HandleMessage(ctx, captureChannel, msg)
-   → Runs agent loop until completion
-   
-10. Collect Output
-    → Capture final message from buffer
-    
-11. Record Result
-    → breaker.RecordSuccess() or breaker.RecordFailure()
-    
-12. Return Result
-    → tool.Result{Output: "...", Error: "..."}
+### Run Custom Hook
+```yaml
+hooks:
+  post_tool_use:
+    - type: my_audit_logger
+      config:
+        log_dir: "/var/log/ironclaw"
 ```
 
 ---
 
-## Key Configuration Points
+## Debugging Tips
 
-### In Config File (config.yaml)
+### Check Agent Logs
+```bash
+RUST_LOG=debug ironclaw start -c configs/ironclaw.yaml 2>&1 | grep -E "PERCEIVE|PLAN|ACT|OBSERVE|REFLECT"
+```
 
+### Query Memory Files
+```bash
+ls -la ~/.IronClaw/memory/user/
+cat ~/.IronClaw/memory/user/mem_xyz.md
+```
+
+### Check Database
+```bash
+sqlite3 ./data/ironclaw.db ".schema"
+sqlite3 ./data/ironclaw.db "SELECT * FROM sessions LIMIT 5;"
+```
+
+### Trace Tool Execution
+Hooks automatically log via `OnPostToolUse` events in `hook_audit_log` table
+
+### Enable Verbose Logging
+```yaml
+log:
+  level: debug
+```
+
+---
+
+## Performance Tuning
+
+### Context Compression
 ```yaml
 agent:
-  mode: simple                      # or "cognitive" for 5-phase loop
-  max_iterations: 10
-  system_prompt: |
-    You are a helpful AI...
+  compression:
+    strategy: layered
+    layers:
+      tool_eviction_pct: 30
+      summarize_pct: 50
+      slim_prompt_pct: 70
+      emergency_pct: 90
 ```
 
-### In Agent Spec (agents/*.yaml)
-
-```yaml
-name: researcher
-system_prompt: |                    # Override system prompt
-  Custom prompt for this agent...
-model: claude-3-5-sonnet-20241022  # Override LLM model
-max_tokens: 8000                    # Override max tokens
-max_iterations: 5                   # Override iteration limit
-timeout: 180s                       # Execution timeout (default 120s)
-tools: [http, file_read]            # Tool whitelist (empty = all, agent_* excluded)
-requires_approval: true             # Require user OK before execution
-```
-
----
-
-## Important: Always Excluded
-
-**agent_* tools are ALWAYS excluded from sub-agents:**
-
-```go
-// In buildScopedRegistry()
-if strings.HasPrefix(name, "agent_") {
-    continue  // Skip all agent tools
-}
-```
-
-**Why?**
-- Prevents infinite loops
-- Simplifies orchestrator role (orchestrator decides agent sequencing)
-- Agent tool not suitable for recursive delegation
-
----
-
-## Tool Scoping Example
-
-**Orchestrator sees all tools:**
-```
-bash, file_read, file_write, http, browser,
-agent_researcher, agent_analyzer, agent_writer
-```
-
-**Sub-agent (researcher) scoped to:**
-```
-http, file_read
-(no agent_* tools)
-```
-
-**Sub-agent (writer) scoped to:**
-```
-file_read, file_write
-(no agent_* tools)
-```
-
----
-
-## Circuit Breaker Pattern
-
-**Prevents cascading failures:**
-
-```
-Closed (normal)
-  ↓ [3 failures]
-Open (rejecting)
-  ↓ [wait 60s]
-HalfOpen (testing 1 request)
-  ├─ [success] → Closed
-  └─ [failure] → Open
-```
-
-**Usage:**
-```go
-err := breaker.Allow()
-if err != nil {
-    return Result{Error: err.Error()}  // "circuit breaker open: agent is failing"
-}
-
-// ... execute agent ...
-
-if success {
-    breaker.RecordSuccess()
-} else {
-    breaker.RecordFailure()
-}
-```
-
----
-
-## Memory Sharing
-
-**All agents access the same memory store:**
-
-```
-Orchestrator
-├─ memStore (persistent, file-based at ~/.ironclaw/memory/)
-│  └─ Shared with all sub-agents
-│
-└─ agent_researcher
-   ├─ Reads from memStore
-   ├─ Adds new facts
-   └─ Next agent reads updated facts
-```
-
-**How:**
-```go
-// In AgentTool.Execute()
-subRuntime.SetMemoryStore(a.memStore)  // Share the store
-```
-
----
-
-## Multi-Agent Pipeline (TaskContext)
-
-**For orchestrating sequential agent calls:**
-
-```go
-// Create context
-tc := agent.NewTaskContext("task_123", "Research and write report")
-
-// Task 1: Research
-result1 := callAgent("researcher", "Find recent AI advances")
-tc.SetResult("task_1", result1)
-
-// Task 2: Analyze (using task 1 output)
-context := tc.BuildContextForTask("task_2", plan)
-result2 := callAgent("analyzer", task, context)
-tc.SetResult("task_2", result2)
-
-// Task 3: Write (using task 1 and 2 outputs)
-context := tc.BuildContextForTask("task_3", plan)
-result3 := callAgent("writer", task, context)
-```
-
----
-
-## System Prompt Layers
-
-**Runtime builds system prompt in this order:**
-
-1. **Personality** - from config
-2. **Core Prompt** - from config
-3. **Rules** - from config
-4. **Memories** - retrieved from memStore based on user input
-5. **User Profile** - loaded from ~/.ironclaw/memory/user/
-6. **Skills** - from skillMgr (matched to user input)
-7. **Available Agents** - injected by agentMgr ← **This tells LLM about sub-agents!**
-
-**Example layer 7:**
-```
-## Available Agents
-
-You can delegate tasks to specialized agents using the corresponding agent_* tools.
-Each agent runs independently with its own tool set and iteration budget.
-
-- **agent_researcher**: Searches the web and compiles findings [tags: research]
-- **agent_analyzer**: Analyzes data and extracts insights [tags: analysis]
-```
-
----
-
-## Integration Checklist
-
-✅ **Gateway loads agent specs:**
-```go
-agentMgr := agent.NewAgentManager(provider, sessions, db, memStore, tools, cfg.Agent, cfg.LLM)
-agentMgr.LoadDir(userdir.AgentsDir())       // ~/.IronClaw/agents/
-agentMgr.RegisterAll(tools)                  // Register as agent_* tools
-```
-
-✅ **Runtime has access to agent manager:**
-```go
-runtime.SetAgentManager(agentMgr)           // For prompt injection
-```
-
-✅ **Memory shared with sub-agents:**
-```go
-runtime.SetMemoryStore(memStore)            // In AgentTool.Execute()
-```
-
-✅ **LLM provider available:**
-```go
-// Used by both orchestrator and sub-agents
-provider := agent.NewClaudeProvider(apiKey, model, baseURL)
-```
-
----
-
-## Troubleshooting
-
-### Problem: Sub-agent can call other agents
-**Solution:** Check your whitelist in agent spec. Remove `agent_*` names if present (they're auto-excluded anyway).
-
-### Problem: "circuit breaker open: agent is failing"
-**Solution:** Agent timed out or errored 3 times. Check:
-- Agent timeout setting (spec.timeout)
-- Agent system prompt clarity
-- Available tools in whitelist
-- LLM API status
-
-### Problem: Memory not shared
-**Solution:** Verify:
-- Gateway calls `runtime.SetMemoryStore(memStore)`
-- AgentTool calls `subRuntime.SetMemoryStore(a.memStore)`
-- memStore is not nil
-
-### Problem: Agent making unexpected tool calls
-**Solution:** Add tool whitelist to spec:
+### Concurrent Tool Execution
 ```yaml
 tools:
-  - http
-  - file_read
+  concurrent_execution:
+    enabled: true
+    max_concurrency: 4  # read-only tools only
 ```
 
----
-
-## Files to Know
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `agent_tool.go` | 286 | AgentTool implementation + capture channel |
-| `agent_manager.go` | 181 | Load specs, register tools |
-| `spec.go` | 87 | AgentSpec definition |
-| `runtime.go` | 414 | Main agent loop (reused for sub-agents) |
-| `circuit_breaker.go` | 108 | Failure protection |
-| `task_context.go` | 105 | Multi-agent coordination |
-| `tool/tool.go` | 139 | Tool interface + Registry |
-
----
-
-## Example: Complete Sub-Agent Definition
-
+### Result Persistence
 ```yaml
-# ~/.IronClaw/agents/data_analyst.yaml
-name: data_analyst
-description: Analyzes data files and generates statistical insights
-system_prompt: |
-  You are a data analysis expert. When given a task:
-  1. Use bash to explore data structure
-  2. Use file_read to examine content
-  3. Perform statistical analysis
-  4. Provide clear insights and recommendations
-model: claude-3-5-sonnet-20241022
-max_tokens: 8000
-max_iterations: 5
-timeout: 180s
 tools:
-  - bash
-  - file_read
-  - file_write
-requires_approval: false
-tags:
-  - analysis
-  - data
-  - csv
+  result_persistence:
+    enabled: true
+    threshold_bytes: 8192
+    ttl_hours: 24
+```
+
+### Memory Consolidation
+```yaml
+memory:
+  # Consolidator runs every 24h
+  # Promotes high-value session facts to user scope
+```
+
+### Knowledge Graph Decay
+```yaml
+# Graph decay task runs every 6h
+# Removes stale edges, decays weights
 ```
 
 ---
 
-## Next Steps
+## Testing & Validation
 
-1. **Define agents** in `~/.IronClaw/agents/`
-2. **Test with orchestrator** - LLM will see agent descriptions in prompt
-3. **Monitor** circuit breaker states and memory sharing
-4. **Optimize** tool whitelists based on agent needs
+### Manual TUI Test
+```bash
+ironclaw tui
+# Provides interactive terminal for testing
+```
 
-For advanced features (remote agents, cognitive mode, RL), see CLAUDE.md Phase 3 notes.
+### Check All Skills Loaded
+```bash
+ironclaw skill list
+```
+
+### Verify MCP Servers
+Check logs for: `mcp server started`
+
+### Test Tool Permissions
+Config with deny rules and verify tool blocked:
+```yaml
+permissions:
+  rules:
+    - tool: bash
+      pattern: "rm -rf *"
+      action: deny
+```
+
+---
+
+## Deployment Checklist
+
+- [ ] Review `configs/ironclaw.example.yaml` and create `configs/ironclaw.yaml`
+- [ ] Set all `${VAR}` placeholders (API keys, tokens)
+- [ ] Test LLM connection: `curl -H "Authorization: Bearer $ANTHROPIC_API_KEY" ...`
+- [ ] Configure database path (ensure writable)
+- [ ] Set memory storage directory (ensure writable)
+- [ ] Configure Telegram bot token and allowed user IDs
+- [ ] Test Telegram connectivity
+- [ ] Review permission rules for security
+- [ ] Configure logging (set appropriate level)
+- [ ] Test graceful shutdown (Ctrl+C)
+- [ ] Load test with expected traffic
+- [ ] Monitor logs for errors
+- [ ] Set up log rotation/monitoring
+- [ ] Document custom hooks/tools
+
+---
+
+## Common Issues & Solutions
+
+### Memory Not Persisting
+- Check `memory.enabled: true`
+- Verify `memory.storage_dir` is writable
+- Check `memory_index` table exists in SQLite
+
+### Tool Execution Blocked
+- Check permission rules (default: "ask")
+- Verify tool approval timeout set
+- Check user has send capability in channel
+
+### Knowledge Base Not Retrieving
+- Enable: `knowledge.enabled: true`
+- Ingest documents via API or config
+- Check embedding model configured
+
+### Slow Context Compression
+- Enable concurrent execution
+- Lower `summarize_pct` layer threshold
+- Reduce `max_tokens` limit
+
+### MCP Server Not Detected
+- Check server output (should print tools)
+- Verify command/args correct in config
+- Check environment variables set
+
+---
+
+**Last Updated**: April 10, 2026  
+**Version**: 1.0
+
+For detailed information, see `IRONCLAW_COMPREHENSIVE_GUIDE.md`

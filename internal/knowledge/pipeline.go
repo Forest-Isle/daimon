@@ -62,7 +62,9 @@ func (p *IngestPipeline) Ingest(ctx context.Context, uri, sourceType string) err
 		return fmt.Errorf("no chunks produced from %s", uri)
 	}
 
-	// Store each chunk (embedding happens inside saveChunk)
+	// Store each chunk (embedding happens inside saveChunk).
+	// Track success/failure: partial saves are tolerated, but total failure is an error.
+	var saved int
 	for i, text := range chunks {
 		chunk := Chunk{
 			ID:         fmt.Sprintf("chunk_%s_%d_%d", sourceID, i, time.Now().UnixNano()),
@@ -75,13 +77,22 @@ func (p *IngestPipeline) Ingest(ctx context.Context, uri, sourceType string) err
 		}
 		if err := p.kb.saveChunk(ctx, chunk); err != nil {
 			slog.Warn("knowledge: failed to save chunk", "uri", uri, "index", i, "err", err)
+			continue
 		}
+		saved++
+	}
+
+	if saved == 0 {
+		return fmt.Errorf("all %d chunks failed to save for %s", len(chunks), uri)
+	}
+	if saved < len(chunks) {
+		slog.Warn("knowledge: partial chunk save", "uri", uri, "saved", saved, "total", len(chunks))
 	}
 
 	// Update chunk count
 	p.kb.updateChunkCount(ctx, sourceID)
 
-	slog.Info("knowledge: ingested", "uri", uri, "chunks", len(chunks))
+	slog.Info("knowledge: ingested", "uri", uri, "chunks_saved", saved, "chunks_total", len(chunks))
 	return nil
 }
 
@@ -91,10 +102,19 @@ func (p *IngestPipeline) IngestDir(ctx context.Context, dir string) error {
 	if err != nil {
 		return fmt.Errorf("scan dir %s: %w", dir, err)
 	}
+	if len(files) == 0 {
+		return nil
+	}
+	var succeeded int
 	for _, f := range files {
 		if err := p.Ingest(ctx, f.Path, f.SourceType); err != nil {
 			slog.Warn("knowledge: ingest file failed", "path", f.Path, "err", err)
+			continue
 		}
+		succeeded++
+	}
+	if succeeded == 0 {
+		return fmt.Errorf("all %d files failed to ingest from %s", len(files), dir)
 	}
 	return nil
 }
