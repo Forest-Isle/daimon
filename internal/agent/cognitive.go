@@ -157,12 +157,12 @@ func (ca *CognitiveAgent) SetAgentManager(m *AgentManager) {
 	ca.runtime.SetAgentManager(m)
 }
 
-// SetOrchestrator injects an agent orchestrator into the cognitive agent.
 // SetDebateConfig sets the debate configuration from the agents config.
 func (ca *CognitiveAgent) SetDebateConfig(cfg config.DebateSettings) {
 	ca.debateCfg = cfg
 }
 
+// SetOrchestrator injects an agent orchestrator into the cognitive agent.
 func (ca *CognitiveAgent) SetOrchestrator(o *AgentOrchestrator) {
 	ca.orchestrator = o
 }
