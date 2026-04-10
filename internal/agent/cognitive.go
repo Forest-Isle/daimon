@@ -34,6 +34,7 @@ type CognitiveAgent struct {
 	db                 *store.DB
 	cfg                config.AgentConfig
 	llmCfg             config.LLMConfig
+	debateCfg          config.DebateSettings
 	memStore           memory.Store
 	skillMgr        *skill.Manager
 	agentMgr        *AgentManager
@@ -157,6 +158,11 @@ func (ca *CognitiveAgent) SetAgentManager(m *AgentManager) {
 }
 
 // SetOrchestrator injects an agent orchestrator into the cognitive agent.
+// SetDebateConfig sets the debate configuration from the agents config.
+func (ca *CognitiveAgent) SetDebateConfig(cfg config.DebateSettings) {
+	ca.debateCfg = cfg
+}
+
 func (ca *CognitiveAgent) SetOrchestrator(o *AgentOrchestrator) {
 	ca.orchestrator = o
 }
@@ -495,7 +501,10 @@ func (ca *CognitiveAgent) handleDebate(
 	}
 
 	// Build debate plan
-	maxRounds := 3 // default
+	maxRounds := ca.debateCfg.MaxRounds
+	if maxRounds <= 0 {
+		maxRounds = 3 // fallback default
+	}
 	debatePlan := BuildDebatePlan(state.UserMessage, proposer, critic, DebateConfig{MaxRounds: maxRounds})
 
 	// Execute debate via ACT phase
