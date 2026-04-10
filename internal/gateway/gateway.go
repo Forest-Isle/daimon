@@ -12,6 +12,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
@@ -48,6 +49,7 @@ type Gateway struct {
 	consolidator   *memory.Consolidator
 	compactor      *memory.Compactor
 	graphDecay     *graph.GraphDecayTask
+	evoEngine      *evolution.Engine
 	stopCh         chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce       sync.Once    // ensures stopCh is closed exactly once
 }
@@ -83,6 +85,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 	if err := gw.initMultiAgent(); err != nil {
 		return nil, fmt.Errorf("multi-agent: %w", err)
 	}
+
+	// Initialize evolution engine (self-improvement loops)
+	gw.evoEngine = evolution.NewEngine(cfg.Evolution)
 
 	// Scheduler
 	gw.sched = scheduler.New(gw.db, cfg.Scheduler.PollInterval)
@@ -165,6 +170,11 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		slog.Info("RL trainer started")
 	}
 
+	// Start evolution engine
+	if gw.evoEngine != nil {
+		gw.evoEngine.Start()
+	}
+
 	slog.Info("gateway started")
 	return nil
 }
@@ -185,6 +195,11 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 
 	if gw.rlTrainer != nil {
 		gw.rlTrainer.Stop()
+	}
+
+	// Stop evolution engine
+	if gw.evoEngine != nil {
+		gw.evoEngine.Stop()
 	}
 
 	// Stop memory background tasks

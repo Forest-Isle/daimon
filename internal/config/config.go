@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/Forest-Isle/IronClaw/internal/evolution"
 )
 
 type Config struct {
@@ -24,8 +26,9 @@ type Config struct {
 	Log       LogConfig       `yaml:"log"`
 	Skills      SkillsConfig      `yaml:"skills"`
 	Agents      AgentsConfig      `yaml:"agents"`
-	Permissions PermissionsConfig `yaml:"permissions"`
-	Hooks       HooksConfig       `yaml:"hooks"`
+	Permissions PermissionsConfig    `yaml:"permissions"`
+	Hooks       HooksConfig          `yaml:"hooks"`
+	Evolution   evolution.Config     `yaml:"evolution"`
 }
 
 // HooksConfig configures the hook event system.
@@ -506,5 +509,6 @@ func defaultConfig() Config {
 		Permissions: PermissionsConfig{
 			Default: "ask",
 		},
+		Evolution: evolution.DefaultConfig(),
 	}
 }
