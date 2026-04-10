@@ -48,6 +48,9 @@ func (gw *Gateway) initMultiAgent() error {
 		if gw.cognitiveAgent != nil {
 			gw.cognitiveAgent.SetOrchestrator(orchestrator)
 		}
+		if gw.cognitiveAgent != nil {
+			gw.cognitiveAgent.SetDebateConfig(gw.cfg.Agents.Debate)
+		}
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
 	}
 
