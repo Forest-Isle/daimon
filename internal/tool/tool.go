@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -43,12 +44,50 @@ type ReadOnlyTool interface {
 	IsReadOnly() bool
 }
 
+// ParallelSafety defines how a tool behaves in concurrent execution scenarios.
+type ParallelSafety string
+
+const (
+	// ParallelNever indicates the tool must execute sequentially (e.g., user interaction).
+	ParallelNever ParallelSafety = "never"
+	// ParallelSafe indicates the tool is safe to run concurrently with any other safe tool.
+	ParallelSafe ParallelSafety = "safe"
+	// ParallelPathScoped indicates the tool can run concurrently unless it shares
+	// a resource path with another tool in the same batch. Requires PathScopedTool.
+	ParallelPathScoped ParallelSafety = "path_scoped"
+)
+
+// PathScopedTool is an optional interface for tools that need path-based deduplication
+// in concurrent execution. Tools that implement this interface with ParallelPathScoped
+// safety can run concurrently as long as they operate on different resource paths.
+// Write-oriented file tools (file_write, file_edit) implement this to prevent concurrent
+// writes to the same file while allowing parallel writes to different files.
+type PathScopedTool interface {
+	// ExtractPaths returns all filesystem or resource paths that this tool call accesses.
+	ExtractPaths(input []byte) ([]string, error)
+}
+
+// CanonicalizePath returns a clean, absolute path for conflict detection.
+// Returns the cleaned path as-is if Abs fails (e.g., no working directory).
+func CanonicalizePath(p string) string {
+	if p == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(p)
+	abs, err := filepath.Abs(cleaned)
+	if err != nil {
+		return cleaned
+	}
+	return abs
+}
+
 // ToolCapabilities describes a tool's behavioral characteristics.
 type ToolCapabilities struct {
-	IsReadOnly      bool   // tool only reads, no side effects
-	IsDestructive   bool   // tool may cause irreversible changes
-	RequiresNetwork bool   // tool needs network access
-	ApprovalMode    string // "never", "always", "auto" (default: "auto")
+	IsReadOnly      bool           // tool only reads, no side effects
+	IsDestructive   bool           // tool may cause irreversible changes
+	RequiresNetwork bool           // tool needs network access
+	ApprovalMode    string         // "never", "always", "auto" (default: "auto")
+	ParallelSafety  ParallelSafety // "never", "safe", or "path_scoped" (default: inferred)
 }
 
 // CapableTool is an optional interface for tools to declare rich capabilities.
@@ -62,16 +101,30 @@ type CapableTool interface {
 // if the tool doesn't implement CapableTool.
 func GetCapabilities(t Tool) ToolCapabilities {
 	if ct, ok := t.(CapableTool); ok {
-		return ct.Capabilities()
+		caps := ct.Capabilities()
+		// Infer parallel safety from read-only status if not explicitly set
+		if caps.ParallelSafety == "" {
+			if caps.IsReadOnly {
+				caps.ParallelSafety = ParallelSafe
+			} else {
+				caps.ParallelSafety = ParallelNever
+			}
+		}
+		return caps
 	}
 	// Fallback: check ReadOnlyTool for backward compatibility
 	readOnly := false
 	if ro, ok := t.(ReadOnlyTool); ok {
 		readOnly = ro.IsReadOnly()
 	}
+	safety := ParallelNever
+	if readOnly {
+		safety = ParallelSafe
+	}
 	return ToolCapabilities{
-		IsReadOnly:   readOnly,
-		ApprovalMode: "auto",
+		IsReadOnly:     readOnly,
+		ParallelSafety: safety,
+		ApprovalMode:   "auto",
 	}
 }
 

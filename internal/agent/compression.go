@@ -200,6 +200,13 @@ func (l *TurnSummarizationLayer) Compress(ctx context.Context, sess *session.Ses
 
 	oldMessages := history[:cutoff]
 	var sb strings.Builder
+
+	// Build prompt with previous summary for incremental updates
+	if prevSummary := sess.GetPreviousSummary(); prevSummary != "" {
+		_, _ = fmt.Fprintf(&sb, "Here is the previous summary:\n%s\n\nPlease update it with the following new turns:\n", prevSummary)
+	} else {
+		sb.WriteString("Please summarize the following conversation turns:\n")
+	}
 	for _, m := range oldMessages {
 		content := m.Content
 		if len(content) > 500 {
@@ -210,7 +217,7 @@ func (l *TurnSummarizationLayer) Compress(ctx context.Context, sess *session.Ses
 
 	req := CompletionRequest{
 		Model:  l.model,
-		System: "Summarize the following conversation history concisely, preserving key facts, decisions, and context needed for continuing the conversation.",
+		System: "Summarize the following conversation history concisely, preserving key facts, decisions, and context needed for continuing the conversation. If a previous summary is provided, update it incrementally rather than rewriting from scratch.",
 		Messages: []CompletionMessage{
 			{Role: "user", Content: sb.String()},
 		},
@@ -233,6 +240,9 @@ func (l *TurnSummarizationLayer) Compress(ctx context.Context, sess *session.Ses
 	for _, m := range remaining {
 		sess.AddMessage(m)
 	}
+
+	// Persist summary for future incremental updates
+	sess.SetPreviousSummary(resp.Text)
 
 	slog.Info("compression: summarized old turns", "summarized_count", len(oldMessages))
 	return nil

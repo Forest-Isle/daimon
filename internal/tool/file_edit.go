@@ -30,7 +30,22 @@ func (t *FileEditTool) Capabilities() ToolCapabilities {
 		IsDestructive:   false,
 		RequiresNetwork: false,
 		ApprovalMode:    "auto",
+		ParallelSafety:  ParallelPathScoped,
 	}
+}
+
+// ExtractPaths returns the target file path for concurrent edit conflict detection.
+func (t *FileEditTool) ExtractPaths(input []byte) ([]string, error) {
+	var in struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(input, &in); err != nil {
+		return nil, err
+	}
+	if p := CanonicalizePath(in.Path); p != "" {
+		return []string{p}, nil
+	}
+	return nil, nil
 }
 
 func (t *FileEditTool) InputSchema() map[string]any {

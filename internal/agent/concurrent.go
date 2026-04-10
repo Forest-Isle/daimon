@@ -27,7 +27,10 @@ type toolResult struct {
 }
 
 // executeTools executes a batch of tool calls, using concurrent execution for
-// read-only tools when enabled. Write tools always execute sequentially.
+// safe tools when enabled. Tools are partitioned by ParallelSafety level:
+//   - ParallelSafe: run concurrently with all other safe tools
+//   - ParallelPathScoped: run concurrently unless sharing a resource path
+//   - ParallelNever: always run sequentially
 func (r *Runtime) executeTools(
 	ctx context.Context,
 	ch channel.Channel,
@@ -43,9 +46,12 @@ func (r *Runtime) executeTools(
 		return
 	}
 
-	// Partition into read-only and write groups
-	var readOnly []ToolUseBlock
-	var writable []ToolUseBlock
+	// Partition tools by parallel safety level
+	var concurrent []ToolUseBlock
+	var sequential []ToolUseBlock
+
+	// Track paths claimed by path-scoped tools to detect conflicts
+	claimedPaths := make(map[string]bool)
 
 	for _, tc := range toolCalls {
 		t, err := r.tools.Get(tc.Name)
@@ -53,15 +59,48 @@ func (r *Runtime) executeTools(
 			r.addToolResult(sess, tc.ID, "tool not found: "+tc.Name)
 			continue
 		}
-		if tool.IsToolReadOnly(t) {
-			readOnly = append(readOnly, tc)
-		} else {
-			writable = append(writable, tc)
+
+		caps := tool.GetCapabilities(t)
+		switch caps.ParallelSafety {
+		case tool.ParallelSafe:
+			concurrent = append(concurrent, tc)
+
+		case tool.ParallelPathScoped:
+			// Check for path conflicts with already-scheduled tools
+			if pst, ok := t.(tool.PathScopedTool); ok {
+				paths, err := pst.ExtractPaths([]byte(tc.Input))
+				if err != nil || len(paths) == 0 {
+					// Cannot determine paths — fall back to sequential
+					sequential = append(sequential, tc)
+					continue
+				}
+				hasConflict := false
+				for _, p := range paths {
+					if claimedPaths[p] {
+						hasConflict = true
+						break
+					}
+				}
+				if hasConflict {
+					sequential = append(sequential, tc)
+				} else {
+					for _, p := range paths {
+						claimedPaths[p] = true
+					}
+					concurrent = append(concurrent, tc)
+				}
+			} else {
+				// Declared path_scoped but doesn't implement PathScopedTool — be safe
+				sequential = append(sequential, tc)
+			}
+
+		default: // ParallelNever
+			sequential = append(sequential, tc)
 		}
 	}
 
-	// Execute read-only tools concurrently
-	if len(readOnly) > 0 {
+	// Execute concurrent tools in parallel
+	if len(concurrent) > 0 {
 		maxConcurrency := r.concurrentCfg.MaxConcurrency
 		if maxConcurrency <= 0 {
 			maxConcurrency = 4
@@ -71,9 +110,9 @@ func (r *Runtime) executeTools(
 		g.SetLimit(maxConcurrency)
 
 		var mu sync.Mutex
-		results := make([]toolResult, len(readOnly))
+		results := make([]toolResult, len(concurrent))
 
-		for i, tc := range readOnly {
+		for i, tc := range concurrent {
 			i, tc := i, tc
 			g.Go(func() error {
 				res := r.executeToolCall(gctx, ch, sess, target, tc)
@@ -86,7 +125,7 @@ func (r *Runtime) executeTools(
 		_ = g.Wait()
 
 		// Apply results in original order
-		for i, tc := range readOnly {
+		for i, tc := range concurrent {
 			res := results[i]
 			session.LogToolExecution(ctx, r.db, sess.ID, res.toolName, res.toolInput, res.output, res.status, res.duration)
 			r.addToolResult(sess, tc.ID, res.output)
@@ -94,8 +133,8 @@ func (r *Runtime) executeTools(
 		}
 	}
 
-	// Execute write tools sequentially
-	for _, tc := range writable {
+	// Execute sequential tools one at a time
+	for _, tc := range sequential {
 		r.executeSingleTool(ctx, ch, sess, target, tc)
 	}
 }

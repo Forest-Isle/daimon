@@ -4,16 +4,51 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"strings"
+	"sync/atomic"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 )
 
+// APIPromptCacheStats tracks Anthropic API-level prompt caching metrics across calls.
+type APIPromptCacheStats struct {
+	CacheCreationTokens atomic.Int64
+	CacheReadTokens     atomic.Int64
+}
+
+// Snapshot returns a copy of the current cache stats.
+func (s *APIPromptCacheStats) Snapshot() (creation, read int64) {
+	return s.CacheCreationTokens.Load(), s.CacheReadTokens.Load()
+}
+
 // ClaudeProvider implements Provider using the Anthropic SDK.
 type ClaudeProvider struct {
-	client anthropic.Client
-	model  string
+	client     anthropic.Client
+	model      string
+	cacheStats APIPromptCacheStats
+}
+
+// supportsCaching returns true if the current model supports Anthropic prompt caching.
+func (c *ClaudeProvider) supportsCaching() bool {
+	// All Claude 3+ models on the Anthropic API support prompt caching.
+	cachePrefixes := []string{
+		"claude-3-", "claude-3.", "claude-sonnet-", "claude-opus-", "claude-haiku-",
+	}
+	lower := strings.ToLower(c.model)
+	for _, prefix := range cachePrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetCacheStats returns a snapshot of accumulated prompt cache metrics.
+func (c *ClaudeProvider) GetCacheStats() (creation, read int64) {
+	return c.cacheStats.Snapshot()
 }
 
 func NewClaudeProvider(apiKey, model, baseURL string) *ClaudeProvider {
@@ -31,13 +66,17 @@ func (c *ClaudeProvider) Complete(ctx context.Context, req CompletionRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("claude complete: %w", err)
 	}
+
+	// Track prompt cache token usage
+	c.trackCacheUsage(resp.Usage)
+
 	return c.parseResponse(resp), nil
 }
 
 func (c *ClaudeProvider) Stream(ctx context.Context, req CompletionRequest) (StreamIterator, error) {
 	params := c.buildParams(req)
 	stream := c.client.Messages.NewStreaming(ctx, params)
-	return &claudeStreamIterator{stream: stream}, nil
+	return &claudeStreamIterator{stream: stream, provider: c}, nil
 }
 
 func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNewParams {
@@ -104,12 +143,24 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 
 	if len(tools) > 0 {
 		params.Tools = tools
+		// Mark the last tool definition with cache_control for prompt caching.
+		// This ensures the entire tool definition block is cached.
+		if c.supportsCaching() && len(params.Tools) > 0 {
+			last := &params.Tools[len(params.Tools)-1]
+			if last.OfTool != nil {
+				last.OfTool.CacheControl = anthropic.NewCacheControlEphemeralParam()
+			}
+		}
 	}
 
 	if req.System != "" {
-		params.System = []anthropic.TextBlockParam{
-			{Text: req.System},
+		sysBlock := anthropic.TextBlockParam{Text: req.System}
+		// Mark system prompt with cache_control for prompt caching.
+		// The system prompt is typically stable across turns, making it ideal for caching.
+		if c.supportsCaching() {
+			sysBlock.CacheControl = anthropic.NewCacheControlEphemeralParam()
 		}
+		params.System = []anthropic.TextBlockParam{sysBlock}
 	}
 
 	return params
@@ -139,9 +190,10 @@ func (c *ClaudeProvider) parseResponse(resp *anthropic.Message) *CompletionRespo
 
 // claudeStreamIterator wraps the Anthropic streaming response.
 type claudeStreamIterator struct {
-	stream *ssestream.Stream[anthropic.MessageStreamEventUnion]
-	done   bool
-	accum  anthropic.Message
+	stream   *ssestream.Stream[anthropic.MessageStreamEventUnion]
+	done     bool
+	accum    anthropic.Message
+	provider *ClaudeProvider // back-reference for tracking cache usage
 }
 
 func (it *claudeStreamIterator) Next() (StreamDelta, error) {
@@ -161,6 +213,10 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 			}
 		case anthropic.MessageStopEvent:
 			it.done = true
+			// Track cache usage from the accumulated message
+			if it.provider != nil {
+				it.provider.trackCacheUsage(it.accum.Usage)
+			}
 			resp := parseStreamedMessage(&it.accum)
 			delta := StreamDelta{
 				Done:       true,
@@ -213,4 +269,21 @@ func parseStreamedMessage(msg *anthropic.Message) *CompletionResponse {
 		}
 	}
 	return result
+}
+
+// trackCacheUsage accumulates prompt cache metrics from an API response.
+func (c *ClaudeProvider) trackCacheUsage(usage anthropic.Usage) {
+	if usage.CacheCreationInputTokens > 0 {
+		c.cacheStats.CacheCreationTokens.Add(usage.CacheCreationInputTokens)
+	}
+	if usage.CacheReadInputTokens > 0 {
+		c.cacheStats.CacheReadTokens.Add(usage.CacheReadInputTokens)
+	}
+	if usage.CacheCreationInputTokens > 0 || usage.CacheReadInputTokens > 0 {
+		slog.Debug("prompt cache usage",
+			"cache_creation_tokens", usage.CacheCreationInputTokens,
+			"cache_read_tokens", usage.CacheReadInputTokens,
+			"input_tokens", usage.InputTokens,
+		)
+	}
 }

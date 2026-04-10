@@ -201,3 +201,100 @@ func TestBuiltinToolsReadOnly(t *testing.T) {
 		t.Error("HTTPTool should not be read-only")
 	}
 }
+
+func TestPathScopedToolImplementation(t *testing.T) {
+	// file_write and file_edit should implement PathScopedTool
+	writeT := NewFileWriteTool(false)
+	editT := NewFileEditTool(false)
+
+	// Verify they implement the interface
+	var _ PathScopedTool = writeT
+	var _ PathScopedTool = editT
+
+	// Verify Capabilities return ParallelPathScoped
+	if caps := GetCapabilities(writeT); caps.ParallelSafety != ParallelPathScoped {
+		t.Errorf("FileWriteTool.ParallelSafety = %q, want %q", caps.ParallelSafety, ParallelPathScoped)
+	}
+	if caps := GetCapabilities(editT); caps.ParallelSafety != ParallelPathScoped {
+		t.Errorf("FileEditTool.ParallelSafety = %q, want %q", caps.ParallelSafety, ParallelPathScoped)
+	}
+
+	// Verify ExtractPaths works correctly
+	input := []byte(`{"path": "/tmp/test.go", "content": "hello"}`)
+	paths, err := writeT.ExtractPaths(input)
+	if err != nil {
+		t.Fatalf("FileWriteTool.ExtractPaths error: %v", err)
+	}
+	if len(paths) != 1 || paths[0] != "/tmp/test.go" {
+		t.Errorf("FileWriteTool.ExtractPaths = %v, want [/tmp/test.go]", paths)
+	}
+
+	// Verify path canonicalization (relative → absolute)
+	relInput := []byte(`{"path": "relative/file.go", "old_string": "a", "new_string": "b"}`)
+	paths, err = editT.ExtractPaths(relInput)
+	if err != nil {
+		t.Fatalf("FileEditTool.ExtractPaths error: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 path, got %d", len(paths))
+	}
+	// Should be absolute
+	if paths[0] == "relative/file.go" {
+		t.Error("ExtractPaths should return canonical absolute path, got relative path")
+	}
+
+	// Empty path should return nil
+	emptyInput := []byte(`{"path": ""}`)
+	paths, err = writeT.ExtractPaths(emptyInput)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if paths != nil {
+		t.Errorf("expected nil for empty path, got %v", paths)
+	}
+
+	// Invalid JSON should return error
+	_, err = writeT.ExtractPaths([]byte(`{invalid}`))
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestReadOnlyToolsNotPathScoped(t *testing.T) {
+	// file_read and file_list should remain ParallelSafe (read-only, no conflict possible)
+	readT := NewFileReadTool()
+	listT := NewFileListTool()
+
+	if caps := GetCapabilities(readT); caps.ParallelSafety != ParallelSafe {
+		t.Errorf("FileReadTool.ParallelSafety = %q, want %q", caps.ParallelSafety, ParallelSafe)
+	}
+	if caps := GetCapabilities(listT); caps.ParallelSafety != ParallelSafe {
+		t.Errorf("FileListTool.ParallelSafety = %q, want %q", caps.ParallelSafety, ParallelSafe)
+	}
+
+	// They should NOT implement PathScopedTool
+	if _, ok := Tool(readT).(PathScopedTool); ok {
+		t.Error("FileReadTool should NOT implement PathScopedTool")
+	}
+	if _, ok := Tool(listT).(PathScopedTool); ok {
+		t.Error("FileListTool should NOT implement PathScopedTool")
+	}
+}
+
+func TestCanonicalizePath(t *testing.T) {
+	// Empty string
+	if got := CanonicalizePath(""); got != "" {
+		t.Errorf("CanonicalizePath(\"\") = %q, want \"\"", got)
+	}
+
+	// Absolute path stays absolute
+	if got := CanonicalizePath("/tmp/test.go"); got != "/tmp/test.go" {
+		t.Errorf("CanonicalizePath(\"/tmp/test.go\") = %q, want \"/tmp/test.go\"", got)
+	}
+
+	// Dot-dot resolution
+	got := CanonicalizePath("/tmp/foo/../test.go")
+	if got != "/tmp/test.go" {
+		t.Errorf("CanonicalizePath(\"/tmp/foo/../test.go\") = %q, want \"/tmp/test.go\"", got)
+	}
+}
