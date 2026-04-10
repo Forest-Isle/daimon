@@ -24,6 +24,14 @@ func (gw *Gateway) initCognitiveAgent() error {
 		gw.cognitiveAgent.SetLifecycleManager(gw.lifecycleMgr)
 	}
 
+	// Wire hook manager and permission engine (security: parity with simple runtime)
+	if gw.hookMgr != nil {
+		gw.cognitiveAgent.SetHookManager(gw.hookMgr)
+	}
+	if gw.permEngine != nil {
+		gw.cognitiveAgent.SetPermissionEngine(gw.permEngine)
+	}
+
 	// Inject memory notification callback
 	gw.cognitiveAgent.SetMemoryNotifyFunc(gw.sendMemoryNotification)
 

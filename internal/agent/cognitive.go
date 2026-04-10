@@ -9,6 +9,7 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
@@ -40,6 +41,8 @@ type CognitiveAgent struct {
 	entityExtractor *graph.LLMEntityExtractor
 	rlPolicy        RLPolicy  // RL policy interface (nil if disabled)
 	rlTrainer       RLTrainer // RL trainer interface (nil if disabled)
+	hookMgr         *hook.Manager
+	permEngine      *tool.PermissionEngine
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -125,6 +128,20 @@ func (ca *CognitiveAgent) SetLifecycleManager(lm *memory.LifecycleManager) {
 func (ca *CognitiveAgent) SetApprovalFunc(fn ApprovalFunc) {
 	ca.executor.approvalFunc = fn
 	ca.runtime.SetApprovalFunc(fn)
+}
+
+// SetHookManager injects a hook manager into the cognitive agent, its executor, and inner runtime.
+func (ca *CognitiveAgent) SetHookManager(mgr *hook.Manager) {
+	ca.hookMgr = mgr
+	ca.executor.SetHookManager(mgr)
+	ca.runtime.SetHookManager(mgr)
+}
+
+// SetPermissionEngine injects a permission engine into the cognitive agent, its executor, and inner runtime.
+func (ca *CognitiveAgent) SetPermissionEngine(pe *tool.PermissionEngine) {
+	ca.permEngine = pe
+	ca.executor.SetPermissionEngine(pe)
+	ca.runtime.SetPermissionEngine(pe)
 }
 
 // SetSkillManager injects a skill manager into the cognitive agent and its inner runtime.
