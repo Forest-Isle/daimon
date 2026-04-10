@@ -100,7 +100,13 @@ func (e *Engine) Start() {
 		slog.Info("evolution: engine disabled")
 		return
 	}
-	slog.Info("evolution: engine started", "hooks", len(e.hooks))
+	e.mu.RLock()
+	hookCount := len(e.hooks)
+	e.mu.RUnlock()
+	if hookCount == 0 {
+		slog.Warn("evolution: engine enabled but no hooks registered")
+	}
+	slog.Info("evolution: engine started", "hooks", hookCount)
 }
 
 // Stop gracefully shuts down the engine, waiting for in-flight hooks to finish.
