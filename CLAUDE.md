@@ -83,6 +83,6 @@ SQLite at `./data/ironclaw.db`. Migrations in `internal/store/migrations/` (001-
 
 **Forgetting curve**: Strength computed from `last_accessed_at` and access frequency. Memories with strength < 0.3 auto-archived by background task (runs every 24h).
 
-**Consolidation**: Session files older than 24h with strength ≥ 0.5 promoted to user scope (file moved from `session/` → `user/`).
+**Consolidation**: Session files older than 24h with strength ≥ 0.5 promoted to user scope (file moved from `session/` → `user/`). Before moving, the target path is checked for conflicts; if a file with the same name already exists in `user/`, a `_v2` suffix is appended to prevent silent data loss.
 
 **Migration**: `ironclaw memory migrate` converts legacy SQLite `memory_facts` table to Markdown files. Backup created at `~/.ironclaw/backups/`. Restore with `ironclaw memory restore`.

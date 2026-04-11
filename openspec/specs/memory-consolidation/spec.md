@@ -11,6 +11,10 @@ The system SHALL promote session memories to user scope by moving files from ses
 - **WHEN** moving file during consolidation
 - **THEN** system updates frontmatter with "promoted_from: session/conversation_20260327_abc123.md" and "promoted_at: 2026-03-28T10:00:00Z"
 
+#### Scenario: Handle file name collision during promotion
+- **WHEN** a file with the same name already exists in user/ before a session file is moved
+- **THEN** system appends a `_v2` suffix to the destination filename before moving, preventing the existing user-scope file from being silently overwritten
+
 ### Requirement: Consolidation criteria
 Consolidation SHALL promote session files that are: (1) older than consolidation interval (default 24h), (2) have user_id set, (3) have strength > 0.5 (using forgetting curve).
 

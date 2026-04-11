@@ -86,14 +86,24 @@ func (s *FileMemoryStore) checkIndexStaleness() error {
 	}
 
 	// Get index last update time
-	var indexTime sql.NullTime
-	err := s.db.QueryRowContext(ctx, `SELECT MAX(updated_at) FROM memory_index`).Scan(&indexTime)
+	var indexTimeStr sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT MAX(updated_at) FROM memory_index`).Scan(&indexTimeStr)
 	if err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("check index time: %w", err)
 	}
 
+	// Parse timestamp if present
+	var indexTime time.Time
+	if indexTimeStr.Valid {
+		// SQLite TIMESTAMP format: "YYYY-MM-DD HH:MM:SS+TZ"
+		indexTime, err = time.Parse("2006-01-02 15:04:05-07:00", indexTimeStr.String)
+		if err != nil {
+			return fmt.Errorf("parse index time: %w", err)
+		}
+	}
+
 	// Rebuild if index is stale (>24h older than newest file) or empty
-	if !indexTime.Valid || newestMtime.Sub(indexTime.Time) > 24*time.Hour {
+	if !indexTimeStr.Valid || newestMtime.Sub(indexTime) > 24*time.Hour {
 		return s.RebuildIndex(ctx)
 	}
 
