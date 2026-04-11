@@ -55,6 +55,11 @@ type Model struct {
 	// Feedback state
 	feedbackCh chan float64
 
+	// Suggestion state
+	suggestions         []SuggestionItem
+	selectedSuggestion  int // -1 means no selection
+	showingSuggestions  bool
+
 	// Layout
 	width  int
 	height int
@@ -71,10 +76,11 @@ func NewModel(agentMode, version string) Model {
 	ta.ShowLineNumbers = false
 
 	return Model{
-		textarea:  ta,
-		messages:  make([]chatMessage, 0),
-		agentMode: agentMode,
-		version:   version,
+		textarea:           ta,
+		messages:           make([]chatMessage, 0),
+		agentMode:          agentMode,
+		version:            version,
+		selectedSuggestion: -1,
 	}
 }
 
@@ -186,19 +192,75 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle suggestion navigation
+	if m.showingSuggestions && len(m.suggestions) > 0 {
+		switch msg.Type {
+		case tea.KeyUp:
+			// Navigate up in suggestions (wrap around)
+			if m.selectedSuggestion <= 0 {
+				m.selectedSuggestion = len(m.suggestions) - 1
+			} else {
+				m.selectedSuggestion--
+			}
+			return m, nil
+
+		case tea.KeyDown:
+			// Navigate down in suggestions (wrap around)
+			if m.selectedSuggestion >= len(m.suggestions)-1 {
+				m.selectedSuggestion = 0
+			} else {
+				m.selectedSuggestion++
+			}
+			return m, nil
+
+		case tea.KeyTab:
+			// Accept suggestion without executing
+			if m.selectedSuggestion >= 0 && m.selectedSuggestion < len(m.suggestions) {
+				suggestion := m.suggestions[m.selectedSuggestion]
+				newInput := ApplySuggestion(m.textarea.Value(), suggestion)
+				m.textarea.SetValue(newInput)
+				m.clearSuggestions()
+			}
+			return m, nil
+
+		case tea.KeyEsc:
+			// Dismiss suggestions
+			m.clearSuggestions()
+			return m, nil
+		}
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
+
 	case tea.KeyEnter:
 		text := strings.TrimSpace(m.textarea.Value())
 		if text == "" {
 			return m, nil
 		}
+
+		// If suggestions are showing and one is selected, apply it and execute
+		if m.showingSuggestions && m.selectedSuggestion >= 0 && m.selectedSuggestion < len(m.suggestions) {
+			suggestion := m.suggestions[m.selectedSuggestion]
+			text = strings.TrimSpace(ApplySuggestion(text, suggestion))
+			m.clearSuggestions()
+		}
+
 		m.textarea.Reset()
 
 		// /quit command
 		if text == "/quit" {
 			return m, tea.Quit
+		}
+
+		// /clear command
+		if text == "/clear" {
+			m.messages = m.messages[:0]
+			m.addMessage("system", "🔄 Conversation cleared.")
+			m.viewport.SetContent(m.renderChat())
+			m.viewport.GotoBottom()
+			return m, nil
 		}
 
 		m.addMessage("user", text)
@@ -207,8 +269,11 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Update textarea and refresh suggestions
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
+	m.updateSuggestions()
+
 	return m, cmd
 }
 
@@ -310,6 +375,34 @@ func (m *Model) addMessage(role, content string) {
 	})
 }
 
+// updateSuggestions refreshes the suggestion list based on current input.
+func (m *Model) updateSuggestions() {
+	input := m.textarea.Value()
+	suggestions := GenerateSuggestions(input, len(input))
+
+	if len(suggestions) == 0 {
+		m.clearSuggestions()
+		return
+	}
+
+	m.suggestions = suggestions
+	m.showingSuggestions = true
+
+	// Reset selection if it's out of bounds
+	if m.selectedSuggestion >= len(suggestions) {
+		m.selectedSuggestion = 0
+	} else if m.selectedSuggestion < 0 && len(suggestions) > 0 {
+		m.selectedSuggestion = 0
+	}
+}
+
+// clearSuggestions hides the suggestion list.
+func (m *Model) clearSuggestions() {
+	m.suggestions = nil
+	m.showingSuggestions = false
+	m.selectedSuggestion = -1
+}
+
 // View renders the full TUI.
 func (m Model) View() string {
 	if !m.ready {
@@ -337,6 +430,11 @@ func (m Model) View() string {
 	case modeReflection:
 		b.WriteString(m.renderReflectionDialog())
 	default:
+		// Show suggestions if available
+		if m.showingSuggestions && len(m.suggestions) > 0 {
+			b.WriteString(m.renderSuggestions())
+			b.WriteString("\n")
+		}
 		b.WriteString(inputBorderStyle.Width(m.width).Render(""))
 		b.WriteString("\n")
 		b.WriteString(m.textarea.View())
@@ -405,4 +503,49 @@ func (m Model) renderReflectionDialog() string {
 		approvalHintStyle.Render("[1/c] Continue  [2/a] Adjust  [3/x] Abort"),
 	)
 	return reflectionBoxStyle.Width(m.width - 4).Render(content)
+}
+
+func (m Model) renderSuggestions() string {
+	if len(m.suggestions) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	maxDisplay := 5 // Show max 5 suggestions at a time
+	displayCount := len(m.suggestions)
+	if displayCount > maxDisplay {
+		displayCount = maxDisplay
+	}
+
+	b.WriteString(suggestionHeaderStyle.Render("Commands:"))
+	b.WriteString("\n")
+
+	for i := 0; i < displayCount; i++ {
+		suggestion := m.suggestions[i]
+		isSelected := i == m.selectedSuggestion
+
+		var line string
+		if isSelected {
+			// Highlight selected suggestion
+			line = selectedSuggestionStyle.Render(fmt.Sprintf("▶ %-20s  %s",
+				suggestion.Command.Name,
+				suggestion.Command.Description))
+		} else {
+			line = suggestionStyle.Render(fmt.Sprintf("  %-20s  %s",
+				suggestion.Command.Name,
+				suggestion.Command.Description))
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	if len(m.suggestions) > maxDisplay {
+		b.WriteString(suggestionHintStyle.Render(
+			fmt.Sprintf("  ... and %d more", len(m.suggestions)-maxDisplay)))
+		b.WriteString("\n")
+	}
+
+	b.WriteString(suggestionHintStyle.Render("  [↑↓] Navigate  [Tab] Accept  [Enter] Execute  [Esc] Dismiss"))
+
+	return suggestionBoxStyle.Width(m.width - 4).Render(b.String())
 }

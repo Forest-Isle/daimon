@@ -64,4 +64,27 @@ var (
 	streamingStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#7D56F4")).
 			Italic(true)
+
+	// Suggestion box
+	suggestionBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#7D56F4")).
+				Padding(0, 1).
+				MarginBottom(1)
+
+	suggestionHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#7D56F4"))
+
+	suggestionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FAFAFA"))
+
+	selectedSuggestionStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#FAFAFA")).
+				Background(lipgloss.Color("#7D56F4"))
+
+	suggestionHintStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#626262")).
+				Italic(true)
 )

@@ -51,7 +51,7 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 - `internal/tool/` — Tool interface + Registry; bash/file/http/browser implementations; `policy.go` for blocked command checks
 - `internal/mcp/` — MCP protocol client; tools registered as `mcp_{server}_{tool}`
 - `internal/channel/telegram/` — Telegram adapter with streaming (edit-message), inline keyboard for tool approvals
-- `internal/channel/tui/` — Terminal UI adapter using Bubble Tea (Charm ecosystem); supports streaming, Markdown rendering (Glamour), interactive tool approval dialogs, and replan decisions
+- `internal/channel/tui/` — Terminal UI adapter using Bubble Tea (Charm ecosystem); supports streaming, Markdown rendering (Glamour), interactive tool approval dialogs, replan decisions, and **slash command autocomplete** (type `/` to see available commands, navigate with ↑↓, accept with Tab, execute with Enter)
 - `internal/skill/` — SKILL.md files (YAML frontmatter + markdown body) loaded from `~/.IronClaw/skills/`
 
 ## Config
