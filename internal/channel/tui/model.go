@@ -97,6 +97,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
+		// Update markdown renderer width for proper text wrapping
+		updateRendererWidth(m.width)
+
 		headerHeight := 1
 		inputHeight := 5 // textarea + border
 		vpHeight := m.height - headerHeight - inputHeight
@@ -111,6 +114,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.viewport.Width = m.width
 			m.viewport.Height = vpHeight
+			m.viewport.SetContent(m.renderChat()) // Re-render with new width
 		}
 		m.textarea.SetWidth(m.width)
 
@@ -441,13 +445,16 @@ func (m Model) renderChat() string {
 		switch msg.role {
 		case "user":
 			label := userLabelStyle.Render("You")
-			_, _ = fmt.Fprintf(&b, "%s %s: %s\n\n", ts, label, msg.content)
+			// Wrap user input text
+			wrappedContent := wrapText(msg.content, m.width-20) // Reserve space for timestamp and label
+			_, _ = fmt.Fprintf(&b, "%s %s: %s\n\n", ts, label, wrappedContent)
 		case "agent":
 			label := agentLabelStyle.Render("Agent")
 			rendered := renderMarkdown(msg.content)
 			_, _ = fmt.Fprintf(&b, "%s %s:\n%s\n", ts, label, rendered)
 		case "system":
-			_, _ = fmt.Fprintf(&b, "%s %s\n\n", ts, systemStyle.Render(msg.content))
+			wrappedContent := wrapText(msg.content, m.width-10) // Reserve space for timestamp
+			_, _ = fmt.Fprintf(&b, "%s %s\n\n", ts, systemStyle.Render(wrappedContent))
 		}
 	}
 
