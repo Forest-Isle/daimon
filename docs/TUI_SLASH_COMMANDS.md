@@ -46,10 +46,29 @@ type Command struct {
 ```
 
 Stores all available commands with metadata. Built-in commands:
-- `/quit` - Exit the TUI
-- `/clear` - Clear conversation history
-- `/help` - Show available commands
+
+**Session Management:**
+- `/quit` (aliases: `exit`, `q`) - Exit the TUI
+- `/clear` (alias: `cls`) - Clear conversation history
 - `/reset` - Reset the current session
+
+**Information:**
+- `/help` (aliases: `h`, `?`) - Show available commands
+- `/version` (alias: `v`) - Show IronClaw version
+- `/status` - Show current session status
+
+**Memory Management:**
+- `/memory <list|search|clear>` - Memory management commands
+
+**Skill Management:**
+- `/skills` (alias: `skill`) - List available skills
+
+**Export/History:**
+- `/export [filename]` - Export conversation history
+- `/history` (alias: `hist`) - Show conversation history
+
+**Insights:**
+- `/insights [days]` - Show evolution insights
 
 #### 2. Suggestion System (`suggestions.go`)
 ```go
@@ -95,6 +114,27 @@ Suggestions use lipgloss styles defined in `styles.go`:
 - `selectedSuggestionStyle`: Bold white text on purple background
 - `suggestionStyle`: Normal white text
 - `suggestionHintStyle`: Dim italic text for keyboard hints
+
+## Local vs LLM Commands
+
+Commands are processed in two ways:
+
+### Local Commands (No LLM)
+These commands are handled directly by the TUI without calling the LLM:
+- `/quit`, `/exit`, `/q` - Immediate exit
+- `/clear`, `/cls` - Clear conversation locally
+- `/help`, `/h`, `/?` - Display help text
+- `/version`, `/v` - Show version info
+- `/status` - Show session status
+- `/history`, `/hist` - Show message history
+- `/export [filename]` - Export conversation
+
+### LLM Commands
+Commands not handled locally are sent to the agent as regular messages:
+- `/memory` - Requires LLM to manage memory
+- `/skills` - Requires LLM to list and describe skills
+- `/insights` - Requires LLM to analyze trajectory data
+- `/reset` - Requires LLM to reset session state
 
 ## Usage Example
 

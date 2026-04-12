@@ -15,24 +15,79 @@ type Command struct {
 
 // commandRegistry holds all available slash commands.
 var commandRegistry = []Command{
+	// Session management
 	{
 		Name:        "quit",
 		Description: "Exit the TUI",
+		Aliases:     []string{"exit", "q"},
 		Category:    "builtin",
 	},
 	{
 		Name:        "clear",
 		Description: "Clear conversation history",
-		Category:    "builtin",
-	},
-	{
-		Name:        "help",
-		Description: "Show available commands",
+		Aliases:     []string{"cls"},
 		Category:    "builtin",
 	},
 	{
 		Name:        "reset",
 		Description: "Reset the current session",
+		Category:    "builtin",
+	},
+
+	// Information
+	{
+		Name:        "help",
+		Description: "Show available commands",
+		Aliases:     []string{"h", "?"},
+		Category:    "builtin",
+	},
+	{
+		Name:        "version",
+		Description: "Show IronClaw version",
+		Aliases:     []string{"v"},
+		Category:    "builtin",
+	},
+	{
+		Name:        "status",
+		Description: "Show current session status",
+		Category:    "builtin",
+	},
+
+	// Memory management
+	{
+		Name:        "memory",
+		Description: "Memory management commands",
+		ArgHint:     "<list|search|clear>",
+		Category:    "builtin",
+	},
+
+	// Skill management
+	{
+		Name:        "skills",
+		Description: "List available skills",
+		Aliases:     []string{"skill"},
+		Category:    "builtin",
+	},
+
+	// Export/History
+	{
+		Name:        "export",
+		Description: "Export conversation history",
+		ArgHint:     "[filename]",
+		Category:    "builtin",
+	},
+	{
+		Name:        "history",
+		Description: "Show conversation history",
+		Aliases:     []string{"hist"},
+		Category:    "builtin",
+	},
+
+	// Insights
+	{
+		Name:        "insights",
+		Description: "Show evolution insights",
+		ArgHint:     "[days]",
 		Category:    "builtin",
 	},
 }

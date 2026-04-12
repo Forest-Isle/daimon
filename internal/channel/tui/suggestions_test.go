@@ -5,14 +5,18 @@ import (
 )
 
 func TestFilterCommands(t *testing.T) {
+	// Get the actual number of registered commands
+	allCommands := GetCommands()
+	totalCommands := len(allCommands)
+
 	tests := []struct {
 		name     string
 		query    string
 		expected int // expected number of matches
 	}{
-		{"empty query returns all", "", 4},
+		{"empty query returns all", "", totalCommands},
 		{"exact match", "/quit", 1},
-		{"prefix match", "/q", 1},
+		{"prefix match", "/q", 1}, // only "quit" starts with q
 		{"partial match", "/hel", 1},
 		{"no match", "/xyz", 0},
 	}
