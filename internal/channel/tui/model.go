@@ -503,15 +503,38 @@ func (m Model) renderSuggestions() string {
 
 	var b strings.Builder
 	maxDisplay := 5 // Show max 5 suggestions at a time
-	displayCount := len(m.suggestions)
-	if displayCount > maxDisplay {
-		displayCount = maxDisplay
+	totalSuggestions := len(m.suggestions)
+
+	// Calculate the visible window based on selected index
+	startIdx := 0
+	endIdx := totalSuggestions
+	if totalSuggestions > maxDisplay {
+		// Center the selected item in the visible window
+		startIdx = m.selectedSuggestion - maxDisplay/2
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		endIdx = startIdx + maxDisplay
+		if endIdx > totalSuggestions {
+			endIdx = totalSuggestions
+			startIdx = endIdx - maxDisplay
+			if startIdx < 0 {
+				startIdx = 0
+			}
+		}
 	}
 
 	b.WriteString(suggestionHeaderStyle.Render("Commands:"))
 	b.WriteString("\n")
 
-	for i := 0; i < displayCount; i++ {
+	// Show indicator if there are items above
+	if startIdx > 0 {
+		b.WriteString(suggestionHintStyle.Render(fmt.Sprintf("  ↑ %d more above", startIdx)))
+		b.WriteString("\n")
+	}
+
+	// Render visible suggestions
+	for i := startIdx; i < endIdx; i++ {
 		suggestion := m.suggestions[i]
 		isSelected := i == m.selectedSuggestion
 
@@ -530,9 +553,9 @@ func (m Model) renderSuggestions() string {
 		b.WriteString("\n")
 	}
 
-	if len(m.suggestions) > maxDisplay {
-		b.WriteString(suggestionHintStyle.Render(
-			fmt.Sprintf("  ... and %d more", len(m.suggestions)-maxDisplay)))
+	// Show indicator if there are items below
+	if endIdx < totalSuggestions {
+		b.WriteString(suggestionHintStyle.Render(fmt.Sprintf("  ↓ %d more below", totalSuggestions-endIdx)))
 		b.WriteString("\n")
 	}
 
