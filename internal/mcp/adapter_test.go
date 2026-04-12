@@ -129,7 +129,10 @@ func TestToolAdapter_InputSchema(t *testing.T) {
 		{
 			name:   "type only",
 			schema: mcp.ToolInputSchema{Type: "object"},
-			want:   map[string]any{"type": "object"},
+			want: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
 		},
 		{
 			name: "with properties",
@@ -149,8 +152,9 @@ func TestToolAdapter_InputSchema(t *testing.T) {
 				Required: []string{"a", "b"},
 			},
 			want: map[string]any{
-				"type":     "object",
-				"required": []string{"a", "b"},
+				"type":       "object",
+				"properties": map[string]any{},
+				"required":   []string{"a", "b"},
 			},
 		},
 		{
@@ -159,15 +163,21 @@ func TestToolAdapter_InputSchema(t *testing.T) {
 				Type:     "object",
 				Required: []string{},
 			},
-			want: map[string]any{"type": "object"},
+			want: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
 		},
 		{
-			name: "nil properties omitted",
+			name: "nil properties gets default",
 			schema: mcp.ToolInputSchema{
 				Type:       "object",
 				Properties: nil,
 			},
-			want: map[string]any{"type": "object"},
+			want: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
 		},
 	}
 	for _, tt := range tests {

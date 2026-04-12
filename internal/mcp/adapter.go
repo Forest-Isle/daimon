@@ -38,15 +38,30 @@ func (a *ToolAdapter) Description() string {
 }
 
 func (a *ToolAdapter) InputSchema() map[string]any {
+	// Ensure we always return a valid JSON Schema object.
+	// OpenRouter API requires all tools to have a complete input_schema.
+	schemaType := a.toolDef.InputSchema.Type
+	if schemaType == "" {
+		schemaType = "object"
+	}
+
 	schema := map[string]any{
-		"type": a.toolDef.InputSchema.Type,
+		"type": schemaType,
 	}
-	if a.toolDef.InputSchema.Properties != nil {
+
+	// Add properties if present
+	if a.toolDef.InputSchema.Properties != nil && len(a.toolDef.InputSchema.Properties) > 0 {
 		schema["properties"] = a.toolDef.InputSchema.Properties
+	} else if schemaType == "object" {
+		// For object types without properties, add empty properties to satisfy API requirements
+		schema["properties"] = make(map[string]any)
 	}
+
+	// Add required if present
 	if len(a.toolDef.InputSchema.Required) > 0 {
 		schema["required"] = a.toolDef.InputSchema.Required
 	}
+
 	return schema
 }
 

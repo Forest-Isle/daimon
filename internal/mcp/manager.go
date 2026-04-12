@@ -36,19 +36,31 @@ func NewManager() *Manager {
 	}
 }
 
-// StartServers connects to each configured MCP server, discovers tools,
+// StartServers connects to each configured MCP server in parallel, discovers tools,
 // and registers them in the tool registry. Individual server failures
 // are logged but do not block other servers. Failed servers are marked
 // as degraded and can be retried later via SyncServers.
 func (m *Manager) StartServers(ctx context.Context, servers map[string]config.MCPServerConfig, registry *tool.Registry) error {
-	var errs []error
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+	)
 
 	for name, srv := range servers {
-		if err := m.startServerWithRetry(ctx, name, srv, registry); err != nil {
-			slog.Error("mcp server failed to start after retries", "server", name, "err", err)
-			errs = append(errs, fmt.Errorf("%s: %w", name, err))
-		}
+		wg.Add(1)
+		go func(name string, srv config.MCPServerConfig) {
+			defer wg.Done()
+			if err := m.startServerWithRetry(ctx, name, srv, registry); err != nil {
+				slog.Error("mcp server failed to start after retries", "server", name, "err", err)
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("%s: %w", name, err))
+				mu.Unlock()
+			}
+		}(name, srv)
 	}
+
+	wg.Wait()
 
 	if len(errs) > 0 {
 		return fmt.Errorf("some MCP servers failed: %v", errs)

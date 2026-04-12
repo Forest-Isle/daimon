@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	openAIEmbeddingURL = "https://api.laozhang.ai/v1/embeddings"
+	openAIEmbeddingURL = "https://openrouter.ai/api/v1/embeddings"
 	openAIDefaultModel = "text-embedding-3-small"
 	openAIDimensions   = 1536
 )
