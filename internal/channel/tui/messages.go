@@ -53,3 +53,6 @@ type notificationMsg struct {
 type feedbackRequestMsg struct {
 	resultCh chan float64
 }
+
+// setAutoApproveMsg signals that the user wants to enable auto-approve mode.
+type setAutoApproveMsg struct{}

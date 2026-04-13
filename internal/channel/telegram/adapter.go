@@ -28,6 +28,9 @@ type Adapter struct {
 	pendingReflections  sync.Map // key: string → chan channel.ReplanDecision
 	pendingFeedbacks    sync.Map // key: string → chan float64
 	approvalTimeoutSecs int
+
+	// autoApprove, when true, skips interactive approval for all subsequent requests.
+	autoApprove bool
 }
 
 func New(token string, allowedUserIDs []int64) (*Adapter, error) {
@@ -175,6 +178,19 @@ func (a *Adapter) handleCallback(data string) {
 		return
 	}
 
+	// Handle always-approve: set flag and approve current request
+	if action == "always_approve" {
+		a.autoApprove = true
+		if v, ok := a.pendingApprovals.Load(key); ok {
+			ch := v.(chan bool)
+			select {
+			case ch <- true:
+			default:
+			}
+		}
+		return
+	}
+
 	// Handle tool approval
 	approved := action == "approve"
 	if v, ok := a.pendingApprovals.Load(key); ok {
@@ -236,6 +252,10 @@ func (a *Adapter) Stop(_ context.Context) error {
 // SendApprovalRequest sends a Telegram inline keyboard for tool approval and
 // blocks until the user responds or the timeout expires.
 func (a *Adapter) SendApprovalRequest(ctx context.Context, target channel.MessageTarget, toolName string, input string) (bool, error) {
+	if a.autoApprove {
+		return true, nil
+	}
+
 	chatID, err := strconv.ParseInt(target.ChannelID, 10, 64)
 	if err != nil || chatID == 0 {
 		return true, nil // fallback: auto-approve
@@ -247,6 +267,7 @@ func (a *Adapter) SendApprovalRequest(ctx context.Context, target channel.Messag
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("✅ Approve", "approve:"+toolName),
 			tgbotapi.NewInlineKeyboardButtonData("❌ Deny", "deny:"+toolName),
+			tgbotapi.NewInlineKeyboardButtonData("🔓 Always Approve", "always_approve:"+toolName),
 		),
 	)
 

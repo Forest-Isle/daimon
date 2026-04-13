@@ -67,6 +67,7 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 	// Create a custom model wrapper that captures user input
 	wrapper := &modelWrapper{
 		Model:       &m,
+		adapter:     a,
 		userInputCh: a.userInputCh,
 	}
 
@@ -245,10 +246,17 @@ func (a *Adapter) SendNotification(_ context.Context, target channel.MessageTarg
 // modelWrapper wraps Model and captures user input on Enter.
 type modelWrapper struct {
 	*Model
+	adapter     *Adapter
 	userInputCh chan string
 }
 
 func (w *modelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Intercept setAutoApproveMsg to enable auto-approve in the adapter
+	if _, ok := msg.(setAutoApproveMsg); ok {
+		w.adapter.autoApprove = true
+		slog.Info("tui: auto-approve enabled by user")
+	}
+
 	// Intercept Enter in chat mode to capture user input text
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && w.mode == modeChat && keyMsg.Type == tea.KeyEnter {
 		text := w.textarea.Value()

@@ -60,6 +60,9 @@ type Model struct {
 	selectedSuggestion  int // -1 means no selection
 	showingSuggestions  bool
 
+	// Scroll state
+	autoScroll bool // true = follow new content; false = user is reading history
+
 	// Layout
 	width  int
 	height int
@@ -81,6 +84,7 @@ func NewModel(agentMode, version string) Model {
 		agentMode:          agentMode,
 		version:            version,
 		selectedSuggestion: -1,
+		autoScroll:         true,
 	}
 }
 
@@ -130,18 +134,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleChatKey(msg)
 		}
 
+	case tea.MouseMsg:
+		if m.ready {
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			m.autoScroll = m.viewport.AtBottom()
+			return m, cmd
+		}
+		return m, nil
+
 	// --- Custom messages from adapter goroutines ---
 
 	case agentResponseMsg:
 		m.addMessage("agent", msg.text)
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 
 	case streamUpdateMsg:
 		m.streamingID = msg.id
 		m.streamingText = msg.text
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 
 	case streamFinishMsg:
 		if msg.text != "" {
@@ -149,8 +160,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.streamingID = ""
 		m.streamingText = ""
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 
 	case approvalRequestMsg:
 		m.mode = modeApproval
@@ -171,18 +181,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionResetMsg:
 		m.messages = m.messages[:0]
 		m.addMessage("system", "🔄 New conversation started.")
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.refreshViewport()
 
 	case errorMsg:
 		m.addMessage("system", "⚠️ Error: "+msg.err.Error())
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 
 	case notificationMsg:
 		m.addMessage("system", msg.text)
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 	}
 
 	// Update sub-components
@@ -238,6 +245,15 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 
+	case tea.KeyPgUp, tea.KeyPgDown:
+		// Forward page scroll keys to viewport; update autoScroll based on position.
+		if m.ready {
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			m.autoScroll = m.viewport.AtBottom()
+			return m, cmd
+		}
+
 	case tea.KeyEnter:
 		text := strings.TrimSpace(m.textarea.Value())
 		if text == "" {
@@ -259,8 +275,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		m.addMessage("user", text)
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.refreshViewport()
 		return m, nil
 	}
 
@@ -281,8 +296,7 @@ func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.approvalCh = nil
 		}
 		m.mode = modeChat
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 	case "n", "N", "esc":
 		m.addMessage("system", fmt.Sprintf("❌ Denied: %s", m.approvalTool))
 		if m.approvalCh != nil {
@@ -290,17 +304,17 @@ func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.approvalCh = nil
 		}
 		m.mode = modeChat
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 	case "a", "A":
-		m.addMessage("system", fmt.Sprintf("✅ Always approve: %s", m.approvalTool))
+		m.addMessage("system", "🔓 Always approve enabled (all future tools will auto-approve)")
 		if m.approvalCh != nil {
 			m.approvalCh <- true
 			m.approvalCh = nil
 		}
 		m.mode = modeChat
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
+		// Send message to adapter to enable autoApprove
+		return m, func() tea.Msg { return setAutoApproveMsg{} }
 	}
 	return m, nil
 }
@@ -314,8 +328,7 @@ func (m *Model) handleFeedbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.feedbackCh = nil
 		}
 		m.mode = modeChat
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 	case "n", "N", "esc":
 		m.addMessage("system", "👎 Feedback: not helpful (-1.0)")
 		if m.feedbackCh != nil {
@@ -323,8 +336,7 @@ func (m *Model) handleFeedbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.feedbackCh = nil
 		}
 		m.mode = modeChat
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 	}
 	return m, nil
 }
@@ -338,8 +350,7 @@ func (m *Model) handleReflectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.reflectCh = nil
 		}
 		m.mode = modeChat
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 	case "2", "a", "A":
 		m.addMessage("system", "🔄 Adjust & replan")
 		if m.reflectCh != nil {
@@ -347,8 +358,7 @@ func (m *Model) handleReflectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.reflectCh = nil
 		}
 		m.mode = modeChat
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 	case "3", "x", "X", "esc":
 		m.addMessage("system", "🛑 Abort")
 		if m.reflectCh != nil {
@@ -356,8 +366,7 @@ func (m *Model) handleReflectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.reflectCh = nil
 		}
 		m.mode = modeChat
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 	}
 	return m, nil
 }
@@ -368,6 +377,28 @@ func (m *Model) addMessage(role, content string) {
 		content:   content,
 		timestamp: time.Now(),
 	})
+}
+
+// refreshViewport re-renders content, re-enables autoScroll, and jumps to bottom.
+// Use for explicit user actions (sending a message, /clear, session reset).
+func (m *Model) refreshViewport() {
+	if m.ready {
+		m.autoScroll = true
+		m.viewport.SetContent(m.renderChat())
+		m.viewport.GotoBottom()
+	}
+}
+
+// updateViewportKeepScroll re-renders content and only scrolls to bottom when
+// autoScroll is enabled (i.e. the user hasn't scrolled up to read history).
+func (m *Model) updateViewportKeepScroll() {
+	if !m.ready {
+		return
+	}
+	m.viewport.SetContent(m.renderChat())
+	if m.autoScroll {
+		m.viewport.GotoBottom()
+	}
 }
 
 // updateSuggestions refreshes the suggestion list based on current input.
@@ -593,32 +624,27 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 	case "clear", "cls":
 		m.messages = m.messages[:0]
 		m.addMessage("system", "🔄 Conversation cleared.")
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.refreshViewport()
 		return true, nil
 
 	case "help", "h", "?":
 		m.showHelp()
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 		return true, nil
 
 	case "version", "v":
 		m.addMessage("system", fmt.Sprintf("IronClaw %s (mode: %s)", m.version, m.agentMode))
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 		return true, nil
 
 	case "status":
 		m.showStatus()
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 		return true, nil
 
 	case "history", "hist":
 		m.showHistory()
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 		return true, nil
 
 	case "export":
@@ -627,8 +653,7 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 			filename = args[0]
 		}
 		m.exportConversation(filename)
-		m.viewport.SetContent(m.renderChat())
-		m.viewport.GotoBottom()
+		m.updateViewportKeepScroll()
 		return true, nil
 
 	default:

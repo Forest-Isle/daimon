@@ -116,11 +116,14 @@ func (gw *Gateway) AddChannel(ch channel.Channel) {
 
 // Start initializes all channels and begins processing.
 func (gw *Gateway) Start(ctx context.Context) error {
-	// Start MCP servers (non-fatal — partial failures are logged)
+	// Start MCP servers asynchronously — npx/uvx process startup can take
+	// several seconds and should not block the TUI from appearing.
 	if len(gw.cfg.Tools.MCP.Servers) > 0 {
-		if err := gw.mcpManager.StartServers(ctx, gw.cfg.Tools.MCP.Servers, gw.tools); err != nil {
-			slog.Error("some MCP servers failed to start", "err", err)
-		}
+		go func() {
+			if err := gw.mcpManager.StartServers(ctx, gw.cfg.Tools.MCP.Servers, gw.tools); err != nil {
+				slog.Error("some MCP servers failed to start", "err", err)
+			}
+		}()
 	}
 
 	// Start MCP hot-reload watcher (polls ~/.IronClaw/mcp/ for new/removed configs)
