@@ -77,6 +77,8 @@ func NewCognitiveAgent(
 	ca.perceiver.SetProjectScanner(scanner)
 	gitProvider := NewGitContextProvider()
 	ca.perceiver.SetGitProvider(gitProvider)
+	budgetAlloc := NewContextBudgetAllocator()
+	ca.perceiver.SetBudgetAllocator(budgetAlloc)
 	ca.planner = NewPlanner(provider, tools, cogCfg, llmCfg.Model)
 	ca.executor = NewExecutor(tools, db, nil, cogCfg) // approvalFunc set via SetApprovalFunc
 	ca.executor.SetToolCache(NewToolResultCache())
@@ -95,6 +97,7 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	oldGraph := ca.perceiver.graph
 	oldScanner := ca.perceiver.scanner
 	oldGitProvider := ca.perceiver.gitProvider
+	oldBudgetAlloc := ca.perceiver.budgetAlloc
 	ca.perceiver = NewPerceiver(s)
 	if oldSearcher != nil {
 		ca.perceiver.SetKnowledgeSearcher(oldSearcher)
@@ -107,6 +110,9 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	}
 	if oldGitProvider != nil {
 		ca.perceiver.SetGitProvider(oldGitProvider)
+	}
+	if oldBudgetAlloc != nil {
+		ca.perceiver.SetBudgetAllocator(oldBudgetAlloc)
 	}
 	ca.reflector = NewReflector(
 		ca.planner.provider,

@@ -20,8 +20,9 @@ type Perceiver struct {
 	searcher    knowledge.Searcher     // optional knowledge searcher (KB or HybridRetriever)
 	graph       graph.Graph            // optional knowledge graph
 	rlPolicy    RLPolicy               // optional RL policy
-	scanner     *ProjectContextScanner // optional project context scanner
-	gitProvider *GitContextProvider     // optional git state provider
+	scanner     *ProjectContextScanner    // optional project context scanner
+	gitProvider *GitContextProvider        // optional git state provider
+	budgetAlloc *ContextBudgetAllocator   // optional context budget allocator
 }
 
 // NewPerceiver creates a new Perceiver.
@@ -52,6 +53,11 @@ func (p *Perceiver) SetProjectScanner(s *ProjectContextScanner) {
 // SetGitProvider injects an optional git context provider.
 func (p *Perceiver) SetGitProvider(g *GitContextProvider) {
 	p.gitProvider = g
+}
+
+// SetBudgetAllocator injects an optional context budget allocator.
+func (p *Perceiver) SetBudgetAllocator(ba *ContextBudgetAllocator) {
+	p.budgetAlloc = ba
 }
 
 // complexityKeywords trigger moderate or complex classification.
@@ -145,11 +151,15 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 		state.GitState = p.gitProvider.Collect(cwd)
 	}
 
+	if p.budgetAlloc != nil {
+		p.budgetAlloc.Apply(state)
+	}
+
 	slog.Info("perceive complete",
 		"complexity", complexity,
-		"memories", len(memories),
-		"knowledge_snippets", len(knowledgeContext),
-		"graph_relations", len(graphContext),
+		"memories", len(state.RelevantMemories),
+		"knowledge_snippets", len(state.KnowledgeContext),
+		"graph_relations", len(state.GraphContext),
 		"history_msgs", len(recentHistory),
 	)
 
