@@ -540,6 +540,94 @@ func (ca *CognitiveAgent) streamFinalAnswer(
 	return updater.Finish(answer)
 }
 
+// handleResume restores execution from the last checkpoint for a session.
+func (ca *CognitiveAgent) handleResume(ctx context.Context, ch channel.Channel, msg channel.InboundMessage, sess *session.Session) error {
+	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
+
+	parts := strings.Fields(msg.Text)
+	resumeSessionID := sess.ID
+	if len(parts) > 1 {
+		resumeSessionID = parts[1]
+	}
+
+	cp, err := ca.checkpointStore.Load(ctx, resumeSessionID)
+	if err != nil {
+		return fmt.Errorf("load checkpoint: %w", err)
+	}
+	if cp == nil {
+		return ch.Send(ctx, channel.OutboundMessage{
+			Channel:   target.Channel,
+			ChannelID: target.ChannelID,
+			Text:      "No checkpoint found for session " + resumeSessionID + ".",
+		})
+	}
+
+	var plan TaskPlan
+	if err := json.Unmarshal([]byte(cp.PlanJSON), &plan); err != nil {
+		return fmt.Errorf("unmarshal checkpoint plan: %w", err)
+	}
+
+	var obsResult ObservationResult
+	if err := json.Unmarshal([]byte(cp.ObservationsJSON), &obsResult); err != nil {
+		return fmt.Errorf("unmarshal checkpoint observations: %w", err)
+	}
+
+	_ = ch.Send(ctx, channel.OutboundMessage{
+		Channel:   target.Channel,
+		ChannelID: target.ChannelID,
+		Text: fmt.Sprintf(
+			"Resuming from checkpoint: %d/%d subtasks completed (progress: %.0f%%).",
+			obsResult.SuccessCount, len(plan.SubTasks), obsResult.OverallProgress*100,
+		),
+	})
+
+	for _, st := range plan.SubTasks {
+		completed := false
+		for _, obs := range obsResult.Observations {
+			if obs.SubTaskID == st.ID && obs.Error == "" && !obs.Denied {
+				completed = true
+				break
+			}
+		}
+		if completed {
+			st.Status = SubTaskDone
+		} else {
+			st.Status = SubTaskPending
+		}
+	}
+
+	taskCtx := NewTaskContext(fmt.Sprintf("resume_%d", time.Now().UnixNano()), "Resume from checkpoint")
+	observations, actErr := ca.executor.RunWithContext(ctx, ch, sess, target, &plan, taskCtx, nil, nil)
+	if actErr != nil {
+		slog.Error("cognitive: resume act failed", "err", actErr)
+	}
+
+	newObsResult := ca.observer.Run(observations, &plan)
+
+	state, _ := ca.perceiver.Run(ctx, sess, "Resume execution from checkpoint", msg.UserID)
+	if state != nil {
+		state.Personality = ca.cfg.Personality
+		state.PersistentRules = ca.cfg.PersistentRules
+	}
+
+	reflection, err := ca.reflector.Run(ctx, ch, target, state, &plan, newObsResult, 0)
+	if err != nil {
+		slog.Error("cognitive: resume reflect failed", "err", err)
+	}
+
+	if reflection != nil && reflection.FinalAnswer != "" {
+		_ = ca.streamFinalAnswer(ctx, ch, target, sess, reflection.FinalAnswer)
+	}
+
+	_ = ca.checkpointStore.Delete(ctx, resumeSessionID)
+
+	if err := ca.sessions.Persist(ctx, sess); err != nil {
+		slog.Error("cognitive: persist failed after resume", "err", err)
+	}
+
+	return nil
+}
+
 // shouldDebate checks if the current task should trigger debate mode.
 func (ca *CognitiveAgent) shouldDebate(state *CognitiveState) bool {
 	if ca.agentMgr == nil {

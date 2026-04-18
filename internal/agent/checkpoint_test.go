@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -88,6 +89,49 @@ func TestSQLiteCheckpointStore_Delete(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("expected nil after delete, got %+v", got)
+	}
+}
+
+func TestSQLiteCheckpointStore_SaveFullObservationResult(t *testing.T) {
+	db := openTestDB(t)
+	cs := NewSQLiteCheckpointStore(db)
+
+	obsResult := &ObservationResult{
+		Observations: []Observation{{SubTaskID: "1", ToolName: "bash", Output: "ok"}},
+		SuccessCount: 1,
+		Assertions:   []AssertionResult{{Check: "exit_code == 0", Passed: true, Actual: "exit_code = 0"}},
+		Failures:     nil,
+	}
+	obsJSON, _ := json.Marshal(obsResult)
+
+	plan := &TaskPlan{Summary: "test", SubTasks: []*SubTask{{ID: "1", Description: "test"}}}
+	planJSON, _ := json.Marshal(plan)
+
+	cp := &TaskCheckpoint{
+		ID: "cp-1", SessionID: "sess-1", SubTaskIndex: 1,
+		ObservationsJSON: string(obsJSON), PlanJSON: string(planJSON),
+	}
+
+	ctx := context.Background()
+	if err := cs.Save(ctx, cp); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := cs.Load(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	var loadedObs ObservationResult
+	if err := json.Unmarshal([]byte(loaded.ObservationsJSON), &loadedObs); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if loadedObs.SuccessCount != 1 {
+		t.Errorf("SuccessCount = %d, want 1", loadedObs.SuccessCount)
+	}
+	if len(loadedObs.Assertions) != 1 {
+		t.Errorf("Assertions = %d, want 1", len(loadedObs.Assertions))
 	}
 }
 

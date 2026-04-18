@@ -90,6 +90,14 @@ var commandRegistry = []Command{
 		ArgHint:     "[days]",
 		Category:    "builtin",
 	},
+
+	// Task resume
+	{
+		Name:        "resume",
+		Description: "Resume task from last checkpoint",
+		ArgHint:     "[session_id]",
+		Category:    "builtin",
+	},
 }
 
 // GetCommands returns all registered commands.
