@@ -26,9 +26,16 @@ IronClaw is a self-hosted AI agent runtime that runs entirely on your own infras
 - **Reinforcement Learning** — Three-layer RL system: Contextual Bandit (tool selection), PPO (plan strategy), DQN (replan decisions) with full neural network training
 - **Tool System** — Built-in tools for Bash, file I/O, HTTP, browser automation, skill execution, and memory management, plus MCP-based dynamic tool discovery
 - **Persona & User Directory** — Auto-initialized `~/.IronClaw/` with personality files (Soul.md, Memory.md, Agent.md) and per-user configs
-- **Local Storage** — SQLite with WAL mode, 12 embedded migrations, FTS5 full-text search (graceful degradation to LIKE)
+- **Local Storage** — SQLite with WAL mode, 18 embedded migrations, FTS5 full-text search (graceful degradation to LIKE)
 - **Task Scheduler** — Cron-based scheduled tasks with database-backed persistence
 - **Tool Approval** — Configurable per-tool approval via Telegram inline keyboard or TUI interactive prompts
+- **Structured Verification** — Auto-generated assertions per tool type (bash exit codes, HTTP status codes, file ops), with typed failure contexts fed into the REFLECT phase for targeted replanning
+- **Task Checkpoints** — Interrupted cognitive tasks auto-save state to SQLite; `/resume` slash command restores execution from the last completed subtask
+- **Smart Retry** — Failure context (error type, attempt count, per-assertion details) injected into REFLECT prompts; tiered degradation warnings after repeated failures
+- **Browser Tools** — `browser_search` (structured search results) and `browser_extract` (HTML-to-Markdown with pagination) for web-aware tasks
+- **Tool Result Cache** — Per-task in-memory cache for read-only tool results with SHA256 keying and automatic path-based invalidation on writes
+- **Project & Git Context** — Auto-detected project type (Go/Node/Rust/Python), build commands, README, and git state (branch, uncommitted files, recent commits) injected into PLAN prompts
+- **Dynamic Context Budget** — Complexity-aware allocation of memories, KB chunks, graph context, and project/git info to prevent token waste on simple tasks
 
 ## Architecture
 

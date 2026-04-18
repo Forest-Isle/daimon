@@ -42,13 +42,20 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 - `noopKBEmbedder` provides a no-op `knowledge.EmbeddingProvider` when OpenAI key is absent (BM25-only fallback)
 - `channel.ApprovalSender` / `channel.ReflectionSender` — optional interfaces for channels that support interactive tool approval and replan decisions; channels that don't implement them auto-approve / auto-continue
 
+**Cognitive agent internal wiring** (`NewCognitiveAgent`):
+- PERCEIVE phase runs: `ProjectContextScanner.Scan()` → `GitContextProvider.Collect()` → `ContextBudgetAllocator.Apply()` → populate `CognitiveState`
+- PLAN phase substitutes `{{PROJECT_CONTEXT}}` and `{{GIT_STATE}}` templates from state
+- OBSERVE phase calls `generateAssertions()` → populates `ObservationResult.Assertions` and `.Failures`
+- REFLECT phase calls `enrichFailureContexts()` → substitutes `{{FAILURE_CONTEXT}}` template; `replanAttempt` counter threaded through loop
+- Checkpoint saved after OBSERVE, deleted on task success; `/resume` command loads checkpoint and re-enters loop
+
 ## Key Packages
 
-- `internal/agent/` — Provider interface, Runtime (simple), CognitiveAgent (5-phase), context building, history compaction
+- `internal/agent/` — Provider interface, Runtime (simple), CognitiveAgent (5-phase), context building, history compaction. Cognitive subsystems: `assertion.go` (auto-verification per tool type), `failure_context.go` (structured error analysis for REFLECT), `checkpoint.go` (SQLite-backed task resume), `tool_cache.go` (per-task read-only result cache), `project_scanner.go` (project type detection), `git_context.go` (branch/status/log injection), `context_budget.go` (complexity-aware context allocation)
 - `internal/memory/` — **File-based storage**: Markdown files at `~/.ironclaw/memory/` as primary storage (YAML frontmatter + content), SQLite as auxiliary index for FTS5+vector hybrid search (RRF fusion). Scopes: session/user/global/feedback. Lifecycle management (ADD/UPDATE/DELETE/NOOP) with conflict detection. Forgetting curve integration for strength-based ranking and auto-archival. Migration tool: `ironclaw memory migrate` converts legacy SQLite data to files.
 - `internal/knowledge/` — Document ingestion pipeline, BM25+vector hybrid retrieval, LLM reranker; `graph/` subpackage for entity/relation triples with recursive CTE traversal
 - `internal/store/` — SQLite wrapper with WAL mode, embedded migrations (`//go:embed migrations/*.sql`) applied alphabetically at startup (idempotent `CREATE TABLE IF NOT EXISTS`)
-- `internal/tool/` — Tool interface + Registry; bash/file/http/browser implementations; `policy.go` for blocked command checks
+- `internal/tool/` — Tool interface + Registry; bash/file/http/browser implementations; `policy.go` for blocked command checks. Bash returns structured JSON (`stdout`, `stderr`, `exit_code`, `status`, `duration_ms`). Browser tools: `browser_search.go` (structured web search results), `browser_extract.go` (HTML-to-Markdown conversion with pagination)
 - `internal/mcp/` — MCP protocol client; tools registered as `mcp_{server}_{tool}`
 - `internal/channel/telegram/` — Telegram adapter with streaming (edit-message), inline keyboard for tool approvals
 - `internal/channel/tui/` — Terminal UI adapter using Bubble Tea (Charm ecosystem); supports streaming, Markdown rendering (Glamour), interactive tool approval dialogs, replan decisions, and **slash command autocomplete** (type `/` to see available commands, navigate with ↑↓, accept with Tab, execute with Enter)
@@ -60,7 +67,7 @@ YAML at `configs/ironclaw.yaml` (copy from `ironclaw.example.yaml`). Environment
 
 ## Database
 
-SQLite at `./data/ironclaw.db`. Migrations in `internal/store/migrations/` (001-006). FTS5 is probed at startup and gracefully degrades to LIKE queries if unavailable.
+SQLite at `./data/ironclaw.db`. Migrations in `internal/store/migrations/` (001-018). FTS5 is probed at startup and gracefully degrades to LIKE queries if unavailable.
 
 ## Memory System
 
