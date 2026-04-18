@@ -22,7 +22,7 @@ func TestConvertTrajectories_Basic(t *testing.T) {
 			Tools: []ToolRecord{
 				{Name: "bash", Succeeded: true, DurationMs: 50},
 			},
-			Reflection:   ReflectionBrief{Confidence: 0.9, Succeeded: true},
+			Reflection:   ReflectionBrief{Reward: 0.9, Succeeded: true},
 			UserFeedback: 1.0,
 			DurationMs:   500,
 			ReplanCount:  0,
@@ -32,7 +32,7 @@ func TestConvertTrajectories_Basic(t *testing.T) {
 			Tools: []ToolRecord{
 				{Name: "http", Succeeded: false, DurationMs: 100},
 			},
-			Reflection:   ReflectionBrief{Confidence: 0.3, Succeeded: false},
+			Reflection:   ReflectionBrief{Succeeded: false},
 			UserFeedback: -1.0,
 			DurationMs:   120000,
 			ReplanCount:  3,

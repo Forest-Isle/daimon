@@ -8,8 +8,17 @@ import (
 )
 
 func (gw *Gateway) initAgentRuntime() error {
-	// LLM provider (optionally wrapped with retry)
-	var provider agent.Provider = agent.NewClaudeProvider(gw.cfg.LLM.APIKey, gw.cfg.LLM.Model, gw.cfg.LLM.BaseURL)
+	// LLM provider selection based on config
+	var provider agent.Provider
+	switch gw.cfg.LLM.Provider {
+	case "openai", "openai-compatible":
+		provider = agent.NewOpenAIProvider(gw.cfg.LLM.APIKey, gw.cfg.LLM.Model, gw.cfg.LLM.BaseURL)
+		slog.Info("LLM provider: openai-compatible", "model", gw.cfg.LLM.Model, "base_url", gw.cfg.LLM.BaseURL)
+	default:
+		provider = agent.NewClaudeProvider(gw.cfg.LLM.APIKey, gw.cfg.LLM.Model, gw.cfg.LLM.BaseURL)
+		slog.Info("LLM provider: claude", "model", gw.cfg.LLM.Model)
+	}
+
 	if gw.cfg.LLM.Retry.MaxRetries > 0 {
 		provider = agent.NewRetryProvider(provider, gw.cfg.LLM.Retry)
 		slog.Info("LLM retry enabled", "max_retries", gw.cfg.LLM.Retry.MaxRetries, "base_delay", gw.cfg.LLM.Retry.BaseDelay)

@@ -299,6 +299,7 @@ func (e *Executor) executeSubTask(
 	result, execErr := t.Execute(ctx, []byte(toolInput))
 	durationMs := time.Since(start).Milliseconds()
 	obs.DurationMs = durationMs
+	obs.Metadata = result.Metadata
 
 	// Determine execution status
 	execStatus := "success"

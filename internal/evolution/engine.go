@@ -175,6 +175,13 @@ func (e *Engine) runInsightsCycle() {
 			"episodes_analyzed", report.TotalEpisodes,
 		)
 	}
+
+	if pl := e.PreferenceLearnerHook(); pl != nil {
+		plApplied := pl.ApplyInsights(report)
+		if plApplied > 0 {
+			slog.Info("evolution: insights → preferences updated", "adjustments", plApplied)
+		}
+	}
 }
 
 // SaveState persists in-memory state for hooks that support it (e.g.
@@ -251,7 +258,9 @@ func (e *Engine) DispatchEpisode(event EpisodeEvent) {
 	}
 }
 
-// DispatchToolExec fires OnToolExecuted on all hooks asynchronously.
+// DispatchToolExec fires OnToolExecuted on all hooks synchronously.
+// Unlike DispatchReflection/DispatchEpisode, this blocks until all hooks
+// finish so that tool events are buffered before episode dispatch starts.
 func (e *Engine) DispatchToolExec(event ToolExecEvent) {
 	if !e.cfg.Enabled {
 		return
@@ -262,10 +271,17 @@ func (e *Engine) DispatchToolExec(event ToolExecEvent) {
 	for _, h := range e.hooks {
 		hook := h
 		e.wg.Add(1)
-		go e.safeDispatch(hook.Name(), func(ctx context.Context) {
+		e.safeDispatch(hook.Name(), func(ctx context.Context) {
 			hook.OnToolExecuted(ctx, event)
 		})
 	}
+}
+
+// WaitPending blocks until all in-flight hook dispatches complete.
+// Callers (e.g. eval runner) can use this to ensure hook side-effects
+// are visible before reading hook state.
+func (e *Engine) WaitPending() {
+	e.wg.Wait()
 }
 
 // PreferenceLearnerHook returns the first registered PreferenceLearner hook, or nil.

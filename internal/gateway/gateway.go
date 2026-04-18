@@ -13,6 +13,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
@@ -271,6 +272,15 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	_ = gw.db.Close()
 	slog.Info("gateway stopped")
 	return nil
+}
+
+// NewEvalRunner creates an eval.AgentRunner backed by the gateway's cognitive
+// agent. Returns nil if the gateway is not in cognitive mode.
+func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
+	if gw.cognitiveAgent == nil {
+		return nil
+	}
+	return eval.NewCognitiveAgentRunner(gw.cognitiveAgent)
 }
 
 // handleInbound routes incoming messages to the agent runtime.

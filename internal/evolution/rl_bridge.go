@@ -78,6 +78,9 @@ func trajectoryToExperience(rec TrajectoryRecord) RLExperience {
 }
 
 func computeTrajectoryReward(rec TrajectoryRecord) float64 {
+	if rec.Reflection.Reward != 0 {
+		return rec.Reflection.Reward
+	}
 	progress := 0.0
 	if rec.Reflection.Succeeded {
 		progress = 1.0

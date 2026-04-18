@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -87,11 +88,18 @@ func (p *PreferenceLearner) OnReflectionComplete(_ context.Context, event Reflec
 		p.recordPreference("replan_tendency", "no_replans", "preferred")
 	}
 
+	// Signal 4 – user_feedback: boost or reduce tool preferences based on
+	// explicit user feedback. Magnitude is proportional to |feedback|.
+	if event.UserFeedback != 0 {
+		p.applyUserFeedback(event.ToolsUsed, event.UserFeedback)
+	}
+
 	slog.Debug("preference_learner: signals extracted",
 		"session_id", event.SessionID,
 		"tools", len(event.ToolsUsed),
 		"complexity", event.Complexity,
 		"replan_count", event.ReplanCount,
+		"user_feedback", event.UserFeedback,
 	)
 }
 
@@ -225,6 +233,109 @@ func (p *PreferenceLearner) BuildPromptSection() string {
 	}
 
 	return b.String()
+}
+
+// applyUserFeedback adjusts tool preference confidence based on explicit user
+// feedback. Positive feedback boosts confidence; negative feedback reduces it.
+// The adjustment magnitude scales with |feedback| (range -1 to 1).
+func (p *PreferenceLearner) applyUserFeedback(tools []string, feedback float64) {
+	magnitude := math.Abs(feedback)
+	adjustment := magnitude * 0.15 // max ±0.15 per feedback event
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, tool := range tools {
+		if tool == "" {
+			continue
+		}
+		prefKey := prefMapKey("tool_preference", tool)
+		entry, ok := p.preferences[prefKey]
+		if !ok {
+			if feedback <= 0 {
+				continue // don't create entries for negative-only feedback
+			}
+			if p.cfg.MaxPreferences > 0 && len(p.preferences) >= p.cfg.MaxPreferences {
+				p.evictLowestLocked()
+			}
+			p.preferences[prefKey] = &PreferenceEntry{
+				Category:   "tool_preference",
+				Key:        tool,
+				Value:      "user_endorsed",
+				Confidence: clampUnit(adjustment),
+				Count:      1,
+				LastSeen:   time.Now(),
+			}
+			continue
+		}
+
+		if feedback > 0 {
+			entry.Confidence = clampUnit(entry.Confidence + adjustment)
+		} else {
+			entry.Confidence = clampUnit(entry.Confidence - adjustment)
+		}
+		entry.LastSeen = time.Now()
+	}
+}
+
+// ApplyInsights updates preferences based on aggregated trajectory insights.
+// Tools with high failure rates get reduced preference scores; tools with high
+// success rates get boosted. Returns the number of preference adjustments made.
+func (p *PreferenceLearner) ApplyInsights(report *InsightsReport) int {
+	if report == nil || len(report.TopTools) == 0 {
+		return 0
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	adjusted := 0
+	for _, ti := range report.TopTools {
+		if ti.Uses < 3 {
+			continue
+		}
+		prefKey := prefMapKey("tool_preference", ti.Name)
+		entry, ok := p.preferences[prefKey]
+		if !ok {
+			continue
+		}
+
+		// Penalize unreliable tools, reward reliable ones.
+		// Neutral point at 0.5 success rate → no change.
+		delta := (ti.SuccessRate - 0.5) * 0.1
+		newConf := clampUnit(entry.Confidence + delta)
+		if newConf != entry.Confidence {
+			entry.Confidence = newConf
+			entry.LastSeen = time.Now()
+			adjusted++
+		}
+	}
+
+	if adjusted > 0 {
+		slog.Debug("preference_learner: applied insights",
+			"adjustments", adjusted,
+			"tools_analyzed", len(report.TopTools),
+		)
+	}
+	return adjusted
+}
+
+// EntryCount returns the number of preference entries currently stored.
+func (p *PreferenceLearner) EntryCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.preferences)
+}
+
+// clampUnit restricts v to [0.0, 1.0].
+func clampUnit(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 // ---------------------------------------------------------------------------

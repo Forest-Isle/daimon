@@ -1,11 +1,23 @@
 # IronClaw 配置示例
 
 llm:
-  provider: claude
+  provider: claude                               # "claude" (default) or "openai" / "openai-compatible"
   api_key: "${ANTHROPIC_API_KEY}"
-  # base_url: "https://your-relay.example.com"  # 使用中转站时设置此项
+  # base_url: "https://your-relay.example.com"   # custom base URL (relay, Ollama, vLLM, etc.)
   model: claude-sonnet-4-20250514
   max_tokens: 8192
+
+  # --- OpenAI-compatible example (uncomment to use) ---
+  # provider: openai
+  # api_key: "${OPENAI_API_KEY}"
+  # model: gpt-4o
+  # max_tokens: 8192
+  #
+  # --- Local model via Ollama (uncomment to use) ---
+  # provider: openai-compatible
+  # api_key: ""                                  # Ollama doesn't need an API key
+  # base_url: "http://localhost:11434/v1"
+  # model: llama3.1
 
 telegram:
   token: "${TELEGRAM_BOT_TOKEN}"

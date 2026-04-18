@@ -24,6 +24,8 @@ func generateAssertions(obs Observation) []AssertionResult {
 		return fileWriteAssertions(obs)
 	case obs.ToolName == "file_read":
 		return fileReadAssertions(obs)
+	case obs.ToolName == "file_list":
+		return fileListAssertions(obs)
 	case obs.ToolName == "browser_search":
 		return browserSearchAssertions(obs)
 	case obs.ToolName == "browser_extract":
@@ -88,25 +90,38 @@ func stderrActual(stderr string, matched []string) string {
 		strings.Join(matched, ", "), truncate(stderr, 120))
 }
 
-type httpOutput struct {
-	StatusCode int    `json:"status_code"`
-	Body       string `json:"body"`
-}
-
 func httpAssertions(obs Observation) []AssertionResult {
-	var out httpOutput
-	if err := json.Unmarshal([]byte(obs.Output), &out); err != nil {
+	statusCode := 0
+
+	// Prefer structured metadata from tool.Result.Metadata (always available
+	// when the HTTP tool populates it).
+	if sc, ok := metadataInt(obs.Metadata, "status_code"); ok {
+		statusCode = sc
+	} else {
+		// Fallback: parse "HTTP 200 OK\n..." plain-text output format.
+		if _, err := fmt.Sscanf(obs.Output, "HTTP %d ", &statusCode); err != nil {
+			// Last resort: try legacy JSON envelope.
+			var legacy struct {
+				StatusCode int `json:"status_code"`
+			}
+			if jsonErr := json.Unmarshal([]byte(obs.Output), &legacy); jsonErr == nil {
+				statusCode = legacy.StatusCode
+			}
+		}
+	}
+
+	if statusCode == 0 {
 		return []AssertionResult{{
-			Check:  "output is valid JSON",
-			Passed: false,
-			Actual: truncate(obs.Output, 200),
+			Check:  "HTTP response received",
+			Passed: obs.Error == "",
+			Actual: errorOrOK(obs.Error),
 		}}
 	}
 
 	return []AssertionResult{{
 		Check:  "status_code < 400",
-		Passed: out.StatusCode >= 100 && out.StatusCode < 400,
-		Actual: fmt.Sprintf("status_code = %d", out.StatusCode),
+		Passed: statusCode >= 100 && statusCode < 400,
+		Actual: fmt.Sprintf("status_code = %d", statusCode),
 	}}
 }
 
@@ -145,11 +160,6 @@ func fileReadAssertions(obs Observation) []AssertionResult {
 	return results
 }
 
-type browserSearchOutput struct {
-	Results []json.RawMessage `json:"results"`
-	Error   string            `json:"error"`
-}
-
 func browserSearchAssertions(obs Observation) []AssertionResult {
 	results := make([]AssertionResult, 0, 2)
 
@@ -160,22 +170,37 @@ func browserSearchAssertions(obs Observation) []AssertionResult {
 	})
 
 	if obs.Error == "" {
-		var out browserSearchOutput
-		if err := json.Unmarshal([]byte(obs.Output), &out); err == nil {
+		resultCount := -1
+
+		// Prefer metadata from tool.Result.Metadata.
+		if rc, ok := metadataInt(obs.Metadata, "result_count"); ok {
+			resultCount = rc
+		} else {
+			// Tool output is a bare JSON array of search results.
+			var arr []json.RawMessage
+			if err := json.Unmarshal([]byte(obs.Output), &arr); err == nil {
+				resultCount = len(arr)
+			} else {
+				// Legacy: try object with "results" field.
+				var legacy struct {
+					Results []json.RawMessage `json:"results"`
+				}
+				if jsonErr := json.Unmarshal([]byte(obs.Output), &legacy); jsonErr == nil {
+					resultCount = len(legacy.Results)
+				}
+			}
+		}
+
+		if resultCount >= 0 {
 			results = append(results, AssertionResult{
 				Check:  "search returned results",
-				Passed: len(out.Results) > 0 && out.Error == "",
-				Actual: fmt.Sprintf("results=%d, error=%q", len(out.Results), out.Error),
+				Passed: resultCount > 0,
+				Actual: fmt.Sprintf("result_count=%d", resultCount),
 			})
 		}
 	}
 
 	return results
-}
-
-type browserExtractOutput struct {
-	Content string `json:"content"`
-	Error   string `json:"error"`
 }
 
 func browserExtractAssertions(obs Observation) []AssertionResult {
@@ -188,22 +213,16 @@ func browserExtractAssertions(obs Observation) []AssertionResult {
 	})
 
 	if obs.Error == "" {
-		var out browserExtractOutput
-		if err := json.Unmarshal([]byte(obs.Output), &out); err == nil {
-			results = append(results, AssertionResult{
-				Check:  "extracted content is non-empty",
-				Passed: len(strings.TrimSpace(out.Content)) > 0 && out.Error == "",
-				Actual: fmt.Sprintf("content_len=%d, error=%q", len(out.Content), out.Error),
-			})
-		}
+		// Tool output is raw Markdown content (not a JSON envelope).
+		content := strings.TrimSpace(obs.Output)
+		results = append(results, AssertionResult{
+			Check:  "extracted content is non-empty",
+			Passed: len(content) > 0,
+			Actual: fmt.Sprintf("content_len=%d", len(content)),
+		})
 	}
 
 	return results
-}
-
-type mcpOutput struct {
-	Error  string `json:"error"`
-	Result json.RawMessage `json:"result"`
 }
 
 func mcpAssertions(obs Observation) []AssertionResult {
@@ -215,13 +234,28 @@ func mcpAssertions(obs Observation) []AssertionResult {
 		Actual: errorOrOK(obs.Error),
 	})
 
-	if obs.Error == "" && obs.Output != "" {
-		var out mcpOutput
-		if err := json.Unmarshal([]byte(obs.Output), &out); err == nil && out.Error != "" {
+	if obs.Error == "" {
+		// MCP adapter joins TextContent blocks into plain text.
+		// Also check for a JSON error field if the output happens to be JSON.
+		hasError := false
+		if obs.Output != "" {
+			var envelope struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(obs.Output), &envelope); err == nil && envelope.Error != "" {
+				hasError = true
+				results = append(results, AssertionResult{
+					Check:  "MCP response has no error field",
+					Passed: false,
+					Actual: truncate(envelope.Error, 200),
+				})
+			}
+		}
+		if !hasError {
 			results = append(results, AssertionResult{
-				Check:  "MCP response has no error field",
-				Passed: false,
-				Actual: truncate(out.Error, 200),
+				Check:  "MCP tool produced output",
+				Passed: len(strings.TrimSpace(obs.Output)) > 0,
+				Actual: fmt.Sprintf("output_len=%d", len(obs.Output)),
 			})
 		}
 	}
@@ -268,6 +302,48 @@ func genericAssertions(obs Observation) []AssertionResult {
 		Passed: false,
 		Actual: truncate(obs.Error, 200),
 	}}
+}
+
+func fileListAssertions(obs Observation) []AssertionResult {
+	results := make([]AssertionResult, 0, 2)
+
+	results = append(results, AssertionResult{
+		Check:  "file list succeeded",
+		Passed: obs.Error == "",
+		Actual: errorOrOK(obs.Error),
+	})
+
+	if obs.Error == "" {
+		results = append(results, AssertionResult{
+			Check:  "listing is non-empty",
+			Passed: len(strings.TrimSpace(obs.Output)) > 0,
+			Actual: fmt.Sprintf("output_len=%d", len(obs.Output)),
+		})
+	}
+
+	return results
+}
+
+// metadataInt extracts an integer value from an Observation's Metadata map.
+// Handles both int and float64 (JSON number unmarshalling).
+func metadataInt(meta map[string]any, key string) (int, bool) {
+	if meta == nil {
+		return 0, false
+	}
+	v, ok := meta[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		return 0, false
+	}
 }
 
 func errorOrOK(errMsg string) string {

@@ -34,6 +34,7 @@ type ToolRecord struct {
 // ReflectionBrief is a compact view of the reflection outcome.
 type ReflectionBrief struct {
 	Confidence float64  `json:"confidence"`
+	Reward     float64  `json:"reward"`
 	Succeeded  bool     `json:"succeeded"`
 	Lessons    []string `json:"lessons,omitempty"`
 }
@@ -103,8 +104,8 @@ func (tr *TrajectoryRecorder) OnEpisodeComplete(_ context.Context, event Episode
 		Complexity: event.Complexity,
 		Tools:      tools,
 		Reflection: ReflectionBrief{
-			Confidence: event.TotalReward,
-			Succeeded:  event.Succeeded,
+			Reward:    event.TotalReward,
+			Succeeded: event.Succeeded,
 		},
 		UserFeedback: event.UserFeedback,
 		ReplanCount:  event.ReplanCount,
@@ -186,6 +187,16 @@ func ReadTrajectories(dir string, since, until time.Time) ([]TrajectoryRecord, e
 		return nil, err
 	}
 
+	since = since.UTC()
+	until = until.UTC()
+
+	// Day-level pre-filter with ±1 day buffer: file naming uses the timestamp's
+	// local timezone but time.Parse gives UTC midnight, so tz offsets can push
+	// the parsed day outside the range. The per-record timestamp check below
+	// ensures exact correctness.
+	dayLo := since.Truncate(24 * time.Hour).Add(-24 * time.Hour)
+	dayHi := until.Truncate(24 * time.Hour).Add(24 * time.Hour)
+
 	var results []TrajectoryRecord
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
@@ -196,7 +207,7 @@ func ReadTrajectories(dir string, since, until time.Time) ([]TrajectoryRecord, e
 		if err != nil {
 			continue
 		}
-		if day.Before(since.Truncate(24*time.Hour)) || day.After(until) {
+		if day.Before(dayLo) || day.After(dayHi) {
 			continue
 		}
 

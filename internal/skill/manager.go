@@ -98,44 +98,51 @@ func (m *Manager) LoadDir(dir string) error {
 	existing := m.nameSet()
 
 	for _, e := range entries {
-		var skillPath string
+		var paths []string
 
 		if e.IsDir() {
-			// Look for SKILL.md inside the subdirectory
 			candidate := filepath.Join(dir, e.Name(), "SKILL.md")
 			if _, err := os.Stat(candidate); err == nil {
-				skillPath = candidate
+				paths = append(paths, candidate)
+			} else {
+				// No SKILL.md found — scan for flat .md files one level deep
+				subDir := filepath.Join(dir, e.Name())
+				subEntries, subErr := os.ReadDir(subDir)
+				if subErr == nil {
+					for _, se := range subEntries {
+						if !se.IsDir() && strings.HasSuffix(se.Name(), ".md") {
+							paths = append(paths, filepath.Join(subDir, se.Name()))
+						}
+					}
+				}
 			}
 		} else {
-			name := e.Name()
-			if strings.HasSuffix(name, ".md") {
-				skillPath = filepath.Join(dir, name)
+			if strings.HasSuffix(e.Name(), ".md") {
+				paths = append(paths, filepath.Join(dir, e.Name()))
 			}
 		}
 
-		if skillPath == "" {
-			continue
-		}
+		for _, skillPath := range paths {
+			s, err := ParseSkill(skillPath)
+			if err != nil {
+				slog.Warn("skill: failed to parse", "path", skillPath, "err", err)
+				continue
+			}
 
-		s, err := ParseSkill(skillPath)
-		if err != nil {
-			slog.Warn("skill: failed to parse", "path", skillPath, "err", err)
-			continue
-		}
+			if s.Name == "" {
+				slog.Warn("skill: missing name field, skipping", "path", skillPath)
+				continue
+			}
 
-		if s.Name == "" {
-			slog.Warn("skill: missing name field, skipping", "path", skillPath)
-			continue
-		}
+			if existing[s.Name] {
+				slog.Debug("skill: already loaded, skipping duplicate", "name", s.Name)
+				continue
+			}
 
-		if existing[s.Name] {
-			slog.Debug("skill: already loaded, skipping duplicate", "name", s.Name)
-			continue
+			existing[s.Name] = true
+			m.skills = append(m.skills, s)
+			slog.Info("skill: loaded", "name", s.Name, "version", s.Version, "path", skillPath)
 		}
-
-		existing[s.Name] = true
-		m.skills = append(m.skills, s)
-		slog.Info("skill: loaded", "name", s.Name, "version", s.Version, "path", skillPath)
 	}
 
 	return nil

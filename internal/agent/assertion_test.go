@@ -38,11 +38,12 @@ func TestGenerateAssertions_Bash_Failed(t *testing.T) {
 	assertCheck(t, results, "stderr has no error keywords", false)
 }
 
-func TestGenerateAssertions_HTTP_Success(t *testing.T) {
+func TestGenerateAssertions_HTTP_Success_Metadata(t *testing.T) {
 	obs := Observation{
 		SubTaskID: "s3",
 		ToolName:  "http",
-		Output:    `{"status_code":200,"body":"ok"}`,
+		Output:    "HTTP 200 OK\n\nresponse body",
+		Metadata:  map[string]any{"status_code": 200, "content_type": "text/plain"},
 	}
 
 	results := generateAssertions(obs)
@@ -53,11 +54,23 @@ func TestGenerateAssertions_HTTP_Success(t *testing.T) {
 	assertCheck(t, results, "status_code < 400", true)
 }
 
-func TestGenerateAssertions_HTTP_ServerError(t *testing.T) {
+func TestGenerateAssertions_HTTP_Success_PlainText(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "s3b",
+		ToolName:  "http",
+		Output:    "HTTP 200 OK\n\nresponse body",
+	}
+
+	results := generateAssertions(obs)
+	assertCheck(t, results, "status_code < 400", true)
+}
+
+func TestGenerateAssertions_HTTP_ServerError_Metadata(t *testing.T) {
 	obs := Observation{
 		SubTaskID: "s4",
 		ToolName:  "http",
-		Output:    `{"status_code":500,"body":"internal error"}`,
+		Output:    "HTTP 500 Internal Server Error\n\nerror",
+		Metadata:  map[string]any{"status_code": 500},
 	}
 
 	results := generateAssertions(obs)
@@ -66,6 +79,28 @@ func TestGenerateAssertions_HTTP_ServerError(t *testing.T) {
 	}
 
 	assertCheck(t, results, "status_code < 400", false)
+}
+
+func TestGenerateAssertions_HTTP_ServerError_PlainText(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "s4b",
+		ToolName:  "http",
+		Output:    "HTTP 500 Internal Server Error\n\nerror",
+	}
+
+	results := generateAssertions(obs)
+	assertCheck(t, results, "status_code < 400", false)
+}
+
+func TestGenerateAssertions_HTTP_LegacyJSON(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "s4c",
+		ToolName:  "http",
+		Output:    `{"status_code":200,"body":"ok"}`,
+	}
+
+	results := generateAssertions(obs)
+	assertCheck(t, results, "status_code < 400", true)
 }
 
 func TestGenerateAssertions_UnknownTool(t *testing.T) {
@@ -144,19 +179,19 @@ func TestGenerateAssertions_Bash_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestGenerateAssertions_HTTP_InvalidJSON(t *testing.T) {
+func TestGenerateAssertions_HTTP_UnparsableOutput(t *testing.T) {
 	obs := Observation{
 		SubTaskID: "11",
 		ToolName:  "http",
-		Output:    "<html>not json</html>",
+		Output:    "<html>not json and no HTTP prefix</html>",
 		Error:     "",
 	}
 	results := generateAssertions(obs)
-	for _, r := range results {
-		if r.Check == "status_code < 400" && r.Passed {
-			t.Error("should not pass status_code check on invalid JSON")
-		}
+	if len(results) == 0 {
+		t.Fatal("expected at least one assertion")
 	}
+	// When status code can't be extracted, falls back to error check.
+	assertCheck(t, results, "HTTP response received", true)
 }
 
 func TestObserverRun_PopulatesAssertions(t *testing.T) {
@@ -169,7 +204,7 @@ func TestObserverRun_PopulatesAssertions(t *testing.T) {
 	}
 	observations := []Observation{
 		{SubTaskID: "1", ToolName: "bash", Output: `{"stdout":"ok","stderr":"","exit_code":0,"status":"ok"}`},
-		{SubTaskID: "2", ToolName: "http", Output: `{"status_code":500,"body":"err"}`},
+		{SubTaskID: "2", ToolName: "http", Output: "HTTP 500 Internal Server Error\n\nerr", Metadata: map[string]any{"status_code": 500}},
 	}
 
 	result := obs.Run(observations, plan)
@@ -300,15 +335,26 @@ func TestGenerateAssertions_FileRead_EmptyContent(t *testing.T) {
 
 // ---------- browser_search assertions ----------
 
-func TestGenerateAssertions_BrowserSearch_Success(t *testing.T) {
+func TestGenerateAssertions_BrowserSearch_Success_Array(t *testing.T) {
 	obs := Observation{
 		SubTaskID: "bs1",
 		ToolName:  "browser_search",
-		Output:    `{"results":[{"title":"result1"},{"title":"result2"}],"error":""}`,
-		Error:     "",
+		Output:    `[{"title":"result1","url":"http://a.com","snippet":"..."},{"title":"result2","url":"http://b.com","snippet":"..."}]`,
+		Metadata:  map[string]any{"query": "test", "result_count": 2},
 	}
 	results := generateAssertions(obs)
 	assertCheck(t, results, "search succeeded", true)
+	assertCheck(t, results, "search returned results", true)
+}
+
+func TestGenerateAssertions_BrowserSearch_Success_Metadata(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "bs1b",
+		ToolName:  "browser_search",
+		Output:    `[{"title":"r1"}]`,
+		Metadata:  map[string]any{"result_count": 1},
+	}
+	results := generateAssertions(obs)
 	assertCheck(t, results, "search returned results", true)
 }
 
@@ -316,12 +362,22 @@ func TestGenerateAssertions_BrowserSearch_Empty(t *testing.T) {
 	obs := Observation{
 		SubTaskID: "bs2",
 		ToolName:  "browser_search",
-		Output:    `{"results":[],"error":""}`,
-		Error:     "",
+		Output:    `[]`,
+		Metadata:  map[string]any{"result_count": 0},
 	}
 	results := generateAssertions(obs)
 	assertCheck(t, results, "search succeeded", true)
 	assertCheck(t, results, "search returned results", false)
+}
+
+func TestGenerateAssertions_BrowserSearch_LegacyFormat(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "bs2b",
+		ToolName:  "browser_search",
+		Output:    `{"results":[{"title":"r1"}],"error":""}`,
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "search returned results", true)
 }
 
 func TestGenerateAssertions_BrowserSearch_Error(t *testing.T) {
@@ -340,8 +396,8 @@ func TestGenerateAssertions_BrowserExtract_Success(t *testing.T) {
 	obs := Observation{
 		SubTaskID: "be1",
 		ToolName:  "browser_extract",
-		Output:    `{"content":"# Page Title\nSome content","error":""}`,
-		Error:     "",
+		Output:    "# Page Title\n\nSome content here with Markdown formatting.",
+		Metadata:  map[string]any{"url": "http://example.com", "page": 1, "total_pages": 1},
 	}
 	results := generateAssertions(obs)
 	assertCheck(t, results, "extract succeeded", true)
@@ -352,7 +408,7 @@ func TestGenerateAssertions_BrowserExtract_EmptyContent(t *testing.T) {
 	obs := Observation{
 		SubTaskID: "be2",
 		ToolName:  "browser_extract",
-		Output:    `{"content":"","error":"page not found"}`,
+		Output:    "   ",
 		Error:     "",
 	}
 	results := generateAssertions(obs)
@@ -360,17 +416,40 @@ func TestGenerateAssertions_BrowserExtract_EmptyContent(t *testing.T) {
 	assertCheck(t, results, "extracted content is non-empty", false)
 }
 
+func TestGenerateAssertions_BrowserExtract_Error(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "be3",
+		ToolName:  "browser_extract",
+		Error:     "failed to fetch URL",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "extract succeeded", false)
+}
+
 // ---------- mcp_* assertions ----------
 
-func TestGenerateAssertions_MCP_Success(t *testing.T) {
+func TestGenerateAssertions_MCP_Success_PlainText(t *testing.T) {
 	obs := Observation{
 		SubTaskID: "mcp1",
 		ToolName:  "mcp_github_search",
-		Output:    `{"result":{"items":[]}}`,
+		Output:    "Found 5 repositories matching the query.",
 		Error:     "",
 	}
 	results := generateAssertions(obs)
 	assertCheck(t, results, "MCP tool succeeded", true)
+	assertCheck(t, results, "MCP tool produced output", true)
+}
+
+func TestGenerateAssertions_MCP_Success_EmptyOutput(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "mcp1b",
+		ToolName:  "mcp_void_tool",
+		Output:    "",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "MCP tool succeeded", true)
+	assertCheck(t, results, "MCP tool produced output", false)
 }
 
 func TestGenerateAssertions_MCP_ToolError(t *testing.T) {
@@ -452,6 +531,42 @@ func TestGenerateAssertions_Memory_Error(t *testing.T) {
 	}
 	results := generateAssertions(obs)
 	assertCheck(t, results, "memory operation succeeded", false)
+}
+
+// ---------- file_list assertions ----------
+
+func TestGenerateAssertions_FileList_Success(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "fl1",
+		ToolName:  "file_list",
+		Output:    "main.go\ngo.mod\ngo.sum\ninternal/",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "file list succeeded", true)
+	assertCheck(t, results, "listing is non-empty", true)
+}
+
+func TestGenerateAssertions_FileList_Empty(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "fl2",
+		ToolName:  "file_list",
+		Output:    "",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "file list succeeded", true)
+	assertCheck(t, results, "listing is non-empty", false)
+}
+
+func TestGenerateAssertions_FileList_Error(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "fl3",
+		ToolName:  "file_list",
+		Error:     "directory not found",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "file list succeeded", false)
 }
 
 // ---------- generic (fallback) assertions ----------

@@ -172,7 +172,7 @@ func TestComputeSimpleEpisodeReward(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := computeSimpleEpisodeReward(tc.reflection, tc.obs)
+			got := computeSimpleEpisodeReward(tc.reflection, tc.obs, 0, 0, 0)
 			if got < tc.wantMin || got > tc.wantMax {
 				t.Errorf("expected reward in [%f, %f], got %f", tc.wantMin, tc.wantMax, got)
 			}

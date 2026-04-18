@@ -81,6 +81,10 @@ assertion coverage: map[
 ]
 ```
 
+## 后续改进
+
+本次扩展覆盖后，发现多个断言函数对工具输出格式的假设与实际输出不一致（测试和代码"错得一致"）。详见 [ASSERTION_METADATA_FIX.md](ASSERTION_METADATA_FIX.md)。
+
 ## 涉及文件
 
 | 文件 | 变更类型 | 说明 |

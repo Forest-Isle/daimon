@@ -38,12 +38,23 @@ type EvalResult struct {
 	Timestamp         time.Time     `json:"timestamp"`
 }
 
+// EvolutionSnapshot captures evolution subsystem state at a point in time.
+type EvolutionSnapshot struct {
+	PreferenceCount int `json:"preference_count"`
+	StrategyVersion int `json:"strategy_version"`
+	SkillDraftCount int `json:"skill_draft_count"`
+	TrajectoryCount int `json:"trajectory_count"`
+}
+
 // SuiteResult aggregates results across a full evaluation run.
 type SuiteResult struct {
 	RunID     string       `json:"run_id"`
 	Results   []EvalResult `json:"results"`
 	StartedAt time.Time    `json:"started_at"`
 	Duration  time.Duration `json:"duration_ms"`
+
+	EvoBefore *EvolutionSnapshot `json:"evo_before,omitempty"`
+	EvoAfter  *EvolutionSnapshot `json:"evo_after,omitempty"`
 }
 
 // AgentRunner abstracts the cognitive agent interface for evaluation.
@@ -51,6 +62,11 @@ type SuiteResult struct {
 type AgentRunner interface {
 	// RunTask executes a single task and returns an EvalResult.
 	RunTask(ctx context.Context, task TaskCase) (*EvalResult, error)
+}
+
+// SnapshotCaptor is optionally implemented by AgentRunner to capture evolution state.
+type SnapshotCaptor interface {
+	CaptureSnapshot() *EvolutionSnapshot
 }
 
 // RunSuite executes all tasks against the given runner and collects results.
@@ -63,6 +79,10 @@ func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentR
 		RunID:     runID,
 		Results:   make([]EvalResult, 0, len(tasks)),
 		StartedAt: time.Now(),
+	}
+
+	if sc, ok := runner.(SnapshotCaptor); ok {
+		suite.EvoBefore = sc.CaptureSnapshot()
 	}
 
 	for i, task := range tasks {
@@ -91,6 +111,10 @@ func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentR
 
 		fmt.Printf("  [%d/%d] %s — %s (%.1fs)\n",
 			i+1, len(tasks), task.ID, statusLabel(result.Success), result.Duration.Seconds())
+	}
+
+	if sc, ok := runner.(SnapshotCaptor); ok {
+		suite.EvoAfter = sc.CaptureSnapshot()
 	}
 
 	suite.Duration = time.Since(suite.StartedAt)

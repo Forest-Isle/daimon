@@ -63,3 +63,70 @@ func BuiltinSuite() []TaskCase {
 		},
 	}
 }
+
+// EvolutionSuite returns tasks designed to stress-test the cognitive loop's
+// replan and error-recovery capabilities. These tasks are intentionally tricky:
+// they involve ambiguous instructions, deliberate error conditions, and
+// multi-step dependencies that often trigger replanning. Running this suite
+// across evolution cycles measures whether the strategy optimizer is improving
+// the agent's replan efficiency.
+func EvolutionSuite() []TaskCase {
+	return []TaskCase{
+		{
+			ID:         "evo-ambiguous-path",
+			Goal:       "Find the configuration file in this project. It might be in configs/, config/, or the root directory. Read it and report the first three lines.",
+			Complexity: "moderate",
+			Tags:       []string{"bash", "file_read", "ambiguity", "replan-likely"},
+			ExpectTools: []string{"bash", "file_read"},
+		},
+		{
+			ID:         "evo-wrong-tool-recovery",
+			Goal:       "Check the disk usage of /tmp. If the percentage used is above 50%, create a report file at /tmp/ironclaw_disk_report.txt with the output; otherwise write 'disk OK' to that file.",
+			Complexity: "moderate",
+			Tags:       []string{"bash", "file_write", "conditional", "replan-likely"},
+			ExpectTools: []string{"bash", "file_write"},
+		},
+		{
+			ID:         "evo-multi-attempt-fix",
+			Goal:       "Write a Python script at /tmp/ironclaw_eval_calc.py that computes the factorial of 10 and prints the result. Execute it and verify the output is 3628800.",
+			Complexity: "complex",
+			Tags:       []string{"file_write", "bash", "verification", "replan-likely"},
+			ExpectTools: []string{"file_write", "bash"},
+			SuccessFunc: func(r *EvalResult) bool {
+				return r.Success && r.AssertionPassRate > 0.8
+			},
+		},
+		{
+			ID:         "evo-cascading-deps",
+			Goal:       "Create directory /tmp/ironclaw_eval_cascade/, then write three files: a.txt with 'alpha', b.txt with content of a.txt reversed, and c.txt with line count of a.txt and b.txt combined. Verify c.txt contains '2'.",
+			Complexity: "complex",
+			Tags:       []string{"bash", "file_write", "file_read", "dependency-chain", "replan-likely"},
+			ExpectTools: []string{"bash", "file_write", "file_read"},
+		},
+		{
+			ID:         "evo-permission-boundary",
+			Goal:       "Try to read /etc/shadow. When denied, explain why it failed and instead read /etc/hostname (or equivalent readable system file) and return its content.",
+			Complexity: "moderate",
+			Tags:       []string{"bash", "file_read", "permission", "error-recovery", "replan-likely"},
+			ExpectTools: []string{"bash"},
+		},
+		{
+			ID:         "evo-iterative-refinement",
+			Goal:       "Write a shell function in /tmp/ironclaw_eval_greet.sh that takes a name parameter and prints 'Hello, <name>!'. Source the file and test it with the name 'World'. The output must be exactly 'Hello, World!'.",
+			Complexity: "complex",
+			Tags:       []string{"file_write", "bash", "precision", "replan-likely"},
+			ExpectTools: []string{"file_write", "bash"},
+			SuccessFunc: func(r *EvalResult) bool {
+				return r.Success && r.ReplanCount <= 2
+			},
+		},
+	}
+}
+
+// AllSuites returns a map of all available named suites.
+func AllSuites() map[string]func() []TaskCase {
+	return map[string]func() []TaskCase{
+		"builtin":   BuiltinSuite,
+		"evolution": EvolutionSuite,
+	}
+}

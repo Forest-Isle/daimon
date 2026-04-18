@@ -115,6 +115,7 @@ type Observation struct {
 	Error      string
 	DurationMs int64
 	Denied     bool
+	Metadata   map[string]any // structured metadata from tool.Result (status_code, result_count, etc.)
 }
 
 // AssertionResult records a single verification check on a tool execution.

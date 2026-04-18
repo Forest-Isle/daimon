@@ -42,7 +42,7 @@ func updateRLStateWithObservation(s *rl.RLState, obs *ObservationResult) {
 // computeSimpleEpisodeReward returns a scalar reward for the entire episode.
 // Delegates to evolution.ComputeReward for consistency with the offline
 // trajectory bridge.
-func computeSimpleEpisodeReward(reflection *Reflection, obs *ObservationResult) float64 {
+func computeSimpleEpisodeReward(reflection *Reflection, obs *ObservationResult, durationMs int64, replanCount int, userFeedback float64) float64 {
 	if reflection == nil {
 		return -0.5
 	}
@@ -51,8 +51,11 @@ func computeSimpleEpisodeReward(reflection *Reflection, obs *ObservationResult) 
 		progress = obs.OverallProgress
 	}
 	return evolution.ComputeReward(evolution.RewardInput{
-		Succeeded: reflection.Succeeded,
-		Progress:  progress,
+		Succeeded:    reflection.Succeeded,
+		Progress:     progress,
+		DurationMs:   durationMs,
+		ReplanCount:  replanCount,
+		UserFeedback: userFeedback,
 	})
 }
 

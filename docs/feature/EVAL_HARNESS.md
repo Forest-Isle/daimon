@@ -119,6 +119,10 @@ ironclaw eval compare --before baseline.json --after after.json [--json]
 ironclaw eval list   # 列出内置任务集中的所有任务
 ```
 
+## 后续改进
+
+本次 Eval Harness 落地后，进一步实现了 CognitiveAgentRunner（实时评估）、进化专用任务集、纵向追踪命令。详见 [EVAL_LIVE_MODE.md](EVAL_LIVE_MODE.md)。
+
 ## 涉及文件
 
 | 文件 | 变更类型 | 说明 |

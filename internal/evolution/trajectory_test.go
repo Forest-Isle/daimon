@@ -70,6 +70,12 @@ func TestTrajectoryRecorder_WritesJSONL(t *testing.T) {
 	if rec.Tools[1].Name != "file" || rec.Tools[1].Succeeded {
 		t.Errorf("tool[1] = %+v, want file/false", rec.Tools[1])
 	}
+	if rec.Reflection.Reward != 0.85 {
+		t.Errorf("reflection.reward = %v, want 0.85", rec.Reflection.Reward)
+	}
+	if rec.Reflection.Confidence != 0 {
+		t.Errorf("reflection.confidence = %v, want 0 (no real confidence data yet)", rec.Reflection.Confidence)
+	}
 }
 
 func TestTrajectoryRecorder_FallbackToToolSequence(t *testing.T) {
@@ -150,6 +156,34 @@ func TestReadTrajectories_EmptyDir(t *testing.T) {
 	}
 	if len(recs) != 0 {
 		t.Errorf("expected 0, got %d", len(recs))
+	}
+}
+
+func TestReadTrajectories_UTCNormalization(t *testing.T) {
+	dir := t.TempDir()
+	tr := NewTrajectoryRecorder(dir)
+
+	// Write a record for 2026-04-15 (UTC)
+	ts := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	tr.OnEpisodeComplete(context.Background(), EpisodeEvent{
+		SessionID: "tz1", Succeeded: true, Timestamp: ts,
+	})
+	_ = tr.Close()
+
+	// Simulate a caller in UTC+8 near local midnight — 2026-04-16 00:30 UTC+8
+	// is 2026-04-15 16:30 UTC. Without the UTC normalization fix, time.Parse
+	// yields UTC midnight but since/until stay in a non-UTC zone, causing the
+	// day comparison to potentially skip files.
+	loc := time.FixedZone("UTC+8", 8*3600)
+	since := time.Date(2026, 4, 15, 0, 0, 0, 0, loc)
+	until := time.Date(2026, 4, 16, 0, 30, 0, 0, loc)
+
+	recs, err := ReadTrajectories(dir, since, until)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Errorf("expected 1 record with UTC-normalized filtering, got %d", len(recs))
 	}
 }
 

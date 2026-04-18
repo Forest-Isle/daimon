@@ -48,9 +48,10 @@ type CognitiveAgent struct {
 	evoEngine       *evolution.Engine // self-evolution event dispatcher (nil if disabled)
 	hookMgr         *hook.Manager
 	permEngine      *tool.PermissionEngine
-	checkpointStore CheckpointStore
-	contextManager  ContextManager
-	taskLedger      taskledger.TaskLedger
+	checkpointStore    CheckpointStore
+	contextManager     ContextManager
+	taskLedger         taskledger.TaskLedger
+	observationCallback func(result *ObservationResult)
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -202,6 +203,16 @@ func (ca *CognitiveAgent) SetEvolutionEngine(e *evolution.Engine) {
 	ca.evoEngine = e
 }
 
+// EvolutionEngine returns the evolution engine, or nil if not configured.
+func (ca *CognitiveAgent) EvolutionEngine() *evolution.Engine {
+	return ca.evoEngine
+}
+
+// Sessions returns the session manager.
+func (ca *CognitiveAgent) Sessions() *session.Manager {
+	return ca.sessions
+}
+
 // SetRLPolicy injects an RL policy into the cognitive agent.
 func (ca *CognitiveAgent) SetRLPolicy(policy RLPolicy) {
 	ca.rlPolicy = policy
@@ -237,6 +248,12 @@ func (ca *CognitiveAgent) SetContextManager(cm ContextManager) {
 func (ca *CognitiveAgent) SetTaskLedger(tl taskledger.TaskLedger) {
 	ca.taskLedger = tl
 	ca.runtime.SetTaskLedger(tl)
+}
+
+// SetObservationCallback registers a function that is called after each OBSERVE
+// phase completes. Used by the eval harness to capture assertion statistics.
+func (ca *CognitiveAgent) SetObservationCallback(fn func(result *ObservationResult)) {
+	ca.observationCallback = fn
 }
 
 // HandleMessage processes an inbound message through the cognitive loop.
@@ -334,7 +351,23 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	// Delegate simple tasks to the plain Runtime
 	if state.Goal.Complexity == ComplexitySimple {
 		slog.Info("cognitive: simple task, delegating to runtime", "session", sess.ID)
-		return ca.runtime.HandleMessage(ctx, ch, msg)
+		simpleStart := time.Now()
+		err := ca.runtime.HandleMessage(ctx, ch, msg)
+
+		if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
+			durationMs := time.Since(simpleStart).Milliseconds()
+			succeeded := err == nil
+			ca.evoEngine.DispatchEpisode(evolution.EpisodeEvent{
+				SessionID:  sess.ID,
+				Goal:       msg.Text,
+				Complexity: string(ComplexitySimple),
+				Succeeded:  succeeded,
+				DurationMs: durationMs,
+				Timestamp:  time.Now(),
+			})
+		}
+
+		return err
 	}
 
 	// Check if debate mode should be triggered
@@ -437,6 +470,10 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			"failure", obsResult.FailureCount,
 			"progress", fmt.Sprintf("%.0f%%", obsResult.OverallProgress*100),
 		)
+
+		if ca.observationCallback != nil && obsResult != nil {
+			ca.observationCallback(obsResult)
+		}
 
 		if ca.checkpointStore != nil && obsResult != nil {
 			obsJSON, _ := json.Marshal(obsResult)
@@ -822,13 +859,13 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 	})
 
 	// Dispatch episode event (feeds SkillSynthesizer and StrategyOptimizer).
-	totalReward := 0.0
-	if reflection != nil && obsResult != nil {
-		totalReward = computeSimpleEpisodeReward(reflection, obsResult)
-	}
 	durationMs := int64(0)
 	if !turnStart.IsZero() {
 		durationMs = now.Sub(turnStart).Milliseconds()
+	}
+	totalReward := 0.0
+	if reflection != nil && obsResult != nil {
+		totalReward = computeSimpleEpisodeReward(reflection, obsResult, durationMs, replanCount, userFeedback)
 	}
 
 	ca.evoEngine.DispatchEpisode(evolution.EpisodeEvent{
@@ -901,7 +938,12 @@ func (ca *CognitiveAgent) recordRLEpisode(
 	dqnAction rl.ReplanActionType,
 ) {
 	rlState := collector.State
-	episodeReward := computeSimpleEpisodeReward(reflection, obsResult)
+	durationMs := time.Since(collector.StartTime).Milliseconds()
+	replanCount := 0
+	if plan != nil {
+		replanCount = plan.ReplanCount
+	}
+	episodeReward := computeSimpleEpisodeReward(reflection, obsResult, durationMs, replanCount, userFeedback)
 	episodeReward += computeReflectionBonus(reflection)
 
 	// Record PPO experience (plan strategy → episode outcome)
@@ -934,10 +976,8 @@ func (ca *CognitiveAgent) recordRLEpisode(
 		bgCtx := context.Background()
 
 		subtaskCount := 0
-		replanCount := 0
 		if plan != nil {
 			subtaskCount = len(plan.SubTasks)
-			replanCount = plan.ReplanCount
 		}
 
 		successCount, failureCount, deniedCount := 0, 0, 0
@@ -948,8 +988,6 @@ func (ca *CognitiveAgent) recordRLEpisode(
 		}
 
 		succeeded := reflection != nil && reflection.Succeeded
-
-		durationMs := time.Since(collector.StartTime).Milliseconds()
 
 		if err := ca.rlTrainer.RecordEpisode(bgCtx, rl.EpisodeParams{
 			SessionID:     state.SessionID,
