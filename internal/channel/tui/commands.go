@@ -98,6 +98,13 @@ var commandRegistry = []Command{
 		ArgHint:     "[session_id]",
 		Category:    "builtin",
 	},
+
+	// Task ledger
+	{
+		Name:        "tasks",
+		Description: "List active and recent tasks",
+		Category:    "builtin",
+	},
 }
 
 // GetCommands returns all registered commands.

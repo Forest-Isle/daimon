@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"github.com/Forest-Isle/IronClaw/internal/userdir"
 )
@@ -50,6 +52,8 @@ type Gateway struct {
 	compactor      *memory.Compactor
 	graphDecay     *graph.GraphDecayTask
 	evoEngine      *evolution.Engine
+	taskLedger     *taskledger.SQLiteTaskLedger
+	staleDetector  *taskledger.StaleDetector
 	stopCh         chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce       sync.Once    // ensures stopCh is closed exactly once
 }
@@ -86,6 +90,13 @@ func New(cfg *config.Config) (*Gateway, error) {
 	}
 	if err := gw.initMultiAgent(); err != nil {
 		return nil, fmt.Errorf("multi-agent: %w", err)
+	}
+
+	// Task ledger
+	gw.taskLedger = taskledger.NewSQLiteTaskLedger(gw.db)
+	gw.runtime.SetTaskLedger(gw.taskLedger)
+	if gw.cognitiveAgent != nil {
+		gw.cognitiveAgent.SetTaskLedger(gw.taskLedger)
 	}
 
 	// Scheduler
@@ -166,6 +177,18 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		go startHTTPServer(gw.cfg.Server.Addr, gw.db)
 	}
 
+	// Start stale task detector
+	if gw.taskLedger != nil {
+		gw.staleDetector = taskledger.NewStaleDetector(
+			gw.taskLedger, 2*time.Minute, 30*time.Second,
+			func(t taskledger.Task) {
+				slog.Info("stale-detector: task marked stale", "id", t.ID, "title", t.Title)
+			},
+		)
+		gw.staleDetector.Start()
+		slog.Info("stale task detector started")
+	}
+
 	// Start RL trainer
 	if gw.rlTrainer != nil {
 		gw.rlTrainer.Start(ctx)
@@ -215,6 +238,10 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		gw.evoEngine.Stop()
 	}
 
+	if gw.staleDetector != nil {
+		gw.staleDetector.Stop()
+	}
+
 	// Stop memory background tasks
 	gw.stopOnce.Do(func() { close(gw.stopCh) })
 	if gw.consolidator != nil {
@@ -241,6 +268,12 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	ch, ok := gw.channels[msg.Channel]
 	if !ok {
 		slog.Error("unknown channel", "channel", msg.Channel)
+		return
+	}
+
+	// Handle /tasks command — list active and recent tasks from task ledger
+	if msg.Text == "/tasks" {
+		gw.handleTasksCommand(ctx, ch, msg)
 		return
 	}
 
@@ -388,6 +421,60 @@ func defToSpec(def config.AgentDefinition) *agent.AgentSpec {
 		Tags:          def.Tags,
 		Mode:          def.Mode,
 	}
+}
+
+// handleTasksCommand lists running and pending tasks from the task ledger.
+func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) {
+	target := channel.OutboundMessage{Channel: msg.Channel, ChannelID: msg.ChannelID}
+
+	if gw.taskLedger == nil {
+		target.Text = "Task ledger not available."
+		_ = ch.Send(ctx, target)
+		return
+	}
+
+	running := taskledger.TaskStateRunning
+	runningTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &running})
+	if err != nil {
+		target.Text = "⚠️ Failed to list tasks: " + err.Error()
+		_ = ch.Send(ctx, target)
+		return
+	}
+
+	pending := taskledger.TaskStatePending
+	pendingTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &pending})
+	if err != nil {
+		target.Text = "⚠️ Failed to list tasks: " + err.Error()
+		_ = ch.Send(ctx, target)
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("📋 Task Ledger\n\n")
+
+	if len(runningTasks) == 0 && len(pendingTasks) == 0 {
+		b.WriteString("No active tasks.")
+	} else {
+		if len(runningTasks) > 0 {
+			b.WriteString(fmt.Sprintf("Running (%d):\n", len(runningTasks)))
+			for _, t := range runningTasks {
+				age := time.Since(t.CreatedAt).Truncate(time.Second)
+				fmt.Fprintf(&b, "  ▶ [%s] %s (%s ago)\n", t.Kind, t.Title, age)
+			}
+		}
+		if len(pendingTasks) > 0 {
+			if len(runningTasks) > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(fmt.Sprintf("Pending (%d):\n", len(pendingTasks)))
+			for _, t := range pendingTasks {
+				fmt.Fprintf(&b, "  ○ [%s] %s\n", t.Kind, t.Title)
+			}
+		}
+	}
+
+	target.Text = b.String()
+	_ = ch.Send(ctx, target)
 }
 
 // importTrajectoriesToRL warm-starts the RL replay buffer from historical

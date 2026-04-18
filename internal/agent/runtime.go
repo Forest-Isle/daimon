@@ -14,6 +14,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
@@ -53,6 +54,7 @@ type Runtime struct {
 	lifecycleMgr         *memory.LifecycleManager
 	contextManager       ContextManager
 	speculativeExecutor  *SpeculativeExecutor
+	taskLedger           taskledger.TaskLedger
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -149,6 +151,9 @@ func (r *Runtime) SetContextManager(cm ContextManager) { r.contextManager = cm }
 // read-only tools during streaming.
 func (r *Runtime) SetSpeculativeExecutor(se *SpeculativeExecutor) { r.speculativeExecutor = se }
 
+// SetTaskLedger attaches a task ledger for tracking in-flight work.
+func (r *Runtime) SetTaskLedger(tl taskledger.TaskLedger) { r.taskLedger = tl }
+
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.
 func (r *Runtime) GetMessages(ctx context.Context, channelName, channelID string) []session.Message {
@@ -198,6 +203,27 @@ func (r *Runtime) SetApprovalFunc(fn ApprovalFunc) {
 func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
 	// Store this runtime in context so sub-agents can access the parent.
 	ctx = RuntimeToContext(ctx, r)
+
+	if r.taskLedger != nil {
+		task := taskledger.Task{
+			ID:    fmt.Sprintf("req_%d", time.Now().UnixNano()),
+			Kind:  taskledger.TaskKindUserRequest,
+			State: taskledger.TaskStateRunning,
+			Title: truncateStr(msg.Text, 100),
+		}
+		if err := r.taskLedger.Register(ctx, task); err != nil {
+			slog.Warn("runtime: failed to register task", "err", err)
+		} else {
+			defer func() {
+				task.State = taskledger.TaskStateCompleted
+				now := time.Now()
+				task.CompletedAt = &now
+				if err := r.taskLedger.Update(ctx, task); err != nil {
+					slog.Warn("runtime: failed to complete task", "err", err)
+				}
+			}()
+		}
+	}
 
 	sess, err := r.sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
@@ -708,4 +734,11 @@ func isContextLengthError(err error) bool {
 	return strings.Contains(msg, "413") ||
 		strings.Contains(msg, "context_length_exceeded") ||
 		strings.Contains(msg, "maximum context length")
+}
+
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
 }
