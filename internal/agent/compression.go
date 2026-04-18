@@ -106,11 +106,7 @@ func (p *CompressionPipeline) Run(ctx context.Context, sess *session.Session, sy
 
 // estimateUtilization estimates context token usage as a fraction of the model's context window.
 func (p *CompressionPipeline) estimateUtilization(sess *session.Session, systemPrompt string) float64 {
-	totalChars := len(systemPrompt)
-	for _, m := range sess.History() {
-		totalChars += len(m.Content) + len(m.ToolInput) + 20 // 20 chars overhead for role/metadata
-	}
-	return EstimateUtilization(totalChars, p.cfg.TokenEstimateRatio, p.contextWindow)
+	return EstimateUtilization(countContextChars(sess, systemPrompt), p.cfg.TokenEstimateRatio, p.contextWindow)
 }
 
 // EstimateUtilization computes estimated token utilization from character count, ratio, and context window.
