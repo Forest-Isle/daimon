@@ -92,12 +92,13 @@ func NewCognitiveAgent(
 func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	ca.memStore = s
 	ca.runtime.SetMemoryStore(s)
-	// Preserve existing searcher, graph, scanner, and git provider when rebuilding the perceiver.
+	// Preserve existing searcher, graph, scanner, git provider, budget, and RL policy when rebuilding the perceiver.
 	oldSearcher := ca.perceiver.searcher
 	oldGraph := ca.perceiver.graph
 	oldScanner := ca.perceiver.scanner
 	oldGitProvider := ca.perceiver.gitProvider
 	oldBudgetAlloc := ca.perceiver.budgetAlloc
+	oldRLPolicy := ca.perceiver.rlPolicy
 	ca.perceiver = NewPerceiver(s)
 	if oldSearcher != nil {
 		ca.perceiver.SetKnowledgeSearcher(oldSearcher)
@@ -113,6 +114,9 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	}
 	if oldBudgetAlloc != nil {
 		ca.perceiver.SetBudgetAllocator(oldBudgetAlloc)
+	}
+	if oldRLPolicy != nil {
+		ca.perceiver.SetRLPolicy(oldRLPolicy)
 	}
 	ca.reflector = NewReflector(
 		ca.planner.provider,
@@ -224,6 +228,10 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	sess, err := ca.sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
+	}
+
+	if ca.checkpointStore != nil && strings.HasPrefix(strings.TrimSpace(msg.Text), "/resume") {
+		return ca.handleResume(ctx, ch, msg, sess)
 	}
 
 	// Add user message to session
@@ -370,7 +378,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		)
 
 		if ca.checkpointStore != nil && obsResult != nil {
-			obsJSON, _ := json.Marshal(obsResult.Observations)
+			obsJSON, _ := json.Marshal(obsResult)
 			planJSON, _ := json.Marshal(plan)
 			cp := &TaskCheckpoint{
 				ID:               fmt.Sprintf("cp-%s-%d", sess.ID, attempt),
