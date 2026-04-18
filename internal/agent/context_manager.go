@@ -110,10 +110,12 @@ func (cm *PipelineContextManager) Compress(ctx context.Context, sess *session.Se
 }
 
 // ReactiveCompress runs aggressive compression after an API error (e.g., 413).
-// NOTE: In the current implementation, this always falls back to CompactHistory
-// regardless of pipeline configuration. Task 2 will add pipeline.RunForced support.
+// When a pipeline is configured it runs all layers unconditionally via RunForced;
+// otherwise it falls back to the legacy CompactHistory path.
 func (cm *PipelineContextManager) ReactiveCompress(ctx context.Context, sess *session.Session, systemPrompt string) error {
-	// TODO(task-2): call pipeline.RunForced when available
+	if cm.pipeline != nil {
+		return cm.pipeline.RunForced(ctx, sess, systemPrompt)
+	}
 	return CompactHistory(ctx, cm.provider, sess, cm.model)
 }
 

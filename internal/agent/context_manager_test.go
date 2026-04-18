@@ -237,17 +237,66 @@ func TestPipelineContextManager_SplitSystemPrompt_MarkerAtEnd(t *testing.T) {
 	}
 }
 
-func TestPipelineContextManager_ReactiveCompress(t *testing.T) {
+func TestPipelineContextManager_ReactiveCompress_NilPipeline(t *testing.T) {
 	cm := NewPipelineContextManager(nil, "test-model", nil, 200000, nil)
 
 	sess := newTestSession()
 	sess.AddMessage(session.Message{ID: "1", Role: "user", Content: "hello"})
 
-	// ReactiveCompress currently falls back to CompactHistory.
+	// Without a pipeline, falls back to CompactHistory.
 	// With only 1 message (below compactionThreshold=40), it should be a no-op.
 	err := cm.ReactiveCompress(context.Background(), sess, "prompt")
 	if err != nil {
 		t.Fatalf("ReactiveCompress() error: %v", err)
+	}
+}
+
+func TestPipelineContextManager_ReactiveCompress_WithPipeline(t *testing.T) {
+	cfg := &config.CompressionConfig{
+		Strategy: "layered",
+		Layers: config.CompressionLayers{
+			ToolEvictionPct: 99,
+			SummarizePct:    99,
+			SlimPromptPct:   99,
+			EmergencyPct:    99,
+		},
+		TokenEstimateRatio: 0.25,
+	}
+
+	provider := &stubProvider{}
+	cm := NewPipelineContextManager(provider, "test-model", cfg, 10_000_000, nil)
+
+	sess := newTestSession()
+	for i := 0; i < 60; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		sess.AddMessage(session.Message{
+			ID:      fmt.Sprintf("msg_%d", i),
+			Role:    role,
+			Content: fmt.Sprintf("message %d", i),
+		})
+	}
+
+	// Normal Compress should NOT trigger — utilization far below 99% thresholds.
+	compressed, err := cm.Compress(context.Background(), sess, "prompt")
+	if err != nil {
+		t.Fatalf("Compress() error: %v", err)
+	}
+	if compressed {
+		t.Error("Compress() should not trigger with huge context window and 99% thresholds")
+	}
+
+	// ReactiveCompress should force-compress via pipeline.RunForced.
+	err = cm.ReactiveCompress(context.Background(), sess, "prompt")
+	if err != nil {
+		t.Fatalf("ReactiveCompress() error: %v", err)
+	}
+
+	history := sess.History()
+	if len(history) >= 60 {
+		t.Errorf("ReactiveCompress should have reduced history via RunForced, still has %d messages", len(history))
 	}
 }
 

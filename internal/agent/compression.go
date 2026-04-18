@@ -104,6 +104,18 @@ func (p *CompressionPipeline) Run(ctx context.Context, sess *session.Session, sy
 	return nil
 }
 
+// RunForced runs compression layers unconditionally, skipping threshold checks.
+// Used for reactive compression after API errors (413, context_length_exceeded).
+func (p *CompressionPipeline) RunForced(ctx context.Context, sess *session.Session, systemPrompt string) error {
+	for _, entry := range p.layers {
+		if err := entry.layer.Compress(ctx, sess, systemPrompt); err != nil {
+			slog.Warn("compression: forced layer failed", "layer", entry.layer.Name(), "err", err)
+		}
+	}
+	ensureToolPairing(sess)
+	return nil
+}
+
 // estimateUtilization estimates context token usage as a fraction of the model's context window.
 func (p *CompressionPipeline) estimateUtilization(sess *session.Session, systemPrompt string) float64 {
 	return EstimateUtilization(countContextChars(sess, systemPrompt), p.cfg.TokenEstimateRatio, p.contextWindow)
