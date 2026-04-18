@@ -67,6 +67,14 @@ func (gw *Gateway) initMultiAgent() error {
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
 	}
 
+	// Speculative execution of read-only tools during streaming
+	if gw.cfg.Agent.SpeculativeExecution.Enabled {
+		maxInFlight := gw.cfg.Agent.SpeculativeExecution.MaxInFlight
+		se := agent.NewSpeculativeExecutor(gw.tools, maxInFlight)
+		gw.runtime.SetSpeculativeExecutor(se)
+		slog.Info("speculative execution enabled", "max_in_flight", maxInFlight)
+	}
+
 	// Compression pipeline
 	if gw.cfg.Agent.Compression.Strategy == "layered" {
 		// Derive context window from model name

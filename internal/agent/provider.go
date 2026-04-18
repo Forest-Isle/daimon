@@ -66,6 +66,13 @@ type StreamIterator interface {
 	Close()
 }
 
+// PendingToolBlockSource is an optional interface for StreamIterator
+// implementations that can emit tool_use blocks before the stream completes.
+// Used by speculative execution to launch read-only tools early.
+type PendingToolBlockSource interface {
+	PendingToolBlocks() []PendingToolBlock
+}
+
 // Provider is the LLM backend interface.
 type Provider interface {
 	Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)

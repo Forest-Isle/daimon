@@ -153,6 +153,29 @@ func (r *Runtime) executeToolCall(
 		return toolResult{toolUseID: tc.ID, output: err.Error(), status: "error", toolName: tc.Name, toolInput: tc.Input}
 	}
 
+	// Check for a speculative execution result (read-only tools launched during streaming)
+	if r.speculativeExecutor != nil {
+		if specResult, specErr := r.speculativeExecutor.Collect(tc.ID); specResult != nil {
+			var output, status string
+			if specErr != nil {
+				output = "error: " + specErr.Error()
+				status = "error"
+			} else if specResult.Error != "" {
+				output = "error: " + specResult.Error
+				status = "error"
+			} else {
+				output = specResult.Output
+				status = "success"
+			}
+			slog.Info("speculative result used", "tool", tc.Name, "status", status)
+			return toolResult{
+				toolUseID: tc.ID, output: output, status: status,
+				toolName: tc.Name, toolInput: tc.Input,
+				permissionAction: "allow", permissionReason: "speculative_readonly",
+			}
+		}
+	}
+
 	// Track permission decision metadata
 	var permAction, permReason, permRule string
 

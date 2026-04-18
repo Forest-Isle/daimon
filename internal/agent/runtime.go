@@ -48,10 +48,11 @@ type Runtime struct {
 	chainID   string // invocation chain ID
 	bgManager *BackgroundManager
 	promptCache *PromptCache
-	agentMCP       *AgentMCPManager
-	factExtractor  *memory.LLMFactExtractor
-	lifecycleMgr   *memory.LifecycleManager
-	contextManager ContextManager
+	agentMCP             *AgentMCPManager
+	factExtractor        *memory.LLMFactExtractor
+	lifecycleMgr         *memory.LifecycleManager
+	contextManager       ContextManager
+	speculativeExecutor  *SpeculativeExecutor
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -143,6 +144,10 @@ func (r *Runtime) AgentMCPManager() *AgentMCPManager { return r.agentMCP }
 
 // SetContextManager attaches a context manager to the runtime.
 func (r *Runtime) SetContextManager(cm ContextManager) { r.contextManager = cm }
+
+// SetSpeculativeExecutor attaches a speculative executor for launching
+// read-only tools during streaming.
+func (r *Runtime) SetSpeculativeExecutor(se *SpeculativeExecutor) { r.speculativeExecutor = se }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.
@@ -259,6 +264,10 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		hasAttemptedReactiveCompact = false
 		slog.Info("agent iteration", "iteration", iteration, "session", sess.ID)
 
+		if r.speculativeExecutor != nil {
+			r.speculativeExecutor.Reset()
+		}
+
 		// Compute budget pressure signal for this iteration
 		budgetWarning := r.computeBudgetPressure(iteration, sess, systemPrompt)
 
@@ -315,6 +324,17 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 			// Collect all tool calls from the final delta
 			if delta.Done && len(delta.ToolCalls) > 0 {
 				toolCalls = delta.ToolCalls
+			}
+
+			// Speculative execution: launch read-only tools as their blocks complete
+			if r.speculativeExecutor != nil {
+				if ptbSrc, ok := stream.(PendingToolBlockSource); ok {
+					for _, ptb := range ptbSrc.PendingToolBlocks() {
+						if launched := r.speculativeExecutor.TryLaunch(ctx, ptb.ToolUseID, ptb.ToolName, ptb.Input); launched {
+							slog.Debug("speculative launch", "tool", ptb.ToolName, "id", ptb.ToolUseID)
+						}
+					}
+				}
 			}
 
 			if delta.Done {
