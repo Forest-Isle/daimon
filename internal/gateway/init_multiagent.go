@@ -75,18 +75,16 @@ func (gw *Gateway) initMultiAgent() error {
 		slog.Info("speculative execution enabled", "max_in_flight", maxInFlight)
 	}
 
-	// Compression pipeline
-	if gw.cfg.Agent.Compression.Strategy == "layered" {
-		// Derive context window from model name
-		contextWindow := agent.ModelContextWindow(gw.cfg.LLM.Model)
+	// Compression pipeline and context manager
+	contextWindow := agent.ModelContextWindow(gw.cfg.LLM.Model)
 
+	if gw.cfg.Agent.Compression.Strategy == "layered" {
 		pipeline := agent.NewCompressionPipeline(
 			gw.provider, gw.cfg.LLM.Model, gw.cfg.Agent.Compression, gw.resultStore, contextWindow,
 		)
 		gw.runtime.SetCompressionPipeline(pipeline)
 		slog.Info("layered compression pipeline enabled")
 
-		// Token budget monitor
 		tokenBudget := agent.NewTokenBudget(
 			contextWindow,
 			float64(gw.cfg.Agent.Compression.Layers.ToolEvictionPct)/100.0,
@@ -102,20 +100,23 @@ func (gw *Gateway) initMultiAgent() error {
 			"medium_pct", gw.cfg.Agent.Compression.Layers.SummarizePct,
 			"heavy_pct", gw.cfg.Agent.Compression.Layers.SlimPromptPct,
 		)
-
-		contextMgr := agent.NewPipelineContextManager(
-			gw.provider,
-			gw.cfg.LLM.Model,
-			&gw.cfg.Agent.Compression,
-			contextWindow,
-			gw.resultStore,
-		)
-		gw.runtime.SetContextManager(contextMgr)
-		if gw.cognitiveAgent != nil {
-			gw.cognitiveAgent.SetContextManager(contextMgr)
-		}
-		slog.Info("context manager initialized")
 	}
+
+	// ContextManager is always created — it handles both layered (via pipeline)
+	// and non-layered (via CompactHistory fallback) compression, and enables
+	// reactive 413 retry regardless of compression strategy.
+	contextMgr := agent.NewPipelineContextManager(
+		gw.provider,
+		gw.cfg.LLM.Model,
+		&gw.cfg.Agent.Compression,
+		contextWindow,
+		gw.resultStore,
+	)
+	gw.runtime.SetContextManager(contextMgr)
+	if gw.cognitiveAgent != nil {
+		gw.cognitiveAgent.SetContextManager(contextMgr)
+	}
+	slog.Info("context manager initialized", "strategy", gw.cfg.Agent.Compression.Strategy)
 
 	return nil
 }
