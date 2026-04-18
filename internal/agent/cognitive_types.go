@@ -97,6 +97,23 @@ type Observation struct {
 	Denied     bool
 }
 
+// AssertionResult records a single verification check on a tool execution.
+type AssertionResult struct {
+	Check  string // human-readable description, e.g. "exit_code == 0"
+	Passed bool
+	Actual string // what was observed, e.g. "exit_code = 1"
+}
+
+// FailureContext provides structured context about a subtask failure for replan prompts.
+type FailureContext struct {
+	SubTaskID    string
+	ToolName     string
+	ErrorType    string // "assertion_failed", "tool_error", "denied"
+	ErrorMsg     string
+	AttemptCount int
+	Assertions   []AssertionResult
+}
+
 // ObservationResult is the aggregate of all observations (output of OBSERVE phase).
 type ObservationResult struct {
 	Observations    []Observation
@@ -105,6 +122,8 @@ type ObservationResult struct {
 	DeniedCount     int
 	OverallProgress float64 // 0.0–1.0
 	ErrorPatterns   []string
+	Assertions      []AssertionResult // per-observation assertion results
+	Failures        []FailureContext  // structured failure context for replan
 }
 
 // DimensionScore represents a single evaluation dimension in reflection scoring.
