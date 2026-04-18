@@ -51,6 +51,7 @@ type Runtime struct {
 	agentMCP       *AgentMCPManager
 	factExtractor  *memory.LLMFactExtractor
 	lifecycleMgr   *memory.LifecycleManager
+	contextManager ContextManager
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -139,6 +140,9 @@ func (r *Runtime) SetAgentMCPManager(m *AgentMCPManager) { r.agentMCP = m }
 
 // AgentMCPManager returns the attached per-agent MCP manager, or nil.
 func (r *Runtime) AgentMCPManager() *AgentMCPManager { return r.agentMCP }
+
+// SetContextManager attaches a context manager to the runtime.
+func (r *Runtime) SetContextManager(cm ContextManager) { r.contextManager = cm }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.
@@ -231,12 +235,15 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	}
 
 	// Compress context if needed
-	if r.cfg.Compression.Strategy == "layered" && r.compressionPipeline != nil {
+	if r.contextManager != nil {
+		if _, err := r.contextManager.Compress(ctx, sess, systemPrompt); err != nil {
+			slog.Warn("context manager compression failed", "session", sess.ID, "err", err)
+		}
+	} else if r.compressionPipeline != nil {
 		if err := r.compressionPipeline.Run(ctx, sess, systemPrompt); err != nil {
 			slog.Warn("compression pipeline failed", "session", sess.ID, "err", err)
 		}
 	} else {
-		// Legacy mode: use original compaction
 		if err := CompactHistory(ctx, r.provider, sess, r.llmCfg.Model); err != nil {
 			slog.Warn("history compaction failed", "session", sess.ID, "err", err)
 		}
@@ -246,7 +253,10 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	// previous text/tool-status is not overwritten by the next response.
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
 
+	var hasAttemptedReactiveCompact bool
+
 	for iteration := 0; iteration < r.cfg.MaxIterations; iteration++ {
+		hasAttemptedReactiveCompact = false
 		slog.Info("agent iteration", "iteration", iteration, "session", sess.ID)
 
 		// Compute budget pressure signal for this iteration
@@ -269,6 +279,15 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 
 		stream, err := r.provider.Stream(ctx, req)
 		if err != nil {
+			if isContextLengthError(err) && r.contextManager != nil && !hasAttemptedReactiveCompact {
+				hasAttemptedReactiveCompact = true
+				_ = updater.Finish("")
+				if compErr := r.contextManager.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
+					slog.Warn("reactive compress failed", "err", compErr)
+				} else {
+					continue
+				}
+			}
 			_ = updater.Finish("Error: " + err.Error())
 			return fmt.Errorf("llm stream: %w", err)
 		}
@@ -433,7 +452,10 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 		}
 	}
 
+	var hasAttemptedReactiveCompact bool
+
 	for iteration := 0; iteration < r.cfg.MaxIterations; iteration++ {
+		hasAttemptedReactiveCompact = false
 		budgetWarning := r.computeBudgetPressure(iteration, sess, systemPrompt)
 
 		req := CompletionRequest{
@@ -446,6 +468,14 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 
 		resp, err := r.provider.Complete(ctx, req)
 		if err != nil {
+			if isContextLengthError(err) && r.contextManager != nil && !hasAttemptedReactiveCompact {
+				hasAttemptedReactiveCompact = true
+				if compErr := r.contextManager.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
+					slog.Warn("reactive compress failed (non-streaming)", "err", compErr)
+				} else {
+					continue
+				}
+			}
 			return err
 		}
 
@@ -643,4 +673,14 @@ func (r *Runtime) executeToolsWithBudget(
 	if sess.UpdateLastToolResult(budgetWarning) {
 		slog.Debug("budget pressure signal injected", "warning", budgetWarning)
 	}
+}
+
+func isContextLengthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "413") ||
+		strings.Contains(msg, "context_length_exceeded") ||
+		strings.Contains(msg, "maximum context length")
 }

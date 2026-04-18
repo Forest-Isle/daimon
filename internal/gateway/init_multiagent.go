@@ -94,6 +94,16 @@ func (gw *Gateway) initMultiAgent() error {
 			"medium_pct", gw.cfg.Agent.Compression.Layers.SummarizePct,
 			"heavy_pct", gw.cfg.Agent.Compression.Layers.SlimPromptPct,
 		)
+
+		contextMgr := agent.NewPipelineContextManager(
+			gw.provider,
+			gw.cfg.LLM.Model,
+			&gw.cfg.Agent.Compression,
+			contextWindow,
+			gw.resultStore,
+		)
+		gw.runtime.SetContextManager(contextMgr)
+		slog.Info("context manager initialized")
 	}
 
 	return nil
