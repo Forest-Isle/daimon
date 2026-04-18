@@ -677,14 +677,14 @@ func (m *Model) showHelp() {
 	if cmds, ok := categories["builtin"]; ok {
 		b.WriteString("Built-in Commands:\n")
 		for _, cmd := range cmds {
-			b.WriteString(fmt.Sprintf("  /%s", cmd.Name))
+			fmt.Fprintf(&b, "  /%s", cmd.Name)
 			if cmd.ArgHint != "" {
-				b.WriteString(fmt.Sprintf(" %s", cmd.ArgHint))
+				fmt.Fprintf(&b, " %s", cmd.ArgHint)
 			}
 			if len(cmd.Aliases) > 0 {
-				b.WriteString(fmt.Sprintf(" (aliases: %s)", strings.Join(cmd.Aliases, ", ")))
+				fmt.Fprintf(&b, " (aliases: %s)", strings.Join(cmd.Aliases, ", "))
 			}
-			b.WriteString(fmt.Sprintf("\n    %s\n", cmd.Description))
+			fmt.Fprintf(&b, "\n    %s\n", cmd.Description)
 		}
 	}
 

@@ -53,9 +53,9 @@ func TestBrowserExtractTool_Name(t *testing.T) {
 }
 
 func TestBrowserExtractTool_Execute(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(cannedArticleHTML))
+		_, _ = w.Write([]byte(cannedArticleHTML))
 	}))
 	defer srv.Close()
 
@@ -124,9 +124,9 @@ func TestBrowserExtractTool_Pagination(t *testing.T) {
 	longParagraph := strings.Repeat("This is a long paragraph of text. ", 200)
 	longHTML := `<html><body><article><p>` + longParagraph + `</p></article></body></html>`
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(longHTML))
+		_, _ = w.Write([]byte(longHTML))
 	}))
 	defer srv.Close()
 
@@ -197,9 +197,9 @@ func TestBrowserExtractTool_HeaderStripping(t *testing.T) {
 <article><h2>Real Content</h2><p>Important text here.</p></article>
 </body></html>`
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(htmlWithHeader))
+		_, _ = w.Write([]byte(htmlWithHeader))
 	}))
 	defer srv.Close()
 

@@ -152,8 +152,13 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 		if err != nil {
 			return Result{Error: fmt.Sprintf("failed to create temp file: %v", err)}, nil
 		}
-		tmpFile.Write(fullJSON)
-		tmpFile.Close()
+		if _, wErr := tmpFile.Write(fullJSON); wErr != nil {
+			_ = tmpFile.Close()
+			return Result{Error: fmt.Sprintf("failed to write temp file: %v", wErr)}, nil
+		}
+		if cErr := tmpFile.Close(); cErr != nil {
+			return Result{Error: fmt.Sprintf("failed to close temp file: %v", cErr)}, nil
+		}
 
 		out.Stdout = truncateStr(stdoutStr, largeOutputThreshold/2)
 		out.Stderr = truncateStr(stderrStr, largeOutputThreshold/2)

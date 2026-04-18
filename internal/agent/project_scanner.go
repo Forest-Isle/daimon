@@ -49,11 +49,7 @@ func (s *ProjectContextScanner) Invalidate(dir string) {
 
 func (s *ProjectContextScanner) scan(dir string) *ProjectContext {
 	pc := &ProjectContext{}
-	detected := false
-
-	if scanGoMod(dir, pc) {
-		detected = true
-	}
+	detected := scanGoMod(dir, pc)
 	if scanPackageJSON(dir, pc) {
 		detected = true
 	}
@@ -167,7 +163,7 @@ func scanMakefile(dir string, pc *ProjectContext) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	interesting := map[string]bool{
 		"build": true, "test": true, "lint": true, "run": true,

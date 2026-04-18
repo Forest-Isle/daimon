@@ -157,7 +157,7 @@ func TestBashTool_LargeOutput_Truncated(t *testing.T) {
 		if fullOut.Truncated {
 			t.Error("full output in temp file should not be truncated")
 		}
-		os.Remove(out.FilePath)
+		_ = os.Remove(out.FilePath)
 	}
 }
 

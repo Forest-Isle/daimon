@@ -10,14 +10,22 @@ import (
 func TestProjectContextScanner_GoProject(t *testing.T) {
 	dir := t.TempDir()
 
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/example/myapp\n\ngo 1.21\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# My App\n"), 0644)
-
-	os.MkdirAll(filepath.Join(dir, "cmd"), 0755)
-	os.MkdirAll(filepath.Join(dir, "internal"), 0755)
-
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/example/myapp\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# My App\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "cmd"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	makefile := "build:\n\tgo build ./...\ntest:\n\tgo test ./...\nlint:\n\tgolangci-lint run\n"
-	os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	scanner := NewProjectContextScanner()
 	ctx := scanner.Scan(dir)
@@ -81,8 +89,12 @@ func TestProjectContextScanner_NodeProject(t *testing.T) {
 	dir := t.TempDir()
 
 	pkg := `{"name": "my-node-app", "scripts": {"build": "tsc", "test": "jest", "dev": "vite"}}`
-	os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0644)
-	os.MkdirAll(filepath.Join(dir, "src"), 0755)
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	scanner := NewProjectContextScanner()
 	ctx := scanner.Scan(dir)
@@ -123,7 +135,9 @@ func TestProjectContextScanner_EmptyDir(t *testing.T) {
 
 func TestProjectContextScanner_Caching(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/cached\n\ngo 1.21\n"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/cached\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	scanner := NewProjectContextScanner()
 	first := scanner.Scan(dir)

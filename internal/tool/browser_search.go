@@ -147,7 +147,6 @@ func (b *BrowserSearchTool) Execute(ctx context.Context, input []byte) (Result, 
 var (
 	ddgResultRe  = regexp.MustCompile(`(?s)<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"[^>]*>(.*?)</a>`)
 	ddgSnippetRe = regexp.MustCompile(`(?s)<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>`)
-	ddgBlockRe   = regexp.MustCompile(`(?s)<div[^>]+class="[^"]*result\b[^"]*"[^>]*>(.*?)</div>\s*(?:<div|$)`)
 	htmlTagRe    = regexp.MustCompile(`<[^>]*>`)
 	htmlEntityRe = regexp.MustCompile(`&[a-zA-Z0-9#]+;`)
 )

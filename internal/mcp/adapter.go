@@ -50,7 +50,7 @@ func (a *ToolAdapter) InputSchema() map[string]any {
 	}
 
 	// Add properties if present
-	if a.toolDef.InputSchema.Properties != nil && len(a.toolDef.InputSchema.Properties) > 0 {
+	if len(a.toolDef.InputSchema.Properties) > 0 {
 		schema["properties"] = a.toolDef.InputSchema.Properties
 	} else if schemaType == "object" {
 		// For object types without properties, add empty properties to satisfy API requirements
