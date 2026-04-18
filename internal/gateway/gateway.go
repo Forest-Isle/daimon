@@ -482,7 +482,7 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 		b.WriteString("No active tasks.")
 	} else {
 		if len(runningTasks) > 0 {
-			b.WriteString(fmt.Sprintf("Running (%d):\n", len(runningTasks)))
+			fmt.Fprintf(&b, "Running (%d):\n", len(runningTasks))
 			for _, t := range runningTasks {
 				age := time.Since(t.CreatedAt).Truncate(time.Second)
 				fmt.Fprintf(&b, "  ▶ [%s] %s (%s ago)\n", t.Kind, t.Title, age)
@@ -492,7 +492,7 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 			if len(runningTasks) > 0 {
 				b.WriteString("\n")
 			}
-			b.WriteString(fmt.Sprintf("Pending (%d):\n", len(pendingTasks)))
+			fmt.Fprintf(&b, "Pending (%d):\n", len(pendingTasks))
 			for _, t := range pendingTasks {
 				fmt.Fprintf(&b, "  ○ [%s] %s\n", t.Kind, t.Title)
 			}

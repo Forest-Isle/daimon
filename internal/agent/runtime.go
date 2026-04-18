@@ -284,10 +284,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	// previous text/tool-status is not overwritten by the next response.
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
 
-	var hasAttemptedReactiveCompact bool
-
 	for iteration := 0; iteration < r.cfg.MaxIterations; iteration++ {
-		hasAttemptedReactiveCompact = false
 		slog.Info("agent iteration", "iteration", iteration, "session", sess.ID)
 
 		if r.speculativeExecutor != nil {
@@ -312,19 +309,19 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 			MaxTokens: r.llmCfg.MaxTokens,
 		}
 
-		stream, err := r.provider.Stream(ctx, req)
-		if err != nil {
-			if isContextLengthError(err) && r.contextManager != nil && !hasAttemptedReactiveCompact {
-				hasAttemptedReactiveCompact = true
-				_ = updater.Finish("")
-				if compErr := r.contextManager.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
-					slog.Warn("reactive compress failed", "err", compErr)
-				} else {
-					continue
-				}
+		stream, streamErr := r.provider.Stream(ctx, req)
+		if streamErr != nil && isContextLengthError(streamErr) && r.contextManager != nil {
+			_ = updater.Finish("")
+			if compErr := r.contextManager.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
+				slog.Warn("reactive compress failed", "err", compErr)
+			} else {
+				req.Messages = BuildMessages(sess)
+				stream, streamErr = r.provider.Stream(ctx, req)
 			}
-			_ = updater.Finish("Error: " + err.Error())
-			return fmt.Errorf("llm stream: %w", err)
+		}
+		if streamErr != nil {
+			_ = updater.Finish("Error: " + streamErr.Error())
+			return fmt.Errorf("llm stream: %w", streamErr)
 		}
 
 		var fullText string
@@ -498,10 +495,7 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 		}
 	}
 
-	var hasAttemptedReactiveCompact bool
-
 	for iteration := 0; iteration < r.cfg.MaxIterations; iteration++ {
-		hasAttemptedReactiveCompact = false
 		budgetWarning := r.computeBudgetPressure(iteration, sess, systemPrompt)
 
 		req := CompletionRequest{
@@ -513,15 +507,15 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 		}
 
 		resp, err := r.provider.Complete(ctx, req)
-		if err != nil {
-			if isContextLengthError(err) && r.contextManager != nil && !hasAttemptedReactiveCompact {
-				hasAttemptedReactiveCompact = true
-				if compErr := r.contextManager.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
-					slog.Warn("reactive compress failed (non-streaming)", "err", compErr)
-				} else {
-					continue
-				}
+		if err != nil && isContextLengthError(err) && r.contextManager != nil {
+			if compErr := r.contextManager.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
+				slog.Warn("reactive compress failed (non-streaming)", "err", compErr)
+			} else {
+				req.Messages = BuildMessages(sess)
+				resp, err = r.provider.Complete(ctx, req)
 			}
+		}
+		if err != nil {
 			return err
 		}
 
