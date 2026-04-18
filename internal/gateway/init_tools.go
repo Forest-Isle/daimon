@@ -26,6 +26,8 @@ func (gw *Gateway) initToolsAndHooks() error {
 	}
 	if gw.cfg.Tools.Browser.Enabled {
 		gw.tools.Register(tool.NewBrowserTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
+		gw.tools.Register(tool.NewBrowserSearchTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
+		gw.tools.Register(tool.NewBrowserExtractTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
 	}
 
 	// Hook event system
