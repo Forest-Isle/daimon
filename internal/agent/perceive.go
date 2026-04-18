@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 
@@ -16,9 +17,10 @@ import (
 // Perceiver implements the PERCEIVE phase: parse goal, retrieve memories, assess complexity.
 type Perceiver struct {
 	memStore memory.Store
-	searcher knowledge.Searcher // optional knowledge searcher (KB or HybridRetriever)
-	graph    graph.Graph        // optional knowledge graph
-	rlPolicy RLPolicy           // optional RL policy
+	searcher knowledge.Searcher         // optional knowledge searcher (KB or HybridRetriever)
+	graph    graph.Graph                // optional knowledge graph
+	rlPolicy RLPolicy                   // optional RL policy
+	scanner  *ProjectContextScanner     // optional project context scanner
 }
 
 // NewPerceiver creates a new Perceiver.
@@ -39,6 +41,11 @@ func (p *Perceiver) SetKnowledgeGraph(g graph.Graph) {
 // SetRLPolicy injects an optional RL policy.
 func (p *Perceiver) SetRLPolicy(policy RLPolicy) {
 	p.rlPolicy = policy
+}
+
+// SetProjectScanner injects an optional project context scanner.
+func (p *Perceiver) SetProjectScanner(s *ProjectContextScanner) {
+	p.scanner = s
 }
 
 // complexityKeywords trigger moderate or complex classification.
@@ -120,6 +127,11 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 		RecentHistory:    recentHistory,
 		KnowledgeContext: knowledgeContext,
 		GraphContext:     graphContext,
+	}
+
+	if p.scanner != nil {
+		cwd, _ := os.Getwd()
+		state.ProjectCtx = p.scanner.Scan(cwd)
 	}
 
 	slog.Info("perceive complete",

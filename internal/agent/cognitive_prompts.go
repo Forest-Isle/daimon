@@ -38,7 +38,7 @@ OUTPUT FORMAT:
 }`
 
 // PlanUserPromptTemplate is the user message template for the PLAN phase.
-// Placeholders: {{USER_REQUEST}}, {{TOOLS}}, {{MEMORIES}}, {{HISTORY}}, {{KNOWLEDGE}}, {{GRAPH}}
+// Placeholders: {{USER_REQUEST}}, {{TOOLS}}, {{MEMORIES}}, {{HISTORY}}, {{KNOWLEDGE}}, {{GRAPH}}, {{PROJECT_CONTEXT}}
 const PlanUserPromptTemplate = `USER REQUEST:
 {{USER_REQUEST}}
 
@@ -53,6 +53,9 @@ KNOWLEDGE BASE:
 
 KNOWLEDGE GRAPH:
 {{GRAPH}}
+
+PROJECT CONTEXT:
+{{PROJECT_CONTEXT}}
 
 RECENT CONVERSATION:
 {{HISTORY}}

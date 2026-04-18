@@ -186,6 +186,13 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 	}
 	msg = strings.ReplaceAll(msg, "{{GRAPH}}", graphSB.String())
 
+	// Project context section
+	projectCtx := "(none)"
+	if state.ProjectCtx != nil && state.ProjectCtx.RawContent != "" {
+		projectCtx = state.ProjectCtx.RawContent
+	}
+	msg = strings.ReplaceAll(msg, "{{PROJECT_CONTEXT}}", projectCtx)
+
 	// Preferences section (from evolution PreferenceLearner)
 	msg = strings.ReplaceAll(msg, "{{PREFERENCES}}", state.Preferences)
 
