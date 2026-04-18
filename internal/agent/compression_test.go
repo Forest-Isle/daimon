@@ -346,6 +346,70 @@ func TestToolOutputPrePruneLayer(t *testing.T) {
 	}
 }
 
+func TestCompressionPipeline_RunForced(t *testing.T) {
+	cfg := config.CompressionConfig{
+		Strategy: "layered",
+		Layers: config.CompressionLayers{
+			ToolEvictionPct: 99,
+			SummarizePct:    99,
+			SlimPromptPct:   99,
+			EmergencyPct:    99,
+		},
+		TokenEstimateRatio: 0.25,
+	}
+
+	pipeline := NewCompressionPipeline(&stubProvider{}, "test", cfg, nil, 10_000_000)
+
+	sess := newTestSession()
+	for i := 0; i < 60; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		sess.AddMessage(session.Message{
+			ID:      fmt.Sprintf("msg_%d", i),
+			Role:    role,
+			Content: fmt.Sprintf("message %d content", i),
+		})
+	}
+	// Add an orphan tool_use (no matching tool_result) to verify ensureToolPairing.
+	sess.AddMessage(session.Message{ID: "orphan_use", Role: "tool_use", ToolName: "bash", ToolInput: `{"command":"ls"}`})
+
+	// Normal Run should NOT compress — utilization is far below 99% thresholds.
+	beforeRun := len(sess.History())
+	_ = pipeline.Run(context.Background(), sess, "prompt")
+	if len(sess.History()) < beforeRun {
+		t.Fatal("Run() should not have compressed with 99% thresholds and huge context window")
+	}
+
+	// RunForced should compress unconditionally.
+	err := pipeline.RunForced(context.Background(), sess, "prompt")
+	if err != nil {
+		t.Fatalf("RunForced() error: %v", err)
+	}
+
+	history := sess.History()
+	if len(history) >= 60 {
+		t.Errorf("RunForced() should have reduced history, still has %d messages", len(history))
+	}
+
+	// Verify ensureToolPairing: orphan tool_use should now have a stub tool_result.
+	for _, m := range history {
+		if m.Role == "tool_use" && m.ID == "orphan_use" {
+			found := false
+			for _, m2 := range history {
+				if m2.Role == "tool_result" && m2.ToolName == "orphan_use" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Error("ensureToolPairing should have inserted a stub for orphan_use")
+			}
+		}
+	}
+}
+
 func TestToolOutputPrePruneLayer_ProtectsRecent(t *testing.T) {
 	sess := newTestSession()
 	// Only recent messages — all should be protected

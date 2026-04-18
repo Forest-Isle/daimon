@@ -154,13 +154,28 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 	}
 
 	if req.System != "" {
-		sysBlock := anthropic.TextBlockParam{Text: req.System}
-		// Mark system prompt with cache_control for prompt caching.
-		// The system prompt is typically stable across turns, making it ideal for caching.
 		if c.supportsCaching() {
-			sysBlock.CacheControl = anthropic.NewCacheControlEphemeralParam()
+			if idx := strings.Index(req.System, dynamicContextMarker); idx >= 0 {
+				staticPart := req.System[:idx]
+				dynamicPart := req.System[idx+len(dynamicContextMarker):]
+				staticBlock := anthropic.TextBlockParam{
+					Text:         staticPart,
+					CacheControl: anthropic.NewCacheControlEphemeralParam(),
+				}
+				params.System = []anthropic.TextBlockParam{staticBlock}
+				if strings.TrimSpace(dynamicPart) != "" {
+					params.System = append(params.System, anthropic.TextBlockParam{Text: dynamicPart})
+				}
+			} else {
+				sysBlock := anthropic.TextBlockParam{
+					Text:         req.System,
+					CacheControl: anthropic.NewCacheControlEphemeralParam(),
+				}
+				params.System = []anthropic.TextBlockParam{sysBlock}
+			}
+		} else {
+			params.System = []anthropic.TextBlockParam{{Text: req.System}}
 		}
-		params.System = []anthropic.TextBlockParam{sysBlock}
 	}
 
 	return params
@@ -188,12 +203,22 @@ func (c *ClaudeProvider) parseResponse(resp *anthropic.Message) *CompletionRespo
 	return result
 }
 
+// PendingToolBlock represents a tool_use block whose streaming is complete
+// (name + input finalized) but the overall model response is still generating.
+// Used by speculative execution to launch read-only tools early.
+type PendingToolBlock struct {
+	ToolUseID string
+	ToolName  string
+	Input     string
+}
+
 // claudeStreamIterator wraps the Anthropic streaming response.
 type claudeStreamIterator struct {
-	stream   *ssestream.Stream[anthropic.MessageStreamEventUnion]
-	done     bool
-	accum    anthropic.Message
-	provider *ClaudeProvider // back-reference for tracking cache usage
+	stream           *ssestream.Stream[anthropic.MessageStreamEventUnion]
+	done             bool
+	accum            anthropic.Message
+	provider         *ClaudeProvider // back-reference for tracking cache usage
+	pendingToolBlocks []PendingToolBlock
 }
 
 func (it *claudeStreamIterator) Next() (StreamDelta, error) {
@@ -210,6 +235,18 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 			switch d := e.Delta.AsAny().(type) {
 			case anthropic.TextDelta:
 				return StreamDelta{Text: d.Text}, nil
+			}
+		case anthropic.ContentBlockStopEvent:
+			if int(e.Index) < len(it.accum.Content) {
+				block := it.accum.Content[e.Index]
+				if v, ok := block.AsAny().(anthropic.ToolUseBlock); ok {
+					inputBytes, _ := json.Marshal(v.Input)
+					it.pendingToolBlocks = append(it.pendingToolBlocks, PendingToolBlock{
+						ToolUseID: v.ID,
+						ToolName:  v.Name,
+						Input:     string(inputBytes),
+					})
+				}
 			}
 		case anthropic.MessageStopEvent:
 			it.done = true
@@ -243,6 +280,15 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 		delta.ToolCall = &resp.ToolCalls[0]
 	}
 	return delta, nil
+}
+
+// PendingToolBlocks returns tool_use blocks that completed during streaming
+// and clears the internal buffer. Callers (e.g. speculative executor) can
+// start these tools before the model finishes its full response.
+func (it *claudeStreamIterator) PendingToolBlocks() []PendingToolBlock {
+	blocks := it.pendingToolBlocks
+	it.pendingToolBlocks = nil
+	return blocks
 }
 
 func (it *claudeStreamIterator) Close() {

@@ -14,6 +14,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
@@ -48,9 +49,12 @@ type Runtime struct {
 	chainID   string // invocation chain ID
 	bgManager *BackgroundManager
 	promptCache *PromptCache
-	agentMCP       *AgentMCPManager
-	factExtractor  *memory.LLMFactExtractor
-	lifecycleMgr   *memory.LifecycleManager
+	agentMCP             *AgentMCPManager
+	factExtractor        *memory.LLMFactExtractor
+	lifecycleMgr         *memory.LifecycleManager
+	contextManager       ContextManager
+	speculativeExecutor  *SpeculativeExecutor
+	taskLedger           taskledger.TaskLedger
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -140,6 +144,16 @@ func (r *Runtime) SetAgentMCPManager(m *AgentMCPManager) { r.agentMCP = m }
 // AgentMCPManager returns the attached per-agent MCP manager, or nil.
 func (r *Runtime) AgentMCPManager() *AgentMCPManager { return r.agentMCP }
 
+// SetContextManager attaches a context manager to the runtime.
+func (r *Runtime) SetContextManager(cm ContextManager) { r.contextManager = cm }
+
+// SetSpeculativeExecutor attaches a speculative executor for launching
+// read-only tools during streaming.
+func (r *Runtime) SetSpeculativeExecutor(se *SpeculativeExecutor) { r.speculativeExecutor = se }
+
+// SetTaskLedger attaches a task ledger for tracking in-flight work.
+func (r *Runtime) SetTaskLedger(tl taskledger.TaskLedger) { r.taskLedger = tl }
+
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.
 func (r *Runtime) GetMessages(ctx context.Context, channelName, channelID string) []session.Message {
@@ -190,6 +204,27 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	// Store this runtime in context so sub-agents can access the parent.
 	ctx = RuntimeToContext(ctx, r)
 
+	if r.taskLedger != nil {
+		task := taskledger.Task{
+			ID:    fmt.Sprintf("req_%d", time.Now().UnixNano()),
+			Kind:  taskledger.TaskKindUserRequest,
+			State: taskledger.TaskStateRunning,
+			Title: truncateStr(msg.Text, 100),
+		}
+		if err := r.taskLedger.Register(ctx, task); err != nil {
+			slog.Warn("runtime: failed to register task", "err", err)
+		} else {
+			defer func() {
+				task.State = taskledger.TaskStateCompleted
+				now := time.Now()
+				task.CompletedAt = &now
+				if err := r.taskLedger.Update(ctx, task); err != nil {
+					slog.Warn("runtime: failed to complete task", "err", err)
+				}
+			}()
+		}
+	}
+
 	sess, err := r.sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
@@ -231,12 +266,15 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	}
 
 	// Compress context if needed
-	if r.cfg.Compression.Strategy == "layered" && r.compressionPipeline != nil {
+	if r.contextManager != nil {
+		if _, err := r.contextManager.Compress(ctx, sess, systemPrompt); err != nil {
+			slog.Warn("context manager compression failed", "session", sess.ID, "err", err)
+		}
+	} else if r.compressionPipeline != nil {
 		if err := r.compressionPipeline.Run(ctx, sess, systemPrompt); err != nil {
 			slog.Warn("compression pipeline failed", "session", sess.ID, "err", err)
 		}
 	} else {
-		// Legacy mode: use original compaction
 		if err := CompactHistory(ctx, r.provider, sess, r.llmCfg.Model); err != nil {
 			slog.Warn("history compaction failed", "session", sess.ID, "err", err)
 		}
@@ -248,6 +286,10 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 
 	for iteration := 0; iteration < r.cfg.MaxIterations; iteration++ {
 		slog.Info("agent iteration", "iteration", iteration, "session", sess.ID)
+
+		if r.speculativeExecutor != nil {
+			r.speculativeExecutor.Reset()
+		}
 
 		// Compute budget pressure signal for this iteration
 		budgetWarning := r.computeBudgetPressure(iteration, sess, systemPrompt)
@@ -267,10 +309,19 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 			MaxTokens: r.llmCfg.MaxTokens,
 		}
 
-		stream, err := r.provider.Stream(ctx, req)
-		if err != nil {
-			_ = updater.Finish("Error: " + err.Error())
-			return fmt.Errorf("llm stream: %w", err)
+		stream, streamErr := r.provider.Stream(ctx, req)
+		if streamErr != nil && isContextLengthError(streamErr) && r.contextManager != nil {
+			_ = updater.Finish("")
+			if compErr := r.contextManager.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
+				slog.Warn("reactive compress failed", "err", compErr)
+			} else {
+				req.Messages = BuildMessages(sess)
+				stream, streamErr = r.provider.Stream(ctx, req)
+			}
+		}
+		if streamErr != nil {
+			_ = updater.Finish("Error: " + streamErr.Error())
+			return fmt.Errorf("llm stream: %w", streamErr)
 		}
 
 		var fullText string
@@ -296,6 +347,17 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 			// Collect all tool calls from the final delta
 			if delta.Done && len(delta.ToolCalls) > 0 {
 				toolCalls = delta.ToolCalls
+			}
+
+			// Speculative execution: launch read-only tools as their blocks complete
+			if r.speculativeExecutor != nil {
+				if ptbSrc, ok := stream.(PendingToolBlockSource); ok {
+					for _, ptb := range ptbSrc.PendingToolBlocks() {
+						if launched := r.speculativeExecutor.TryLaunch(ctx, ptb.ToolUseID, ptb.ToolName, ptb.Input); launched {
+							slog.Debug("speculative launch", "tool", ptb.ToolName, "id", ptb.ToolUseID)
+						}
+					}
+				}
 			}
 
 			if delta.Done {
@@ -445,6 +507,14 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 		}
 
 		resp, err := r.provider.Complete(ctx, req)
+		if err != nil && isContextLengthError(err) && r.contextManager != nil {
+			if compErr := r.contextManager.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
+				slog.Warn("reactive compress failed (non-streaming)", "err", compErr)
+			} else {
+				req.Messages = BuildMessages(sess)
+				resp, err = r.provider.Complete(ctx, req)
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -527,6 +597,11 @@ func (r *Runtime) buildSystemPromptUncached(ctx context.Context, userText string
 		sb.WriteString("\n\n## Rules\n")
 		sb.WriteString(r.cfg.PersistentRules)
 	}
+
+	// Cache boundary: everything above is static (cacheable), below is dynamic (per-query).
+	sb.WriteString("\n")
+	sb.WriteString(dynamicContextMarker)
+	sb.WriteString("\n")
 
 	// 4. Relevant memories (runtime retrieval)
 	if r.memStore != nil {
@@ -643,4 +718,21 @@ func (r *Runtime) executeToolsWithBudget(
 	if sess.UpdateLastToolResult(budgetWarning) {
 		slog.Debug("budget pressure signal injected", "warning", budgetWarning)
 	}
+}
+
+func isContextLengthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "413") ||
+		strings.Contains(msg, "context_length_exceeded") ||
+		strings.Contains(msg, "maximum context length")
+}
+
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
 }

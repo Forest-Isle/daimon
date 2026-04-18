@@ -98,6 +98,21 @@ var commandRegistry = []Command{
 		ArgHint:     "[session_id]",
 		Category:    "builtin",
 	},
+
+	// Task ledger
+	{
+		Name:        "tasks",
+		Description: "List active and recent tasks",
+		Category:    "builtin",
+	},
+
+	// Team coordination
+	{
+		Name:        "team",
+		Description: "Break a goal into parallel tasks and execute with agent team",
+		ArgHint:     "<goal>",
+		Category:    "builtin",
+	},
 }
 
 // GetCommands returns all registered commands.

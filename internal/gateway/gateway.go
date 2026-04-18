@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"github.com/Forest-Isle/IronClaw/internal/userdir"
 )
@@ -50,8 +52,11 @@ type Gateway struct {
 	compactor      *memory.Compactor
 	graphDecay     *graph.GraphDecayTask
 	evoEngine      *evolution.Engine
-	stopCh         chan struct{} // closed in Stop() to signal background goroutines
-	stopOnce       sync.Once    // ensures stopCh is closed exactly once
+	taskLedger      *taskledger.SQLiteTaskLedger
+	teamCoordinator *taskledger.TeamCoordinator
+	staleDetector   *taskledger.StaleDetector
+	stopCh          chan struct{} // closed in Stop() to signal background goroutines
+	stopOnce        sync.Once    // ensures stopCh is closed exactly once
 }
 
 func New(cfg *config.Config) (*Gateway, error) {
@@ -86,6 +91,26 @@ func New(cfg *config.Config) (*Gateway, error) {
 	}
 	if err := gw.initMultiAgent(); err != nil {
 		return nil, fmt.Errorf("multi-agent: %w", err)
+	}
+
+	// Task ledger
+	gw.taskLedger = taskledger.NewSQLiteTaskLedger(gw.db)
+	gw.runtime.SetTaskLedger(gw.taskLedger)
+	if gw.cognitiveAgent != nil {
+		gw.cognitiveAgent.SetTaskLedger(gw.taskLedger)
+	}
+
+	// Team coordinator
+	if cfg.Agent.Team.Enabled {
+		maxWorkers := cfg.Agent.Team.MaxWorkers
+		if maxWorkers <= 0 {
+			maxWorkers = 3
+		}
+		tc := taskledger.NewTeamCoordinator(gw.taskLedger, maxWorkers)
+		tc.SetExecutor(func(ctx context.Context, task taskledger.Task) (string, error) {
+			return gw.executeTeamTask(ctx, task)
+		})
+		gw.teamCoordinator = tc
 	}
 
 	// Scheduler
@@ -166,6 +191,18 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		go startHTTPServer(gw.cfg.Server.Addr, gw.db)
 	}
 
+	// Start stale task detector
+	if gw.taskLedger != nil {
+		gw.staleDetector = taskledger.NewStaleDetector(
+			gw.taskLedger, 2*time.Minute, 30*time.Second,
+			func(t taskledger.Task) {
+				slog.Info("stale-detector: task marked stale", "id", t.ID, "title", t.Title)
+			},
+		)
+		gw.staleDetector.Start()
+		slog.Info("stale task detector started")
+	}
+
 	// Start RL trainer
 	if gw.rlTrainer != nil {
 		gw.rlTrainer.Start(ctx)
@@ -215,6 +252,10 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		gw.evoEngine.Stop()
 	}
 
+	if gw.staleDetector != nil {
+		gw.staleDetector.Stop()
+	}
+
 	// Stop memory background tasks
 	gw.stopOnce.Do(func() { close(gw.stopCh) })
 	if gw.consolidator != nil {
@@ -241,6 +282,24 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	ch, ok := gw.channels[msg.Channel]
 	if !ok {
 		slog.Error("unknown channel", "channel", msg.Channel)
+		return
+	}
+
+	// Handle /tasks command — list active and recent tasks from task ledger
+	if msg.Text == "/tasks" {
+		gw.handleTasksCommand(ctx, ch, msg)
+		return
+	}
+
+	// Handle /team <goal> command — break goal into parallel tasks
+	if strings.HasPrefix(msg.Text, "/team ") {
+		goal := strings.TrimPrefix(msg.Text, "/team ")
+		result := gw.handleTeamCommand(ctx, strings.TrimSpace(goal))
+		_ = ch.Send(ctx, channel.OutboundMessage{
+			Channel:   msg.Channel,
+			ChannelID: msg.ChannelID,
+			Text:      result,
+		})
 		return
 	}
 
@@ -388,6 +447,137 @@ func defToSpec(def config.AgentDefinition) *agent.AgentSpec {
 		Tags:          def.Tags,
 		Mode:          def.Mode,
 	}
+}
+
+// handleTasksCommand lists running and pending tasks from the task ledger.
+func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) {
+	target := channel.OutboundMessage{Channel: msg.Channel, ChannelID: msg.ChannelID}
+
+	if gw.taskLedger == nil {
+		target.Text = "Task ledger not available."
+		_ = ch.Send(ctx, target)
+		return
+	}
+
+	running := taskledger.TaskStateRunning
+	runningTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &running})
+	if err != nil {
+		target.Text = "⚠️ Failed to list tasks: " + err.Error()
+		_ = ch.Send(ctx, target)
+		return
+	}
+
+	pending := taskledger.TaskStatePending
+	pendingTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &pending})
+	if err != nil {
+		target.Text = "⚠️ Failed to list tasks: " + err.Error()
+		_ = ch.Send(ctx, target)
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("📋 Task Ledger\n\n")
+
+	if len(runningTasks) == 0 && len(pendingTasks) == 0 {
+		b.WriteString("No active tasks.")
+	} else {
+		if len(runningTasks) > 0 {
+			fmt.Fprintf(&b, "Running (%d):\n", len(runningTasks))
+			for _, t := range runningTasks {
+				age := time.Since(t.CreatedAt).Truncate(time.Second)
+				fmt.Fprintf(&b, "  ▶ [%s] %s (%s ago)\n", t.Kind, t.Title, age)
+			}
+		}
+		if len(pendingTasks) > 0 {
+			if len(runningTasks) > 0 {
+				b.WriteString("\n")
+			}
+			fmt.Fprintf(&b, "Pending (%d):\n", len(pendingTasks))
+			for _, t := range pendingTasks {
+				fmt.Fprintf(&b, "  ○ [%s] %s\n", t.Kind, t.Title)
+			}
+		}
+	}
+
+	target.Text = b.String()
+	_ = ch.Send(ctx, target)
+}
+
+// handleTeamCommand breaks a goal into parallel tasks using the LLM and executes them.
+func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
+	if gw.teamCoordinator == nil {
+		return "Team mode is not enabled. Set agent.team.enabled: true in config."
+	}
+
+	prompt := fmt.Sprintf(taskledger.TeamPlanPrompt, goal)
+	req := agent.CompletionRequest{
+		Model:     gw.cfg.LLM.Model,
+		System:    "You are a task planning assistant. Output only valid JSON.",
+		Messages:  []agent.CompletionMessage{{Role: "user", Content: prompt}},
+		MaxTokens: gw.cfg.LLM.MaxTokens,
+	}
+	resp, err := gw.provider.Complete(ctx, req)
+	if err != nil {
+		return fmt.Sprintf("Failed to generate plan: %v", err)
+	}
+
+	rootID := fmt.Sprintf("team_%d", time.Now().UnixNano())
+	rootTask := taskledger.Task{
+		ID:    rootID,
+		Kind:  taskledger.TaskKindTeamTask,
+		State: taskledger.TaskStateRunning,
+		Title: truncateGoal(goal, 100),
+	}
+	if err := gw.taskLedger.Register(ctx, rootTask); err != nil {
+		return fmt.Sprintf("Failed to register root task: %v", err)
+	}
+
+	tasks, err := taskledger.ParseTaskPlan(resp.Text, rootID)
+	if err != nil {
+		return fmt.Sprintf("Failed to parse plan: %v", err)
+	}
+
+	for _, t := range tasks {
+		if err := gw.teamCoordinator.AddTask(ctx, t); err != nil {
+			return fmt.Sprintf("Failed to add task %s: %v", t.ID, err)
+		}
+	}
+
+	result, err := gw.teamCoordinator.RunWithExecutor(ctx)
+	if err != nil {
+		return fmt.Sprintf("Team execution failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	rootTask.State = taskledger.TaskStateCompleted
+	rootTask.CompletedAt = &now
+	rootTask.Result = result.Summary
+	_ = gw.taskLedger.Update(ctx, rootTask)
+
+	return fmt.Sprintf("Team completed: %d tasks done, %d failed", result.TasksCompleted, result.TasksFailed)
+}
+
+// executeTeamTask runs a single team task by creating a temporary session
+// and routing through the main agent runtime.
+func (gw *Gateway) executeTeamTask(ctx context.Context, task taskledger.Task) (string, error) {
+	req := agent.CompletionRequest{
+		Model:     gw.cfg.LLM.Model,
+		System:    "You are an agent executing a specific task. Be concise and focused.",
+		Messages:  []agent.CompletionMessage{{Role: "user", Content: task.Description}},
+		MaxTokens: gw.cfg.LLM.MaxTokens,
+	}
+	resp, err := gw.provider.Complete(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return resp.Text, nil
+}
+
+func truncateGoal(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
 }
 
 // importTrajectoriesToRL warm-starts the RL replay buffer from historical

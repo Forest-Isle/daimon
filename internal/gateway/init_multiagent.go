@@ -67,18 +67,24 @@ func (gw *Gateway) initMultiAgent() error {
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
 	}
 
-	// Compression pipeline
-	if gw.cfg.Agent.Compression.Strategy == "layered" {
-		// Derive context window from model name
-		contextWindow := agent.ModelContextWindow(gw.cfg.LLM.Model)
+	// Speculative execution of read-only tools during streaming
+	if gw.cfg.Agent.SpeculativeExecution.Enabled {
+		maxInFlight := gw.cfg.Agent.SpeculativeExecution.MaxInFlight
+		se := agent.NewSpeculativeExecutor(gw.tools, maxInFlight)
+		gw.runtime.SetSpeculativeExecutor(se)
+		slog.Info("speculative execution enabled", "max_in_flight", maxInFlight)
+	}
 
+	// Compression pipeline and context manager
+	contextWindow := agent.ModelContextWindow(gw.cfg.LLM.Model)
+
+	if gw.cfg.Agent.Compression.Strategy == "layered" {
 		pipeline := agent.NewCompressionPipeline(
 			gw.provider, gw.cfg.LLM.Model, gw.cfg.Agent.Compression, gw.resultStore, contextWindow,
 		)
 		gw.runtime.SetCompressionPipeline(pipeline)
 		slog.Info("layered compression pipeline enabled")
 
-		// Token budget monitor
 		tokenBudget := agent.NewTokenBudget(
 			contextWindow,
 			float64(gw.cfg.Agent.Compression.Layers.ToolEvictionPct)/100.0,
@@ -95,6 +101,22 @@ func (gw *Gateway) initMultiAgent() error {
 			"heavy_pct", gw.cfg.Agent.Compression.Layers.SlimPromptPct,
 		)
 	}
+
+	// ContextManager is always created — it handles both layered (via pipeline)
+	// and non-layered (via CompactHistory fallback) compression, and enables
+	// reactive 413 retry regardless of compression strategy.
+	contextMgr := agent.NewPipelineContextManager(
+		gw.provider,
+		gw.cfg.LLM.Model,
+		&gw.cfg.Agent.Compression,
+		contextWindow,
+		gw.resultStore,
+	)
+	gw.runtime.SetContextManager(contextMgr)
+	if gw.cognitiveAgent != nil {
+		gw.cognitiveAgent.SetContextManager(contextMgr)
+	}
+	slog.Info("context manager initialized", "strategy", gw.cfg.Agent.Compression.Strategy)
 
 	return nil
 }

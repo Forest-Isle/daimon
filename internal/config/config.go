@@ -120,14 +120,30 @@ type TelegramConfig struct {
 }
 
 type AgentConfig struct {
-	MaxIterations   int               `yaml:"max_iterations"`
-	SystemPrompt    string            `yaml:"system_prompt"`
-	Personality     string            `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
-	PersistentRules string            `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
-	Mode            string            `yaml:"mode"` // "simple" | "cognitive"
-	Cognitive       CognitiveConfig   `yaml:"cognitive"`
-	RL              RLConfig          `yaml:"rl"`
-	Compression     CompressionConfig `yaml:"compression"`
+	MaxIterations        int                        `yaml:"max_iterations"`
+	SystemPrompt         string                     `yaml:"system_prompt"`
+	Personality          string                     `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
+	PersistentRules      string                     `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
+	Mode                 string                     `yaml:"mode"` // "simple" | "cognitive"
+	Cognitive            CognitiveConfig            `yaml:"cognitive"`
+	RL                   RLConfig                   `yaml:"rl"`
+	Compression          CompressionConfig          `yaml:"compression"`
+	SpeculativeExecution SpeculativeExecutionConfig `yaml:"speculative_execution"`
+	Team                 TeamConfig                 `yaml:"team"`
+}
+
+// TeamConfig configures the Agent Teams coordination system.
+type TeamConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	MaxWorkers int    `yaml:"max_workers"`
+	Model      string `yaml:"model"`
+}
+
+// SpeculativeExecutionConfig controls launching read-only tools during streaming
+// before the model finishes its response.
+type SpeculativeExecutionConfig struct {
+	Enabled     bool `yaml:"enabled"`
+	MaxInFlight int  `yaml:"max_in_flight"`
 }
 
 // CompressionConfig controls the context compression strategy.

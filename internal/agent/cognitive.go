@@ -19,6 +19,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
@@ -48,6 +49,8 @@ type CognitiveAgent struct {
 	hookMgr         *hook.Manager
 	permEngine      *tool.PermissionEngine
 	checkpointStore CheckpointStore
+	contextManager  ContextManager
+	taskLedger      taskledger.TaskLedger
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -223,6 +226,19 @@ func (ca *CognitiveAgent) SetCheckpointStore(cs CheckpointStore) {
 	ca.checkpointStore = cs
 }
 
+// SetContextManager injects a context manager for compression pipeline support.
+// Propagates to the inner runtime so simple-task delegation also benefits.
+func (ca *CognitiveAgent) SetContextManager(cm ContextManager) {
+	ca.contextManager = cm
+	ca.runtime.SetContextManager(cm)
+}
+
+// SetTaskLedger injects a task ledger for tracking cognitive subtasks.
+func (ca *CognitiveAgent) SetTaskLedger(tl taskledger.TaskLedger) {
+	ca.taskLedger = tl
+	ca.runtime.SetTaskLedger(tl)
+}
+
 // HandleMessage processes an inbound message through the cognitive loop.
 func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
 	sess, err := ca.sessions.Get(ctx, msg.Channel, msg.ChannelID)
@@ -234,6 +250,30 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		return ca.handleResume(ctx, ch, msg, sess)
 	}
 
+	var parentTaskID string
+	if ca.taskLedger != nil {
+		parentTaskID = fmt.Sprintf("cog_%d", time.Now().UnixNano())
+		task := taskledger.Task{
+			ID:    parentTaskID,
+			Kind:  taskledger.TaskKindUserRequest,
+			State: taskledger.TaskStateRunning,
+			Title: truncateStr(msg.Text, 100),
+		}
+		if err := ca.taskLedger.Register(ctx, task); err != nil {
+			slog.Warn("cognitive: failed to register task", "err", err)
+			parentTaskID = ""
+		} else {
+			defer func() {
+				task.State = taskledger.TaskStateCompleted
+				now := time.Now()
+				task.CompletedAt = &now
+				if err := ca.taskLedger.Update(ctx, task); err != nil {
+					slog.Warn("cognitive: failed to complete task", "err", err)
+				}
+			}()
+		}
+	}
+
 	// Add user message to session
 	sess.AddMessage(session.Message{
 		ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
@@ -242,15 +282,23 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		CreatedAt: time.Now(),
 	})
 
-	// Compact history before perceive
-	if err := CompactHistory(ctx, ca.planner.provider, sess, ca.llmCfg.Model); err != nil {
-		slog.Warn("cognitive: history compaction failed", "session", sess.ID, "err", err)
+	// Compress context before perceive
+	if ca.contextManager != nil {
+		if _, err := ca.contextManager.Compress(ctx, sess, ""); err != nil {
+			slog.Warn("cognitive: context compression failed", "session", sess.ID, "err", err)
+		}
+	} else {
+		if err := CompactHistory(ctx, ca.planner.provider, sess, ca.llmCfg.Model); err != nil {
+			slog.Warn("cognitive: history compaction failed", "session", sess.ID, "err", err)
+		}
 	}
 
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
 
 	// ── PERCEIVE ──────────────────────────────────────────────────────────────
+	donePerceive := ca.registerSubtask(ctx, parentTaskID, "PERCEIVE phase")
 	state, err := ca.perceiver.Run(ctx, sess, msg.Text, msg.UserID)
+	donePerceive()
 	if err != nil {
 		return fmt.Errorf("perceive: %w", err)
 	}
@@ -333,7 +381,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── PLAN ──────────────────────────────────────────────────────────────
+		donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
 		plan, err = ca.planner.Run(ctx, state)
+		donePlan()
 		if err != nil {
 			slog.Error("cognitive: plan failed", "err", err)
 			break
@@ -361,9 +411,11 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── ACT ───────────────────────────────────────────────────────────────
+		doneAct := ca.registerSubtask(ctx, parentTaskID, "ACT phase")
 		// Create TaskContext for multi-agent collaboration
 		taskCtx := NewTaskContext(fmt.Sprintf("task_%d", time.Now().UnixNano()), state.UserMessage)
 		observations, actErr := ca.executor.RunWithContext(ctx, ch, sess, target, plan, taskCtx, rlState, episodeCollector)
+		doneAct()
 		if actErr != nil {
 			slog.Error("cognitive: act failed", "err", actErr)
 			break
@@ -396,7 +448,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── REFLECT ───────────────────────────────────────────────────────────
+		doneReflect := ca.registerSubtask(ctx, parentTaskID, "REFLECT phase")
 		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult, attempt)
+		doneReflect()
 		if err != nil {
 			slog.Error("cognitive: reflect failed", "err", err)
 			break
@@ -793,6 +847,34 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 				DurationMs: obs.DurationMs,
 				Timestamp:  now,
 			})
+		}
+	}
+}
+
+// registerSubtask records a cognitive subtask in the task ledger and returns
+// a function that marks it completed. If the ledger is unavailable the
+// returned function is a no-op.
+func (ca *CognitiveAgent) registerSubtask(ctx context.Context, parentID, title string) func() {
+	if ca.taskLedger == nil || parentID == "" {
+		return func() {}
+	}
+	task := taskledger.Task{
+		ID:       fmt.Sprintf("sub_%d", time.Now().UnixNano()),
+		ParentID: parentID,
+		Kind:     taskledger.TaskKindCognitiveSubtask,
+		State:    taskledger.TaskStateRunning,
+		Title:    title,
+	}
+	if err := ca.taskLedger.Register(ctx, task); err != nil {
+		slog.Warn("cognitive: failed to register subtask", "title", title, "err", err)
+		return func() {}
+	}
+	return func() {
+		task.State = taskledger.TaskStateCompleted
+		now := time.Now()
+		task.CompletedAt = &now
+		if err := ca.taskLedger.Update(ctx, task); err != nil {
+			slog.Warn("cognitive: failed to complete subtask", "title", title, "err", err)
 		}
 	}
 }
