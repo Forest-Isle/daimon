@@ -227,8 +227,10 @@ func (ca *CognitiveAgent) SetCheckpointStore(cs CheckpointStore) {
 }
 
 // SetContextManager injects a context manager for compression pipeline support.
+// Propagates to the inner runtime so simple-task delegation also benefits.
 func (ca *CognitiveAgent) SetContextManager(cm ContextManager) {
 	ca.contextManager = cm
+	ca.runtime.SetContextManager(cm)
 }
 
 // SetTaskLedger injects a task ledger for tracking cognitive subtasks.
