@@ -558,6 +558,11 @@ func (r *Runtime) buildSystemPromptUncached(ctx context.Context, userText string
 		sb.WriteString(r.cfg.PersistentRules)
 	}
 
+	// Cache boundary: everything above is static (cacheable), below is dynamic (per-query).
+	sb.WriteString("\n")
+	sb.WriteString(dynamicContextMarker)
+	sb.WriteString("\n")
+
 	// 4. Relevant memories (runtime retrieval)
 	if r.memStore != nil {
 		results, err := r.memStore.Search(ctx, memory.SearchQuery{Text: userText, Limit: 5})

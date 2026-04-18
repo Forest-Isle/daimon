@@ -103,6 +103,9 @@ func (gw *Gateway) initMultiAgent() error {
 			gw.resultStore,
 		)
 		gw.runtime.SetContextManager(contextMgr)
+		if gw.cognitiveAgent != nil {
+			gw.cognitiveAgent.SetContextManager(contextMgr)
+		}
 		slog.Info("context manager initialized")
 	}
 

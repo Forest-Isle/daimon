@@ -48,6 +48,7 @@ type CognitiveAgent struct {
 	hookMgr         *hook.Manager
 	permEngine      *tool.PermissionEngine
 	checkpointStore CheckpointStore
+	contextManager  ContextManager
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -223,6 +224,11 @@ func (ca *CognitiveAgent) SetCheckpointStore(cs CheckpointStore) {
 	ca.checkpointStore = cs
 }
 
+// SetContextManager injects a context manager for compression pipeline support.
+func (ca *CognitiveAgent) SetContextManager(cm ContextManager) {
+	ca.contextManager = cm
+}
+
 // HandleMessage processes an inbound message through the cognitive loop.
 func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
 	sess, err := ca.sessions.Get(ctx, msg.Channel, msg.ChannelID)
@@ -242,9 +248,15 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		CreatedAt: time.Now(),
 	})
 
-	// Compact history before perceive
-	if err := CompactHistory(ctx, ca.planner.provider, sess, ca.llmCfg.Model); err != nil {
-		slog.Warn("cognitive: history compaction failed", "session", sess.ID, "err", err)
+	// Compress context before perceive
+	if ca.contextManager != nil {
+		if _, err := ca.contextManager.Compress(ctx, sess, ""); err != nil {
+			slog.Warn("cognitive: context compression failed", "session", sess.ID, "err", err)
+		}
+	} else {
+		if err := CompactHistory(ctx, ca.planner.provider, sess, ca.llmCfg.Model); err != nil {
+			slog.Warn("cognitive: history compaction failed", "session", sess.ID, "err", err)
+		}
 	}
 
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}

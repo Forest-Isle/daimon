@@ -154,13 +154,28 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 	}
 
 	if req.System != "" {
-		sysBlock := anthropic.TextBlockParam{Text: req.System}
-		// Mark system prompt with cache_control for prompt caching.
-		// The system prompt is typically stable across turns, making it ideal for caching.
 		if c.supportsCaching() {
-			sysBlock.CacheControl = anthropic.NewCacheControlEphemeralParam()
+			if idx := strings.Index(req.System, dynamicContextMarker); idx >= 0 {
+				staticPart := req.System[:idx]
+				dynamicPart := req.System[idx+len(dynamicContextMarker):]
+				staticBlock := anthropic.TextBlockParam{
+					Text:         staticPart,
+					CacheControl: anthropic.NewCacheControlEphemeralParam(),
+				}
+				params.System = []anthropic.TextBlockParam{staticBlock}
+				if strings.TrimSpace(dynamicPart) != "" {
+					params.System = append(params.System, anthropic.TextBlockParam{Text: dynamicPart})
+				}
+			} else {
+				sysBlock := anthropic.TextBlockParam{
+					Text:         req.System,
+					CacheControl: anthropic.NewCacheControlEphemeralParam(),
+				}
+				params.System = []anthropic.TextBlockParam{sysBlock}
+			}
+		} else {
+			params.System = []anthropic.TextBlockParam{{Text: req.System}}
 		}
-		params.System = []anthropic.TextBlockParam{sysBlock}
 	}
 
 	return params
