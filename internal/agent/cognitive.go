@@ -75,6 +75,7 @@ func NewCognitiveAgent(
 	ca.perceiver.SetProjectScanner(scanner)
 	ca.planner = NewPlanner(provider, tools, cogCfg, llmCfg.Model)
 	ca.executor = NewExecutor(tools, db, nil, cogCfg) // approvalFunc set via SetApprovalFunc
+	ca.executor.SetToolCache(NewToolResultCache())
 	ca.observer = NewObserver()
 	ca.reflector = NewReflector(provider, nil, cogCfg, llmCfg.Model)
 
