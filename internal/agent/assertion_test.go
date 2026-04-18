@@ -237,6 +237,30 @@ func TestObserverRun_DeniedObservation(t *testing.T) {
 	}
 }
 
+func TestObserverRun_UnknownToolWithError(t *testing.T) {
+	obs := NewObserver()
+	plan := &TaskPlan{
+		SubTasks: []*SubTask{
+			{ID: "1", ToolName: "mcp_custom_tool", Status: SubTaskDone},
+		},
+	}
+	observations := []Observation{
+		{SubTaskID: "1", ToolName: "mcp_custom_tool", Error: "connection refused"},
+	}
+
+	result := obs.Run(observations, plan)
+
+	if result.FailureCount != 1 {
+		t.Errorf("FailureCount = %d, want 1", result.FailureCount)
+	}
+	if result.SuccessCount != 0 {
+		t.Errorf("SuccessCount = %d, want 0", result.SuccessCount)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].ErrorType != FailureToolError {
+		t.Error("expected tool_error failure context")
+	}
+}
+
 // assertCheck finds a result by Check name and verifies its Passed value.
 func assertCheck(t *testing.T, results []AssertionResult, check string, wantPassed bool) {
 	t.Helper()

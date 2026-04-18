@@ -46,7 +46,7 @@ func (o *Observer) Run(observations []Observation, plan *TaskPlan) *ObservationR
 			}
 		}
 
-		if len(failed) > 0 {
+		if len(failed) > 0 || obs.Error != "" {
 			result.FailureCount++
 			fc := FailureContext{
 				SubTaskID:  obs.SubTaskID,
@@ -56,7 +56,11 @@ func (o *Observer) Run(observations []Observation, plan *TaskPlan) *ObservationR
 			}
 			if obs.Error != "" {
 				fc.ErrorType = FailureToolError
-				fc.ErrorMsg = obs.Error
+				if len(failed) > 0 {
+					fc.ErrorMsg = obs.Error + " [failed checks: " + strings.Join(failed, "; ") + "]"
+				} else {
+					fc.ErrorMsg = obs.Error
+				}
 			} else {
 				fc.ErrorType = FailureAssertionFailed
 			}
