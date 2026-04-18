@@ -129,6 +129,14 @@ type AgentConfig struct {
 	RL                   RLConfig                   `yaml:"rl"`
 	Compression          CompressionConfig          `yaml:"compression"`
 	SpeculativeExecution SpeculativeExecutionConfig `yaml:"speculative_execution"`
+	Team                 TeamConfig                 `yaml:"team"`
+}
+
+// TeamConfig configures the Agent Teams coordination system.
+type TeamConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	MaxWorkers int    `yaml:"max_workers"`
+	Model      string `yaml:"model"`
 }
 
 // SpeculativeExecutionConfig controls launching read-only tools during streaming
