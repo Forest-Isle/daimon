@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -46,6 +47,7 @@ type CognitiveAgent struct {
 	evoEngine       *evolution.Engine // self-evolution event dispatcher (nil if disabled)
 	hookMgr         *hook.Manager
 	permEngine      *tool.PermissionEngine
+	checkpointStore CheckpointStore
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -206,6 +208,11 @@ func (ca *CognitiveAgent) SetMemoryNotifyFunc(fn MemoryNotifyFunc) {
 	ca.reflector.SetMemoryNotifyFunc(fn)
 }
 
+// SetCheckpointStore injects a checkpoint store for task resume support.
+func (ca *CognitiveAgent) SetCheckpointStore(cs CheckpointStore) {
+	ca.checkpointStore = cs
+}
+
 // HandleMessage processes an inbound message through the cognitive loop.
 func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
 	sess, err := ca.sessions.Get(ctx, msg.Channel, msg.ChannelID)
@@ -356,6 +363,19 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			"progress", fmt.Sprintf("%.0f%%", obsResult.OverallProgress*100),
 		)
 
+		if ca.checkpointStore != nil && obsResult != nil {
+			obsJSON, _ := json.Marshal(obsResult.Observations)
+			planJSON, _ := json.Marshal(plan)
+			cp := &TaskCheckpoint{
+				ID:               fmt.Sprintf("cp-%s-%d", sess.ID, attempt),
+				SessionID:        sess.ID,
+				SubTaskIndex:     len(obsResult.Observations),
+				ObservationsJSON: string(obsJSON),
+				PlanJSON:         string(planJSON),
+			}
+			_ = ca.checkpointStore.Save(ctx, cp)
+		}
+
 		// RL: update state with observation results
 		if rlEnabled && rlState != nil {
 			updateRLStateWithObservation(rlState, obsResult)
@@ -424,6 +444,10 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	}
 
 persist:
+	if ca.checkpointStore != nil {
+		_ = ca.checkpointStore.Delete(ctx, sess.ID)
+	}
+
 	// Optional user feedback (thumbs up/down) for RL and/or self-evolution.
 	var userFeedback float64
 	needFeedback := (rlEnabled && episodeCollector != nil && ca.rlTrainer != nil) ||

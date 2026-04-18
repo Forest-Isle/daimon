@@ -39,6 +39,10 @@ func (gw *Gateway) initCognitiveAgent() error {
 	// Inject memory notification callback
 	gw.cognitiveAgent.SetMemoryNotifyFunc(gw.sendMemoryNotification)
 
+	// Checkpoint store for task resume
+	checkpointStore := agent.NewSQLiteCheckpointStore(gw.db)
+	gw.cognitiveAgent.SetCheckpointStore(checkpointStore)
+
 	// RL System (requires cognitive agent)
 	if gw.cfg.Agent.RL.Enabled {
 		rlStorage := rl.NewStorage(gw.db)
