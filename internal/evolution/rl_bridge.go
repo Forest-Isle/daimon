@@ -78,22 +78,17 @@ func trajectoryToExperience(rec TrajectoryRecord) RLExperience {
 }
 
 func computeTrajectoryReward(rec TrajectoryRecord) float64 {
-	reward := 0.0
-
+	progress := 0.0
 	if rec.Reflection.Succeeded {
-		reward += 0.5
+		progress = 1.0
 	}
-
-	if rec.DurationMs > 0 && rec.DurationMs < 60000 {
-		reward += 0.2
-	}
-	if rec.ReplanCount == 0 {
-		reward += 0.1
-	}
-
-	reward += rec.UserFeedback * 0.2
-
-	return clampReward(reward, -1.0, 1.0)
+	return ComputeReward(RewardInput{
+		Succeeded:    rec.Reflection.Succeeded,
+		Progress:     progress,
+		DurationMs:   rec.DurationMs,
+		ReplanCount:  rec.ReplanCount,
+		UserFeedback: rec.UserFeedback,
+	})
 }
 
 func normalizeFloat(v, maxVal float64) float64 {

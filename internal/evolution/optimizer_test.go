@@ -536,6 +536,66 @@ func TestApplyInsights_EmptyReport(t *testing.T) {
 	}
 }
 
+// ---------- GetReplanThreshold / GetToolPriority / HardControl ----------
+
+func TestOptimizer_GetReplanThreshold_FreshOptimizer(t *testing.T) {
+	opt := NewStrategyOptimizer(defaultTestCfg())
+	if v := opt.GetReplanThreshold(); v != 0 {
+		t.Errorf("fresh optimizer should return 0 (no optimization yet), got %f", v)
+	}
+}
+
+func TestOptimizer_GetReplanThreshold_AfterOptimization(t *testing.T) {
+	cfg := defaultTestCfg()
+	cfg.UpdateInterval = 2
+	opt := NewStrategyOptimizer(cfg)
+
+	for i := 0; i < 2; i++ {
+		opt.OnEpisodeComplete(context.Background(), makeEvent(true, 0, []string{"bash"}))
+	}
+
+	v := opt.GetReplanThreshold()
+	if v <= 0 || v > 1.0 {
+		t.Errorf("expected threshold in (0, 1.0], got %f", v)
+	}
+}
+
+func TestOptimizer_GetToolPriority_Default(t *testing.T) {
+	opt := NewStrategyOptimizer(defaultTestCfg())
+	if v := opt.GetToolPriority("nonexistent"); v != defaultToolPriority {
+		t.Errorf("unknown tool should return default priority %f, got %f", defaultToolPriority, v)
+	}
+}
+
+func TestOptimizer_GetToolPriority_AfterInsights(t *testing.T) {
+	opt := NewStrategyOptimizer(defaultTestCfg())
+	opt.ApplyInsights(&InsightsReport{
+		TotalEpisodes: 10,
+		TopTools: []ToolInsight{
+			{Name: "bash", Uses: 5, SuccessRate: 0.95},
+		},
+	})
+
+	v := opt.GetToolPriority("bash")
+	if v <= defaultToolPriority {
+		t.Errorf("bash should be boosted above default, got %f", v)
+	}
+}
+
+func TestOptimizer_IsHardControlEnabled(t *testing.T) {
+	cfg := defaultTestCfg()
+	opt := NewStrategyOptimizer(cfg)
+	if opt.IsHardControlEnabled() {
+		t.Error("hard control should be disabled by default")
+	}
+
+	cfg.HardControlEnabled = true
+	opt2 := NewStrategyOptimizer(cfg)
+	if !opt2.IsHardControlEnabled() {
+		t.Error("hard control should be enabled when configured")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------

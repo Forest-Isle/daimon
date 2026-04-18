@@ -1,16 +1,22 @@
 # IronClaw
 
-**Local-first AI Agent Runtime, built with Go.**
+**Self-evolving Cognitive Agent Runtime — local-first, built with Go.**
 
 [中文文档](README_zh.md)
 
 [![CI](https://github.com/Forest-Isle/IronClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/Forest-Isle/IronClaw/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![SQLite](https://img.shields.io/badge/SQLite-Local--first-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org)
 [![Anthropic](https://img.shields.io/badge/Claude-AI_Powered-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com)
 
-IronClaw is a self-hosted AI agent runtime that runs entirely on your own infrastructure. It connects Claude AI with real-world tools — shell commands, file operations, HTTP requests, browser automation — and exposes them through multiple channels (Telegram, Terminal UI). All data stays local in SQLite and Markdown files.
+IronClaw is a self-hosted AI agent runtime that **gets better at its job over time**. It runs entirely on your own infrastructure, connecting Claude AI with real-world tools — shell commands, file operations, HTTP requests, browser automation — through multiple channels (Telegram, Terminal UI). All data stays local in SQLite and Markdown files.
+
+**What makes IronClaw different:**
+- **Cognitive depth, not just tool breadth** — A 5-phase cognitive loop (PERCEIVE → PLAN → ACT → OBSERVE → REFLECT) with structured verification, DAG-based parallel execution, and confidence-calibrated replanning. Not a simple prompt-response loop.
+- **Self-evolution** — Three feedback loops learn from every interaction: preference learning, skill synthesis from recurring patterns, and strategy optimization that tunes agent behavior based on measured outcomes.
+- **Science-inspired memory** — File-based Markdown storage with episodic/semantic/procedural memory types, Ebbinghaus forgetting curves, and automatic consolidation. Your agent's memory is inspectable, git-friendly, and backed by hybrid FTS5+vector search.
+- **Single binary, zero runtime dependencies** — One Go binary with embedded SQLite. No Python, no npm, no Docker required. Deploy and run.
 
 ## Features
 
@@ -56,14 +62,51 @@ IronClaw is a self-hosted AI agent runtime that runs entirely on your own infras
 │  (cron)     │  │  (ClawHub)  │  ├──────────────┬────────────────────────┤
 └─────────────┘  └─────────────┘  │   Memory     │   Knowledge Base      │
                                   │ File-first   │   (BM25 + vector)     │
-┌─────────────┐  ┌═════════════╗  │ MD + SQLite  ├────────────────────────┤
-│  User Dir   │  ║  RL Engine  ║  │ index        │   Knowledge Graph     │
-│(~/.IronClaw)│  ║ Bandit/PPO/ ║  ├──────────────┤   (temporal edges,    │
-└─────────────┘  ║ DQN + train ║  │  Reflector   │    provenance)        │
-                 ╚═════════════╝  │  Compactor   ├────────────────────────┤
-                                  │  Profiler    │   Privacy & Audit     │
-                                  └──────────────┴────────────────────────┘
+┌═════════════╗  ┌═════════════╗  │ MD + SQLite  ├────────────────────────┤
+║  Evolution  ║  ║  RL Engine  ║  │ index        │   Knowledge Graph     │
+║ Preferences ║  ║ Bandit/PPO/ ║  ├──────────────┤   (temporal edges,    │
+║ Skills      ║  ║ DQN + train ║  │  Reflector   │    provenance)        │
+║ Strategy    ║  ╚══════╤══════╝  │  Compactor   ├────────────────────────┤
+║ Metrics     ║─────────┘         │  Profiler    │   Privacy & Audit     │
+╚═════════════╝                   └──────────────┴────────────────────────┘
 ```
+
+## How It Learns
+
+IronClaw improves through three self-evolution feedback loops that run automatically in the background:
+
+```
+                    ┌─── Loop 1: Preference Learning ───┐
+                    │   Extract user preferences from    │
+                    │   successful reflections            │
+                    └──────────────┬─────────────────────┘
+                                   │
+   Agent Execution ──► Trajectory ─┼─── Loop 2: Skill Synthesis ────┐
+   (cognitive loop)    Recording   │   Detect recurring tool         │
+                                   │   patterns → generate skills    │
+                                   └──────────────┬─────────────────┘
+                                                  │
+                                   ┌──── Loop 3: Strategy Optimizer ─┐
+                                   │   Tune replan threshold and     │
+                                   │   tool priorities from outcomes  │
+                                   └─────────────────────────────────┘
+```
+
+Every 6 hours, an insights cycle reads trajectory data, generates pattern analysis, and feeds recommendations back into the strategy optimizer. The agent's next session benefits from tuned parameters — measurable through `ironclaw eval compare`.
+
+## Cognitive vs Simple Mode
+
+| Aspect | Simple Mode | Cognitive Mode |
+|--------|-------------|----------------|
+| Loop | Linear: prompt → LLM → tools → repeat | 5-phase: PERCEIVE → PLAN → ACT → OBSERVE → REFLECT |
+| Verification | None | Auto-generated assertions per tool type |
+| Planning | Single-shot | DAG with dependency validation, parallel batches |
+| Error handling | Retry or fail | Structured failure analysis → targeted replan |
+| Context | Static prompt | Dynamic budget allocation by complexity |
+| Learning | None | Evolution hooks, RL integration, trajectory recording |
+| Resume | Not supported | Checkpoint/resume from last completed subtask |
+
+Use simple mode for quick Q&A. Use cognitive mode for multi-step tasks where reliability matters.
 
 ## Quick Start
 

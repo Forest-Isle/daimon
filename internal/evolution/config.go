@@ -48,6 +48,7 @@ type OptimizerConfig struct {
 	MaxAdjustmentPercent float64 `yaml:"max_adjustment_percent"` // max % change per cycle
 	RevertThreshold      float64 `yaml:"revert_threshold"`       // revert if success drops by this %
 	StrategyFile         string  `yaml:"strategy_file"`          // relative to ~/.IronClaw/evolution/
+	HardControlEnabled   bool    `yaml:"hard_control_enabled"`   // when true, optimizer values directly override agent params (not just prompt hints)
 }
 
 // DefaultConfig returns sensible defaults with the engine disabled.

@@ -348,6 +348,15 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if confidenceThreshold <= 0 {
 		confidenceThreshold = 0.6
 	}
+	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
+		if so := ca.evoEngine.StrategyOptimizerHook(); so != nil && so.IsHardControlEnabled() {
+			if evoThreshold := so.GetReplanThreshold(); evoThreshold > 0 {
+				confidenceThreshold = evoThreshold
+				slog.Debug("cognitive: using evolution replan threshold",
+					"threshold", evoThreshold, "session", sess.ID)
+			}
+		}
+	}
 	maxReplans := cogCfg.MaxReplanAttempts
 	if maxReplans <= 0 {
 		maxReplans = MaxReplanAttempts

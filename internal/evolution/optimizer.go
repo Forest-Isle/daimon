@@ -405,6 +405,42 @@ func (so *StrategyOptimizer) saveStrategyLocked(path string) error {
 	return nil
 }
 
+// IsHardControlEnabled returns whether the optimizer should directly override
+// agent runtime parameters (replan threshold, tool priorities) rather than
+// only providing soft prompt hints.
+func (so *StrategyOptimizer) IsHardControlEnabled() bool {
+	return so.cfg.HardControlEnabled
+}
+
+// GetReplanThreshold returns the current evolved replan threshold value,
+// clamped to safe bounds. Returns 0 if no optimization has run yet (version <= 1).
+func (so *StrategyOptimizer) GetReplanThreshold() float64 {
+	so.mu.Lock()
+	defer so.mu.Unlock()
+	if so.strategy.Version <= 1 {
+		return 0
+	}
+	v := so.strategy.ReplanThreshold.Value
+	if v < minReplanThreshold {
+		return minReplanThreshold
+	}
+	if v > maxReplanThreshold {
+		return maxReplanThreshold
+	}
+	return v
+}
+
+// GetToolPriority returns the evolved priority for a specific tool.
+// Returns defaultToolPriority (0.5) if the tool has no custom priority.
+func (so *StrategyOptimizer) GetToolPriority(toolName string) float64 {
+	so.mu.Lock()
+	defer so.mu.Unlock()
+	if p, ok := so.strategy.ToolPriorities[toolName]; ok {
+		return p.Value
+	}
+	return defaultToolPriority
+}
+
 // GetStrategy returns a copy of the current strategy. Thread-safe.
 func (so *StrategyOptimizer) GetStrategy() Strategy {
 	so.mu.Lock()

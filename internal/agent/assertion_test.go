@@ -261,6 +261,227 @@ func TestObserverRun_UnknownToolWithError(t *testing.T) {
 	}
 }
 
+// ---------- file_read assertions ----------
+
+func TestGenerateAssertions_FileRead_Success(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "fr1",
+		ToolName:  "file_read",
+		Output:    "line1\nline2\nline3",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "file read succeeded", true)
+	assertCheck(t, results, "file content is non-empty", true)
+}
+
+func TestGenerateAssertions_FileRead_Error(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "fr2",
+		ToolName:  "file_read",
+		Output:    "",
+		Error:     "file not found",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "file read succeeded", false)
+}
+
+func TestGenerateAssertions_FileRead_EmptyContent(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "fr3",
+		ToolName:  "file_read",
+		Output:    "   ",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "file read succeeded", true)
+	assertCheck(t, results, "file content is non-empty", false)
+}
+
+// ---------- browser_search assertions ----------
+
+func TestGenerateAssertions_BrowserSearch_Success(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "bs1",
+		ToolName:  "browser_search",
+		Output:    `{"results":[{"title":"result1"},{"title":"result2"}],"error":""}`,
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "search succeeded", true)
+	assertCheck(t, results, "search returned results", true)
+}
+
+func TestGenerateAssertions_BrowserSearch_Empty(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "bs2",
+		ToolName:  "browser_search",
+		Output:    `{"results":[],"error":""}`,
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "search succeeded", true)
+	assertCheck(t, results, "search returned results", false)
+}
+
+func TestGenerateAssertions_BrowserSearch_Error(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "bs3",
+		ToolName:  "browser_search",
+		Error:     "network timeout",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "search succeeded", false)
+}
+
+// ---------- browser_extract assertions ----------
+
+func TestGenerateAssertions_BrowserExtract_Success(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "be1",
+		ToolName:  "browser_extract",
+		Output:    `{"content":"# Page Title\nSome content","error":""}`,
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "extract succeeded", true)
+	assertCheck(t, results, "extracted content is non-empty", true)
+}
+
+func TestGenerateAssertions_BrowserExtract_EmptyContent(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "be2",
+		ToolName:  "browser_extract",
+		Output:    `{"content":"","error":"page not found"}`,
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "extract succeeded", true)
+	assertCheck(t, results, "extracted content is non-empty", false)
+}
+
+// ---------- mcp_* assertions ----------
+
+func TestGenerateAssertions_MCP_Success(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "mcp1",
+		ToolName:  "mcp_github_search",
+		Output:    `{"result":{"items":[]}}`,
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "MCP tool succeeded", true)
+}
+
+func TestGenerateAssertions_MCP_ToolError(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "mcp2",
+		ToolName:  "mcp_custom_tool",
+		Error:     "connection refused",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "MCP tool succeeded", false)
+}
+
+func TestGenerateAssertions_MCP_ResponseError(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "mcp3",
+		ToolName:  "mcp_api_call",
+		Output:    `{"error":"invalid token","result":null}`,
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "MCP tool succeeded", true)
+	assertCheck(t, results, "MCP response has no error field", false)
+}
+
+// ---------- skill_* assertions ----------
+
+func TestGenerateAssertions_Skill_Success(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "sk1",
+		ToolName:  "skill_deploy",
+		Output:    "deployment completed successfully",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "skill execution succeeded", true)
+	assertCheck(t, results, "skill produced output", true)
+}
+
+func TestGenerateAssertions_Skill_Error(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "sk2",
+		ToolName:  "skill_build",
+		Error:     "build failed: syntax error",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "skill execution succeeded", false)
+}
+
+func TestGenerateAssertions_ReadSkill(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "sk3",
+		ToolName:  "read_skill",
+		Output:    "# Skill Content\nDo these steps...",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "skill execution succeeded", true)
+	assertCheck(t, results, "skill produced output", true)
+}
+
+// ---------- memory_* assertions ----------
+
+func TestGenerateAssertions_Memory_Success(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "mem1",
+		ToolName:  "memory_search",
+		Output:    `[{"content":"some memory"}]`,
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "memory operation succeeded", true)
+}
+
+func TestGenerateAssertions_Memory_Error(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "mem2",
+		ToolName:  "memory_add",
+		Error:     "database locked",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "memory operation succeeded", false)
+}
+
+// ---------- generic (fallback) assertions ----------
+
+func TestGenerateAssertions_Generic_WithError(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "gen1",
+		ToolName:  "some_new_tool",
+		Error:     "unexpected failure",
+	}
+	results := generateAssertions(obs)
+	if len(results) == 0 {
+		t.Fatal("expected generic assertion for tool with error")
+	}
+	assertCheck(t, results, "tool execution succeeded", false)
+}
+
+func TestGenerateAssertions_Generic_NoError(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "gen2",
+		ToolName:  "some_new_tool",
+		Output:    "ok",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	if len(results) != 0 {
+		t.Errorf("expected no assertions for unknown tool without error, got %d", len(results))
+	}
+}
+
 // assertCheck finds a result by Check name and verifies its Passed value.
 func assertCheck(t *testing.T, results []AssertionResult, check string, wantPassed bool) {
 	t.Helper()

@@ -3,6 +3,7 @@ package agent
 import (
 	"strings"
 
+	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/rl"
 )
 
@@ -39,20 +40,20 @@ func updateRLStateWithObservation(s *rl.RLState, obs *ObservationResult) {
 }
 
 // computeSimpleEpisodeReward returns a scalar reward for the entire episode.
+// Delegates to evolution.ComputeReward for consistency with the offline
+// trajectory bridge.
 func computeSimpleEpisodeReward(reflection *Reflection, obs *ObservationResult) float64 {
 	if reflection == nil {
 		return -0.5
 	}
-	reward := 0.0
-	if reflection.Succeeded {
-		reward += 1.0
-	} else {
-		reward -= 1.0
-	}
+	progress := 0.0
 	if obs != nil {
-		reward += obs.OverallProgress * 0.5
+		progress = obs.OverallProgress
 	}
-	return reward
+	return evolution.ComputeReward(evolution.RewardInput{
+		Succeeded: reflection.Succeeded,
+		Progress:  progress,
+	})
 }
 
 // computeReflectionBonus returns an additional reward based on the richness

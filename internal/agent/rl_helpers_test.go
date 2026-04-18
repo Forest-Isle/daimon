@@ -151,22 +151,22 @@ func TestComputeSimpleEpisodeReward(t *testing.T) {
 			name:       "succeeded with full progress",
 			reflection: &Reflection{Succeeded: true},
 			obs:        &ObservationResult{OverallProgress: 1.0},
-			wantMin:    1.4,
-			wantMax:    1.6,
+			wantMin:    0.7,
+			wantMax:    0.8,
 		},
 		{
 			name:       "failed with half progress",
 			reflection: &Reflection{Succeeded: false},
 			obs:        &ObservationResult{OverallProgress: 0.5},
-			wantMin:    -0.8,
-			wantMax:    -0.7,
+			wantMin:    -0.4,
+			wantMax:    -0.3,
 		},
 		{
 			name:       "succeeded no obs",
 			reflection: &Reflection{Succeeded: true},
 			obs:        nil,
-			wantMin:    0.9,
-			wantMax:    1.1,
+			wantMin:    0.5,
+			wantMax:    0.6,
 		},
 	}
 

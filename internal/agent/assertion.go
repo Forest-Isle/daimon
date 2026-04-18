@@ -15,15 +15,27 @@ func generateAssertions(obs Observation) []AssertionResult {
 	if obs.Denied {
 		return nil
 	}
-	switch obs.ToolName {
-	case "bash":
+	switch {
+	case obs.ToolName == "bash":
 		return bashAssertions(obs)
-	case "http":
+	case obs.ToolName == "http":
 		return httpAssertions(obs)
-	case "file_write", "file_edit":
+	case obs.ToolName == "file_write" || obs.ToolName == "file_edit":
 		return fileWriteAssertions(obs)
+	case obs.ToolName == "file_read":
+		return fileReadAssertions(obs)
+	case obs.ToolName == "browser_search":
+		return browserSearchAssertions(obs)
+	case obs.ToolName == "browser_extract":
+		return browserExtractAssertions(obs)
+	case strings.HasPrefix(obs.ToolName, "mcp_"):
+		return mcpAssertions(obs)
+	case strings.HasPrefix(obs.ToolName, "skill_") || obs.ToolName == "read_skill":
+		return skillAssertions(obs)
+	case strings.HasPrefix(obs.ToolName, "memory_"):
+		return memoryAssertions(obs)
 	default:
-		return nil
+		return genericAssertions(obs)
 	}
 }
 
@@ -111,5 +123,157 @@ func fileWriteAssertions(obs Observation) []AssertionResult {
 		Passed: false,
 		Actual: truncate(obs.Error, 200),
 	}}
+}
+
+func fileReadAssertions(obs Observation) []AssertionResult {
+	results := make([]AssertionResult, 0, 2)
+
+	results = append(results, AssertionResult{
+		Check:  "file read succeeded",
+		Passed: obs.Error == "",
+		Actual: errorOrOK(obs.Error),
+	})
+
+	if obs.Error == "" {
+		results = append(results, AssertionResult{
+			Check:  "file content is non-empty",
+			Passed: len(strings.TrimSpace(obs.Output)) > 0,
+			Actual: fmt.Sprintf("output length = %d", len(obs.Output)),
+		})
+	}
+
+	return results
+}
+
+type browserSearchOutput struct {
+	Results []json.RawMessage `json:"results"`
+	Error   string            `json:"error"`
+}
+
+func browserSearchAssertions(obs Observation) []AssertionResult {
+	results := make([]AssertionResult, 0, 2)
+
+	results = append(results, AssertionResult{
+		Check:  "search succeeded",
+		Passed: obs.Error == "",
+		Actual: errorOrOK(obs.Error),
+	})
+
+	if obs.Error == "" {
+		var out browserSearchOutput
+		if err := json.Unmarshal([]byte(obs.Output), &out); err == nil {
+			results = append(results, AssertionResult{
+				Check:  "search returned results",
+				Passed: len(out.Results) > 0 && out.Error == "",
+				Actual: fmt.Sprintf("results=%d, error=%q", len(out.Results), out.Error),
+			})
+		}
+	}
+
+	return results
+}
+
+type browserExtractOutput struct {
+	Content string `json:"content"`
+	Error   string `json:"error"`
+}
+
+func browserExtractAssertions(obs Observation) []AssertionResult {
+	results := make([]AssertionResult, 0, 2)
+
+	results = append(results, AssertionResult{
+		Check:  "extract succeeded",
+		Passed: obs.Error == "",
+		Actual: errorOrOK(obs.Error),
+	})
+
+	if obs.Error == "" {
+		var out browserExtractOutput
+		if err := json.Unmarshal([]byte(obs.Output), &out); err == nil {
+			results = append(results, AssertionResult{
+				Check:  "extracted content is non-empty",
+				Passed: len(strings.TrimSpace(out.Content)) > 0 && out.Error == "",
+				Actual: fmt.Sprintf("content_len=%d, error=%q", len(out.Content), out.Error),
+			})
+		}
+	}
+
+	return results
+}
+
+type mcpOutput struct {
+	Error  string `json:"error"`
+	Result json.RawMessage `json:"result"`
+}
+
+func mcpAssertions(obs Observation) []AssertionResult {
+	results := make([]AssertionResult, 0, 2)
+
+	results = append(results, AssertionResult{
+		Check:  "MCP tool succeeded",
+		Passed: obs.Error == "",
+		Actual: errorOrOK(obs.Error),
+	})
+
+	if obs.Error == "" && obs.Output != "" {
+		var out mcpOutput
+		if err := json.Unmarshal([]byte(obs.Output), &out); err == nil && out.Error != "" {
+			results = append(results, AssertionResult{
+				Check:  "MCP response has no error field",
+				Passed: false,
+				Actual: truncate(out.Error, 200),
+			})
+		}
+	}
+
+	return results
+}
+
+func skillAssertions(obs Observation) []AssertionResult {
+	results := make([]AssertionResult, 0, 2)
+
+	results = append(results, AssertionResult{
+		Check:  "skill execution succeeded",
+		Passed: obs.Error == "",
+		Actual: errorOrOK(obs.Error),
+	})
+
+	if obs.Error == "" {
+		results = append(results, AssertionResult{
+			Check:  "skill produced output",
+			Passed: len(strings.TrimSpace(obs.Output)) > 0,
+			Actual: fmt.Sprintf("output length = %d", len(obs.Output)),
+		})
+	}
+
+	return results
+}
+
+func memoryAssertions(obs Observation) []AssertionResult {
+	return []AssertionResult{{
+		Check:  "memory operation succeeded",
+		Passed: obs.Error == "",
+		Actual: errorOrOK(obs.Error),
+	}}
+}
+
+// genericAssertions provides a minimal check for any tool not covered by
+// a specific handler: if the observation carries an error it fails.
+func genericAssertions(obs Observation) []AssertionResult {
+	if obs.Error == "" {
+		return nil
+	}
+	return []AssertionResult{{
+		Check:  "tool execution succeeded",
+		Passed: false,
+		Actual: truncate(obs.Error, 200),
+	}}
+}
+
+func errorOrOK(errMsg string) string {
+	if errMsg == "" {
+		return "no error"
+	}
+	return truncate(errMsg, 200)
 }
 
