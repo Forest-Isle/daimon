@@ -16,11 +16,12 @@ import (
 
 // Perceiver implements the PERCEIVE phase: parse goal, retrieve memories, assess complexity.
 type Perceiver struct {
-	memStore memory.Store
-	searcher knowledge.Searcher         // optional knowledge searcher (KB or HybridRetriever)
-	graph    graph.Graph                // optional knowledge graph
-	rlPolicy RLPolicy                   // optional RL policy
-	scanner  *ProjectContextScanner     // optional project context scanner
+	memStore    memory.Store
+	searcher    knowledge.Searcher     // optional knowledge searcher (KB or HybridRetriever)
+	graph       graph.Graph            // optional knowledge graph
+	rlPolicy    RLPolicy               // optional RL policy
+	scanner     *ProjectContextScanner // optional project context scanner
+	gitProvider *GitContextProvider     // optional git state provider
 }
 
 // NewPerceiver creates a new Perceiver.
@@ -46,6 +47,11 @@ func (p *Perceiver) SetRLPolicy(policy RLPolicy) {
 // SetProjectScanner injects an optional project context scanner.
 func (p *Perceiver) SetProjectScanner(s *ProjectContextScanner) {
 	p.scanner = s
+}
+
+// SetGitProvider injects an optional git context provider.
+func (p *Perceiver) SetGitProvider(g *GitContextProvider) {
+	p.gitProvider = g
 }
 
 // complexityKeywords trigger moderate or complex classification.
@@ -132,6 +138,11 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 	if p.scanner != nil {
 		cwd, _ := os.Getwd()
 		state.ProjectCtx = p.scanner.Scan(cwd)
+	}
+
+	if p.gitProvider != nil {
+		cwd, _ := os.Getwd()
+		state.GitState = p.gitProvider.Collect(cwd)
 	}
 
 	slog.Info("perceive complete",

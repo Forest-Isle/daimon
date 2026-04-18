@@ -56,6 +56,14 @@ type ProjectContext struct {
 	RawContent     string   `json:"-"` // formatted string for prompt injection
 }
 
+// GitState holds the current git repository state for context injection.
+type GitState struct {
+	Branch           string   `json:"branch"`
+	UncommittedFiles []string `json:"uncommitted_files,omitempty"`
+	RecentCommits    []string `json:"recent_commits,omitempty"`
+	RawContent       string   `json:"-"` // formatted string for prompt injection
+}
+
 // CognitiveState is the output of the PERCEIVE phase.
 type CognitiveState struct {
 	SessionID        string
@@ -75,6 +83,7 @@ type CognitiveState struct {
 	ModelOverride     string          // dynamic model override from evolution ModelRouter (empty = use default)
 	MaxTokensOverride int             // dynamic max_tokens override (0 = use default)
 	ProjectCtx        *ProjectContext // auto-detected project context (nil if not scanned or no project found)
+	GitState          *GitState       // current git repo state (nil if not a git repo)
 }
 
 // SubTask is a single unit of work within a TaskPlan.

@@ -193,6 +193,13 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 	}
 	msg = strings.ReplaceAll(msg, "{{PROJECT_CONTEXT}}", projectCtx)
 
+	// Git state section
+	gitState := "(none)"
+	if state.GitState != nil && state.GitState.RawContent != "" {
+		gitState = state.GitState.RawContent
+	}
+	msg = strings.ReplaceAll(msg, "{{GIT_STATE}}", gitState)
+
 	// Preferences section (from evolution PreferenceLearner)
 	msg = strings.ReplaceAll(msg, "{{PREFERENCES}}", state.Preferences)
 

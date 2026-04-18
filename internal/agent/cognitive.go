@@ -73,6 +73,8 @@ func NewCognitiveAgent(
 	ca.perceiver = NewPerceiver(nil) // memStore injected via SetMemoryStore
 	scanner := NewProjectContextScanner()
 	ca.perceiver.SetProjectScanner(scanner)
+	gitProvider := NewGitContextProvider()
+	ca.perceiver.SetGitProvider(gitProvider)
 	ca.planner = NewPlanner(provider, tools, cogCfg, llmCfg.Model)
 	ca.executor = NewExecutor(tools, db, nil, cogCfg) // approvalFunc set via SetApprovalFunc
 	ca.executor.SetToolCache(NewToolResultCache())
@@ -86,10 +88,11 @@ func NewCognitiveAgent(
 func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	ca.memStore = s
 	ca.runtime.SetMemoryStore(s)
-	// Preserve existing searcher, graph, and scanner when rebuilding the perceiver.
+	// Preserve existing searcher, graph, scanner, and git provider when rebuilding the perceiver.
 	oldSearcher := ca.perceiver.searcher
 	oldGraph := ca.perceiver.graph
 	oldScanner := ca.perceiver.scanner
+	oldGitProvider := ca.perceiver.gitProvider
 	ca.perceiver = NewPerceiver(s)
 	if oldSearcher != nil {
 		ca.perceiver.SetKnowledgeSearcher(oldSearcher)
@@ -99,6 +102,9 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	}
 	if oldScanner != nil {
 		ca.perceiver.SetProjectScanner(oldScanner)
+	}
+	if oldGitProvider != nil {
+		ca.perceiver.SetGitProvider(oldGitProvider)
 	}
 	ca.reflector = NewReflector(
 		ca.planner.provider,
