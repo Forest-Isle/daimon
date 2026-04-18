@@ -85,8 +85,9 @@ func (r *Reflector) Run(
 	state *CognitiveState,
 	plan *TaskPlan,
 	obsResult *ObservationResult,
+	replanAttempt int,
 ) (*Reflection, error) {
-	userMsg := buildReflectUserMessage(state, plan, obsResult)
+	userMsg := buildReflectUserMessage(state, plan, obsResult, replanAttempt)
 	maxTokens := r.cfg.ReflectMaxTokens
 	if maxTokens <= 0 {
 		maxTokens = 2048
@@ -268,7 +269,7 @@ func (r *Reflector) extractGraphEntities(ctx context.Context, state *CognitiveSt
 }
 
 // buildReflectUserMessage fills in the ReflectUserPromptTemplate.
-func buildReflectUserMessage(state *CognitiveState, plan *TaskPlan, obsResult *ObservationResult) string {
+func buildReflectUserMessage(state *CognitiveState, plan *TaskPlan, obsResult *ObservationResult, replanAttempt int) string {
 	// Observations section
 	var obsSB strings.Builder
 	if len(obsResult.Observations) == 0 {
@@ -305,6 +306,10 @@ func buildReflectUserMessage(state *CognitiveState, plan *TaskPlan, obsResult *O
 	msg = strings.ReplaceAll(msg, "{{PLAN_SUMMARY}}", plan.Summary)
 	msg = strings.ReplaceAll(msg, "{{OBSERVATIONS}}", obsSB.String())
 	msg = strings.ReplaceAll(msg, "{{STATS}}", stats)
+
+	enriched := enrichFailureContexts(obsResult.Failures, replanAttempt)
+	failureCtx := formatFailureContextForPrompt(enriched)
+	msg = strings.ReplaceAll(msg, "{{FAILURE_CONTEXT}}", failureCtx)
 	return msg
 }
 

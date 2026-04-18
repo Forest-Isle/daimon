@@ -339,7 +339,7 @@ func TestBuildReflectUserMessage_TruncationLimit(t *testing.T) {
 		SuccessCount: 1,
 	}
 
-	msg := buildReflectUserMessage(state, plan, obs)
+	msg := buildReflectUserMessage(state, plan, obs, 0)
 
 	// The truncated output should be 1500 chars + "...[truncated]"
 	if !strings.Contains(msg, "...[truncated]") {
@@ -366,7 +366,7 @@ func TestBuildReflectUserMessage_NoTruncationForShortOutput(t *testing.T) {
 		SuccessCount: 1,
 	}
 
-	msg := buildReflectUserMessage(state, plan, obs)
+	msg := buildReflectUserMessage(state, plan, obs, 0)
 	if strings.Contains(msg, "...[truncated]") {
 		t.Error("short output should not be truncated")
 	}

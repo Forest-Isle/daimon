@@ -349,7 +349,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── REFLECT ───────────────────────────────────────────────────────────
-		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult)
+		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult, attempt)
 		if err != nil {
 			slog.Error("cognitive: reflect failed", "err", err)
 			break
@@ -553,7 +553,7 @@ func (ca *CognitiveAgent) handleDebate(
 
 	// Use reflector to generate final answer
 	obsResult := ca.observer.Run(observations, debatePlan)
-	reflection, err := ca.reflector.Run(ctx, ch, target, state, debatePlan, obsResult)
+	reflection, err := ca.reflector.Run(ctx, ch, target, state, debatePlan, obsResult, 0)
 	if err != nil {
 		slog.Error("cognitive: debate reflection failed", "err", err)
 		// Fallback: use synthesis directly

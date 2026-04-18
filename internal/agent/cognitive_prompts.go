@@ -184,7 +184,7 @@ OUTPUT FORMAT:
 }`
 
 // ReflectUserPromptTemplate is the user message template for the REFLECT phase.
-// Placeholders: {{GOAL}}, {{PLAN_SUMMARY}}, {{OBSERVATIONS}}, {{STATS}}
+// Placeholders: {{GOAL}}, {{PLAN_SUMMARY}}, {{OBSERVATIONS}}, {{STATS}}, {{FAILURE_CONTEXT}}
 const ReflectUserPromptTemplate = `ORIGINAL GOAL:
 {{GOAL}}
 
@@ -197,4 +197,5 @@ EXECUTION OBSERVATIONS:
 STATISTICS:
 {{STATS}}
 
+{{FAILURE_CONTEXT}}
 Score each dimension (completeness, accuracy, efficiency, relevance) 0–25 with explanations, then derive overall_confidence = sum / 100. Produce the JSON reflection now.`
