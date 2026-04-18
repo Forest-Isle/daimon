@@ -697,9 +697,9 @@ func (m *Model) showHelp() {
 func (m *Model) showStatus() {
 	var b strings.Builder
 	b.WriteString("📊 Session Status:\n\n")
-	b.WriteString(fmt.Sprintf("Mode: %s\n", m.agentMode))
-	b.WriteString(fmt.Sprintf("Version: %s\n", m.version))
-	b.WriteString(fmt.Sprintf("Messages: %d\n", len(m.messages)))
+	fmt.Fprintf(&b, "Mode: %s\n", m.agentMode)
+	fmt.Fprintf(&b, "Version: %s\n", m.version)
+	fmt.Fprintf(&b, "Messages: %d\n", len(m.messages))
 	if m.streamingID != "" {
 		b.WriteString("Streaming: active\n")
 	} else {
@@ -731,8 +731,8 @@ func (m *Model) showHistory() {
 			if len(preview) > 60 {
 				preview = preview[:60] + "..."
 			}
-			b.WriteString(fmt.Sprintf("%d. %s [%s] %s\n",
-				i+1, icon, msg.timestamp.Format("15:04:05"), preview))
+			fmt.Fprintf(&b, "%d. %s [%s] %s\n",
+				i+1, icon, msg.timestamp.Format("15:04:05"), preview)
 		}
 	}
 

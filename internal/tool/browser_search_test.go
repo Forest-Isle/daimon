@@ -63,9 +63,9 @@ func TestBrowserSearchTool_IsReadOnly(t *testing.T) {
 }
 
 func TestBrowserSearchTool_Execute(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(cannedDDGHTML))
+		_, _ = w.Write([]byte(cannedDDGHTML))
 	}))
 	defer srv.Close()
 
@@ -113,9 +113,9 @@ func TestBrowserSearchTool_Execute(t *testing.T) {
 }
 
 func TestBrowserSearchTool_FallbackParsing(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(cannedFallbackHTML))
+		_, _ = w.Write([]byte(cannedFallbackHTML))
 	}))
 	defer srv.Close()
 
@@ -165,7 +165,7 @@ func TestBrowserSearchTool_Pagination(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestedURL = r.URL.String()
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(cannedDDGHTML))
+		_, _ = w.Write([]byte(cannedDDGHTML))
 	}))
 	defer srv.Close()
 
