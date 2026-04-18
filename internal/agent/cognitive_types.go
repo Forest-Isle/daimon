@@ -104,11 +104,20 @@ type AssertionResult struct {
 	Actual string // what was observed, e.g. "exit_code = 1"
 }
 
+// FailureErrorType classifies the type of failure in a subtask execution.
+type FailureErrorType string
+
+const (
+	FailureAssertionFailed FailureErrorType = "assertion_failed"
+	FailureToolError       FailureErrorType = "tool_error"
+	FailureDenied          FailureErrorType = "denied"
+)
+
 // FailureContext provides structured context about a subtask failure for replan prompts.
 type FailureContext struct {
 	SubTaskID    string
 	ToolName     string
-	ErrorType    string // "assertion_failed", "tool_error", "denied"
+	ErrorType    FailureErrorType
 	ErrorMsg     string
 	AttemptCount int
 	Assertions   []AssertionResult
@@ -122,8 +131,8 @@ type ObservationResult struct {
 	DeniedCount     int
 	OverallProgress float64 // 0.0–1.0
 	ErrorPatterns   []string
-	Assertions      []AssertionResult // per-observation assertion results
-	Failures        []FailureContext  // structured failure context for replan
+	Assertions      []AssertionResult // all assertion results across all observations (superset for stats/debugging)
+	Failures        []FailureContext  // structured failure context; each entry's Assertions are scoped to that subtask
 }
 
 // DimensionScore represents a single evaluation dimension in reflection scoring.
