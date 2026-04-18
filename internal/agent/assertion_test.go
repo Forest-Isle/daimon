@@ -159,6 +159,84 @@ func TestGenerateAssertions_HTTP_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestObserverRun_PopulatesAssertions(t *testing.T) {
+	obs := NewObserver()
+	plan := &TaskPlan{
+		SubTasks: []*SubTask{
+			{ID: "1", ToolName: "bash", Status: SubTaskDone},
+			{ID: "2", ToolName: "http", Status: SubTaskDone},
+		},
+	}
+	observations := []Observation{
+		{SubTaskID: "1", ToolName: "bash", Output: `{"stdout":"ok","stderr":"","exit_code":0,"status":"ok"}`},
+		{SubTaskID: "2", ToolName: "http", Output: `{"status_code":500,"body":"err"}`},
+	}
+
+	result := obs.Run(observations, plan)
+
+	if len(result.Assertions) == 0 {
+		t.Fatal("expected assertions to be populated")
+	}
+	if len(result.Failures) == 0 {
+		t.Fatal("expected at least one failure context (http 500)")
+	}
+
+	var httpFailure *FailureContext
+	for i := range result.Failures {
+		if result.Failures[i].SubTaskID == "2" {
+			httpFailure = &result.Failures[i]
+		}
+	}
+	if httpFailure == nil {
+		t.Fatal("expected failure context for subtask 2")
+	}
+	if httpFailure.ErrorType != FailureAssertionFailed {
+		t.Errorf("ErrorType = %q, want %q", httpFailure.ErrorType, FailureAssertionFailed)
+	}
+}
+
+func TestObserverRun_NoAssertionFailures(t *testing.T) {
+	obs := NewObserver()
+	plan := &TaskPlan{
+		SubTasks: []*SubTask{
+			{ID: "1", ToolName: "bash", Status: SubTaskDone},
+		},
+	}
+	observations := []Observation{
+		{SubTaskID: "1", ToolName: "bash", Output: `{"stdout":"hello","stderr":"","exit_code":0,"status":"ok"}`},
+	}
+
+	result := obs.Run(observations, plan)
+
+	if len(result.Failures) != 0 {
+		t.Errorf("expected no failures, got %d", len(result.Failures))
+	}
+	if result.SuccessCount != 1 {
+		t.Errorf("SuccessCount = %d, want 1", result.SuccessCount)
+	}
+}
+
+func TestObserverRun_DeniedObservation(t *testing.T) {
+	obs := NewObserver()
+	plan := &TaskPlan{
+		SubTasks: []*SubTask{
+			{ID: "1", ToolName: "bash", Status: SubTaskDone},
+		},
+	}
+	observations := []Observation{
+		{SubTaskID: "1", ToolName: "bash", Denied: true},
+	}
+
+	result := obs.Run(observations, plan)
+
+	if result.DeniedCount != 1 {
+		t.Errorf("DeniedCount = %d, want 1", result.DeniedCount)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].ErrorType != FailureDenied {
+		t.Error("expected denied failure context")
+	}
+}
+
 // assertCheck finds a result by Check name and verifies its Passed value.
 func assertCheck(t *testing.T, results []AssertionResult, check string, wantPassed bool) {
 	t.Helper()

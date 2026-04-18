@@ -27,8 +27,40 @@ func (o *Observer) Run(observations []Observation, plan *TaskPlan) *ObservationR
 	for _, obs := range observations {
 		if obs.Denied {
 			result.DeniedCount++
-		} else if obs.Error != "" {
+			result.Failures = append(result.Failures, FailureContext{
+				SubTaskID: obs.SubTaskID,
+				ToolName:  obs.ToolName,
+				ErrorType: FailureDenied,
+				ErrorMsg:  "tool execution denied by user",
+			})
+			continue
+		}
+
+		assertions := generateAssertions(obs)
+		result.Assertions = append(result.Assertions, assertions...)
+
+		var failed []string
+		for _, a := range assertions {
+			if !a.Passed {
+				failed = append(failed, a.Check)
+			}
+		}
+
+		if len(failed) > 0 {
 			result.FailureCount++
+			fc := FailureContext{
+				SubTaskID:  obs.SubTaskID,
+				ToolName:   obs.ToolName,
+				ErrorMsg:   strings.Join(failed, "; "),
+				Assertions: assertions,
+			}
+			if obs.Error != "" {
+				fc.ErrorType = FailureToolError
+				fc.ErrorMsg = obs.Error
+			} else {
+				fc.ErrorType = FailureAssertionFailed
+			}
+			result.Failures = append(result.Failures, fc)
 		} else {
 			result.SuccessCount++
 		}
