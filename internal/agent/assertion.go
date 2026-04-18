@@ -93,7 +93,7 @@ func httpAssertions(obs Observation) []AssertionResult {
 
 	return []AssertionResult{{
 		Check:  "status_code < 400",
-		Passed: out.StatusCode < 400,
+		Passed: out.StatusCode >= 100 && out.StatusCode < 400,
 		Actual: fmt.Sprintf("status_code = %d", out.StatusCode),
 	}}
 }

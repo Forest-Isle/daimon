@@ -95,6 +95,70 @@ func TestGenerateAssertions_DeniedObservation(t *testing.T) {
 	}
 }
 
+func TestGenerateAssertions_FileWrite_Success(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "7",
+		ToolName:  "file_write",
+		Output:    "file written successfully",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	if len(results) == 0 {
+		t.Fatal("expected assertions for file_write")
+	}
+	assertCheck(t, results, "file operation succeeded", true)
+}
+
+func TestGenerateAssertions_FileWrite_Error(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "8",
+		ToolName:  "file_write",
+		Output:    "",
+		Error:     "permission denied: /etc/hosts",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "file operation succeeded", false)
+}
+
+func TestGenerateAssertions_FileEdit(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "9",
+		ToolName:  "file_edit",
+		Output:    "edit applied",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	assertCheck(t, results, "file operation succeeded", true)
+}
+
+func TestGenerateAssertions_Bash_InvalidJSON(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "10",
+		ToolName:  "bash",
+		Output:    "this is not json",
+		Error:     "exit status 1",
+	}
+	results := generateAssertions(obs)
+	if len(results) == 0 {
+		t.Fatal("expected at least one assertion for bash with error")
+	}
+}
+
+func TestGenerateAssertions_HTTP_InvalidJSON(t *testing.T) {
+	obs := Observation{
+		SubTaskID: "11",
+		ToolName:  "http",
+		Output:    "<html>not json</html>",
+		Error:     "",
+	}
+	results := generateAssertions(obs)
+	for _, r := range results {
+		if r.Check == "status_code < 400" && r.Passed {
+			t.Error("should not pass status_code check on invalid JSON")
+		}
+	}
+}
+
 // assertCheck finds a result by Check name and verifies its Passed value.
 func assertCheck(t *testing.T, results []AssertionResult, check string, wantPassed bool) {
 	t.Helper()
