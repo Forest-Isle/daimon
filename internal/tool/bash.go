@@ -5,11 +5,30 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 )
 
 const maxOutputSize = 64 * 1024 // 64KB
+const largeOutputThreshold = 8 * 1024 // 8KB
+
+type bashOutput struct {
+	Stdout     string `json:"stdout"`
+	Stderr     string `json:"stderr"`
+	ExitCode   int    `json:"exit_code"`
+	Truncated  bool   `json:"truncated"`
+	DurationMs int64  `json:"duration_ms"`
+	Status     string `json:"status"`
+	FilePath   string `json:"file_path,omitempty"`
+}
+
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
+}
 
 type BashTool struct {
 	timeout  time.Duration
@@ -71,7 +90,6 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 		return Result{Error: "command is required"}, nil
 	}
 
-	// Check policy
 	if msg := b.policy.CheckBashCommand(in.Command); msg != "" {
 		return Result{Error: msg}, nil
 	}
@@ -84,24 +102,72 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	start := time.Now()
+	runErr := cmd.Run()
+	durationMs := time.Since(start).Milliseconds()
 
-	output := stdout.String()
-	if stderr.Len() > 0 {
-		output += "\nSTDERR:\n" + stderr.String()
+	if runErr != nil && ctx.Err() == context.DeadlineExceeded {
+		return Result{Error: fmt.Sprintf("command timed out after %s", b.timeout)}, nil
 	}
 
-	// Truncate large output
-	if len(output) > maxOutputSize {
-		output = output[:maxOutputSize] + "\n... (output truncated)"
-	}
-
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return Result{Error: fmt.Sprintf("command timed out after %s", b.timeout)}, nil
+	exitCode := 0
+	if runErr != nil {
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
 		}
-		return Result{Output: output, Error: err.Error()}, nil
 	}
 
-	return Result{Output: output}, nil
+	status := "ok"
+	if exitCode != 0 {
+		status = "failed"
+	}
+
+	stdoutStr := truncateStr(stdout.String(), maxOutputSize)
+	stderrStr := truncateStr(stderr.String(), maxOutputSize)
+
+	out := bashOutput{
+		Stdout:     stdoutStr,
+		Stderr:     stderrStr,
+		ExitCode:   exitCode,
+		DurationMs: durationMs,
+		Status:     status,
+	}
+
+	totalSize := len(stdoutStr) + len(stderrStr)
+	truncated := totalSize > largeOutputThreshold
+
+	result := Result{
+		Metadata: map[string]any{
+			"exit_code":   exitCode,
+			"status":      status,
+			"duration_ms": durationMs,
+		},
+	}
+
+	if truncated {
+		fullJSON, _ := json.Marshal(out)
+		tmpFile, err := os.CreateTemp("", "ironclaw-bash-*.json")
+		if err != nil {
+			return Result{Error: fmt.Sprintf("failed to create temp file: %v", err)}, nil
+		}
+		tmpFile.Write(fullJSON)
+		tmpFile.Close()
+
+		out.Stdout = truncateStr(stdoutStr, largeOutputThreshold/2)
+		out.Stderr = truncateStr(stderrStr, largeOutputThreshold/2)
+		out.Truncated = true
+		out.FilePath = tmpFile.Name()
+		result.IsPartial = true
+	}
+
+	outputJSON, _ := json.Marshal(out)
+	result.Output = string(outputJSON)
+
+	if exitCode != 0 {
+		result.Error = fmt.Sprintf("exit code %d", exitCode)
+	}
+
+	return result, nil
 }
