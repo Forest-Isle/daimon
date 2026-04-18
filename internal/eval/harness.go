@@ -200,3 +200,73 @@ func LoadSuiteResult(path string) (*SuiteResult, error) {
 	}
 	return &result, nil
 }
+
+// IterationPoint captures metrics for a single iteration in a longitudinal run,
+// combining the eval summary with evolution subsystem state.
+type IterationPoint struct {
+	Iteration       int          `json:"iteration"`
+	RunID           string       `json:"run_id"`
+	Timestamp       time.Time    `json:"timestamp"`
+	Summary         SuiteSummary `json:"summary"`
+	StrategyVersion int          `json:"strategy_version"`
+	PreferenceCount int          `json:"preference_count"`
+	SkillDraftCount int          `json:"skill_draft_count"`
+	TrajectoryCount int          `json:"trajectory_count"`
+}
+
+// LongitudinalReport captures the full time series of a longitudinal evaluation
+// run, including per-iteration metrics and first-vs-last comparison deltas.
+type LongitudinalReport struct {
+	Iterations  []IterationPoint `json:"iterations"`
+	First       SuiteSummary     `json:"first"`
+	Last        SuiteSummary     `json:"last"`
+	Deltas      ComparisonDelta  `json:"deltas"`
+	GeneratedAt time.Time        `json:"generated_at"`
+}
+
+// NewLongitudinalReport creates a report from a series of iteration points.
+// Computes first-vs-last deltas automatically.
+func NewLongitudinalReport(points []IterationPoint) *LongitudinalReport {
+	if len(points) == 0 {
+		return &LongitudinalReport{GeneratedAt: time.Now()}
+	}
+
+	first := points[0].Summary
+	last := points[len(points)-1].Summary
+
+	return &LongitudinalReport{
+		Iterations: points,
+		First:      first,
+		Last:       last,
+		Deltas: ComparisonDelta{
+			SuccessRateDelta:       last.SuccessRate - first.SuccessRate,
+			AvgAssertPassRateDelta: last.AvgAssertionPassRate - first.AvgAssertionPassRate,
+			AvgConfidenceDelta:     last.AvgConfidence - first.AvgConfidence,
+			AvgReplanCountDelta:    last.AvgReplanCount - first.AvgReplanCount,
+			DurationDelta:          last.Duration - first.Duration,
+		},
+		GeneratedAt: time.Now(),
+	}
+}
+
+// SaveJSON writes the longitudinal report to a JSON file.
+func (r *LongitudinalReport) SaveJSON(path string) error {
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal longitudinal report: %w", err)
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+// LoadLongitudinalReport reads a longitudinal report from a JSON file.
+func LoadLongitudinalReport(path string) (*LongitudinalReport, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read longitudinal report: %w", err)
+	}
+	var report LongitudinalReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("unmarshal longitudinal report: %w", err)
+	}
+	return &report, nil
+}

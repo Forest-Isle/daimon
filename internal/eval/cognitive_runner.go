@@ -8,6 +8,7 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/evolution"
 )
 
 // CognitiveAgentRunner implements AgentRunner by driving a real CognitiveAgent.
@@ -103,6 +104,7 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 
 	r.populateFromObservation(result)
 	r.populateFromEvolution(result, sess.ID)
+	r.populateSuccessFallback(result)
 
 	return result, nil
 }
@@ -153,7 +155,46 @@ func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 	if so := evo.StrategyOptimizerHook(); so != nil {
 		snap.StrategyVersion = so.GetStrategy().Version
 	}
+	if ss := evo.SkillSynthesizerHook(); ss != nil {
+		snap.SkillDraftCount = ss.DraftCount()
+	}
+	if tr := evo.TrajectoryRecorderHook(); tr != nil {
+		dir := tr.Dir()
+		if dir != "" {
+			since := time.Now().Add(-24 * time.Hour)
+			if records, err := evolution.ReadTrajectories(dir, since, time.Now()); err == nil {
+				snap.TrajectoryCount = len(records)
+			}
+		}
+	}
 	return snap
+}
+
+// populateSuccessFallback sets Success and Confidence when neither the
+// evolution hook nor observation callback provided explicit success signals.
+// This covers runs where evolution is not configured.
+func (r *CognitiveAgentRunner) populateSuccessFallback(result *EvalResult) {
+	if r.hook != nil {
+		return // evolution hook already set Success
+	}
+
+	r.mu.Lock()
+	obs := r.lastObservation
+	r.mu.Unlock()
+
+	if result.Error != "" {
+		return // hard error — leave Success=false
+	}
+
+	if obs != nil && result.AssertionTotal > 0 {
+		result.Success = result.AssertionPassRate >= 0.8
+		result.Confidence = result.AssertionPassRate
+		return
+	}
+
+	// No assertions and no error — treat as success with moderate confidence.
+	result.Success = true
+	result.Confidence = 0.5
 }
 
 func (r *CognitiveAgentRunner) populateFromEvolution(result *EvalResult, sessionID string) {

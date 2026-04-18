@@ -828,6 +828,21 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 		}
 	}
 
+	// Dispatch tool execution events first (synchronous — populates per-tool
+	// buffers in TrajectoryRecorder before the async episode dispatch reads them).
+	if obsResult != nil {
+		for _, obs := range obsResult.Observations {
+			ca.evoEngine.DispatchToolExec(evolution.ToolExecEvent{
+				SessionID:  state.SessionID,
+				ToolName:   obs.ToolName,
+				Succeeded:  !obs.Denied && obs.Error == "",
+				Denied:     obs.Denied,
+				DurationMs: obs.DurationMs,
+				Timestamp:  now,
+			})
+		}
+	}
+
 	// Dispatch reflection event (feeds PreferenceLearner).
 	succeeded := reflection != nil && reflection.Succeeded
 	confidence := 0.0
@@ -859,6 +874,7 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 	})
 
 	// Dispatch episode event (feeds SkillSynthesizer and StrategyOptimizer).
+	// Runs after DispatchToolExec so that per-tool buffers are already populated.
 	durationMs := int64(0)
 	if !turnStart.IsZero() {
 		durationMs = now.Sub(turnStart).Milliseconds()
@@ -881,20 +897,6 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 		UserFeedback: userFeedback,
 		Timestamp:    now,
 	})
-
-	// Dispatch individual tool execution events (feeds future hooks).
-	if obsResult != nil {
-		for _, obs := range obsResult.Observations {
-			ca.evoEngine.DispatchToolExec(evolution.ToolExecEvent{
-				SessionID:  state.SessionID,
-				ToolName:   obs.ToolName,
-				Succeeded:  !obs.Denied && obs.Error == "",
-				Denied:     obs.Denied,
-				DurationMs: obs.DurationMs,
-				Timestamp:  now,
-			})
-		}
-	}
 }
 
 // registerSubtask records a cognitive subtask in the task ledger and returns

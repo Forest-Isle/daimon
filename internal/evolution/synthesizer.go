@@ -32,6 +32,13 @@ func NewSkillSynthesizer(cfg SynthesizerConfig) *SkillSynthesizer {
 	}
 }
 
+// DraftCount returns the number of skill drafts that have been generated.
+func (s *SkillSynthesizer) DraftCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.generated)
+}
+
 // Name returns the hook identifier used in logs.
 func (s *SkillSynthesizer) Name() string { return "skill_synthesizer" }
 

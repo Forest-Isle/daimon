@@ -69,6 +69,11 @@ func NewTrajectoryRecorder(dir string) *TrajectoryRecorder {
 
 func (tr *TrajectoryRecorder) Name() string { return "trajectory_recorder" }
 
+// Dir returns the trajectory directory path.
+func (tr *TrajectoryRecorder) Dir() string {
+	return tr.dir
+}
+
 // OnToolExecuted buffers individual tool results per session.
 func (tr *TrajectoryRecorder) OnToolExecuted(_ context.Context, event ToolExecEvent) {
 	rec := ToolRecord{

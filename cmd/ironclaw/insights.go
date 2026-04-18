@@ -11,6 +11,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 func newInsightsCmd() *cobra.Command {
@@ -198,10 +199,40 @@ func buildHealthFromTrajectories(records []evolution.TrajectoryRecord) *cogmetri
 				Succeeded: tool.Succeeded,
 			})
 		}
+
+		if len(rec.Tools) > 0 {
+			passed := 0
+			for _, tool := range rec.Tools {
+				if tool.Succeeded {
+					passed++
+				}
+			}
+			c.RecordAssertionRate(float64(passed) / float64(len(rec.Tools)))
+		}
+	}
+
+	if v := loadStrategyVersion(); v > 0 {
+		c.SetStrategyVersion(v)
 	}
 
 	snapshot := c.Snapshot()
 	return &snapshot
+}
+
+func loadStrategyVersion() int {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return 0
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".IronClaw", "evolution", "strategy.yaml"))
+	if err != nil {
+		return 0
+	}
+	var s evolution.Strategy
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return 0
+	}
+	return s.Version
 }
 
 func trajectoriesDir() (string, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 )
@@ -152,4 +153,135 @@ func TestEvalHook_IsolatesSessions(t *testing.T) {
 
 func outMsg(text string) channel.OutboundMessage {
 	return channel.OutboundMessage{Text: text}
+}
+
+func TestPopulateFromObservation(t *testing.T) {
+	r := &CognitiveAgentRunner{
+		channel: &EvalChannel{},
+	}
+
+	obs := &agent.ObservationResult{
+		Assertions: []agent.AssertionResult{
+			{Check: "exit_code == 0", Passed: true},
+			{Check: "no stderr", Passed: true},
+			{Check: "file exists", Passed: false, Actual: "file not found"},
+		},
+		Observations: []agent.Observation{
+			{ToolName: "bash"},
+			{ToolName: "file_write"},
+			{ToolName: "bash"},
+		},
+	}
+
+	r.mu.Lock()
+	r.lastObservation = obs
+	r.mu.Unlock()
+
+	result := &EvalResult{}
+	r.populateFromObservation(result)
+
+	if result.AssertionTotal != 3 {
+		t.Errorf("AssertionTotal = %d, want 3", result.AssertionTotal)
+	}
+	if result.AssertionPassed != 2 {
+		t.Errorf("AssertionPassed = %d, want 2", result.AssertionPassed)
+	}
+	wantRate := 2.0 / 3.0
+	if diff := result.AssertionPassRate - wantRate; diff > 0.001 || diff < -0.001 {
+		t.Errorf("AssertionPassRate = %f, want ~%f", result.AssertionPassRate, wantRate)
+	}
+	if len(result.ToolsUsed) != 2 {
+		t.Errorf("ToolsUsed = %v, want 2 unique tools", result.ToolsUsed)
+	}
+}
+
+func TestPopulateFromObservation_NilObservation(t *testing.T) {
+	r := &CognitiveAgentRunner{
+		channel: &EvalChannel{},
+	}
+
+	result := &EvalResult{}
+	r.populateFromObservation(result)
+
+	if result.AssertionTotal != 0 {
+		t.Errorf("AssertionTotal should be 0 when no observation, got %d", result.AssertionTotal)
+	}
+	if result.ToolsUsed != nil {
+		t.Errorf("ToolsUsed should be nil when no observation, got %v", result.ToolsUsed)
+	}
+}
+
+func TestPopulateFromEvolution(t *testing.T) {
+	hook := NewEvalHook()
+	r := &CognitiveAgentRunner{
+		channel: &EvalChannel{},
+		hook:    hook,
+	}
+
+	hook.OnReflectionComplete(context.Background(), evolution.ReflectionEvent{
+		SessionID:   "test-sess",
+		Succeeded:   true,
+		Confidence:  0.92,
+		ReplanCount: 2,
+		ToolsUsed:   []string{"bash"},
+	})
+	hook.OnEpisodeComplete(context.Background(), evolution.EpisodeEvent{
+		SessionID:   "test-sess",
+		Succeeded:   true,
+		ReplanCount: 2,
+	})
+
+	result := &EvalResult{}
+	r.populateFromEvolution(result, "test-sess")
+
+	if !result.Success {
+		t.Error("Success should be true from reflection event")
+	}
+	if result.Confidence != 0.92 {
+		t.Errorf("Confidence = %f, want 0.92", result.Confidence)
+	}
+	if result.ReplanCount != 2 {
+		t.Errorf("ReplanCount = %d, want 2", result.ReplanCount)
+	}
+}
+
+func TestPopulateFromEvolution_NoHook(t *testing.T) {
+	r := &CognitiveAgentRunner{
+		channel: &EvalChannel{},
+		hook:    nil,
+	}
+
+	result := &EvalResult{Success: false, Confidence: 0}
+	r.populateFromEvolution(result, "any-session")
+
+	if result.Success {
+		t.Error("Success should remain false when hook is nil")
+	}
+	if result.Confidence != 0 {
+		t.Error("Confidence should remain 0 when hook is nil")
+	}
+}
+
+func TestPopulateFromEvolution_EpisodeFallback(t *testing.T) {
+	hook := NewEvalHook()
+	r := &CognitiveAgentRunner{
+		channel: &EvalChannel{},
+		hook:    hook,
+	}
+
+	hook.OnEpisodeComplete(context.Background(), evolution.EpisodeEvent{
+		SessionID:   "test-sess",
+		Succeeded:   true,
+		ReplanCount: 1,
+	})
+
+	result := &EvalResult{}
+	r.populateFromEvolution(result, "test-sess")
+
+	if !result.Success {
+		t.Error("Success should be true from episode fallback")
+	}
+	if result.ReplanCount != 1 {
+		t.Errorf("ReplanCount = %d, want 1", result.ReplanCount)
+	}
 }

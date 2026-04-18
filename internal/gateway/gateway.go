@@ -283,6 +283,13 @@ func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
 	return eval.NewCognitiveAgentRunner(gw.cognitiveAgent)
 }
 
+// EvolutionEngine returns the gateway's evolution engine, or nil if evolution
+// is not configured. Used by the eval longitudinal command to trigger insights
+// cycles between benchmark iterations.
+func (gw *Gateway) EvolutionEngine() *evolution.Engine {
+	return gw.evoEngine
+}
+
 // handleInbound routes incoming messages to the agent runtime.
 func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage) {
 	if msg.Text == "" {

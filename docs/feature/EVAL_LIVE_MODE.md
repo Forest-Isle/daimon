@@ -224,3 +224,7 @@ ironclaw eval longitudinal --suite evolution -n 1 --live --output-dir eval_daily
 - `TestEvalHook_CapturesEvents` — 反思/Episode/工具事件捕获
 - `TestEvalHook_ClearSession` — Session 数据清理
 - `TestEvalHook_IsolatesSessions` — 跨 Session 隔离
+
+## 后续改进
+
+本次实现后，进一步修复了 CognitiveAgentRunner 的 7 个缺陷、新增 WorkloadSuite 工作负载注入、`eval longitudinal --with-workload` 进化压力测试、`eval visualize` 时间序列可视化。详见 [EVAL_EVOLUTION_BENCHMARK.md](EVAL_EVOLUTION_BENCHMARK.md)。

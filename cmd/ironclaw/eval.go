@@ -20,7 +20,7 @@ func newEvalCmd() *cobra.Command {
 		Use:   "eval",
 		Short: "Evaluate agent performance with reproducible task suites",
 	}
-	cmd.AddCommand(newEvalRunCmd(), newEvalCompareCmd(), newEvalListCmd(), newEvalLongitudinalCmd())
+	cmd.AddCommand(newEvalRunCmd(), newEvalCompareCmd(), newEvalListCmd(), newEvalLongitudinalCmd(), newEvalVisualizeCmd())
 	return cmd
 }
 
@@ -208,11 +208,13 @@ func newEvalListCmd() *cobra.Command {
 
 func newEvalLongitudinalCmd() *cobra.Command {
 	var (
-		suite      string
-		outputDir  string
-		iterations int
-		live       bool
-		configPath string
+		suite         string
+		outputDir     string
+		iterations    int
+		live          bool
+		configPath    string
+		withWorkload  string
+		forceInsights bool
 	)
 
 	cmd := &cobra.Command{
@@ -220,15 +222,23 @@ func newEvalLongitudinalCmd() *cobra.Command {
 		Short: "Run repeated evaluation cycles to track evolution progress",
 		Long: `Run the same eval suite multiple times in sequence. Each iteration's results
 are saved to the output directory with an incrementing run ID. After all
-iterations, a comparison report is generated between the first and last run.
+iterations, a comparison report and a time-series JSON are generated.
 
-This command is designed for measuring self-evolution effectiveness:
-run it periodically as the agent processes real tasks, and compare how
-the same benchmark tasks perform over time.`,
+Use --with-workload to inject learning tasks between benchmark iterations.
+This generates trajectory data that feeds the evolution engine, enabling
+genuine strategy/preference evolution between measurements.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tasks, err := loadSuite(suite)
 			if err != nil {
 				return err
+			}
+
+			var workloadTasks []eval.TaskCase
+			if withWorkload != "" {
+				workloadTasks, err = loadSuite(withWorkload)
+				if err != nil {
+					return fmt.Errorf("load workload suite: %w", err)
+				}
 			}
 
 			if outputDir == "" {
@@ -239,14 +249,15 @@ the same benchmark tasks perform over time.`,
 			}
 
 			var runner eval.AgentRunner
+			var gw *gateway.Gateway
 			var cleanup func()
 
 			if live {
-				gw, c, err := initEvalGateway(configPath)
-				if err != nil {
-					return fmt.Errorf("init live eval: %w", err)
+				var gwErr error
+				gw, cleanup, gwErr = initEvalGateway(configPath)
+				if gwErr != nil {
+					return fmt.Errorf("init live eval: %w", gwErr)
 				}
-				cleanup = c
 				r := gw.NewEvalRunner()
 				if r == nil {
 					cleanup()
@@ -262,14 +273,15 @@ the same benchmark tasks perform over time.`,
 
 			ctx := context.Background()
 			var results []*eval.SuiteResult
+			var points []eval.IterationPoint
 
 			for i := 1; i <= iterations; i++ {
 				runID := fmt.Sprintf("iter-%03d", i)
 				fmt.Printf("=== Iteration %d/%d (run: %s) ===\n", i, iterations, runID)
 
-				result, err := eval.RunSuite(ctx, runID, tasks, runner)
-				if err != nil {
-					return fmt.Errorf("iteration %d: %w", i, err)
+				result, runErr := eval.RunSuite(ctx, runID, tasks, runner)
+				if runErr != nil {
+					return fmt.Errorf("iteration %d: %w", i, runErr)
 				}
 
 				outPath := fmt.Sprintf("%s/%s.json", outputDir, runID)
@@ -278,23 +290,72 @@ the same benchmark tasks perform over time.`,
 				}
 
 				summary := result.Summary()
-				fmt.Printf("  Success: %.0f%% | Assertions: %.0f%% | Replans: %.1f | Duration: %.1fs\n\n",
+				fmt.Printf("  Success: %.0f%% | Assertions: %.0f%% | Replans: %.1f | Duration: %.1fs\n",
 					summary.SuccessRate*100, summary.AvgAssertionPassRate*100,
 					summary.AvgReplanCount, summary.Duration.Seconds())
 
+				point := eval.IterationPoint{
+					Iteration: i,
+					RunID:     runID,
+					Timestamp: time.Now(),
+					Summary:   summary,
+				}
+
+				if sc, ok := runner.(eval.SnapshotCaptor); ok {
+					snap := sc.CaptureSnapshot()
+					if snap != nil {
+						point.StrategyVersion = snap.StrategyVersion
+						point.PreferenceCount = snap.PreferenceCount
+						point.SkillDraftCount = snap.SkillDraftCount
+						point.TrajectoryCount = snap.TrajectoryCount
+					}
+				}
+
+				points = append(points, point)
 				results = append(results, result)
+
+				// Run workload between iterations (skip after last iteration)
+				if len(workloadTasks) > 0 && i < iterations {
+					fmt.Printf("\n  --- Workload injection (%d tasks) ---\n", len(workloadTasks))
+					wlRunID := fmt.Sprintf("workload-%03d", i)
+					wlResult, wlErr := eval.RunSuite(ctx, wlRunID, workloadTasks, runner)
+					if wlErr != nil {
+						slog.Warn("workload iteration failed, continuing", "iter", i, "err", wlErr)
+					} else {
+						wlSummary := wlResult.Summary()
+						fmt.Printf("  Workload: %.0f%% success (%d tasks, %.1fs)\n",
+							wlSummary.SuccessRate*100, wlSummary.TotalTasks, wlSummary.Duration.Seconds())
+					}
+
+					if forceInsights && gw != nil {
+						if evo := gw.EvolutionEngine(); evo != nil {
+							evo.WaitPending()
+							evo.RunInsightsCycle()
+							fmt.Println("  Insights cycle triggered")
+						}
+					}
+					fmt.Println()
+				}
+			}
+
+			report := eval.NewLongitudinalReport(points)
+			reportPath := fmt.Sprintf("%s/longitudinal_report.json", outputDir)
+			if err := report.SaveJSON(reportPath); err != nil {
+				slog.Warn("failed to write longitudinal report", "err", err)
+			} else {
+				fmt.Printf("\nLongitudinal report saved to %s\n", reportPath)
 			}
 
 			if len(results) >= 2 {
-				report := eval.Compare(results[0], results[len(results)-1])
-				fmt.Println("=== Evolution Comparison (first vs last) ===")
-				fmt.Print(report.FormatMarkdown())
+				comparison := eval.Compare(results[0], results[len(results)-1])
+				fmt.Println("\n=== Evolution Comparison (first vs last) ===")
+				fmt.Print(comparison.FormatMarkdown())
 
-				reportPath := fmt.Sprintf("%s/comparison.md", outputDir)
-				if err := os.WriteFile(reportPath, []byte(report.FormatMarkdown()), 0o644); err != nil {
+				mdPath := fmt.Sprintf("%s/comparison.md", outputDir)
+				if err := os.WriteFile(mdPath, []byte(comparison.FormatMarkdown()), 0o644); err != nil {
 					slog.Warn("failed to write comparison report", "err", err)
 				} else {
-					fmt.Printf("\nComparison report saved to %s\n", reportPath)
+					fmt.Printf("Comparison report saved to %s\n", mdPath)
 				}
 			}
 
@@ -302,11 +363,13 @@ the same benchmark tasks perform over time.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&suite, "suite", "evolution", "suite name or JSON file path")
+	cmd.Flags().StringVar(&suite, "suite", "evolution", "benchmark suite name or JSON file path")
 	cmd.Flags().StringVar(&outputDir, "output-dir", "", "directory for iteration results (auto-generated if empty)")
 	cmd.Flags().IntVarP(&iterations, "iterations", "n", 3, "number of evaluation iterations")
 	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent")
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path (for --live)")
+	cmd.Flags().StringVar(&withWorkload, "with-workload", "", "workload suite to inject between iterations (e.g. 'workload')")
+	cmd.Flags().BoolVar(&forceInsights, "force-insights", true, "trigger insights cycle after each workload injection")
 	return cmd
 }
 

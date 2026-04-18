@@ -145,13 +145,17 @@ func (e *Engine) insightsLoop() {
 		case <-e.ctx.Done():
 			return
 		case <-timer.C:
-			e.runInsightsCycle()
+			e.RunInsightsCycle()
 			timer.Reset(interval)
 		}
 	}
 }
 
-func (e *Engine) runInsightsCycle() {
+// RunInsightsCycle generates insights from recent trajectory data and applies
+// recommendations to the strategy optimizer and preference learner. Safe to
+// call from external code (e.g. eval longitudinal) to force an immediate
+// learning cycle without waiting for the 6-hour timer.
+func (e *Engine) RunInsightsCycle() {
 	so := e.StrategyOptimizerHook()
 	if so == nil {
 		return
@@ -294,6 +298,35 @@ func (e *Engine) PreferenceLearnerHook() *PreferenceLearner {
 		}
 	}
 	return nil
+}
+
+// SkillSynthesizerHook returns the first registered SkillSynthesizer hook, or nil.
+func (e *Engine) SkillSynthesizerHook() *SkillSynthesizer {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, h := range e.hooks {
+		if ss, ok := h.(*SkillSynthesizer); ok {
+			return ss
+		}
+	}
+	return nil
+}
+
+// TrajectoryRecorderHook returns the first registered TrajectoryRecorder hook, or nil.
+func (e *Engine) TrajectoryRecorderHook() *TrajectoryRecorder {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, h := range e.hooks {
+		if tr, ok := h.(*TrajectoryRecorder); ok {
+			return tr
+		}
+	}
+	return nil
+}
+
+// TrajectoryDir returns the configured trajectory directory (may be empty).
+func (e *Engine) TrajectoryDir() string {
+	return e.trajDir
 }
 
 // StrategyOptimizerHook returns the first registered StrategyOptimizer hook, or nil.
