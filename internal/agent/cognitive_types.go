@@ -46,6 +46,16 @@ type Goal struct {
 	Complexity TaskComplexity
 }
 
+// ProjectContext holds auto-detected information about the current working directory.
+type ProjectContext struct {
+	Name           string   `json:"name"`
+	Language       string   `json:"language"`
+	BuildCommands  []string `json:"build_commands,omitempty"`
+	KeyDirectories []string `json:"key_directories,omitempty"`
+	HasReadme      bool     `json:"has_readme"`
+	RawContent     string   `json:"-"` // formatted string for prompt injection
+}
+
 // CognitiveState is the output of the PERCEIVE phase.
 type CognitiveState struct {
 	SessionID        string
@@ -62,8 +72,9 @@ type CognitiveState struct {
 	PersistentRules  string   // from Memory.md — rules all phases must follow
 	Preferences      string   // learned user preferences from evolution PreferenceLearner
 	StrategyHints    string   // tuned cognitive strategy hints from evolution StrategyOptimizer
-	ModelOverride    string   // dynamic model override from evolution ModelRouter (empty = use default)
-	MaxTokensOverride int    // dynamic max_tokens override (0 = use default)
+	ModelOverride     string          // dynamic model override from evolution ModelRouter (empty = use default)
+	MaxTokensOverride int             // dynamic max_tokens override (0 = use default)
+	ProjectCtx        *ProjectContext // auto-detected project context (nil if not scanned or no project found)
 }
 
 // SubTask is a single unit of work within a TaskPlan.
