@@ -97,10 +97,52 @@ func TestMergeRules(t *testing.T) {
 }
 
 func TestPermissionEngineDestructiveDefault(t *testing.T) {
-	// No rules, but tool is destructive — should default to ask
+	// No rules, but tool is destructive — should default to approve
 	pe := NewPermissionEngine(nil, "allow", nil)
 	result := pe.Evaluate("custom_tool", `{}`, ToolCapabilities{IsDestructive: true})
-	if result.Action != PermissionAsk {
-		t.Errorf("destructive tool should default to ask, got %v", result.Action)
+	if result.Action != PermissionApprove {
+		t.Errorf("destructive tool should default to approve, got %v", result.Action)
+	}
+}
+
+func TestPermissionAction_NoneAndNotify(t *testing.T) {
+	rules := []PermissionRule{
+		{Tool: "file_read", Action: "none"},
+		{Tool: "bash", Pattern: "ls *", Action: "notify"},
+		{Tool: "bash", Pattern: "rm *", Action: "approve"},
+	}
+	pe := NewPermissionEngine(rules, "approve", nil)
+
+	r := pe.Evaluate("file_read", `{"path":"/tmp/test"}`, ToolCapabilities{})
+	if r.Action != PermissionNone {
+		t.Errorf("file_read: got %v, want none", r.Action)
+	}
+
+	r = pe.Evaluate("bash", `{"command":"ls -la"}`, ToolCapabilities{})
+	if r.Action != PermissionNotify {
+		t.Errorf("bash ls: got %v, want notify", r.Action)
+	}
+
+	r = pe.Evaluate("bash", `{"command":"rm -rf /tmp/foo"}`, ToolCapabilities{})
+	if r.Action != PermissionApprove {
+		t.Errorf("bash rm: got %v, want approve", r.Action)
+	}
+}
+
+func TestPermissionAction_BackwardCompat(t *testing.T) {
+	rules := []PermissionRule{
+		{Tool: "bash", Action: "allow"},
+		{Tool: "http", Action: "ask"},
+	}
+	pe := NewPermissionEngine(rules, "ask", nil)
+
+	r := pe.Evaluate("bash", `{"command":"echo hi"}`, ToolCapabilities{})
+	if r.Action != PermissionNone {
+		t.Errorf("allow should map to none, got %v", r.Action)
+	}
+
+	r = pe.Evaluate("http", `{"url":"http://example.com"}`, ToolCapabilities{})
+	if r.Action != PermissionApprove {
+		t.Errorf("ask should map to approve, got %v", r.Action)
 	}
 }

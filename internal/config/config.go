@@ -47,7 +47,7 @@ type HookHandlerConfig struct {
 
 // PermissionsConfig configures the permission engine.
 type PermissionsConfig struct {
-	Default string           `yaml:"default"` // "allow", "deny", "ask" (default: "ask")
+	Default string           `yaml:"default"` // "none", "notify", "approve", "deny" (default: "approve"; legacy "allow"/"ask" accepted)
 	Rules   []PermissionRule `yaml:"rules"`
 }
 
@@ -56,7 +56,7 @@ type PermissionRule struct {
 	Tool        string `yaml:"tool"`         // tool name or "*" wildcard
 	Pattern     string `yaml:"pattern"`      // glob pattern for command/input
 	PathPattern string `yaml:"path_pattern"` // glob pattern for file paths
-	Action      string `yaml:"action"`       // "allow", "deny", "ask"
+	Action      string `yaml:"action"`       // "none", "notify", "approve", "deny" (legacy "allow"/"ask" accepted)
 }
 
 // TUIConfig configures the TUI (terminal UI) channel.
