@@ -76,7 +76,7 @@ func NewCognitiveAgent(
 	ca.runtime = NewRuntime(provider, tools, sessions, db, cfg, llmCfg)
 
 	// Build phase components
-	ca.perceiver = NewPerceiver(nil) // memStore injected via SetMemoryStore
+	ca.perceiver = NewPerceiver(nil, "") // memStore + memBaseDir injected via SetMemoryStore
 	scanner := NewProjectContextScanner()
 	ca.perceiver.SetProjectScanner(scanner)
 	gitProvider := NewGitContextProvider()
@@ -103,7 +103,7 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	oldGitProvider := ca.perceiver.gitProvider
 	oldBudgetAlloc := ca.perceiver.budgetAlloc
 	oldRLPolicy := ca.perceiver.rlPolicy
-	ca.perceiver = NewPerceiver(s)
+	ca.perceiver = NewPerceiver(s, ca.perceiver.memBaseDir)
 	if oldSearcher != nil {
 		ca.perceiver.SetKnowledgeSearcher(oldSearcher)
 	}
@@ -235,6 +235,13 @@ func (ca *CognitiveAgent) SetMemoryNotifyFunc(fn MemoryNotifyFunc) {
 // SetCheckpointStore injects a checkpoint store for task resume support.
 func (ca *CognitiveAgent) SetCheckpointStore(cs CheckpointStore) {
 	ca.checkpointStore = cs
+}
+
+// SetMemBaseDir sets the base directory for file-based memory storage on the
+// perceiver and inner runtime so that profile sections can be loaded.
+func (ca *CognitiveAgent) SetMemBaseDir(dir string) {
+	ca.perceiver.memBaseDir = dir
+	ca.runtime.SetMemoryBaseDir(dir)
 }
 
 // SetContextManager injects a context manager for compression pipeline support.

@@ -206,6 +206,13 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 	// Strategy hints section (from evolution StrategyOptimizer)
 	msg = strings.ReplaceAll(msg, "{{STRATEGY}}", state.StrategyHints)
 
+	// User profile section
+	userProfile := "(none)"
+	if state.UserProfile != "" {
+		userProfile = state.UserProfile
+	}
+	msg = strings.ReplaceAll(msg, "{{USER_PROFILE}}", userProfile)
+
 	// Append available skills if any
 	if state.Skills != "" {
 		msg += "\n\n" + state.Skills

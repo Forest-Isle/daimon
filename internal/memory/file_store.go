@@ -218,6 +218,15 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 		args = append(args, query.TypeFilter)
 	}
 
+	if len(query.ExcludeTypes) > 0 {
+		placeholders := strings.Repeat("?,", len(query.ExcludeTypes))
+		placeholders = placeholders[:len(placeholders)-1]
+		whereClause = append(whereClause, fmt.Sprintf("memory_type NOT IN (%s)", placeholders))
+		for _, t := range query.ExcludeTypes {
+			args = append(args, t)
+		}
+	}
+
 	// Sensitivity filtering: exclude secret memories from automated searches
 	whereClause = append(whereClause, "sensitivity != 'secret'")
 

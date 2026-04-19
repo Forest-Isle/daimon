@@ -52,6 +52,7 @@ type Runtime struct {
 	agentMCP             *AgentMCPManager
 	factExtractor        *memory.LLMFactExtractor
 	lifecycleMgr         *memory.LifecycleManager
+	profiler             *memory.Profiler
 	contextManager       ContextManager
 	speculativeExecutor  *SpeculativeExecutor
 	taskLedger           taskledger.TaskLedger
@@ -68,6 +69,9 @@ func (r *Runtime) SetLifecycleManager(lm *memory.LifecycleManager) { r.lifecycle
 
 // SetMemoryBaseDir sets the base directory for file-based memory storage.
 func (r *Runtime) SetMemoryBaseDir(dir string) { r.memoryBaseDir = dir }
+
+// SetProfiler attaches a profiler for routing extracted facts to profile sections.
+func (r *Runtime) SetProfiler(p *memory.Profiler) { r.profiler = p }
 
 // SetSkillManager attaches a skill manager to the runtime.
 func (r *Runtime) SetSkillManager(m *skill.Manager) { r.skillMgr = m }
@@ -477,6 +481,9 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 				if _, err := r.lifecycleMgr.Process(bgCtx, fact, sessID, userID, memory.ScopeSession); err != nil {
 					slog.Warn("runtime: lifecycle process failed", "err", err, "fact", fact.Content)
 				}
+				if r.profiler != nil {
+					r.profiler.RouteFact(bgCtx, fact)
+				}
 			}
 		}()
 	}
@@ -605,7 +612,11 @@ func (r *Runtime) buildSystemPromptUncached(ctx context.Context, userText string
 
 	// 4. Relevant memories (runtime retrieval)
 	if r.memStore != nil {
-		results, err := r.memStore.Search(ctx, memory.SearchQuery{Text: userText, Limit: 5})
+		results, err := r.memStore.Search(ctx, memory.SearchQuery{
+			Text:         userText,
+			Limit:        5,
+			ExcludeTypes: []string{"profile"},
+		})
 		if err != nil {
 			slog.Warn("memory.md search failed", "err", err)
 		} else if len(results) > 0 {
@@ -618,14 +629,20 @@ func (r *Runtime) buildSystemPromptUncached(ctx context.Context, userText string
 		}
 	}
 
-	// 5. User profile (loaded from memory base dir)
+	// 5. User profile (loaded from profile sections)
 	if r.memoryBaseDir != "" {
-		// Attempt to load user profile — userID is not available in simple mode,
-		// so we use a default. The cognitive agent has proper user tracking.
-		profileContent, err := memory.LoadUserProfile(r.memoryBaseDir, "default")
+		profileContent, err := memory.LoadProfileSections(r.memoryBaseDir)
 		if err == nil && profileContent != "" {
-			sb.WriteString("\n\n## User Context\n")
+			sb.WriteString("\n\n## User Profile\n")
 			sb.WriteString(profileContent)
+		}
+	}
+
+	// 5b. Cold-start profile building prompt
+	if r.profiler != nil {
+		if coldStart := r.profiler.ColdStartPrompt(); coldStart != "" {
+			sb.WriteString("\n\n")
+			sb.WriteString(coldStart)
 		}
 	}
 

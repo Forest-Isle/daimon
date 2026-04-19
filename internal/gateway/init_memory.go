@@ -55,6 +55,7 @@ func (gw *Gateway) initMemorySystem() error {
 		return fmt.Errorf("create file memory store: %w", err)
 	}
 	gw.memStore = fileStore
+	gw.memoryDir = storageDir
 
 	slog.Info("memory: file-based storage enabled", "dir", storageDir)
 
@@ -91,7 +92,12 @@ func (gw *Gateway) initMemorySystem() error {
 		// Create profiler and wire it to the reflection tracker
 		profiler := memory.NewProfiler(gw.memStore, completer, gw.db.DB, storageDir, memCfg)
 		reflector.SetProfilerCallback(profiler)
+		gw.runtime.SetProfiler(profiler)
 		slog.Info("memory: profiler created and wired to reflection tracker")
+
+		if err := profiler.MigrateLegacyProfile(context.Background(), "default"); err != nil {
+			slog.Warn("memory: legacy profile migration failed", "err", err)
+		}
 	}
 
 	// Wire fact extractor and lifecycle manager to simple runtime (if enabled).
