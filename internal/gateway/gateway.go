@@ -56,6 +56,7 @@ type Gateway struct {
 	taskLedger      *taskledger.SQLiteTaskLedger
 	teamCoordinator *taskledger.TeamCoordinator
 	staleDetector   *taskledger.StaleDetector
+	memoryDir       string // resolved base dir for file-based memory
 	stopCh          chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce        sync.Once    // ensures stopCh is closed exactly once
 }
