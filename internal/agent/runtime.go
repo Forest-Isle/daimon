@@ -52,6 +52,7 @@ type Runtime struct {
 	agentMCP             *AgentMCPManager
 	factExtractor        *memory.LLMFactExtractor
 	lifecycleMgr         *memory.LifecycleManager
+	profiler             *memory.Profiler
 	contextManager       ContextManager
 	profiler             *memory.Profiler
 	speculativeExecutor  *SpeculativeExecutor
@@ -67,6 +68,9 @@ func (r *Runtime) SetFactExtractor(fe *memory.LLMFactExtractor) { r.factExtracto
 
 // SetLifecycleManager attaches a lifecycle manager for ADD/UPDATE/DELETE/NOOP decisions.
 func (r *Runtime) SetLifecycleManager(lm *memory.LifecycleManager) { r.lifecycleMgr = lm }
+
+// SetProfiler attaches a profiler for routing extracted facts to profile sections.
+func (r *Runtime) SetProfiler(p *memory.Profiler) { r.profiler = p }
 
 // SetMemoryBaseDir sets the base directory for file-based memory storage.
 func (r *Runtime) SetMemoryBaseDir(dir string) { r.memoryBaseDir = dir }
