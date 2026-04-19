@@ -159,14 +159,14 @@ func (m *AgentManager) RegisterAll(registry *tool.Registry) {
 	defer m.mu.RUnlock()
 
 	for _, spec := range m.specs {
-		at := NewAgentTool(spec, m.provider, m.sessions, m.db, m.memStore, m.tools, m.cfg, m.llmCfg)
+		mgr := m.subAgentMgr
+		if mgr == nil {
+			slog.Warn("agent_manager: no SubAgentManager set, skipping registration", "name", spec.Name)
+			continue
+		}
+
+		at := NewAgentTool(spec, mgr)
 		registry.Register(at)
-		if m.bgManager != nil {
-			at.SetBackgroundManager(m.bgManager)
-		}
-		if m.agentMCP != nil {
-			at.SetAgentMCPManager(m.agentMCP)
-		}
 		slog.Info("agent_manager: registered agent tool",
 			"name", at.Name(),
 			"tools", spec.Tools,
