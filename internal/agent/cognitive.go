@@ -500,7 +500,14 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── OBSERVE ───────────────────────────────────────────────────────────
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseStart(sess.ID, "OBSERVE")
+		}
+		observeStart := time.Now()
 		obsResult = ca.observer.Run(observations, plan)
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseEnd(sess.ID, "OBSERVE", time.Since(observeStart).Milliseconds())
+		}
 		slog.Info("cognitive: observe complete",
 			"success", obsResult.SuccessCount,
 			"failure", obsResult.FailureCount,

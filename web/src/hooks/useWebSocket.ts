@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'preact/hooks'
 import type { DashboardEvent } from '../lib/types'
+import { wsTokenQuery } from '../lib/auth'
 
 type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected'
 
@@ -10,7 +11,7 @@ export function useWebSocket(onEvent: (ev: DashboardEvent) => void) {
 
   const connect = useCallback(() => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${proto}//${location.host}/ws`
+    const url = `${proto}//${location.host}/ws${wsTokenQuery()}`
     const ws = new WebSocket(url)
     wsRef.current = ws
 

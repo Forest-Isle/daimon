@@ -237,6 +237,9 @@ func (r *Runtime) executeToolCall(
 		}
 	}
 
+	if r.dashEmitter != nil {
+		r.dashEmitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
+	}
 	start := time.Now()
 	result, err := t.Execute(ctx, []byte(tc.Input))
 	duration := time.Since(start).Milliseconds()
@@ -291,6 +294,9 @@ func (r *Runtime) executeToolCall(
 		}
 	}
 
+	if r.dashEmitter != nil {
+		r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, status == "success", duration)
+	}
 	return toolResult{toolUseID: tc.ID, output: output, status: status, duration: duration, toolName: tc.Name, toolInput: tc.Input,
 		permissionAction: permAction, permissionReason: permReason, permissionRule: permRule}
 }
