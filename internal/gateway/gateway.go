@@ -42,7 +42,6 @@ type Gateway struct {
 	hookMgr        *hook.Manager
 	permEngine     *tool.PermissionEngine
 	memStore       memory.Store
-	memoryDir      string // resolved base directory for file-based memory storage
 	factExtractor  *memory.LLMFactExtractor
 	lifecycleMgr   *memory.LifecycleManager
 	skillMgr       *skill.Manager
