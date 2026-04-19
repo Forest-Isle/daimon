@@ -53,6 +53,7 @@ type Runtime struct {
 	factExtractor        *memory.LLMFactExtractor
 	lifecycleMgr         *memory.LifecycleManager
 	contextManager       ContextManager
+	profiler             *memory.Profiler
 	speculativeExecutor  *SpeculativeExecutor
 	taskLedger           taskledger.TaskLedger
 	interceptorChain     *tool.InterceptorChain
