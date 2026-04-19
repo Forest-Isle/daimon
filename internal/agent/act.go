@@ -379,10 +379,9 @@ func (e *Executor) executeSubTask(
 	// Store result in TaskContext if available
 	if taskCtx != nil && strings.HasPrefix(subtask.ToolName, "agent_") {
 		taskCtx.SetResult(subtask.ID, SubAgentResult{
-			AgentName:  subtask.ToolName,
-			Output:     result.Output,
-			Error:      "",
-			DurationMs: durationMs,
+			AgentName: subtask.ToolName,
+			Output:    result.Output,
+			Duration:  time.Duration(durationMs) * time.Millisecond,
 		})
 	}
 

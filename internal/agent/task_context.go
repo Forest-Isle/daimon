@@ -16,14 +16,6 @@ type TaskContext struct {
 	SharedData map[string]string         // arbitrary KV store for cross-agent data
 }
 
-// SubAgentResult captures the outcome of a single sub-agent execution.
-type SubAgentResult struct {
-	AgentName  string
-	Output     string
-	Error      string
-	DurationMs int64
-}
-
 // NewTaskContext creates a new TaskContext for a given goal.
 func NewTaskContext(id, goal string) *TaskContext {
 	return &TaskContext{
