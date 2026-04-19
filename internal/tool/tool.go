@@ -201,6 +201,9 @@ func (r *Registry) All() []Tool {
 	return out
 }
 
+// InterceptorChain allows wrapping tool execution with middleware (e.g. sandbox enforcement).
+type InterceptorChain struct{}
+
 // UnregisterByPrefix removes all tools whose name starts with prefix and returns the removed names.
 func (r *Registry) UnregisterByPrefix(prefix string) []string {
 	r.mu.Lock()
