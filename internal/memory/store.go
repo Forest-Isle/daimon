@@ -72,7 +72,8 @@ type SearchQuery struct {
 	SessionID  string        // optional: scope to session
 	UserID     string        // optional: scope to user
 	Scopes     []MemoryScope // optional: filter by scope(s)
-	TypeFilter string        // optional: filter by memory type (e.g., "summary")
+	TypeFilter   string        // optional: filter by memory type (e.g., "summary")
+	ExcludeTypes []string      // optional: exclude memory types (e.g., "profile")
 }
 
 // SearchResult is a memory entry with a relevance score.
