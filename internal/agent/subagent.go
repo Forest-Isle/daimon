@@ -120,6 +120,57 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 	return m.buildResult(ctx, req.Spec.Name, capture, start, execErr)
 }
 
+// SpawnParallel runs multiple sub-agents concurrently with the given failure strategy.
+func (m *SubAgentManager) SpawnParallel(ctx context.Context, reqs []SpawnRequest, strategy FailureStrategy) ([]*SubAgentResult, error) {
+	results := make([]*SubAgentResult, len(reqs))
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+
+	for i, req := range reqs {
+		wg.Add(1)
+		go func(idx int, r SpawnRequest) {
+			defer wg.Done()
+
+			result, err := m.Spawn(ctx, r)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if err != nil {
+				results[idx] = &SubAgentResult{
+					AgentName: r.Spec.Name,
+					Status:    StatusError,
+					Error:     err.Error(),
+				}
+				if strategy == StrategyFailFast && firstErr == nil {
+					firstErr = fmt.Errorf("sub-agent %s failed: %w", r.Spec.Name, err)
+					cancel()
+				}
+				return
+			}
+
+			results[idx] = result
+
+			if result.Status == StatusError && strategy == StrategyFailFast && firstErr == nil {
+				firstErr = fmt.Errorf("sub-agent %s failed: %s", r.Spec.Name, result.Error)
+				cancel()
+			}
+		}(i, req)
+	}
+
+	wg.Wait()
+
+	if strategy == StrategyFailFast && firstErr != nil {
+		return results, firstErr
+	}
+	return results, nil
+}
+
 func (m *SubAgentManager) spawnBackground(ctx context.Context, req SpawnRequest) (*SubAgentResult, error) {
 	if m.bgManager == nil {
 		slog.Warn("subagent: no BackgroundManager, falling back to sync spawn", "agent", req.Spec.Name)

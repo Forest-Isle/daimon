@@ -265,38 +265,3 @@ func TestSubAgentManager_SpawnParallel_BestEffort(t *testing.T) {
 		}
 	}
 }
-
-func TestSubAgentManager_SpawnParallel_BestEffort(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	mgr := NewSubAgentManager(
-		&mockSubagentProvider{response: "<result>\n<status>success</status>\n<summary>Done.</summary>\n</result>"},
-		session.NewManager(db), db, nil, tool.NewRegistry(),
-		config.AgentConfig{MaxIterations: 1},
-		config.LLMConfig{Model: "test", MaxTokens: 100},
-	)
-
-	reqs := make([]SpawnRequest, 3)
-	for i := range 3 {
-		spec := &AgentSpec{Name: fmt.Sprintf("agent-%d", i), Description: "test"}
-		_ = spec.Validate()
-		reqs[i] = SpawnRequest{Spec: spec, Task: fmt.Sprintf("task %d", i)}
-	}
-
-	results, err := mgr.SpawnParallel(context.Background(), reqs, StrategyBestEffort)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 3 {
-		t.Errorf("expected 3 results, got %d", len(results))
-	}
-	for i, r := range results {
-		if r == nil {
-			t.Errorf("result[%d] is nil", i)
-		}
-	}
-}
