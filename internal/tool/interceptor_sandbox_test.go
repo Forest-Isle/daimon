@@ -8,10 +8,6 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/sandbox"
 )
 
-func passthrough(_ context.Context, _ *ToolCall) (*ToolResult, error) {
-	return &ToolResult{Output: "passthrough"}, nil
-}
-
 func TestSandboxInterceptor_FileBlocked(t *testing.T) {
 	dir := t.TempDir()
 	guard, err := sandbox.NewFileGuard([]string{dir}, nil)

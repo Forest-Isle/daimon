@@ -67,7 +67,7 @@ func TestSubAgentManager_Spawn_IndependentSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	sessions := session.NewManager(db)
 	tools := tool.NewRegistry()
@@ -120,7 +120,7 @@ func TestSubAgentManager_Spawn_ModelOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mgr := NewSubAgentManager(
 		provider, session.NewManager(db), db, nil, tool.NewRegistry(),
@@ -150,7 +150,7 @@ func TestSubAgentManager_Spawn_BackgroundFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mgr := NewSubAgentManager(
 		&mockSubagentProvider{response: "done"},
@@ -236,7 +236,7 @@ func TestSubAgentManager_SpawnParallel_BestEffort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mgr := NewSubAgentManager(
 		&mockSubagentProvider{response: "<result>\n<status>success</status>\n<summary>Done.</summary>\n</result>"},

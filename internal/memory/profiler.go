@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -34,9 +33,6 @@ Rules:
 2. If updating an existing profile, preserve accurate information and update what has changed.
 3. Keep each section to 2-4 sentences.
 4. Focus on information that would help personalize future assistance.`
-
-// defaultProfileTriggerCount is the number of L1 reflections before generating a profile.
-const defaultProfileTriggerCount = 5
 
 const sectionUpdatePrompt = `你是用户画像维护助手。根据以下新观察，更新用户的「%s」画像。
 
@@ -67,7 +63,6 @@ type Profiler struct {
 	baseDir   string
 	cfg       MemoryConfig
 
-	mu       sync.Mutex
 	registry *ProfileSectionRegistry
 	buffers  map[string]*SectionBuffer
 }
@@ -432,7 +427,7 @@ func (p *Profiler) MigrateLegacyProfile(ctx context.Context, userID string) erro
 	}
 
 	archivedDir := filepath.Join(p.baseDir, "archived")
-	os.MkdirAll(archivedDir, 0755)
+	_ = os.MkdirAll(archivedDir, 0755)
 	archivedPath := filepath.Join(archivedDir, filepath.Base(oldPath))
 	_ = os.Rename(oldPath, archivedPath)
 

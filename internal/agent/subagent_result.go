@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -85,50 +83,6 @@ func extractStructuredResult(raw string) *SubAgentResult {
 	}
 
 	return result
-}
-
-func summarizeWithLLM(ctx context.Context, provider Provider, model string, agentName string, rawOutput string) (*SubAgentResult, error) {
-	truncated := rawOutput
-	if len(truncated) > 4000 {
-		truncated = truncated[:4000] + "\n...(truncated)"
-	}
-
-	prompt := fmt.Sprintf(
-		"Summarize this agent output into JSON with fields: status (\"success\" or \"error\"), summary (1 paragraph), artifacts (array of file paths or URLs).\n\nAgent: %s\nOutput:\n%s",
-		agentName, truncated)
-
-	req := CompletionRequest{
-		Model:     model,
-		System:    "You extract structured summaries from agent outputs. Respond with JSON only.",
-		Messages:  []CompletionMessage{{Role: "user", Content: prompt}},
-		MaxTokens: 256,
-	}
-
-	resp, err := provider.Complete(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	var parsed struct {
-		Status    string   `json:"status"`
-		Summary   string   `json:"summary"`
-		Artifacts []string `json:"artifacts"`
-	}
-	if err := json.Unmarshal([]byte(resp.Text), &parsed); err != nil {
-		return nil, fmt.Errorf("parse LLM summary: %w", err)
-	}
-
-	status := StatusSuccess
-	if parsed.Status == "error" {
-		status = StatusError
-	}
-
-	return &SubAgentResult{
-		AgentName: agentName,
-		Status:    status,
-		Summary:   parsed.Summary,
-		Artifacts: parsed.Artifacts,
-	}, nil
 }
 
 func formatResultForParent(r *SubAgentResult) string {

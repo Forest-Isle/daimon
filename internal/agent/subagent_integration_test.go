@@ -18,7 +18,7 @@ func TestAgentTool_SubAgentManager_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	sessions := session.NewManager(db)
 	tools := tool.NewRegistry()

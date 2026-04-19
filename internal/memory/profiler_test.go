@@ -300,7 +300,9 @@ func TestProfiler_ColdStartPrompt_EmptyDir(t *testing.T) {
 func TestProfiler_ColdStartPrompt_PopulatedProfile(t *testing.T) {
 	baseDir := t.TempDir()
 	userDir := filepath.Join(baseDir, "user")
-	os.MkdirAll(userDir, 0755)
+	if err := os.MkdirAll(userDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, sec := range []string{"communication", "tech_stack", "projects"} {
 		writeTestProfile(t, userDir, sec, map[string]string{
@@ -327,7 +329,9 @@ func TestProfiler_ColdStartPrompt_PopulatedProfile(t *testing.T) {
 func TestProfiler_MigrateLegacyProfile(t *testing.T) {
 	baseDir := t.TempDir()
 	userDir := filepath.Join(baseDir, "user")
-	os.MkdirAll(userDir, 0755)
+	if err := os.MkdirAll(userDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	legacyContent := `## Identity
 Senior Go developer, 5 years experience
@@ -396,7 +400,9 @@ Building IronClaw AI agent framework`
 func TestProfiler_MigrateLegacyProfile_SkipsNewFormat(t *testing.T) {
 	baseDir := t.TempDir()
 	userDir := filepath.Join(baseDir, "user")
-	os.MkdirAll(userDir, 0755)
+	if err := os.MkdirAll(userDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	newFormatMF := MemoryFile{
 		ID:       "profile_default",
@@ -406,7 +412,9 @@ func TestProfiler_MigrateLegacyProfile_SkipsNewFormat(t *testing.T) {
 		Metadata: map[string]string{"section": "communication"},
 		Content:  "already migrated",
 	}
-	writeProfileAtomic(filepath.Join(userDir, "profile_default.md"), newFormatMF)
+	if err := writeProfileAtomic(filepath.Join(userDir, "profile_default.md"), newFormatMF); err != nil {
+		t.Fatal(err)
+	}
 
 	p := &Profiler{
 		registry: NewProfileSectionRegistry(),
