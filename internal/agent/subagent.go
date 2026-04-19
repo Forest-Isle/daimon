@@ -226,7 +226,7 @@ func (m *SubAgentManager) buildSubConfig(spec *AgentSpec) (config.AgentConfig, c
 	return subCfg, subLLMCfg
 }
 
-func (m *SubAgentManager) buildResult(_ context.Context, name string, capture *subagentCapture, start time.Time, execErr error) (*SubAgentResult, error) {
+func (m *SubAgentManager) buildResult(ctx context.Context, name string, capture *subagentCapture, start time.Time, execErr error) (*SubAgentResult, error) {
 	raw := capture.Collect()
 	dur := time.Since(start)
 
@@ -245,6 +245,14 @@ func (m *SubAgentManager) buildResult(_ context.Context, name string, capture *s
 		result.Duration = dur
 		result.Output = raw
 		return result, nil
+	}
+
+	if m.provider != nil && raw != "" {
+		if result := summarizeWithLLM(ctx, m.provider, m.llmCfg.Model, name, raw); result != nil {
+			result.Duration = dur
+			result.Output = raw
+			return result, nil
+		}
 	}
 
 	summary := raw
