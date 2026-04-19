@@ -57,6 +57,14 @@ const (
 	PermModeBypass PermissionMode = "bypass"
 )
 
+// FailureStrategy controls how parallel sub-agent execution handles failures.
+type FailureStrategy string
+
+const (
+	StrategyBestEffort FailureStrategy = "best_effort"
+	StrategyFailFast   FailureStrategy = "fail_fast"
+)
+
 // AgentSpec defines a specialized sub-agent that can be registered as a tool.
 type AgentSpec struct {
 	Name          string   `yaml:"name"`
@@ -74,6 +82,7 @@ type AgentSpec struct {
 
 	ExecutionMode   ExecutionMode  `yaml:"execution_mode"`    // "spawn" (default) | "fork" | "background"
 	PermissionMode  PermissionMode `yaml:"permission_mode"`   // "" | "bubble" | "accept_edits" | "bypass"
+	FailureStrategy FailureStrategy `yaml:"failure_strategy"`  // "best_effort" (default) | "fail_fast"
 	InheritContext  bool           `yaml:"inherit_context"`   // fork mode: inherit parent context
 	MaxOutputTokens int            `yaml:"max_output_tokens"` // limit output tokens (0 = no limit)
 
@@ -131,6 +140,15 @@ func (s *AgentSpec) Validate() error {
 		// valid
 	default:
 		return fmt.Errorf("agent spec %q: invalid permission_mode %q", s.Name, s.PermissionMode)
+	}
+	if s.FailureStrategy == "" {
+		s.FailureStrategy = StrategyBestEffort
+	}
+	switch s.FailureStrategy {
+	case StrategyBestEffort, StrategyFailFast:
+		// valid
+	default:
+		return fmt.Errorf("agent spec %q: invalid failure_strategy %q", s.Name, s.FailureStrategy)
 	}
 	switch s.Backend {
 	case "", BackendInProcess, BackendSubprocess, BackendDocker:
