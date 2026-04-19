@@ -56,6 +56,7 @@ type Runtime struct {
 	contextManager       ContextManager
 	speculativeExecutor  *SpeculativeExecutor
 	taskLedger           taskledger.TaskLedger
+	dashEmitter          DashboardEmitter
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -157,6 +158,9 @@ func (r *Runtime) SetSpeculativeExecutor(se *SpeculativeExecutor) { r.speculativ
 
 // SetTaskLedger attaches a task ledger for tracking in-flight work.
 func (r *Runtime) SetTaskLedger(tl taskledger.TaskLedger) { r.taskLedger = tl }
+
+// SetDashboardEmitter attaches a dashboard event emitter to the runtime.
+func (r *Runtime) SetDashboardEmitter(e DashboardEmitter) { r.dashEmitter = e }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.

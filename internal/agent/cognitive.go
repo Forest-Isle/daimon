@@ -51,6 +51,7 @@ type CognitiveAgent struct {
 	checkpointStore    CheckpointStore
 	contextManager     ContextManager
 	taskLedger         taskledger.TaskLedger
+	dashEmitter        DashboardEmitter
 	observationCallback func(result *ObservationResult)
 }
 
@@ -255,6 +256,12 @@ func (ca *CognitiveAgent) SetContextManager(cm ContextManager) {
 func (ca *CognitiveAgent) SetTaskLedger(tl taskledger.TaskLedger) {
 	ca.taskLedger = tl
 	ca.runtime.SetTaskLedger(tl)
+}
+
+// SetDashboardEmitter injects a dashboard event emitter into the cognitive agent and its inner runtime.
+func (ca *CognitiveAgent) SetDashboardEmitter(e DashboardEmitter) {
+	ca.dashEmitter = e
+	ca.runtime.SetDashboardEmitter(e)
 }
 
 // SetObservationCallback registers a function that is called after each OBSERVE
