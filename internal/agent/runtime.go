@@ -52,7 +52,6 @@ type Runtime struct {
 	agentMCP             *AgentMCPManager
 	factExtractor        *memory.LLMFactExtractor
 	lifecycleMgr         *memory.LifecycleManager
-	profiler             *memory.Profiler
 	contextManager       ContextManager
 	speculativeExecutor  *SpeculativeExecutor
 	taskLedger           taskledger.TaskLedger
@@ -149,8 +148,6 @@ func (r *Runtime) SetAgentMCPManager(m *AgentMCPManager) { r.agentMCP = m }
 // AgentMCPManager returns the attached per-agent MCP manager, or nil.
 func (r *Runtime) AgentMCPManager() *AgentMCPManager { return r.agentMCP }
 
-// SetProfiler attaches a profiler for routing extracted facts to profile sections.
-func (r *Runtime) SetProfiler(p *memory.Profiler) { r.profiler = p }
 
 // SetContextManager attaches a context manager to the runtime.
 func (r *Runtime) SetContextManager(cm ContextManager) { r.contextManager = cm }

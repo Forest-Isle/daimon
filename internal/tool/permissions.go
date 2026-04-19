@@ -58,22 +58,6 @@ type PermissionEngine struct {
 	legacy     *Policy // fallback for backward compatibility
 }
 
-// parseAction normalizes a permission action string, accepting both new and legacy names.
-func parseAction(s string) PermissionAction {
-	switch s {
-	case "none", "allow":
-		return PermissionNone
-	case "notify":
-		return PermissionNotify
-	case "approve", "ask":
-		return PermissionApprove
-	case "deny":
-		return PermissionDeny
-	default:
-		return PermissionApprove
-	}
-}
-
 // NewPermissionEngine creates a permission engine from rules and a default action.
 // If no rules are provided and a legacy Policy is given, it falls back to legacy behavior.
 func NewPermissionEngine(rules []PermissionRule, defaultAction string, legacy *Policy) *PermissionEngine {

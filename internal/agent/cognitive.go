@@ -243,13 +243,6 @@ func (ca *CognitiveAgent) SetCheckpointStore(cs CheckpointStore) {
 	ca.checkpointStore = cs
 }
 
-// SetMemBaseDir sets the base directory for file-based memory storage on the
-// perceiver and inner runtime so that profile sections can be loaded.
-func (ca *CognitiveAgent) SetMemBaseDir(dir string) {
-	ca.perceiver.memBaseDir = dir
-	ca.runtime.SetMemoryBaseDir(dir)
-}
-
 // SetContextManager injects a context manager for compression pipeline support.
 // Propagates to the inner runtime so simple-task delegation also benefits.
 func (ca *CognitiveAgent) SetContextManager(cm ContextManager) {

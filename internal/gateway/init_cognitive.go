@@ -21,9 +21,6 @@ func (gw *Gateway) initCognitiveAgent() error {
 	if gw.memStore != nil {
 		gw.cognitiveAgent.SetMemoryStore(gw.memStore)
 	}
-	if gw.memoryDir != "" {
-		gw.cognitiveAgent.SetMemBaseDir(gw.memoryDir)
-	}
 	if gw.factExtractor != nil {
 		gw.cognitiveAgent.SetFactExtractor(gw.factExtractor)
 	}
