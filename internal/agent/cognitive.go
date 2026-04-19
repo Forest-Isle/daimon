@@ -76,7 +76,7 @@ func NewCognitiveAgent(
 	ca.runtime = NewRuntime(provider, tools, sessions, db, cfg, llmCfg)
 
 	// Build phase components
-	ca.perceiver = NewPerceiver(nil) // memStore injected via SetMemoryStore
+	ca.perceiver = NewPerceiver(nil, "") // memStore + memBaseDir injected via SetMemoryStore
 	scanner := NewProjectContextScanner()
 	ca.perceiver.SetProjectScanner(scanner)
 	gitProvider := NewGitContextProvider()
@@ -103,7 +103,7 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	oldGitProvider := ca.perceiver.gitProvider
 	oldBudgetAlloc := ca.perceiver.budgetAlloc
 	oldRLPolicy := ca.perceiver.rlPolicy
-	ca.perceiver = NewPerceiver(s)
+	ca.perceiver = NewPerceiver(s, ca.perceiver.memBaseDir)
 	if oldSearcher != nil {
 		ca.perceiver.SetKnowledgeSearcher(oldSearcher)
 	}

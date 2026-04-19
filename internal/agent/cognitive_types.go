@@ -80,6 +80,7 @@ type CognitiveState struct {
 	PersistentRules  string   // from Memory.md — rules all phases must follow
 	Preferences      string   // learned user preferences from evolution PreferenceLearner
 	StrategyHints    string   // tuned cognitive strategy hints from evolution StrategyOptimizer
+	UserProfile       string   // structured user profile sections for prompt injection
 	ModelOverride     string          // dynamic model override from evolution ModelRouter (empty = use default)
 	MaxTokensOverride int             // dynamic max_tokens override (0 = use default)
 	ProjectCtx        *ProjectContext // auto-detected project context (nil if not scanned or no project found)

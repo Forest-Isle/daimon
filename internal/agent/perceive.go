@@ -17,6 +17,7 @@ import (
 // Perceiver implements the PERCEIVE phase: parse goal, retrieve memories, assess complexity.
 type Perceiver struct {
 	memStore    memory.Store
+	memBaseDir  string                 // base directory for memory files (profile loading)
 	searcher    knowledge.Searcher     // optional knowledge searcher (KB or HybridRetriever)
 	graph       graph.Graph            // optional knowledge graph
 	rlPolicy    RLPolicy               // optional RL policy
@@ -26,8 +27,8 @@ type Perceiver struct {
 }
 
 // NewPerceiver creates a new Perceiver.
-func NewPerceiver(memStore memory.Store) *Perceiver {
-	return &Perceiver{memStore: memStore}
+func NewPerceiver(memStore memory.Store, memBaseDir string) *Perceiver {
+	return &Perceiver{memStore: memStore, memBaseDir: memBaseDir}
 }
 
 // SetKnowledgeSearcher injects an optional knowledge searcher for retrieval during perception.
@@ -85,10 +86,11 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 	if p.memStore != nil {
 		var err error
 		memories, err = p.memStore.Search(ctx, memory.SearchQuery{
-			Text:   userMsg,
-			Limit:  5,
-			UserID: userID,
-			Scopes: []memory.MemoryScope{memory.ScopeSession, memory.ScopeUser},
+			Text:         userMsg,
+			Limit:        5,
+			UserID:       userID,
+			Scopes:       []memory.MemoryScope{memory.ScopeSession, memory.ScopeUser},
+			ExcludeTypes: []string{"profile"},
 		})
 		if err != nil {
 			slog.Warn("perceive: memory.md search failed", "err", err)
@@ -123,6 +125,17 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 		memories = p.boostByGraphConnectivity(ctx, memories, queryEntities)
 	}
 
+	// Load user profile sections for dedicated injection
+	var userProfile string
+	if p.memBaseDir != "" {
+		profileContent, err := memory.LoadProfileSections(p.memBaseDir)
+		if err != nil {
+			slog.Warn("perceive: load profile sections failed", "err", err)
+		} else {
+			userProfile = profileContent
+		}
+	}
+
 	// Build recent history for context (used in PLAN prompt).
 	recentHistory := BuildMessages(sess)
 
@@ -139,6 +152,7 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 		RecentHistory:    recentHistory,
 		KnowledgeContext: knowledgeContext,
 		GraphContext:     graphContext,
+		UserProfile:      userProfile,
 	}
 
 	if p.scanner != nil {
