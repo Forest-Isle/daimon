@@ -136,10 +136,10 @@ type SessionState struct {
 }
 
 type StateSnapshot struct {
-    Status             string         `json:"status"`          // "idle" | "busy"
-    ActiveSessions     []SessionState `json:"active_sessions"`
-    UptimeSeconds      int64          `json:"uptime_seconds"`
-    TotalSessionsToday int            `json:"total_sessions_today"`
+    Status         string         `json:"status"`          // "idle" | "busy"
+    ActiveSessions []SessionState `json:"active_sessions"`
+    UptimeSeconds  int64          `json:"uptime_seconds"`
+    TotalSessions  int            `json:"total_sessions"`  // since process start
 }
 ```
 
@@ -179,6 +179,7 @@ var _ evolution.Hook = (*EvolutionBridge)(nil)
 - **连接管理**: `register`/`unregister` channel 处理客户端生命周期
 - **广播**: 从 Bus 订阅事件，JSON 序列化后发送到所有客户端（慢客户端 drop）
 - **心跳**: `writePump` 每 30s 发送 Ping，`readPump` 处理 Pong 并刷新 60s 读超时
+- **Origin 校验**: 仅允许同源和 localhost 连接，防止跨站 WebSocket 劫持
 - **优雅关闭**: `Stop()` 取消 Bus 订阅，关闭所有客户端连接
 
 ## HTTP Server & REST API
@@ -229,14 +230,18 @@ var _ evolution.Hook = (*EvolutionBridge)(nil)
 
 ```
 ┌─ fetchAgentState() ──► dispatch('snapshot') ──► 初始化状态
+│                        dispatch('error')    ──► 显示错误横幅
 │
 └─ useWebSocket(onEvent) ──► dispatch('event') ──► 增量更新
                                   │
-                                  ├── phase.start → phaseHistory 追加
-                                  ├── phase.end   → phaseHistory 标记完成
-                                  ├── tool.start  → recentTools 追加（上限 100）
-                                  ├── tool.end    → recentTools 标记完成
-                                  └── session.end → 重置 phaseHistory
+                                  ├── phase.start    → phaseHistory 追加
+                                  ├── phase.end      → phaseHistory 标记完成
+                                  ├── tool.start     → recentTools 追加（上限 100，唯一序号）
+                                  ├── tool.end       → recentTools 标记完成（first-match-only）
+                                  ├── replan.start   → replanCount++
+                                  ├── plan.generated → status = busy
+                                  ├── session.start  → 重置 phaseHistory 和 replanCount
+                                  └── session.end    → 重置 phaseHistory，totalSessions++
 ```
 
 ### 认证集成
@@ -252,10 +257,10 @@ var _ evolution.Hook = (*EvolutionBridge)(nil)
 | 组件 | 功能 |
 |------|------|
 | `Layout` | 侧边栏导航 + WebSocket 连接状态指示灯（绿/红） |
-| `AgentStatus` | 当前状态（BUSY/IDLE）、当前阶段、当前工具、session ID |
+| `AgentStatus` | 当前状态（BUSY/IDLE）、当前阶段、当前工具、session ID、replan 计数、工具计数 |
 | `PhaseTimeline` | 五阶段横向时间线：PERCEIVE → PLAN → ACT → OBSERVE → REFLECT，高亮当前阶段，显示耗时 |
 | `ToolCallFeed` | 工具调用实时滚动日志（时间、工具名、状态、耗时），上限 100 条 |
-| `SessionList` | 活跃 session 列表 + 今日 session 总数 |
+| `SessionList` | 活跃 session 列表 + session 总数 |
 
 ### WebSocket 重连
 
@@ -322,12 +327,12 @@ if r.dashEmitter != nil {
 Bus(256) → StateTracker → EvolutionBridge* → cogCollector* → Emitter
     → runtime.SetDashboardEmitter
     → cognitiveAgent.SetDashboardEmitter*
-    → Hub → StartServer (goroutine)
+    → Hub → NewServer → ListenAndServe (goroutine)
 
 * 仅在对应组件存在时创建
 ```
 
-Dashboard 启用时，接管原有的 `internal/gateway/http.go` 服务（通过 `!Dashboard.Enabled` 守卫）。`Stop()` 方法确保 Hub 和 StateTracker 优雅关闭。
+Dashboard 启用时，接管原有的 `internal/gateway/http.go` 服务（通过 `!Dashboard.Enabled` 守卫）。`Stop()` 方法按以下顺序优雅关闭：HTTP Server（5s Shutdown 超时） → Hub → StateTracker。
 
 ## 构建
 
@@ -345,7 +350,7 @@ web/src/ ──(vite build)──► internal/dashboard/dist/
 
 ### Go 嵌入
 
-`embed.go` 使用 `//go:embed all:dist` 将构建产物嵌入二进制。`dist/` 目录通过 `git add -f` 强制纳入版本控制以确保 `go:embed` 正常工作。
+`embed.go` 使用 `//go:embed all:dist` 将构建产物嵌入二进制。`.gitignore` 中 `dist/` 使用 `/dist/` 仅匹配根目录（GoReleaser），不影响 `internal/dashboard/dist/` 的版本控制。
 
 ### Makefile
 
@@ -391,11 +396,11 @@ dashboard:
 | `internal/dashboard/ws_hub.go` | WebSocket 连接管理与事件广播 |
 | `internal/dashboard/ws_hub_test.go` | 2 个测试：事件广播、客户端断开 |
 | `internal/dashboard/server.go` | HTTP Server，7 个 REST 端点 + SPA fallback + token 认证 |
-| `internal/dashboard/server_test.go` | 4 个测试：状态端点、健康检查、SPA fallback、token 认证 |
+| `internal/dashboard/server_test.go` | 8 个测试：状态端点、健康检查、SPA fallback、DB nil 返回 503（3 个端点）、错误 token、token 认证 |
 | `internal/dashboard/embed.go` | `go:embed all:dist`，前端静态文件嵌入 |
 | `internal/agent/dashboard_emitter.go` | `DashboardEmitter` 接口定义 |
 | `internal/gateway/init_dashboard.go` | Gateway 中 Dashboard 子系统初始化 |
-| `web/` | Preact + Vite 前端项目（14 个源文件） |
+| `web/` | Preact + Vite 前端项目（15 个源文件） |
 
 ### 修改文件
 
@@ -410,11 +415,11 @@ dashboard:
 | `configs/ironclaw.example.yaml` | 新增 `dashboard:` 配置段 |
 | `Makefile` | 新增 `web` 构建目标，`build` 依赖 `web` |
 | `go.mod` | 新增 `github.com/gorilla/websocket v1.5.3` 直接依赖 |
-| `.gitignore` | 新增 `web/node_modules/` |
+| `.gitignore` | 新增 `web/node_modules/`；`dist/` → `/dist/`（仅匹配根目录） |
 
 ## 测试
 
-18 个测试用例，覆盖全部后端组件：
+22 个测试用例，覆盖全部后端组件：
 
 | 测试 | 验证内容 |
 |------|---------|
@@ -433,6 +438,10 @@ dashboard:
 | `TestAgentStateEndpoint` | `/api/agent/state` 返回 JSON 快照 |
 | `TestHealthEndpoint` | `/health` 返回 200 |
 | `TestSPAFallback` | 未知路径回退到 `index.html` |
+| `TestSessionsEndpointNoDB` | DB 为 nil 时 `/api/sessions` 返回 503 |
+| `TestSessionMessagesNoDB` | DB 为 nil 时 `/api/sessions/{id}/messages` 返回 503 |
+| `TestSessionToolsNoDB` | DB 为 nil 时 `/api/sessions/{id}/tools` 返回 503 |
+| `TestTokenAuthWrongToken` | 错误 token 返回 401 |
 | `TestTokenAuth` | Bearer header 和 query param 认证 |
 | `TestHubBroadcastsEvents` | WebSocket 客户端收到广播事件 |
 | `TestHubClientDisconnect` | 客户端断开后正确清理 |

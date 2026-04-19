@@ -62,6 +62,7 @@ func NewServerMux(deps ServerDeps) http.Handler {
 		for rows.Next() {
 			var s sessionInfo
 			if err := rows.Scan(&s.ID, &s.Channel, &s.ChannelID, &s.CreatedAt, &s.UpdatedAt); err != nil {
+				slog.Warn("dashboard: session row scan failed", "err", err)
 				continue
 			}
 			sessions = append(sessions, s)
@@ -96,6 +97,7 @@ func NewServerMux(deps ServerDeps) http.Handler {
 		for rows.Next() {
 			var m msg
 			if err := rows.Scan(&m.ID, &m.Role, &m.Content, &m.ToolName, &m.CreatedAt); err != nil {
+				slog.Warn("dashboard: message row scan failed", "err", err)
 				continue
 			}
 			msgs = append(msgs, m)
@@ -132,6 +134,7 @@ func NewServerMux(deps ServerDeps) http.Handler {
 		for rows.Next() {
 			var e toolEntry
 			if err := rows.Scan(&e.ID, &e.ToolName, &e.Input, &e.Output, &e.Status, &e.DurationMs, &e.CreatedAt); err != nil {
+				slog.Warn("dashboard: tool_log row scan failed", "err", err)
 				continue
 			}
 			entries = append(entries, e)
@@ -191,11 +194,12 @@ func (d ServerDeps) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func StartServer(cfg config.DashboardConfig, deps ServerDeps) {
+// NewServer creates an *http.Server for the dashboard. The caller is
+// responsible for calling ListenAndServe and Shutdown.
+func NewServer(cfg config.DashboardConfig, deps ServerDeps) *http.Server {
 	deps.Token = cfg.Token
-	handler := NewServerMux(deps)
-	slog.Info("dashboard server starting", "addr", cfg.Addr)
-	if err := http.ListenAndServe(cfg.Addr, handler); err != nil {
-		slog.Error("dashboard server error", "err", err)
+	return &http.Server{
+		Addr:    cfg.Addr,
+		Handler: NewServerMux(deps),
 	}
 }

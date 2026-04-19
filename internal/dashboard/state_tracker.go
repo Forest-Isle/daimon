@@ -16,10 +16,10 @@ type SessionState struct {
 }
 
 type StateSnapshot struct {
-	Status             string         `json:"status"`
-	ActiveSessions     []SessionState `json:"active_sessions"`
-	UptimeSeconds      int64          `json:"uptime_seconds"`
-	TotalSessionsToday int            `json:"total_sessions_today"`
+	Status         string         `json:"status"`
+	ActiveSessions []SessionState `json:"active_sessions"`
+	UptimeSeconds  int64          `json:"uptime_seconds"`
+	TotalSessions  int            `json:"total_sessions"`
 }
 
 type AgentStateTracker struct {
@@ -128,9 +128,9 @@ func (t *AgentStateTracker) Snapshot() StateSnapshot {
 	}
 
 	return StateSnapshot{
-		Status:             status,
-		ActiveSessions:     sessions,
-		UptimeSeconds:      int64(time.Since(t.startedAt).Seconds()),
-		TotalSessionsToday: t.totalToday + len(t.activeSessions),
+		Status:         status,
+		ActiveSessions: sessions,
+		UptimeSeconds:  int64(time.Since(t.startedAt).Seconds()),
+		TotalSessions:  t.totalToday + len(t.activeSessions),
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"net/http"
+
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
@@ -64,6 +66,7 @@ type Gateway struct {
 	staleDetector   *taskledger.StaleDetector
 	dashboardBus    *dashboard.Bus
 	dashboardHub    *dashboard.Hub
+	dashboardSrv    *http.Server
 	stateTracker    *dashboard.AgentStateTracker
 	cogCollector    *cogmetrics.Collector
 	memoryDir       string // resolved base dir for file-based memory
@@ -299,6 +302,11 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		gw.staleDetector.Stop()
 	}
 
+	if gw.dashboardSrv != nil {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = gw.dashboardSrv.Shutdown(shutCtx)
+	}
 	if gw.dashboardHub != nil {
 		gw.dashboardHub.Stop()
 	}

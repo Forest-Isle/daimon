@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"log/slog"
+	"net/http"
 
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/dashboard"
@@ -34,13 +35,19 @@ func (gw *Gateway) initDashboard() error {
 	gw.dashboardHub = dashboard.NewHub(gw.dashboardBus)
 	go gw.dashboardHub.Run()
 
-	go dashboard.StartServer(gw.cfg.Dashboard, dashboard.ServerDeps{
+	gw.dashboardSrv = dashboard.NewServer(gw.cfg.Dashboard, dashboard.ServerDeps{
 		DB:        gw.db,
 		Hub:       gw.dashboardHub,
 		Tracker:   gw.stateTracker,
 		Collector: gw.cogCollector,
 		StaticFS:  dashboard.WebDistFS(),
 	})
+	go func() {
+		slog.Info("dashboard server starting", "addr", gw.cfg.Dashboard.Addr)
+		if err := gw.dashboardSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("dashboard server error", "err", err)
+		}
+	}()
 
 	slog.Info("dashboard initialized", "addr", gw.cfg.Dashboard.Addr)
 	return nil

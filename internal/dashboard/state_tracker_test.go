@@ -89,7 +89,7 @@ func TestStateTrackerSessionEnd(t *testing.T) {
 	if len(snap.ActiveSessions) != 0 {
 		t.Fatalf("sessions = %d, want 0", len(snap.ActiveSessions))
 	}
-	if snap.TotalSessionsToday != 1 {
-		t.Fatalf("total = %d, want 1", snap.TotalSessionsToday)
+	if snap.TotalSessions != 1 {
+		t.Fatalf("total = %d, want 1", snap.TotalSessions)
 	}
 }

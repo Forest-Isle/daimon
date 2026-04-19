@@ -90,6 +90,84 @@ func TestSPAFallback(t *testing.T) {
 	}
 }
 
+func TestSessionsEndpointNoDB(t *testing.T) {
+	deps := ServerDeps{
+		Tracker:  NewAgentStateTracker(NewBus(1)),
+		StaticFS: fstest.MapFS{"index.html": {Data: []byte("<html></html>")}},
+	}
+	handler := NewServerMux(deps)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
+func TestSessionMessagesNoDB(t *testing.T) {
+	deps := ServerDeps{
+		Tracker:  NewAgentStateTracker(NewBus(1)),
+		StaticFS: fstest.MapFS{"index.html": {Data: []byte("<html></html>")}},
+	}
+	handler := NewServerMux(deps)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/sessions/abc/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
+func TestSessionToolsNoDB(t *testing.T) {
+	deps := ServerDeps{
+		Tracker:  NewAgentStateTracker(NewBus(1)),
+		StaticFS: fstest.MapFS{"index.html": {Data: []byte("<html></html>")}},
+	}
+	handler := NewServerMux(deps)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/sessions/abc/tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
+func TestTokenAuthWrongToken(t *testing.T) {
+	deps := ServerDeps{
+		Tracker:  NewAgentStateTracker(NewBus(1)),
+		StaticFS: fstest.MapFS{"index.html": {Data: []byte("<html></html>")}},
+		Token:    "correct-token",
+	}
+	handler := NewServerMux(deps)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/agent/state", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	resp, _ := http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token: status = %d, want 401", resp.StatusCode)
+	}
+}
+
 func TestTokenAuth(t *testing.T) {
 	deps := ServerDeps{
 		Tracker:  NewAgentStateTracker(NewBus(1)),

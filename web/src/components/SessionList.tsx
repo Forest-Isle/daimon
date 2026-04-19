@@ -10,7 +10,7 @@ export function SessionList({ sessions, total }: {
       border: '1px solid var(--border)', borderRadius: 8,
     }}>
       <h3 style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 12 }}>
-        Sessions ({total} today)
+        Sessions ({total} total)
       </h3>
       {sessions.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No active sessions</div>

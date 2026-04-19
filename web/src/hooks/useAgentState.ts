@@ -9,16 +9,20 @@ interface AgentState {
   recentTools: ToolEvent[]
   phaseHistory: PhaseEvent[]
   connected: boolean
-  totalSessionsToday: number
+  totalSessions: number
   uptimeSeconds: number
+  replanCount: number
+  error: string | null
 }
 
 type Action =
   | { type: 'snapshot'; data: StateSnapshot }
   | { type: 'event'; data: DashboardEvent }
   | { type: 'connection'; connected: boolean }
+  | { type: 'error'; message: string }
 
 const MAX_TOOLS = 100
+let toolSeq = 0
 
 function reducer(state: AgentState, action: Action): AgentState {
   switch (action.type) {
@@ -27,14 +31,17 @@ function reducer(state: AgentState, action: Action): AgentState {
         ...state,
         status: action.data.status,
         activeSessions: action.data.active_sessions || [],
-        totalSessionsToday: action.data.total_sessions_today,
+        totalSessions: action.data.total_sessions,
         uptimeSeconds: action.data.uptime_seconds,
+        error: null,
       }
     case 'connection':
       return { ...state, connected: action.connected }
+    case 'error':
+      return { ...state, error: action.message }
     case 'event': {
       const ev = action.data
-      let { activeSessions, recentTools, phaseHistory, status, totalSessionsToday } = state
+      let { activeSessions, recentTools, phaseHistory, status, totalSessions, replanCount } = state
 
       switch (ev.type) {
         case 'phase.start':
@@ -54,25 +61,44 @@ function reducer(state: AgentState, action: Action): AgentState {
           break
         case 'tool.start':
           recentTools = [{
+            id: ++toolSeq,
             timestamp: ev.timestamp,
             tool_name: ev.data.tool_name as string,
             running: true,
           }, ...recentTools].slice(0, MAX_TOOLS)
           break
-        case 'tool.end':
-          recentTools = recentTools.map(t =>
-            t.tool_name === ev.data.tool_name && t.running
-              ? { ...t, running: false, succeeded: ev.data.succeeded as boolean, duration_ms: ev.data.duration_ms as number }
-              : t
-          )
+        case 'tool.end': {
+          const toolName = ev.data.tool_name as string
+          let matched = false
+          recentTools = recentTools.map(t => {
+            if (!matched && t.tool_name === toolName && t.running) {
+              matched = true
+              return { ...t, running: false, succeeded: ev.data.succeeded as boolean, duration_ms: ev.data.duration_ms as number }
+            }
+            return t
+          })
+          break
+        }
+        case 'replan.start':
+          replanCount++
+          status = 'busy'
+          break
+        case 'plan.generated':
+          status = 'busy'
+          break
+        case 'session.start':
+          status = 'busy'
+          phaseHistory = []
+          replanCount = 0
           break
         case 'session.end':
           status = 'idle'
           phaseHistory = []
-          totalSessionsToday++
+          replanCount = 0
+          totalSessions++
           break
       }
-      return { ...state, activeSessions, recentTools, phaseHistory, status, totalSessionsToday }
+      return { ...state, activeSessions, recentTools, phaseHistory, status, totalSessions, replanCount }
     }
     default:
       return state
@@ -85,8 +111,10 @@ const initialState: AgentState = {
   recentTools: [],
   phaseHistory: [],
   connected: false,
-  totalSessionsToday: 0,
+  totalSessions: 0,
   uptimeSeconds: 0,
+  replanCount: 0,
+  error: null,
 }
 
 export function useAgentState() {
@@ -105,7 +133,7 @@ export function useAgentState() {
   useEffect(() => {
     fetchAgentState()
       .then(data => dispatch({ type: 'snapshot', data }))
-      .catch(() => {})
+      .catch(err => dispatch({ type: 'error', message: err.message }))
   }, [])
 
   return { ...state, wsStatus }

@@ -45,8 +45,8 @@ data/
 # Docker
 docker-compose.override.yml
 
-# GoReleaser
-dist/
+# GoReleaser (root-level only, not internal/dashboard/dist/)
+/dist/
 
 # Coverage
 coverage.out

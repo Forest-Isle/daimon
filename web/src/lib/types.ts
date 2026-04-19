@@ -27,10 +27,11 @@ export interface StateSnapshot {
   status: 'idle' | 'busy'
   active_sessions: SessionState[]
   uptime_seconds: number
-  total_sessions_today: number
+  total_sessions: number
 }
 
 export interface ToolEvent {
+  id: number
   timestamp: string
   tool_name: string
   succeeded?: boolean
