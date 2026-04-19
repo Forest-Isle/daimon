@@ -28,6 +28,7 @@ type Executor struct {
 	hookMgr      *hook.Manager
 	permEngine   *tool.PermissionEngine
 	cache        *ToolResultCache
+	dashEmitter  DashboardEmitter
 }
 
 // NewExecutor creates a new Executor.
@@ -58,6 +59,11 @@ func (e *Executor) SetPermissionEngine(pe *tool.PermissionEngine) {
 // SetToolCache injects a tool result cache for read-only tool deduplication.
 func (e *Executor) SetToolCache(cache *ToolResultCache) {
 	e.cache = cache
+}
+
+// SetDashboardEmitter injects a dashboard event emitter for tool execution tracking.
+func (e *Executor) SetDashboardEmitter(em DashboardEmitter) {
+	e.dashEmitter = em
 }
 
 // Run executes the ACT phase — topological ordering + parallel execution.
@@ -295,10 +301,16 @@ func (e *Executor) executeSubTask(
 	}
 
 	// Execute
+	if e.dashEmitter != nil {
+		e.dashEmitter.EmitToolStart(sess.ID, subtask.ToolName, toolInput)
+	}
 	start := time.Now()
 	result, execErr := t.Execute(ctx, []byte(toolInput))
 	durationMs := time.Since(start).Milliseconds()
 	obs.DurationMs = durationMs
+	if e.dashEmitter != nil {
+		e.dashEmitter.EmitToolEnd(sess.ID, subtask.ToolName, execErr == nil && result.Error == "", durationMs)
+	}
 	obs.Metadata = result.Metadata
 
 	// Determine execution status
