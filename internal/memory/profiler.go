@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +38,27 @@ Rules:
 // defaultProfileTriggerCount is the number of L1 reflections before generating a profile.
 const defaultProfileTriggerCount = 5
 
+const sectionUpdatePrompt = `你是用户画像维护助手。根据以下新观察，更新用户的「%s」画像。
+
+规则:
+1. 保留当前画像中仍然成立的信息
+2. 整合新观察，如有矛盾以更近期的观察为准
+3. 用简洁的要点列表格式输出
+4. 如果新观察不改变当前画像，原样返回当前画像内容
+5. 只输出画像内容，不要输出其他文字`
+
+const classifyFactPrompt = `你是一个用户画像分类器。给定一条用户相关的事实，判断它属于以下哪个画像分类:
+
+- communication: 沟通偏好（语言风格、回复格式偏好）
+- tech_stack: 技术栈画像（使用的语言、框架、工具）
+- work_pattern: 工作模式（工作时间、习惯、流程）
+- projects: 项目上下文（当前项目、目标、任务）
+- feedback: 反馈模式（对建议的接受度、常见反馈类型）
+- identity: 身份画像（角色、背景、专业领域）
+- none: 不属于以上任何分类
+
+只输出分类ID（如 "communication"），不要输出其他文字。`
+
 // Profiler generates and maintains user profiles from reflection memories.
 type Profiler struct {
 	store     Store
@@ -44,34 +67,294 @@ type Profiler struct {
 	baseDir   string
 	cfg       MemoryConfig
 
-	mu                  sync.Mutex
-	l1CountSinceProfile int
-	lastProfileUserID   string
+	mu       sync.Mutex
+	registry *ProfileSectionRegistry
+	buffers  map[string]*SectionBuffer
 }
 
 // NewProfiler creates a new Profiler instance.
 func NewProfiler(store Store, completer Completer, db *sql.DB, baseDir string, cfg MemoryConfig) *Profiler {
+	reg := NewProfileSectionRegistry()
+	buffers := make(map[string]*SectionBuffer, len(reg.All()))
+	for _, sec := range reg.All() {
+		buffers[sec.ID] = NewSectionBuffer(sec)
+	}
 	return &Profiler{
 		store:     store,
 		completer: completer,
 		db:        db,
 		baseDir:   baseDir,
 		cfg:       cfg,
+		registry:  reg,
+		buffers:   buffers,
 	}
 }
 
-// GenerateProfile creates or updates a user profile from reflection memories.
+// RouteFact routes an extracted fact to the appropriate profile section buffer.
+// Layer 1: direct category mapping via registry. Layer 2: LLM-based classification.
+func (p *Profiler) RouteFact(ctx context.Context, fact ExtractedFact) {
+	if sectionID, ok := p.registry.RouteCategory(fact.Category); ok {
+		if buf, exists := p.buffers[sectionID]; exists {
+			buf.Add(fact.Content)
+			return
+		}
+	}
+
+	sectionID := p.classifyFactByLLM(ctx, fact.Content)
+	if sectionID != "" {
+		if buf, exists := p.buffers[sectionID]; exists {
+			buf.Add(fact.Content)
+		}
+	}
+}
+
+func (p *Profiler) classifyFactByLLM(ctx context.Context, content string) string {
+	if p.completer == nil {
+		return ""
+	}
+
+	resp, err := p.completer.Complete(ctx, classifyFactPrompt, content)
+	if err != nil {
+		slog.Warn("classifyFactByLLM failed", "error", err)
+		return ""
+	}
+
+	sectionID := strings.TrimSpace(resp)
+	if sectionID == "none" {
+		return ""
+	}
+	if _, ok := p.registry.Get(sectionID); ok {
+		return sectionID
+	}
+	return ""
+}
+
+// CheckAndUpdateSections iterates all buffers and updates sections that meet their threshold.
+func (p *Profiler) CheckAndUpdateSections(ctx context.Context, userID string) error {
+	for sectionID, buf := range p.buffers {
+		if buf.ShouldUpdate() {
+			if err := p.UpdateSection(ctx, sectionID, userID); err != nil {
+				slog.Warn("section update failed", "section", sectionID, "error", err)
+			}
+		}
+	}
+	return nil
+}
+
+// UpdateSection drains the buffer for a section, loads existing content, calls LLM for
+// incremental update, and saves the new section file.
+func (p *Profiler) UpdateSection(ctx context.Context, sectionID, userID string) error {
+	sec, ok := p.registry.Get(sectionID)
+	if !ok {
+		return fmt.Errorf("unknown section: %s", sectionID)
+	}
+
+	buf, ok := p.buffers[sectionID]
+	if !ok {
+		return fmt.Errorf("no buffer for section: %s", sectionID)
+	}
+
+	facts := buf.Drain()
+	if len(facts) == 0 {
+		return nil
+	}
+
+	profilePath := filepath.Join(p.baseDir, "user", fmt.Sprintf("profile_%s.md", sectionID))
+	var existingContent string
+	var existingMF *MemoryFile
+	var evidenceCount int
+
+	if mf, err := parseMemoryFile(profilePath); err == nil {
+		existingContent = mf.Content
+		existingMF = mf
+		if ec, ok := mf.Metadata["evidence_count"]; ok {
+			if v, err := strconv.Atoi(ec); err == nil {
+				evidenceCount = v
+			}
+		}
+	}
+
+	prompt := fmt.Sprintf(sectionUpdatePrompt, sec.Name)
+	var userMsg strings.Builder
+	if existingContent != "" {
+		userMsg.WriteString("当前画像:\n")
+		userMsg.WriteString(existingContent)
+		userMsg.WriteString("\n\n")
+	}
+	userMsg.WriteString("新观察:\n")
+	for _, f := range facts {
+		userMsg.WriteString("- ")
+		userMsg.WriteString(f)
+		userMsg.WriteString("\n")
+	}
+
+	updatedContent, err := p.completer.Complete(ctx, prompt, userMsg.String())
+	if err != nil {
+		for _, f := range facts {
+			buf.Add(f)
+		}
+		return fmt.Errorf("LLM section update for %s: %w", sectionID, err)
+	}
+
+	if existingMF != nil {
+		archivedDir := filepath.Join(p.baseDir, "archived")
+		_ = os.MkdirAll(archivedDir, 0755)
+		archivedPath := filepath.Join(archivedDir, fmt.Sprintf("profile_%s.md", sectionID))
+		_ = os.Rename(profilePath, archivedPath)
+	}
+
+	evidenceCount += len(facts)
+	confidence := float64(evidenceCount) * 0.1
+	if confidence > 1.0 {
+		confidence = 1.0
+	}
+
+	now := time.Now()
+	createdAt := now
+	if existingMF != nil {
+		createdAt = existingMF.CreatedAt
+	}
+
+	mf := MemoryFile{
+		ID:        fmt.Sprintf("profile_%s", sectionID),
+		Scope:     "user",
+		UserID:    userID,
+		Type:      "profile",
+		CreatedAt: createdAt,
+		UpdatedAt: now,
+		Strength:  1.0,
+		Metadata: map[string]string{
+			"type":           "profile",
+			"section":        sectionID,
+			"priority":       strconv.Itoa(sec.Priority),
+			"confidence":     fmt.Sprintf("%.2f", confidence),
+			"evidence_count": strconv.Itoa(evidenceCount),
+		},
+		Content: strings.TrimSpace(updatedContent),
+	}
+
+	if err := writeProfileAtomic(profilePath, mf); err != nil {
+		return fmt.Errorf("write section file %s: %w", sectionID, err)
+	}
+
+	slog.Info("profile section updated",
+		"section", sectionID,
+		"evidence_count", evidenceCount,
+		"confidence", confidence,
+	)
+	return nil
+}
+
+// OnReflectionCreated is called after a reflection is generated to potentially trigger profile updates.
+func (p *Profiler) OnReflectionCreated(ctx context.Context, userID string, level int) error {
+	if level != 1 {
+		return nil
+	}
+	return p.CheckAndUpdateSections(ctx, userID)
+}
+
+// LoadProfileSections scans user/profile_*.md files, sorts by priority, and concatenates
+// them into a formatted string with a 3200-character budget.
+func LoadProfileSections(baseDir string) (string, error) {
+	userDir := filepath.Join(baseDir, "user")
+	matches, err := filepath.Glob(filepath.Join(userDir, "profile_*.md"))
+	if err != nil {
+		return "", fmt.Errorf("glob profile sections: %w", err)
+	}
+
+	reg := NewProfileSectionRegistry()
+
+	type sectionEntry struct {
+		name       string
+		priority   int
+		confidence float64
+		content    string
+	}
+
+	var sections []sectionEntry
+	for _, path := range matches {
+		mf, err := parseMemoryFile(path)
+		if err != nil {
+			continue
+		}
+		if mf.Type != "profile" {
+			if mf.Metadata == nil || mf.Metadata["type"] != "profile" {
+				continue
+			}
+		}
+
+		sectionID := mf.Metadata["section"]
+		if sectionID == "" {
+			sectionID = strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "profile_"), ".md")
+		}
+
+		displayName := sectionID
+		if sec, ok := reg.Get(sectionID); ok {
+			displayName = sec.Name
+		}
+
+		priority := 99
+		if p, ok := mf.Metadata["priority"]; ok {
+			if v, err := strconv.Atoi(p); err == nil {
+				priority = v
+			}
+		}
+
+		var confidence float64
+		if c, ok := mf.Metadata["confidence"]; ok {
+			if v, err := strconv.ParseFloat(c, 64); err == nil {
+				confidence = v
+			}
+		}
+
+		sections = append(sections, sectionEntry{
+			name:       displayName,
+			priority:   priority,
+			confidence: confidence,
+			content:    mf.Content,
+		})
+	}
+
+	if len(sections) == 0 {
+		return "", nil
+	}
+
+	sort.Slice(sections, func(i, j int) bool {
+		if sections[i].priority != sections[j].priority {
+			return sections[i].priority < sections[j].priority
+		}
+		return sections[i].name < sections[j].name
+	})
+
+	const budget = 3200
+	var result strings.Builder
+	for _, s := range sections {
+		label := ""
+		if s.confidence < 0.5 {
+			label = " (初步观察)"
+		}
+		section := fmt.Sprintf("## %s%s\n%s\n\n", s.name, label, s.content)
+		if result.Len()+len(section) > budget {
+			break
+		}
+		result.WriteString(section)
+	}
+
+	return strings.TrimSpace(result.String()), nil
+}
+
+// --- Legacy / fallback methods preserved below ---
+
+// GenerateProfile creates or updates a user profile from reflection memories (legacy single-file mode).
 func (p *Profiler) GenerateProfile(ctx context.Context, userID string) error {
 	slog.Info("generating user profile", "user_id", userID)
 
-	// Load existing profile if present
 	existingProfile, err := p.LoadProfile(ctx, userID)
 	if err != nil {
 		slog.Warn("failed to load existing profile, continuing without it", "error", err)
 		existingProfile = ""
 	}
 
-	// Collect reflections from user/ directory
 	reflections, err := p.collectReflections(userID)
 	if err != nil {
 		return fmt.Errorf("collect reflections: %w", err)
@@ -82,7 +365,6 @@ func (p *Profiler) GenerateProfile(ctx context.Context, userID string) error {
 		return nil
 	}
 
-	// Build the LLM prompt
 	var promptBuilder strings.Builder
 	promptBuilder.WriteString("Reflections about this user:\n\n")
 	for i, r := range reflections {
@@ -95,51 +377,17 @@ func (p *Profiler) GenerateProfile(ctx context.Context, userID string) error {
 		promptBuilder.WriteString("\n")
 	}
 
-	// Call LLM to generate profile
 	profileContent, err := p.completer.Complete(ctx, profileGenerationPrompt, promptBuilder.String())
 	if err != nil {
 		return fmt.Errorf("LLM profile generation: %w", err)
 	}
 
-	// Save profile as memory file
 	if err := p.saveProfile(ctx, userID, profileContent); err != nil {
 		return fmt.Errorf("save profile: %w", err)
 	}
 
 	slog.Info("user profile generated successfully", "user_id", userID)
 	return nil
-}
-
-// OnReflectionCreated is called after a reflection is generated to potentially trigger profile generation.
-func (p *Profiler) OnReflectionCreated(ctx context.Context, userID string, level int) error {
-	if level != 1 {
-		return nil
-	}
-
-	p.mu.Lock()
-
-	// Reset counter if user changed
-	if p.lastProfileUserID != userID {
-		p.l1CountSinceProfile = 0
-		p.lastProfileUserID = userID
-	}
-
-	p.l1CountSinceProfile++
-	count := p.l1CountSinceProfile
-
-	triggerCount := defaultProfileTriggerCount
-
-	if count < triggerCount {
-		p.mu.Unlock()
-		return nil
-	}
-
-	// Reset counter before generating
-	p.l1CountSinceProfile = 0
-	p.mu.Unlock()
-
-	slog.Info("profile trigger threshold reached", "user_id", userID, "l1_count", count)
-	return p.GenerateProfile(ctx, userID)
 }
 
 // LoadProfile reads and returns the content of the user's profile if it exists.
@@ -160,10 +408,8 @@ func LoadUserProfile(baseDir string, userID string) (string, error) {
 		return "", fmt.Errorf("read profile: %w", err)
 	}
 
-	// Parse frontmatter and return content
 	parts := strings.SplitN(string(data), "---\n", 3)
 	if len(parts) < 3 {
-		// No frontmatter, return raw content
 		return strings.TrimSpace(string(data)), nil
 	}
 
@@ -180,7 +426,6 @@ func (p *Profiler) collectReflections(userID string) ([]string, error) {
 
 	var reflections []string
 	for _, filePath := range files {
-		// Skip profile files themselves
 		if strings.HasPrefix(filepath.Base(filePath), "profile_") {
 			continue
 		}
@@ -191,7 +436,6 @@ func (p *Profiler) collectReflections(userID string) ([]string, error) {
 			continue
 		}
 
-		// Check if this is a reflection for the target user
 		if mf.Type != "reflection" {
 			if mf.Metadata == nil || mf.Metadata["type"] != "reflection" {
 				continue
@@ -252,17 +496,14 @@ func (p *Profiler) saveProfile(ctx context.Context, userID, content string) erro
 		Content: content,
 	}
 
-	// Check if profile already exists to preserve created_at
 	if existing, err := parseMemoryFile(profilePath); err == nil {
 		mf.CreatedAt = existing.CreatedAt
 	}
 
-	// Write file atomically
 	if err := writeProfileAtomic(profilePath, mf); err != nil {
 		return fmt.Errorf("write profile file: %w", err)
 	}
 
-	// Sync to memory_index
 	entry := Entry{
 		ID:        profileID,
 		Scope:     ScopeUser,
