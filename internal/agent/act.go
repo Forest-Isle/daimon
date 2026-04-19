@@ -214,6 +214,11 @@ func (e *Executor) executeSubTask(
 		}
 	}
 
+	// Route through interceptor chain when configured (e.g. sandbox enforcement)
+	if e.interceptorChain != nil {
+		return e.executeSubTaskViaChain(ctx, ch, sess, target, subtask, allTasks, taskCtx, plan, rlState, collector, t)
+	}
+
 	// Track permission decision metadata
 	var permAction, permReason, permRule string
 
@@ -403,6 +408,156 @@ func (e *Executor) executeSubTask(
 	// RL: record bandit experience after successful execution
 	e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 
+	return obs
+}
+
+// executeSubTaskViaChain runs a subtask through the interceptor chain (e.g. sandbox policy).
+// Preserves all post-execution behavior: TaskContext injection, session messages, logging,
+// cache updates, PostToolUse hooks, and bandit recording.
+func (e *Executor) executeSubTaskViaChain(
+	ctx context.Context,
+	ch channel.Channel,
+	sess *session.Session,
+	target channel.MessageTarget,
+	subtask *SubTask,
+	allTasks []*SubTask,
+	taskCtx *TaskContext,
+	plan *TaskPlan,
+	rlState *rl.RLState,
+	collector *EpisodeCollector,
+	t tool.Tool,
+) Observation {
+	obs := Observation{
+		SubTaskID: subtask.ID,
+		ToolName:  subtask.ToolName,
+		Input:     subtask.ToolInput,
+	}
+
+	// Prepare tool input with TaskContext injection for agent_* tools
+	toolInput := subtask.ToolInput
+	if taskCtx != nil && strings.HasPrefix(subtask.ToolName, "agent_") && len(subtask.DependsOn) > 0 {
+		contextStr := taskCtx.BuildContextForTask(subtask.ID, plan)
+		if contextStr != "" {
+			var input agentToolInput
+			if err := json.Unmarshal([]byte(subtask.ToolInput), &input); err == nil {
+				input.Context = contextStr
+				if newInput, err := json.Marshal(input); err == nil {
+					toolInput = string(newInput)
+				}
+			}
+		}
+	}
+
+	call := &tool.ToolCall{
+		ToolName:  subtask.ToolName,
+		Input:     toolInput,
+		SessionID: sess.ID,
+	}
+
+	start := time.Now()
+	res, err := e.interceptorChain.Execute(ctx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
+		result, execErr := t.Execute(ctx, []byte(call.Input))
+		if execErr != nil {
+			return &tool.ToolResult{Error: execErr.Error()}, nil
+		}
+		tr := &tool.ToolResult{Output: result.Output, Error: result.Error}
+		if result.Metadata != nil {
+			tr.Metadata = make(map[string]string, len(result.Metadata))
+			for k, v := range result.Metadata {
+				tr.Metadata[k] = fmt.Sprintf("%v", v)
+			}
+		}
+		return tr, nil
+	})
+	durationMs := time.Since(start).Milliseconds()
+	obs.DurationMs = durationMs
+
+	if err != nil {
+		subtask.Status = SubTaskFailed
+		obs.Error = err.Error()
+		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
+		slog.Info("subtask failed (chain)", "id", subtask.ID, "tool", subtask.ToolName, "err", err)
+		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
+		return obs
+	}
+	if res.Error != "" {
+		subtask.Status = SubTaskFailed
+		obs.Denied = true
+		obs.Error = res.Error
+		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "denied", durationMs)
+		slog.Info("subtask denied (chain)", "id", subtask.ID, "tool", subtask.ToolName, "reason", res.Error)
+		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
+		return obs
+	}
+
+	subtask.Status = SubTaskDone
+	obs.Output = res.Output
+	if res.Metadata != nil {
+		md := make(map[string]any, len(res.Metadata))
+		for k, v := range res.Metadata {
+			md[k] = v
+		}
+		obs.Metadata = md
+	}
+
+	// PostToolUse hooks
+	if e.hookMgr != nil && e.hookMgr.HasPostToolUseHandlers() {
+		postResult, _ := e.hookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
+			ToolName:   subtask.ToolName,
+			Input:      subtask.ToolInput,
+			Output:     obs.Output,
+			Status:     "success",
+			DurationMs: durationMs,
+			SessionID:  sess.ID,
+		})
+		if postResult.ModifiedOutput != nil {
+			obs.Output = *postResult.ModifiedOutput
+		}
+	}
+
+	// Cache update
+	if e.cache != nil {
+		if tool.IsToolReadOnly(t) {
+			e.cache.Put(subtask.ToolName, subtask.ToolInput, tool.Result{Output: res.Output})
+		} else if pst, ok := t.(tool.PathScopedTool); ok {
+			if paths, pathErr := pst.ExtractPaths([]byte(subtask.ToolInput)); pathErr == nil {
+				for _, p := range paths {
+					e.cache.InvalidatePath(p)
+				}
+			}
+		}
+	}
+
+	// Store result in TaskContext for multi-agent collaboration
+	if taskCtx != nil && strings.HasPrefix(subtask.ToolName, "agent_") {
+		taskCtx.SetResult(subtask.ID, SubAgentResult{
+			AgentName:  subtask.ToolName,
+			Output:     res.Output,
+			Error:      "",
+			DurationMs: durationMs,
+		})
+	}
+
+	// Record in session history
+	sess.AddMessage(session.Message{
+		ID:        fmt.Sprintf("tool_use_%s_%d", subtask.ID, time.Now().UnixNano()),
+		Role:      "tool_use",
+		ToolName:  subtask.ToolName,
+		ToolInput: subtask.ToolInput,
+		CreatedAt: time.Now(),
+	})
+	sess.AddMessage(session.Message{
+		ID:        fmt.Sprintf("tool_result_%s_%d", subtask.ID, time.Now().UnixNano()),
+		Role:      "tool_result",
+		Content:   res.Output,
+		ToolName:  fmt.Sprintf("tool_use_%s_%d", subtask.ID, time.Now().UnixNano()-1),
+		CreatedAt: time.Now(),
+	})
+
+	session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, res.Output, "success", durationMs)
+	slog.Info("subtask done (chain)", "id", subtask.ID, "tool", subtask.ToolName, "duration_ms", durationMs)
+
+	e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 	return obs
 }
 
