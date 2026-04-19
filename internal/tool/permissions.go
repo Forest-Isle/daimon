@@ -20,6 +20,22 @@ const (
 	PermissionAsk   PermissionAction = "approve"
 )
 
+// parseAction normalizes a permission action string, accepting both new and legacy names.
+func parseAction(s string) PermissionAction {
+	switch s {
+	case "none", "allow":
+		return PermissionNone
+	case "notify":
+		return PermissionNotify
+	case "approve", "ask":
+		return PermissionApprove
+	case "deny":
+		return PermissionDeny
+	default:
+		return PermissionApprove
+	}
+}
+
 // PermissionRule defines a single permission rule for the engine.
 type PermissionRule struct {
 	Tool        string `yaml:"tool"`
