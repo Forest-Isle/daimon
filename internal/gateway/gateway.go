@@ -58,6 +58,7 @@ type Gateway struct {
 	interceptorChain *tool.InterceptorChain
 	taskLedger      *taskledger.SQLiteTaskLedger
 	teamCoordinator *taskledger.TeamCoordinator
+	subAgentMgr     *agent.SubAgentManager
 	staleDetector   *taskledger.StaleDetector
 	memoryDir       string // resolved base dir for file-based memory
 	stopCh          chan struct{} // closed in Stop() to signal background goroutines
@@ -113,7 +114,34 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}
 		tc := taskledger.NewTeamCoordinator(gw.taskLedger, maxWorkers)
 		tc.SetExecutor(func(ctx context.Context, task taskledger.Task) (string, error) {
-			return gw.executeTeamTask(ctx, task)
+			if gw.subAgentMgr == nil {
+				return gw.executeTeamTask(ctx, task)
+			}
+			taskIDShort := task.ID
+			if len(taskIDShort) > 8 {
+				taskIDShort = taskIDShort[:8]
+			}
+			spec := &agent.AgentSpec{
+				Name:          fmt.Sprintf("team_%s", taskIDShort),
+				Description:   "Team task worker",
+				SystemPrompt:  "You are an agent executing a specific task. Be concise and focused.",
+				MaxIterations: 10,
+			}
+			if gw.cfg.Agent.Team.Model != "" {
+				spec.Model = gw.cfg.Agent.Team.Model
+			}
+			_ = spec.Validate()
+			result, err := gw.subAgentMgr.Spawn(ctx, agent.SpawnRequest{
+				Spec: spec,
+				Task: task.Description,
+			})
+			if err != nil {
+				return "", err
+			}
+			if result.Status == agent.StatusError {
+				return "", fmt.Errorf("task failed: %s", result.Error)
+			}
+			return result.Summary, nil
 		})
 		gw.teamCoordinator = tc
 	}

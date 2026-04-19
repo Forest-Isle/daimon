@@ -35,7 +35,16 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 2. Memory store (optional fact extractor + lifecycle manager)
 3. Cognitive agent (if mode=cognitive)
 4. Knowledge base + hybrid retriever + knowledge graph (if enabled)
-5. Skill manager → scheduler → channels
+5. SubAgentManager → AgentManager (with `.md` + `.yaml` agent specs) → TeamCoordinator (executor upgraded to use SubAgentManager.Spawn)
+6. Skill manager → scheduler → channels
+
+**Sub-agent isolation** (`internal/agent/subagent.go`):
+- `SubAgentManager` is the central manager for sub-agent lifecycle: `Spawn()` creates an isolated session + scoped tool registry + model override per invocation, runs a full `Runtime` loop, extracts structured results, and cleans up ephemeral sessions
+- `SpawnParallel()` runs multiple sub-agents concurrently with configurable `FailureStrategy` (best_effort / fail_fast)
+- `AgentTool` delegates all execution to `SubAgentManager.Spawn()` — no longer constructs Runtimes directly
+- Agent specs can be defined as `.ironclaw/agents/*.md` (YAML frontmatter + Markdown body as system prompt) or `.yaml` files
+- Result extraction: sub-agents are instructed to output `<result>` XML blocks; if absent, LLM summarization fallback is used
+- `TeamCoordinator`'s executor is upgraded to use `SubAgentManager.Spawn()` for full agent-loop task execution instead of single LLM calls
 
 **Key adapter patterns**:
 - `completerAdapter` in gateway.go bridges `agent.Provider` → `memory.Completer` (avoids circular imports between agent and memory packages)
@@ -51,7 +60,7 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 
 ## Key Packages
 
-- `internal/agent/` — Provider interface, Runtime (simple), CognitiveAgent (5-phase), context building, history compaction. Cognitive subsystems: `assertion.go` (auto-verification per tool type), `failure_context.go` (structured error analysis for REFLECT), `checkpoint.go` (SQLite-backed task resume), `tool_cache.go` (per-task read-only result cache), `project_scanner.go` (project type detection), `git_context.go` (branch/status/log injection), `context_budget.go` (complexity-aware context allocation)
+- `internal/agent/` — Provider interface, Runtime (simple), CognitiveAgent (5-phase), context building, history compaction. Cognitive subsystems: `assertion.go` (auto-verification per tool type), `failure_context.go` (structured error analysis for REFLECT), `checkpoint.go` (SQLite-backed task resume), `tool_cache.go` (per-task read-only result cache), `project_scanner.go` (project type detection), `git_context.go` (branch/status/log injection), `context_budget.go` (complexity-aware context allocation). **Sub-agent subsystem**: `subagent.go` (SubAgentManager — context-isolated sub-agent lifecycle), `subagent_result.go` (structured result extraction with XML template + LLM fallback), `agent_tool.go` (AgentTool delegates to SubAgentManager), `agent_manager.go` (loads `.md` agent specs with YAML frontmatter + Markdown system prompt), `spec.go` (AgentSpec with FailureStrategy)
 - `internal/memory/` — **File-based storage**: Markdown files at `~/.ironclaw/memory/` as primary storage (YAML frontmatter + content), SQLite as auxiliary index for FTS5+vector hybrid search (RRF fusion). Scopes: session/user/global/feedback. Lifecycle management (ADD/UPDATE/DELETE/NOOP) with conflict detection. Forgetting curve integration for strength-based ranking and auto-archival. Migration tool: `ironclaw memory migrate` converts legacy SQLite data to files. **User Profile subsystem**: `profile_schema.go` (section registry with priority routing), `section_buffer.go` (per-section fact buffering with count/time triggers), `profiler.go` (fact routing → LLM-based section updates → `profile_*.md` files; `LoadProfileSections` for prompt injection; `ColdStartPrompt` for early-interaction learning; `MigrateLegacyProfile` for single→multi-section conversion). Profile files use `type: profile` with `ExcludeTypes` filtering to prevent duplicate injection.
 - `internal/knowledge/` — Document ingestion pipeline, BM25+vector hybrid retrieval, LLM reranker; `graph/` subpackage for entity/relation triples with recursive CTE traversal
 - `internal/store/` — SQLite wrapper with WAL mode, embedded migrations (`//go:embed migrations/*.sql`) applied alphabetically at startup (idempotent `CREATE TABLE IF NOT EXISTS`)

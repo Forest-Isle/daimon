@@ -30,6 +30,7 @@ type AgentManager struct {
 	bgManager      *BackgroundManager
 	agentMCP       *AgentMCPManager
 	sidechainStore SidechainStore
+	subAgentMgr    *SubAgentManager
 }
 
 // NewAgentManager creates a new AgentManager.
@@ -72,6 +73,13 @@ func (m *AgentManager) SetSidechainStore(store SidechainStore) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sidechainStore = store
+}
+
+// SetSubAgentManager sets the sub-agent manager for delegation support.
+func (m *AgentManager) SetSubAgentManager(mgr *SubAgentManager) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.subAgentMgr = mgr
 }
 
 // GetSidechainStore returns the sidechain store, or nil if not configured.
@@ -118,21 +126,26 @@ func (m *AgentManager) LoadDir(dir string) error {
 			continue
 		}
 		name := e.Name()
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-			continue
-		}
-
 		path := filepath.Join(dir, name)
-		spec, err := loadAgentSpec(path)
-		if err != nil {
-			slog.Warn("agent_manager: skip invalid spec",
-				"file", name, "err", err)
+
+		var spec *AgentSpec
+		var loadErr error
+
+		switch {
+		case strings.HasSuffix(name, ".yaml"), strings.HasSuffix(name, ".yml"):
+			spec, loadErr = loadAgentSpec(path)
+		case strings.HasSuffix(name, ".md"):
+			spec, loadErr = loadMarkdownAgentSpec(path)
+		default:
 			continue
 		}
 
+		if loadErr != nil {
+			slog.Warn("agent_manager: skip invalid spec", "file", name, "err", loadErr)
+			continue
+		}
 		if err := m.Add(spec); err != nil {
-			slog.Warn("agent_manager: skip invalid spec",
-				"file", name, "err", err)
+			slog.Warn("agent_manager: skip invalid spec", "file", name, "err", err)
 			continue
 		}
 	}
@@ -146,14 +159,14 @@ func (m *AgentManager) RegisterAll(registry *tool.Registry) {
 	defer m.mu.RUnlock()
 
 	for _, spec := range m.specs {
-		at := NewAgentTool(spec, m.provider, m.sessions, m.db, m.memStore, m.tools, m.cfg, m.llmCfg)
+		mgr := m.subAgentMgr
+		if mgr == nil {
+			slog.Warn("agent_manager: no SubAgentManager set, skipping registration", "name", spec.Name)
+			continue
+		}
+
+		at := NewAgentTool(spec, mgr)
 		registry.Register(at)
-		if m.bgManager != nil {
-			at.SetBackgroundManager(m.bgManager)
-		}
-		if m.agentMCP != nil {
-			at.SetAgentMCPManager(m.agentMCP)
-		}
 		slog.Info("agent_manager: registered agent tool",
 			"name", at.Name(),
 			"tools", spec.Tools,
@@ -218,4 +231,43 @@ func loadAgentSpec(path string) (*AgentSpec, error) {
 	}
 
 	return &spec, nil
+}
+
+// loadMarkdownAgentSpec reads a Markdown file with YAML frontmatter.
+// The frontmatter fields map to AgentSpec; the Markdown body becomes SystemPrompt.
+func loadMarkdownAgentSpec(path string) (*AgentSpec, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	data = config.ExpandEnv(data)
+	content := string(data)
+
+	frontmatter, body, err := splitFrontmatter(content)
+	if err != nil {
+		return nil, fmt.Errorf("parse frontmatter %s: %w", path, err)
+	}
+
+	var spec AgentSpec
+	if err := yaml.Unmarshal([]byte(frontmatter), &spec); err != nil {
+		return nil, fmt.Errorf("parse yaml %s: %w", path, err)
+	}
+	spec.SystemPrompt = strings.TrimSpace(body)
+	return &spec, nil
+}
+
+// splitFrontmatter splits "---\nyaml\n---\nmarkdown" into (yaml, body, error).
+func splitFrontmatter(content string) (string, string, error) {
+	if !strings.HasPrefix(content, "---") {
+		return "", "", fmt.Errorf("no frontmatter found")
+	}
+	rest := content[3:]
+	if i := strings.Index(rest, "\n"); i >= 0 {
+		rest = rest[i+1:]
+	}
+	idx := strings.Index(rest, "---")
+	if idx < 0 {
+		return "", "", fmt.Errorf("unclosed frontmatter")
+	}
+	return strings.TrimSpace(rest[:idx]), strings.TrimSpace(rest[idx+3:]), nil
 }

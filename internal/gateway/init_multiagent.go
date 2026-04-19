@@ -13,6 +13,11 @@ func (gw *Gateway) initMultiAgent() error {
 	// Multi-agent system
 	if gw.cfg.Agents.Enabled {
 		agentMgr := agent.NewAgentManager(gw.provider, gw.sessions, gw.db, gw.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
+
+		subAgentMgr := agent.NewSubAgentManager(gw.provider, gw.sessions, gw.db, gw.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
+		gw.subAgentMgr = subAgentMgr
+		agentMgr.SetSubAgentManager(subAgentMgr)
+
 		_ = agentMgr.LoadDir(userdir.AgentsDir())
 		for _, dir := range gw.cfg.Agents.ExtraDirs {
 			if err := agentMgr.LoadDir(dir); err != nil {
@@ -40,6 +45,7 @@ func (gw *Gateway) initMultiAgent() error {
 		// Background agent manager
 		bgManager := agent.NewBackgroundManager()
 		agentMgr.SetBackgroundManager(bgManager)
+		subAgentMgr.SetBackgroundManager(bgManager)
 		gw.runtime.SetBackgroundManager(bgManager)
 		slog.Info("background agent manager initialized")
 		// Prompt cache for sub-agents
@@ -49,6 +55,7 @@ func (gw *Gateway) initMultiAgent() error {
 		// Per-agent MCP manager
 		agentMCPMgr := agent.NewAgentMCPManager(nil)
 		agentMgr.SetAgentMCPManager(agentMCPMgr)
+		subAgentMgr.SetAgentMCPManager(agentMCPMgr)
 		gw.runtime.SetAgentMCPManager(agentMCPMgr)
 		slog.Info("per-agent MCP manager initialized")
 		// Agent orchestrator for parallel scheduling
