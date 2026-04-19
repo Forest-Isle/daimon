@@ -231,12 +231,15 @@ tools:
 # Permission rules — configurable security policies for tool execution
 # Rules are evaluated top-to-bottom, first match wins
 # If no rules are configured, falls back to legacy blocked_commands behavior
+#
+# Actions: "none" (silent allow), "notify" (allow + log), "approve" (ask user), "deny" (block)
+# Legacy values "allow" and "ask" still work (mapped to "none" and "approve" respectively)
 permissions:
-  default: ask   # "allow", "deny", "ask" — action when no rule matches
+  default: approve   # "none", "notify", "approve", "deny" — action when no rule matches
   rules:
     - tool: bash
       pattern: "git *"
-      action: allow
+      action: none
     - tool: bash
       pattern: "rm -rf *"
       action: deny
@@ -250,7 +253,31 @@ permissions:
       path_pattern: "/etc/*"
       action: deny
     # - tool: "*"
-    #   action: ask   # catch-all fallback
+    #   action: approve   # catch-all fallback
+
+# Security Sandbox — execution isolation for tools
+sandbox:
+  enabled: false                     # set true to enable sandbox system
+
+  allowed_directories:               # file tools + Docker volumes; empty = no restriction
+    # - "${WORKSPACE_DIR}"
+    # - "/tmp/ironclaw"
+  readonly_directories:              # read-only access (both file tools and Docker)
+    # - "${HOME}/.ssh"
+
+  bash:
+    backend: host                    # "docker" (container isolation) | "host" (direct execution)
+    docker:
+      image: "ironclaw-sandbox:latest"
+      network: none                  # none | bridge | host
+      memory_limit: "512m"
+      cpu_limit: "1.0"
+      idle_timeout: 30m
+
+  network:
+    mode: blacklist                  # none | blacklist | whitelist
+    blacklist: []                    # appended to built-in SSRF blocklist
+    whitelist: []                    # only used in whitelist mode
 
 # Hook event system — pluggable handlers at lifecycle points
 hooks:
