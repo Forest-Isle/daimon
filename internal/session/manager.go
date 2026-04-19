@@ -156,6 +156,21 @@ func (m *Manager) Reset(ctx context.Context, channel, channelID string) error {
 	return nil
 }
 
+// Delete removes an ephemeral session from the in-memory cache and DB.
+// Used by SubAgentManager to clean up short-lived sub-agent sessions.
+func (m *Manager) Delete(ctx context.Context, channel, channelID string) error {
+	key := sessionKey(channel, channelID)
+
+	if v, ok := m.sessions.Load(key); ok {
+		sess := v.(*Session)
+		_, _ = m.db.ExecContext(ctx, `DELETE FROM messages WHERE session_id = ?`, sess.ID)
+		_, _ = m.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, sess.ID)
+	}
+
+	m.sessions.Delete(key)
+	return nil
+}
+
 func (m *Manager) insertSession(ctx context.Context, sess *Session) error {
 	_, err := m.db.ExecContext(ctx,
 		`INSERT INTO sessions (id, channel, channel_id, parent_session_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
