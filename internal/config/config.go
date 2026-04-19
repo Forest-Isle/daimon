@@ -23,6 +23,7 @@ type Config struct {
 	Scheduler SchedulerConfig `yaml:"scheduler"`
 	Tools     ToolsConfig     `yaml:"tools"`
 	Server    ServerConfig    `yaml:"server"`
+	Dashboard DashboardConfig `yaml:"dashboard"`
 	Log       LogConfig       `yaml:"log"`
 	Skills      SkillsConfig      `yaml:"skills"`
 	Agents      AgentsConfig      `yaml:"agents"`
@@ -389,6 +390,12 @@ type BrowserToolConfig struct {
 type ServerConfig struct {
 	Addr    string `yaml:"addr"`
 	Enabled bool   `yaml:"enabled"`
+}
+
+type DashboardConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Addr    string `yaml:"addr"`
+	Token   string `yaml:"token"`
 }
 
 type LogConfig struct {

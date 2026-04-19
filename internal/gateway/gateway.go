@@ -12,7 +12,9 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/dashboard"
 	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
@@ -60,6 +62,10 @@ type Gateway struct {
 	teamCoordinator *taskledger.TeamCoordinator
 	subAgentMgr     *agent.SubAgentManager
 	staleDetector   *taskledger.StaleDetector
+	dashboardBus    *dashboard.Bus
+	dashboardHub    *dashboard.Hub
+	stateTracker    *dashboard.AgentStateTracker
+	cogCollector    *cogmetrics.Collector
 	memoryDir       string // resolved base dir for file-based memory
 	stopCh          chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce        sync.Once    // ensures stopCh is closed exactly once
@@ -164,6 +170,10 @@ func New(cfg *config.Config) (*Gateway, error) {
 		})
 	})
 
+	if err := gw.initDashboard(); err != nil {
+		return nil, fmt.Errorf("dashboard: %w", err)
+	}
+
 	return gw, nil
 }
 
@@ -220,7 +230,7 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	}
 
 	// Start HTTP admin server if enabled
-	if gw.cfg.Server.Enabled {
+	if gw.cfg.Server.Enabled && !gw.cfg.Dashboard.Enabled {
 		go startHTTPServer(gw.cfg.Server.Addr, gw.db)
 	}
 
@@ -287,6 +297,13 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 
 	if gw.staleDetector != nil {
 		gw.staleDetector.Stop()
+	}
+
+	if gw.dashboardHub != nil {
+		gw.dashboardHub.Stop()
+	}
+	if gw.stateTracker != nil {
+		gw.stateTracker.Stop()
 	}
 
 	// Stop memory background tasks

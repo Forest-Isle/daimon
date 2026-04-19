@@ -51,6 +51,7 @@ type CognitiveAgent struct {
 	checkpointStore    CheckpointStore
 	contextManager     ContextManager
 	taskLedger         taskledger.TaskLedger
+	dashEmitter        DashboardEmitter
 	observationCallback func(result *ObservationResult)
 }
 
@@ -256,6 +257,13 @@ func (ca *CognitiveAgent) SetTaskLedger(tl taskledger.TaskLedger) {
 	ca.runtime.SetTaskLedger(tl)
 }
 
+// SetDashboardEmitter injects a dashboard event emitter into the cognitive agent and its inner runtime.
+func (ca *CognitiveAgent) SetDashboardEmitter(e DashboardEmitter) {
+	ca.dashEmitter = e
+	ca.executor.SetDashboardEmitter(e)
+	ca.runtime.SetDashboardEmitter(e)
+}
+
 // SetObservationCallback registers a function that is called after each OBSERVE
 // phase completes. Used by the eval harness to capture assertion statistics.
 func (ca *CognitiveAgent) SetObservationCallback(fn func(result *ObservationResult)) {
@@ -319,9 +327,16 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
 
 	// ── PERCEIVE ──────────────────────────────────────────────────────────────
+	if ca.dashEmitter != nil {
+		ca.dashEmitter.EmitPhaseStart(sess.ID, "PERCEIVE")
+	}
+	perceiveStart := time.Now()
 	donePerceive := ca.registerSubtask(ctx, parentTaskID, "PERCEIVE phase")
 	state, err := ca.perceiver.Run(ctx, sess, msg.Text, msg.UserID)
 	donePerceive()
+	if ca.dashEmitter != nil {
+		ca.dashEmitter.EmitPhaseEnd(sess.ID, "PERCEIVE", time.Since(perceiveStart).Milliseconds())
+	}
 	if err != nil {
 		return fmt.Errorf("perceive: %w", err)
 	}
@@ -429,9 +444,16 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── PLAN ──────────────────────────────────────────────────────────────
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
+		}
+		planStart := time.Now()
 		donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
 		plan, err = ca.planner.Run(ctx, state)
 		donePlan()
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
+		}
 		if err != nil {
 			slog.Error("cognitive: plan failed", "err", err)
 			break
@@ -459,18 +481,32 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── ACT ───────────────────────────────────────────────────────────────
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseStart(sess.ID, "ACT")
+		}
+		actStart := time.Now()
 		doneAct := ca.registerSubtask(ctx, parentTaskID, "ACT phase")
 		// Create TaskContext for multi-agent collaboration
 		taskCtx := NewTaskContext(fmt.Sprintf("task_%d", time.Now().UnixNano()), state.UserMessage)
 		observations, actErr := ca.executor.RunWithContext(ctx, ch, sess, target, plan, taskCtx, rlState, episodeCollector)
 		doneAct()
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseEnd(sess.ID, "ACT", time.Since(actStart).Milliseconds())
+		}
 		if actErr != nil {
 			slog.Error("cognitive: act failed", "err", actErr)
 			break
 		}
 
 		// ── OBSERVE ───────────────────────────────────────────────────────────
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseStart(sess.ID, "OBSERVE")
+		}
+		observeStart := time.Now()
 		obsResult = ca.observer.Run(observations, plan)
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseEnd(sess.ID, "OBSERVE", time.Since(observeStart).Milliseconds())
+		}
 		slog.Info("cognitive: observe complete",
 			"success", obsResult.SuccessCount,
 			"failure", obsResult.FailureCount,
@@ -500,9 +536,16 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── REFLECT ───────────────────────────────────────────────────────────
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseStart(sess.ID, "REFLECT")
+		}
+		reflectStart := time.Now()
 		doneReflect := ca.registerSubtask(ctx, parentTaskID, "REFLECT phase")
 		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult, attempt)
 		doneReflect()
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseEnd(sess.ID, "REFLECT", time.Since(reflectStart).Milliseconds())
+		}
 		if err != nil {
 			slog.Error("cognitive: reflect failed", "err", err)
 			break

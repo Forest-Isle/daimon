@@ -57,6 +57,7 @@ type Runtime struct {
 	speculativeExecutor  *SpeculativeExecutor
 	taskLedger           taskledger.TaskLedger
 	interceptorChain     *tool.InterceptorChain
+	dashEmitter          DashboardEmitter
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -162,6 +163,9 @@ func (r *Runtime) SetTaskLedger(tl taskledger.TaskLedger) { r.taskLedger = tl }
 
 // SetInterceptorChain attaches an interceptor chain for sandbox-aware tool execution.
 func (r *Runtime) SetInterceptorChain(chain *tool.InterceptorChain) { r.interceptorChain = chain }
+
+// SetDashboardEmitter attaches a dashboard event emitter to the runtime.
+func (r *Runtime) SetDashboardEmitter(e DashboardEmitter) { r.dashEmitter = e }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.

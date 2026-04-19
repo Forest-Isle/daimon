@@ -306,6 +306,12 @@ server:
   addr: ":8080"
   enabled: false
 
+# Web Dashboard — real-time agent monitoring UI
+dashboard:
+  enabled: false
+  addr: "127.0.0.1:8080"
+  token: ""
+
 log:
   level: info
   format: text
