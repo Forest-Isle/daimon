@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-IronClaw is a local-first AI agent runtime in Go. It connects Claude AI with tools (bash, file, HTTP, browser) and exposes them through channels (Telegram, TUI). All data persists in SQLite.
+IronClaw is a local-first, self-evolving AI agent runtime in Go. It connects LLM providers (Claude, OpenAI, Ollama, vLLM) with tools (bash, file, HTTP, browser) and exposes them through channels (Telegram, TUI, Web Dashboard). All data persists in SQLite.
 
 ## Build & Dev Commands
 
@@ -31,12 +31,15 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 - `cognitive` — 5-phase loop: PERCEIVE → PLAN → ACT → OBSERVE → REFLECT, with replan support
 
 **Gateway wiring order** (`internal/gateway/gateway.go`) — initialization is sequential and order-dependent:
-1. DB → session manager → tool registry → LLM provider → agent runtime
-2. Memory store (optional fact extractor + lifecycle manager)
+1. DB → session manager → tool registry → LLM provider (Claude or OpenAI based on `llm.provider`) → agent runtime
+2. Memory store (optional fact extractor + lifecycle manager + profiler)
 3. Cognitive agent (if mode=cognitive)
 4. Knowledge base + hybrid retriever + knowledge graph (if enabled)
 5. SubAgentManager → AgentManager (with `.md` + `.yaml` agent specs) → TeamCoordinator (executor upgraded to use SubAgentManager.Spawn)
-6. Skill manager → scheduler → channels
+6. Interceptor chain: PermissionInterceptor → HookInterceptor → SandboxInterceptor (if sandbox.enabled) → inject into runtime/cognitiveAgent
+7. Dashboard subsystem (if dashboard.enabled): Bus → StateTracker → EvolutionBridge → Emitter → Hub → HTTP server
+8. ContextManager (always created, wraps CompressionPipeline if strategy=layered)
+9. Skill manager → scheduler → channels
 
 **Sub-agent isolation** (`internal/agent/subagent.go`):
 - `SubAgentManager` is the central manager for sub-agent lifecycle: `Spawn()` creates an isolated session + scoped tool registry + model override per invocation, runs a full `Runtime` loop, extracts structured results, and cleans up ephemeral sessions
@@ -50,6 +53,38 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 - `completerAdapter` in gateway.go bridges `agent.Provider` → `memory.Completer` (avoids circular imports between agent and memory packages)
 - `noopKBEmbedder` provides a no-op `knowledge.EmbeddingProvider` when OpenAI key is absent (BM25-only fallback)
 - `channel.ApprovalSender` / `channel.ReflectionSender` — optional interfaces for channels that support interactive tool approval and replan decisions; channels that don't implement them auto-approve / auto-continue
+- `DashboardEmitter` interface defined in `agent` package, implemented in `dashboard` package — avoids `agent` → `dashboard` circular dependency; all emitter call sites nil-guarded for zero overhead when dashboard disabled
+
+**LLM provider selection** (`internal/gateway/init_agent.go`):
+- `llm.provider: "claude"` (default) → `agent.NewClaudeProvider`
+- `llm.provider: "openai"` or `"openai-compatible"` → `agent.NewOpenAIProvider` (pure `net/http`, zero SDK dependency, supports Ollama/vLLM/LiteLLM/OpenRouter)
+- `RetryProvider` wrapping layer works with both backends
+
+**Security sandbox** (`internal/tool/interceptor.go`, `internal/sandbox/`):
+- `InterceptorChain` wraps `ToolInterceptor` middleware in onion-model execution order
+- `PermissionInterceptor` — 4-level permissions: `none`/`notify`/`approve`/`deny` (backward-compat with `allow`/`ask`); depends on `ToolNotifier`/`ToolApprover` channel interfaces
+- `HookInterceptor` — wraps existing `pre_tool_use` hook logic
+- `SandboxInterceptor` — dispatches by tool type: `bash` → Docker session container, `file_*` → `FileGuard` path validation, `http` → `NetworkPolicy` URL filtering
+- `DockerSessionManager` — per-session containers (`ironclaw-sandbox-{sessionID}`), idle reaping, orphan cleanup on startup; `ProbeDocker()` detects Docker availability
+- When `interceptorChain` is nil, original inline execution logic works unchanged (backward compat)
+
+**Web Dashboard** (`internal/dashboard/`):
+- Event Bus: in-process pub/sub with non-blocking publish (slow subscribers drop events)
+- `Emitter` implements `agent.DashboardEmitter`, converts method calls to events; 500-char input truncation
+- `StateTracker` subscribes to bus, maintains in-memory `StateSnapshot` (active sessions, current phase/tool) via `sync.RWMutex`
+- `EvolutionBridge` implements `evolution.Hook`, converts evolution events to dashboard events
+- `Hub` manages WebSocket connections with 30s ping heartbeat and exponential backoff reconnect on client side
+- HTTP server: 7 REST endpoints + SPA fallback + optional token auth; frontend embedded via `go:embed all:dist`
+
+**Context compression** (`internal/agent/context_manager.go`):
+- `ContextManager` interface: `Compress`, `ReactiveCompress`, `Utilization`, `SplitSystemPrompt`
+- `PipelineContextManager` wraps `CompressionPipeline` (5-layer: tool_output_prune → tool_eviction → turn_summarization → old_context_removal → emergency_truncation)
+- Reactive 413 retry: `isContextLengthError` → `ReactiveCompress` → `RunForced` (all layers, no threshold check); per-iteration circuit breaker prevents infinite retry
+- `SplitSystemPrompt` splits at `<!-- DYNAMIC_CONTEXT -->` for Anthropic Prompt Cache
+
+**Speculative execution** (`internal/agent/speculative.go`):
+- During LLM streaming, completed `tool_use` blocks for read-only tools (`IsReadOnly() == true`) are pre-executed in background goroutines
+- Results collected before runtime tool dispatch; write tools always wait for full response
 
 **Cognitive agent internal wiring** (`NewCognitiveAgent`):
 - PERCEIVE phase runs: `ProjectContextScanner.Scan()` → `GitContextProvider.Collect()` → `ContextBudgetAllocator.Apply()` → populate `CognitiveState`
@@ -60,15 +95,21 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 
 ## Key Packages
 
-- `internal/agent/` — Provider interface, Runtime (simple), CognitiveAgent (5-phase), context building, history compaction. Cognitive subsystems: `assertion.go` (auto-verification per tool type), `failure_context.go` (structured error analysis for REFLECT), `checkpoint.go` (SQLite-backed task resume), `tool_cache.go` (per-task read-only result cache), `project_scanner.go` (project type detection), `git_context.go` (branch/status/log injection), `context_budget.go` (complexity-aware context allocation). **Sub-agent subsystem**: `subagent.go` (SubAgentManager — context-isolated sub-agent lifecycle), `subagent_result.go` (structured result extraction with XML template + LLM fallback), `agent_tool.go` (AgentTool delegates to SubAgentManager), `agent_manager.go` (loads `.md` agent specs with YAML frontmatter + Markdown system prompt), `spec.go` (AgentSpec with FailureStrategy)
+- `internal/agent/` — Provider interface (ClaudeProvider + OpenAIProvider), Runtime (simple), CognitiveAgent (5-phase), context building, history compaction. Cognitive subsystems: `assertion.go` (auto-verification for 10+ tool types with Observation Metadata and 3-tier fallback), `failure_context.go` (structured error analysis for REFLECT), `checkpoint.go` (SQLite-backed task resume), `tool_cache.go` (per-task read-only result cache), `project_scanner.go` (project type detection), `git_context.go` (branch/status/log injection), `context_budget.go` (complexity-aware context allocation), `context_manager.go` (ContextManager interface + PipelineContextManager with 5-layer compression + reactive 413 retry), `speculative.go` (read-only tool pre-execution during streaming). **Sub-agent subsystem**: `subagent.go` (SubAgentManager — context-isolated sub-agent lifecycle), `subagent_result.go` (structured result extraction with XML template + LLM fallback), `agent_tool.go` (AgentTool delegates to SubAgentManager), `agent_manager.go` (loads `.md` agent specs with YAML frontmatter + Markdown system prompt), `spec.go` (AgentSpec with FailureStrategy). **OpenAI subsystem**: `openai.go` (OpenAIProvider with Complete + Stream + SSE parsing, pure net/http, zero SDK dependency)
 - `internal/memory/` — **File-based storage**: Markdown files at `~/.ironclaw/memory/` as primary storage (YAML frontmatter + content), SQLite as auxiliary index for FTS5+vector hybrid search (RRF fusion). Scopes: session/user/global/feedback. Lifecycle management (ADD/UPDATE/DELETE/NOOP) with conflict detection. Forgetting curve integration for strength-based ranking and auto-archival. Migration tool: `ironclaw memory migrate` converts legacy SQLite data to files. **User Profile subsystem**: `profile_schema.go` (section registry with priority routing), `section_buffer.go` (per-section fact buffering with count/time triggers), `profiler.go` (fact routing → LLM-based section updates → `profile_*.md` files; `LoadProfileSections` for prompt injection; `ColdStartPrompt` for early-interaction learning; `MigrateLegacyProfile` for single→multi-section conversion). Profile files use `type: profile` with `ExcludeTypes` filtering to prevent duplicate injection.
+- `internal/dashboard/` — **Web Dashboard**: `eventbus.go` (in-process pub/sub, 10 event types, non-blocking publish), `emitter.go` (DashboardEmitter implementation), `state_tracker.go` (in-memory agent state snapshots via sync.RWMutex), `evolution_bridge.go` (evolution.Hook → dashboard events), `ws_hub.go` (WebSocket connection management + broadcast), `server.go` (HTTP server with 7 REST endpoints + SPA fallback + token auth), `embed.go` (go:embed for Preact SPA dist)
+- `internal/sandbox/` — **Security sandbox**: `docker_session.go` (DockerSessionManager — per-session containers with idle reaping + orphan cleanup), `docker_probe.go` (Docker availability detection), `file_guard.go` (path whitelist + symlink protection), `network_policy.go` (URL blacklist/whitelist + built-in SSRF protection)
+- `internal/tool/` — Tool interface + Registry; bash/file/http/browser implementations; `policy.go` for blocked command checks; `interceptor.go` (ToolInterceptor interface + InterceptorChain onion model), `interceptor_permission.go` (4-level permissions: none/notify/approve/deny), `interceptor_hook.go` (pre_tool_use hook wrapper), `interceptor_sandbox.go` (dispatch to Docker/FileGuard/NetworkPolicy by tool type). Bash returns structured JSON (`stdout`, `stderr`, `exit_code`, `status`, `duration_ms`). Browser tools: `browser_search.go` (structured web search results), `browser_extract.go` (HTML-to-Markdown conversion with pagination)
+- `internal/taskledger/` — **Unified Task Ledger**: SQLite task registry for all execution paths, atomic `ClaimNext` with `UPDATE...RETURNING`, recursive CTE tree ops, heartbeat-based stale detection. `team.go` (TeamCoordinator + worker pool + dependency scheduling), `team_planner.go` (LLM task decomposition + ParseTaskPlan validation)
+- `internal/cogmetrics/` — **Cognitive Health**: `collector.go` (evolution.Hook implementation, rolling-window metrics), `rolling_avg.go` (O(1) ring buffer), `snapshot.go` (HealthReport), `reporter.go` (Markdown + JSON output)
+- `internal/eval/` — **Eval Harness**: `harness.go` (RunSuite + EvolutionSnapshot + SnapshotCaptor), `cognitive_runner.go` (CognitiveAgentRunner for live evaluation), TaskSet YAML definition, delta comparison
+- `internal/evolution/` — Self-evolution engine: `reward.go` (unified ComputeReward), `optimizer.go` (StrategyOptimizer with HardControlEnabled + GetReplanThreshold), `preference.go` (PreferenceLearner with UserFeedback + ApplyInsights), `trajectory.go` (ReflectionBrief.Reward field + UTC-safe filtering). `DispatchToolExec` is synchronous; `DispatchReflection`/`DispatchEpisode` are async with `WaitPending()` for eval sync
 - `internal/knowledge/` — Document ingestion pipeline, BM25+vector hybrid retrieval, LLM reranker; `graph/` subpackage for entity/relation triples with recursive CTE traversal
 - `internal/store/` — SQLite wrapper with WAL mode, embedded migrations (`//go:embed migrations/*.sql`) applied alphabetically at startup (idempotent `CREATE TABLE IF NOT EXISTS`)
-- `internal/tool/` — Tool interface + Registry; bash/file/http/browser implementations; `policy.go` for blocked command checks. Bash returns structured JSON (`stdout`, `stderr`, `exit_code`, `status`, `duration_ms`). Browser tools: `browser_search.go` (structured web search results), `browser_extract.go` (HTML-to-Markdown conversion with pagination)
 - `internal/mcp/` — MCP protocol client; tools registered as `mcp_{server}_{tool}`
 - `internal/channel/telegram/` — Telegram adapter with streaming (edit-message), inline keyboard for tool approvals
 - `internal/channel/tui/` — Terminal UI adapter using Bubble Tea (Charm ecosystem); supports streaming, Markdown rendering (Glamour), interactive tool approval dialogs, replan decisions, and **slash command autocomplete** (type `/` to see available commands, navigate with ↑↓, accept with Tab, execute with Enter)
-- `internal/skill/` — SKILL.md files (YAML frontmatter + markdown body) loaded from `~/.IronClaw/skills/`
+- `internal/skill/` — SKILL.md files (YAML frontmatter + markdown body) loaded from `~/.IronClaw/skills/`. `LoadDir` supports two-tier scanning: `SKILL.md` in subdirectories (priority) + flat `*.md` files in subdirectories (for skill synthesizer drafts)
 
 ## Config
 
