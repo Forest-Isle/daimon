@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"net/http"
@@ -69,6 +70,7 @@ type Gateway struct {
 	dashboardSrv    *http.Server
 	stateTracker    *dashboard.AgentStateTracker
 	cogCollector    *cogmetrics.Collector
+	currentMode     atomic.Value // stores string: "simple" | "cognitive"
 	memoryDir       string // resolved base dir for file-based memory
 	stopCh          chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce        sync.Once    // ensures stopCh is closed exactly once
@@ -80,6 +82,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		channels: make(map[string]channel.Channel),
 		stopCh:   make(chan struct{}),
 	}
+	gw.currentMode.Store(cfg.Agent.Mode)
 
 	if err := gw.initDatabase(); err != nil {
 		return nil, fmt.Errorf("database: %w", err)
@@ -335,10 +338,25 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	return nil
 }
 
-// NewEvalRunner creates an eval.AgentRunner backed by the gateway's cognitive
-// agent. Returns nil if the gateway is not in cognitive mode.
+// CurrentMode returns the active agent mode ("simple" or "cognitive").
+func (gw *Gateway) CurrentMode() string {
+	return gw.currentMode.Load().(string)
+}
+
+// SetMode atomically switches the active agent mode.
+// Returns an error if mode is not "simple" or "cognitive".
+func (gw *Gateway) SetMode(mode string) error {
+	if mode != "simple" && mode != "cognitive" {
+		return fmt.Errorf("unknown mode %q: valid modes are simple, cognitive", mode)
+	}
+	gw.currentMode.Store(mode)
+	slog.Info("gateway: mode switched", "mode", mode)
+	return nil
+}
+
+// NewEvalRunner creates an eval.AgentRunner backed by the gateway's cognitive agent.
 func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
-	if gw.cognitiveAgent == nil {
+	if gw.cognitiveAgent == nil { // defensive: should not happen after init
 		return nil
 	}
 	return eval.NewCognitiveAgentRunner(gw.cognitiveAgent)
@@ -381,6 +399,19 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 		return
 	}
 
+	// Handle /mode command — switch or query active agent mode
+	if msg.Text == "/mode" || strings.HasPrefix(msg.Text, "/mode ") {
+		arg := strings.TrimPrefix(msg.Text, "/mode")
+		arg = strings.TrimSpace(arg)
+		response := gw.handleModeCommand(arg)
+		_ = ch.Send(ctx, channel.OutboundMessage{
+			Channel:   msg.Channel,
+			ChannelID: msg.ChannelID,
+			Text:      response,
+		})
+		return
+	}
+
 	// Handle /new and /start commands — reset session to start fresh conversation
 	if msg.Text == "/new" || msg.Text == "/start" {
 		if err := gw.sessions.Reset(ctx, msg.Channel, msg.ChannelID); err != nil {
@@ -402,7 +433,7 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 
 	slog.Info("message received", "channel", msg.Channel, "user", msg.UserName, "text_len", len(msg.Text))
 
-	if gw.cognitiveAgent != nil {
+	if gw.currentMode.Load().(string) == "cognitive" {
 		if err := gw.cognitiveAgent.HandleMessage(ctx, ch, msg); err != nil {
 			slog.Error("cognitive agent error", "err", err)
 			_ = ch.Send(ctx, channel.OutboundMessage{
@@ -633,6 +664,23 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 	_ = gw.taskLedger.Update(ctx, rootTask)
 
 	return fmt.Sprintf("Team completed: %d tasks done, %d failed", result.TasksCompleted, result.TasksFailed)
+}
+
+// handleModeCommand processes the /mode command argument.
+// arg="" means query-only; arg="simple"|"cognitive" switches mode.
+func (gw *Gateway) handleModeCommand(arg string) string {
+	current := gw.CurrentMode()
+	if arg == "" {
+		return fmt.Sprintf("ℹ️ Current mode: %s", current)
+	}
+	if arg != "simple" && arg != "cognitive" {
+		return fmt.Sprintf("❌ Unknown mode %q. Valid modes: simple, cognitive", arg)
+	}
+	if arg == current {
+		return fmt.Sprintf("ℹ️ Already in %s mode", current)
+	}
+	_ = gw.SetMode(arg)
+	return fmt.Sprintf("✅ Mode switched to %s (was: %s)", arg, current)
 }
 
 // executeTeamTask runs a single team task by creating a temporary session

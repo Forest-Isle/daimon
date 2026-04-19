@@ -13,10 +13,6 @@ import (
 )
 
 func (gw *Gateway) initCognitiveAgent() error {
-	if gw.cfg.Agent.Mode != "cognitive" {
-		return nil
-	}
-
 	gw.cognitiveAgent = agent.NewCognitiveAgent(gw.provider, gw.tools, gw.sessions, gw.db, gw.cfg.Agent, gw.cfg.LLM)
 	if gw.memStore != nil {
 		gw.cognitiveAgent.SetMemoryStore(gw.memStore)

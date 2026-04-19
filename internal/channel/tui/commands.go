@@ -113,6 +113,14 @@ var commandRegistry = []Command{
 		ArgHint:     "<goal>",
 		Category:    "builtin",
 	},
+
+	// Mode switching
+	{
+		Name:        "mode",
+		Description: "Show or switch agent mode",
+		ArgHint:     "[simple|cognitive]",
+		Category:    "builtin",
+	},
 }
 
 // GetCommands returns all registered commands.

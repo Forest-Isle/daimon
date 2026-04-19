@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -120,6 +121,16 @@ func (a *Adapter) Send(_ context.Context, msg channel.OutboundMessage) error {
 		return nil
 	}
 	a.program.Send(agentResponseMsg{text: msg.Text})
+
+	if strings.HasPrefix(msg.Text, "✅ Mode switched to ") {
+		rest := strings.TrimPrefix(msg.Text, "✅ Mode switched to ")
+		if idx := strings.Index(rest, " "); idx > 0 {
+			newMode := rest[:idx]
+			if newMode == "simple" || newMode == "cognitive" {
+				a.program.Send(setAgentModeMsg{mode: newMode})
+			}
+		}
+	}
 	return nil
 }
 
