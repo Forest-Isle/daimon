@@ -530,10 +530,9 @@ func (e *Executor) executeSubTaskViaChain(
 	// Store result in TaskContext for multi-agent collaboration
 	if taskCtx != nil && strings.HasPrefix(subtask.ToolName, "agent_") {
 		taskCtx.SetResult(subtask.ID, SubAgentResult{
-			AgentName:  subtask.ToolName,
-			Output:     res.Output,
-			Error:      "",
-			DurationMs: durationMs,
+			AgentName: subtask.ToolName,
+			Output:    res.Output,
+			Duration:  time.Duration(durationMs) * time.Millisecond,
 		})
 	}
 

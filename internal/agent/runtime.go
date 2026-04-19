@@ -54,7 +54,6 @@ type Runtime struct {
 	lifecycleMgr         *memory.LifecycleManager
 	profiler             *memory.Profiler
 	contextManager       ContextManager
-	profiler             *memory.Profiler
 	speculativeExecutor  *SpeculativeExecutor
 	taskLedger           taskledger.TaskLedger
 	interceptorChain     *tool.InterceptorChain
@@ -74,9 +73,6 @@ func (r *Runtime) SetProfiler(p *memory.Profiler) { r.profiler = p }
 
 // SetMemoryBaseDir sets the base directory for file-based memory storage.
 func (r *Runtime) SetMemoryBaseDir(dir string) { r.memoryBaseDir = dir }
-
-// SetProfiler attaches a profiler for routing extracted facts to profile sections.
-func (r *Runtime) SetProfiler(p *memory.Profiler) { r.profiler = p }
 
 // SetSkillManager attaches a skill manager to the runtime.
 func (r *Runtime) SetSkillManager(m *skill.Manager) { r.skillMgr = m }
