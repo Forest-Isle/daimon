@@ -20,6 +20,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/rl"
+	"github.com/Forest-Isle/IronClaw/internal/sandbox"
 	"github.com/Forest-Isle/IronClaw/internal/scheduler"
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
@@ -41,6 +42,7 @@ type Gateway struct {
 	hookMgr        *hook.Manager
 	permEngine     *tool.PermissionEngine
 	memStore       memory.Store
+	memoryDir      string // resolved base directory for file-based memory storage
 	factExtractor  *memory.LLMFactExtractor
 	lifecycleMgr   *memory.LifecycleManager
 	skillMgr       *skill.Manager
@@ -52,7 +54,9 @@ type Gateway struct {
 	consolidator   *memory.Consolidator
 	compactor      *memory.Compactor
 	graphDecay     *graph.GraphDecayTask
-	evoEngine      *evolution.Engine
+	evoEngine        *evolution.Engine
+	dockerSessionMgr *sandbox.DockerSessionManager
+	interceptorChain *tool.InterceptorChain
 	taskLedger      *taskledger.SQLiteTaskLedger
 	teamCoordinator *taskledger.TeamCoordinator
 	staleDetector   *taskledger.StaleDetector
@@ -268,6 +272,10 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	}
 	if gw.graphDecay != nil {
 		gw.graphDecay.Stop()
+	}
+
+	if gw.dockerSessionMgr != nil {
+		gw.dockerSessionMgr.CleanupAll()
 	}
 
 	_ = gw.db.Close()

@@ -38,6 +38,9 @@ func (gw *Gateway) initCognitiveAgent() error {
 	if gw.permEngine != nil {
 		gw.cognitiveAgent.SetPermissionEngine(gw.permEngine)
 	}
+	if gw.interceptorChain != nil {
+		gw.cognitiveAgent.SetInterceptorChain(gw.interceptorChain)
+	}
 
 	// Inject memory notification callback
 	gw.cognitiveAgent.SetMemoryNotifyFunc(gw.sendMemoryNotification)

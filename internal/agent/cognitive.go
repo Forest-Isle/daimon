@@ -176,6 +176,12 @@ func (ca *CognitiveAgent) SetPermissionEngine(pe *tool.PermissionEngine) {
 	ca.runtime.SetPermissionEngine(pe)
 }
 
+// SetInterceptorChain injects an interceptor chain into the cognitive agent's executor and inner runtime.
+func (ca *CognitiveAgent) SetInterceptorChain(chain *tool.InterceptorChain) {
+	ca.executor.SetInterceptorChain(chain)
+	ca.runtime.SetInterceptorChain(chain)
+}
+
 // SetSkillManager injects a skill manager into the cognitive agent and its inner runtime.
 func (ca *CognitiveAgent) SetSkillManager(m *skill.Manager) {
 	ca.skillMgr = m

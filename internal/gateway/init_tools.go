@@ -1,9 +1,11 @@
 package gateway
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/IronClaw/internal/sandbox"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
@@ -59,6 +61,52 @@ func (gw *Gateway) initToolsAndHooks() error {
 		}
 	}
 	gw.permEngine = tool.NewPermissionEngine(permRules, gw.cfg.Permissions.Default, policy)
+
+	// Sandbox components
+	var fileGuard *sandbox.FileGuard
+	var networkPolicy *sandbox.NetworkPolicy
+	sandboxEnabled := gw.cfg.Sandbox.Enabled
+
+	if sandboxEnabled {
+		if len(gw.cfg.Sandbox.AllowedDirectories) > 0 {
+			var err error
+			fileGuard, err = sandbox.NewFileGuard(gw.cfg.Sandbox.AllowedDirectories, gw.cfg.Sandbox.ReadonlyDirectories)
+			if err != nil {
+				slog.Warn("sandbox: FileGuard init failed, disabled", "err", err)
+			}
+		}
+		networkPolicy = sandbox.NewNetworkPolicy(
+			gw.cfg.Sandbox.Network.Mode,
+			gw.cfg.Sandbox.Network.Whitelist,
+			gw.cfg.Sandbox.Network.Blacklist,
+		)
+		if gw.cfg.Sandbox.Bash.Backend == "docker" {
+			sandbox.CleanupOrphans(context.Background())
+			available := sandbox.ProbeDocker(context.Background())
+			if !available {
+				slog.Warn("sandbox: Docker not available, bash will run on host")
+			}
+			gw.dockerSessionMgr = sandbox.NewDockerSessionManager(sandbox.DockerSessionConfig{
+				Image:        gw.cfg.Sandbox.Bash.Docker.Image,
+				NetworkMode:  gw.cfg.Sandbox.Bash.Docker.Network,
+				MemoryLimit:  gw.cfg.Sandbox.Bash.Docker.MemoryLimit,
+				CPULimit:     gw.cfg.Sandbox.Bash.Docker.CPULimit,
+				AllowedDirs:  gw.cfg.Sandbox.AllowedDirectories,
+				ReadonlyDirs: gw.cfg.Sandbox.ReadonlyDirectories,
+				IdleTimeout:  gw.cfg.Sandbox.Bash.Docker.IdleTimeout,
+			}, available)
+		}
+	}
+
+	// Build interceptor chain: permission → hook → sandbox
+	interceptors := []tool.ToolInterceptor{
+		tool.NewPermissionInterceptor(gw.permEngine, nil, nil),
+		tool.NewHookInterceptor(gw.hookMgr),
+		tool.NewSandboxInterceptor(gw.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
+	}
+	gw.interceptorChain = tool.NewInterceptorChain(interceptors)
+
+	slog.Info("sandbox system initialized", "enabled", sandboxEnabled)
 
 	return nil
 }

@@ -26,8 +26,9 @@ type Executor struct {
 	cfg          config.CognitiveConfig
 	rlPolicy     RLPolicy // optional RL policy
 	hookMgr      *hook.Manager
-	permEngine   *tool.PermissionEngine
-	cache        *ToolResultCache
+	permEngine       *tool.PermissionEngine
+	cache            *ToolResultCache
+	interceptorChain *tool.InterceptorChain
 }
 
 // NewExecutor creates a new Executor.
@@ -58,6 +59,11 @@ func (e *Executor) SetPermissionEngine(pe *tool.PermissionEngine) {
 // SetToolCache injects a tool result cache for read-only tool deduplication.
 func (e *Executor) SetToolCache(cache *ToolResultCache) {
 	e.cache = cache
+}
+
+// SetInterceptorChain attaches an interceptor chain for sandbox-aware tool execution.
+func (e *Executor) SetInterceptorChain(chain *tool.InterceptorChain) {
+	e.interceptorChain = chain
 }
 
 // Run executes the ACT phase — topological ordering + parallel execution.
