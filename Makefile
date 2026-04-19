@@ -1,4 +1,4 @@
-.PHONY: build run test clean lint fmt docker help
+.PHONY: web build run test clean lint fmt docker help
 
 BINARY    := ironclaw
 BUILD_DIR := bin
@@ -8,8 +8,16 @@ DATE      ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS   := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 TAGS      := fts5
 
+## web: Build frontend assets
+web:
+	@if [ -d web/node_modules ]; then \
+		cd web && npm run build; \
+	else \
+		cd web && npm ci --prefer-offline && npm run build; \
+	fi
+
 ## build: Build the binary
-build:
+build: web
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/ironclaw
 
