@@ -10,10 +10,31 @@ import (
 type PermissionAction string
 
 const (
-	PermissionAllow PermissionAction = "allow"
-	PermissionDeny  PermissionAction = "deny"
-	PermissionAsk   PermissionAction = "ask"
+	PermissionNone    PermissionAction = "none"
+	PermissionNotify  PermissionAction = "notify"
+	PermissionApprove PermissionAction = "approve"
+	PermissionDeny    PermissionAction = "deny"
+
+	// Deprecated aliases for backward compatibility
+	PermissionAllow PermissionAction = "none"
+	PermissionAsk   PermissionAction = "approve"
 )
+
+// parseAction normalizes a permission action string, accepting both new and legacy names.
+func parseAction(s string) PermissionAction {
+	switch s {
+	case "none", "allow":
+		return PermissionNone
+	case "notify":
+		return PermissionNotify
+	case "approve", "ask":
+		return PermissionApprove
+	case "deny":
+		return PermissionDeny
+	default:
+		return PermissionApprove
+	}
+}
 
 // PermissionRule defines a single permission rule for the engine.
 type PermissionRule struct {
@@ -40,18 +61,9 @@ type PermissionEngine struct {
 // NewPermissionEngine creates a permission engine from rules and a default action.
 // If no rules are provided and a legacy Policy is given, it falls back to legacy behavior.
 func NewPermissionEngine(rules []PermissionRule, defaultAction string, legacy *Policy) *PermissionEngine {
-	act := PermissionAsk
-	switch defaultAction {
-	case "allow":
-		act = PermissionAllow
-	case "deny":
-		act = PermissionDeny
-	case "ask":
-		act = PermissionAsk
-	}
 	return &PermissionEngine{
 		rules:      rules,
-		defaultAct: act,
+		defaultAct: parseAction(defaultAction),
 		legacy:     legacy,
 	}
 }
@@ -84,19 +96,8 @@ func (pe *PermissionEngine) Evaluate(toolName, input string, caps ToolCapabiliti
 			continue
 		}
 
-		// Rule matches
-		action := PermissionAsk
-		switch rule.Action {
-		case "allow":
-			action = PermissionAllow
-		case "deny":
-			action = PermissionDeny
-		case "ask":
-			action = PermissionAsk
-		}
-
 		return PermissionResult{
-			Action:      action,
+			Action:      parseAction(rule.Action),
 			MatchedRule: rule,
 			Reason:      "rule_match",
 		}
@@ -105,7 +106,7 @@ func (pe *PermissionEngine) Evaluate(toolName, input string, caps ToolCapabiliti
 	// No rule matched — check capabilities for destructive tools
 	if caps.IsDestructive {
 		return PermissionResult{
-			Action: PermissionAsk,
+			Action: PermissionApprove,
 			Reason: "capability_default_destructive",
 		}
 	}

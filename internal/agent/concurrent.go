@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -176,6 +177,11 @@ func (r *Runtime) executeToolCall(
 		}
 	}
 
+	// Route through interceptor chain when configured (e.g. sandbox enforcement)
+	if r.interceptorChain != nil {
+		return r.executeToolCallViaChain(ctx, ch, sess, target, tc, t)
+	}
+
 	// Track permission decision metadata
 	var permAction, permReason, permRule string
 
@@ -293,6 +299,73 @@ func (r *Runtime) executeToolCall(
 
 	return toolResult{toolUseID: tc.ID, output: output, status: status, duration: duration, toolName: tc.Name, toolInput: tc.Input,
 		permissionAction: permAction, permissionReason: permReason, permissionRule: permRule}
+}
+
+// executeToolCallViaChain runs a tool through the interceptor chain (e.g. sandbox policy).
+// The chain may deny, modify, or sandbox the call before the final executor runs.
+func (r *Runtime) executeToolCallViaChain(
+	ctx context.Context,
+	ch channel.Channel,
+	sess *session.Session,
+	target channel.MessageTarget,
+	tc ToolUseBlock,
+	t tool.Tool,
+) toolResult {
+	call := &tool.ToolCall{
+		ToolName:  tc.Name,
+		Input:     tc.Input,
+		SessionID: sess.ID,
+	}
+
+	start := time.Now()
+	res, err := r.interceptorChain.Execute(ctx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
+		result, execErr := t.Execute(ctx, []byte(call.Input))
+		if execErr != nil {
+			return &tool.ToolResult{Error: execErr.Error()}, nil
+		}
+		tr := &tool.ToolResult{Output: result.Output, Error: result.Error}
+		if result.Metadata != nil {
+			tr.Metadata = make(map[string]string, len(result.Metadata))
+			for k, v := range result.Metadata {
+				tr.Metadata[k] = fmt.Sprintf("%v", v)
+			}
+		}
+		return tr, nil
+	})
+	duration := time.Since(start).Milliseconds()
+
+	if err != nil {
+		return toolResult{toolUseID: tc.ID, output: "error: " + err.Error(), status: "error", duration: duration, toolName: tc.Name, toolInput: tc.Input}
+	}
+	if res.Error != "" {
+		return toolResult{toolUseID: tc.ID, output: res.Error, status: "denied", duration: duration, toolName: tc.Name, toolInput: tc.Input}
+	}
+
+	output := res.Output
+	if r.resultStore != nil && r.resultStore.ShouldPersist(output) {
+		if stored, storeErr := r.resultStore.Store(sess.ID, tc.ID, output); storeErr == nil {
+			output = stored.Preview
+		}
+	}
+	if r.compressor != nil {
+		output = r.compressor.CompressToolResult(output)
+	}
+
+	if r.hookMgr != nil && r.hookMgr.HasPostToolUseHandlers() {
+		postResult, _ := r.hookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
+			ToolName:   tc.Name,
+			Input:      tc.Input,
+			Output:     output,
+			Status:     "success",
+			DurationMs: duration,
+			SessionID:  sess.ID,
+		})
+		if postResult.ModifiedOutput != nil {
+			output = *postResult.ModifiedOutput
+		}
+	}
+
+	return toolResult{toolUseID: tc.ID, output: output, status: "success", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 }
 
 // executeSingleTool executes a tool and immediately adds the result to the session.

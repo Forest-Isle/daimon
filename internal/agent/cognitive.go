@@ -176,6 +176,12 @@ func (ca *CognitiveAgent) SetPermissionEngine(pe *tool.PermissionEngine) {
 	ca.runtime.SetPermissionEngine(pe)
 }
 
+// SetInterceptorChain injects an interceptor chain into the cognitive agent's executor and inner runtime.
+func (ca *CognitiveAgent) SetInterceptorChain(chain *tool.InterceptorChain) {
+	ca.executor.SetInterceptorChain(chain)
+	ca.runtime.SetInterceptorChain(chain)
+}
+
 // SetSkillManager injects a skill manager into the cognitive agent and its inner runtime.
 func (ca *CognitiveAgent) SetSkillManager(m *skill.Manager) {
 	ca.skillMgr = m
@@ -235,13 +241,6 @@ func (ca *CognitiveAgent) SetMemoryNotifyFunc(fn MemoryNotifyFunc) {
 // SetCheckpointStore injects a checkpoint store for task resume support.
 func (ca *CognitiveAgent) SetCheckpointStore(cs CheckpointStore) {
 	ca.checkpointStore = cs
-}
-
-// SetMemBaseDir sets the base directory for file-based memory storage on the
-// perceiver and inner runtime so that profile sections can be loaded.
-func (ca *CognitiveAgent) SetMemBaseDir(dir string) {
-	ca.perceiver.memBaseDir = dir
-	ca.runtime.SetMemoryBaseDir(dir)
 }
 
 // SetContextManager injects a context manager for compression pipeline support.

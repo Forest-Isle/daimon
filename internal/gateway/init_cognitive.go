@@ -21,9 +21,6 @@ func (gw *Gateway) initCognitiveAgent() error {
 	if gw.memStore != nil {
 		gw.cognitiveAgent.SetMemoryStore(gw.memStore)
 	}
-	if gw.memoryDir != "" {
-		gw.cognitiveAgent.SetMemBaseDir(gw.memoryDir)
-	}
 	if gw.factExtractor != nil {
 		gw.cognitiveAgent.SetFactExtractor(gw.factExtractor)
 	}
@@ -37,6 +34,9 @@ func (gw *Gateway) initCognitiveAgent() error {
 	}
 	if gw.permEngine != nil {
 		gw.cognitiveAgent.SetPermissionEngine(gw.permEngine)
+	}
+	if gw.interceptorChain != nil {
+		gw.cognitiveAgent.SetInterceptorChain(gw.interceptorChain)
 	}
 
 	// Inject memory notification callback

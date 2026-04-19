@@ -52,10 +52,11 @@ type Runtime struct {
 	agentMCP             *AgentMCPManager
 	factExtractor        *memory.LLMFactExtractor
 	lifecycleMgr         *memory.LifecycleManager
-	profiler             *memory.Profiler
 	contextManager       ContextManager
+	profiler             *memory.Profiler
 	speculativeExecutor  *SpeculativeExecutor
 	taskLedger           taskledger.TaskLedger
+	interceptorChain     *tool.InterceptorChain
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -148,6 +149,7 @@ func (r *Runtime) SetAgentMCPManager(m *AgentMCPManager) { r.agentMCP = m }
 // AgentMCPManager returns the attached per-agent MCP manager, or nil.
 func (r *Runtime) AgentMCPManager() *AgentMCPManager { return r.agentMCP }
 
+
 // SetContextManager attaches a context manager to the runtime.
 func (r *Runtime) SetContextManager(cm ContextManager) { r.contextManager = cm }
 
@@ -157,6 +159,9 @@ func (r *Runtime) SetSpeculativeExecutor(se *SpeculativeExecutor) { r.speculativ
 
 // SetTaskLedger attaches a task ledger for tracking in-flight work.
 func (r *Runtime) SetTaskLedger(tl taskledger.TaskLedger) { r.taskLedger = tl }
+
+// SetInterceptorChain attaches an interceptor chain for sandbox-aware tool execution.
+func (r *Runtime) SetInterceptorChain(chain *tool.InterceptorChain) { r.interceptorChain = chain }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.
