@@ -94,6 +94,10 @@ func (gw *Gateway) initMemorySystem() error {
 		reflector.SetProfilerCallback(profiler)
 		gw.runtime.SetProfiler(profiler)
 		slog.Info("memory: profiler created and wired to reflection tracker")
+
+		if err := profiler.MigrateLegacyProfile(context.Background(), "default"); err != nil {
+			slog.Warn("memory: legacy profile migration failed", "err", err)
+		}
 	}
 
 	// Wire fact extractor and lifecycle manager to simple runtime (if enabled).

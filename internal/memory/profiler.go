@@ -343,6 +343,103 @@ func LoadProfileSections(baseDir string) (string, error) {
 	return strings.TrimSpace(result.String()), nil
 }
 
+// ColdStartPrompt returns a system prompt snippet to guide the agent in learning
+// about the user during early interactions. Returns "" if the profile is already
+// sufficiently populated.
+func (p *Profiler) ColdStartPrompt() string {
+	userDir := filepath.Join(p.baseDir, "user")
+	files, _ := filepath.Glob(filepath.Join(userDir, "profile_*.md"))
+
+	highConfCount := 0
+	for _, f := range files {
+		mf, err := parseMemoryFile(f)
+		if err != nil || mf.Type != "profile" {
+			continue
+		}
+		if c, ok := mf.Metadata["confidence"]; ok {
+			conf, _ := strconv.ParseFloat(c, 64)
+			if conf >= 0.5 {
+				highConfCount++
+			}
+		}
+	}
+
+	if highConfCount >= 3 {
+		return ""
+	}
+
+	return `[Profile Building Mode]
+你对当前用户的了解还很少。在自然对话中，注意观察并记录以下信息：
+- 用户使用的语言和沟通风格
+- 提到的技术栈和工具
+- 工作方式和偏好
+不要直接询问这些信息，而是从交互中自然提取。`
+}
+
+// MigrateLegacyProfile converts a legacy single-file profile (profile_<userID>.md)
+// into the new multi-section format.
+func (p *Profiler) MigrateLegacyProfile(ctx context.Context, userID string) error {
+	oldPath := filepath.Join(p.baseDir, "user", fmt.Sprintf("profile_%s.md", userID))
+	mf, err := parseMemoryFile(oldPath)
+	if err != nil {
+		return nil
+	}
+
+	if mf.Metadata != nil {
+		if _, hasSection := mf.Metadata["section"]; hasSection {
+			return nil
+		}
+	}
+
+	sectionMap := map[string]string{
+		"Identity":      "identity",
+		"Preferences":   "communication",
+		"Current Focus": "projects",
+	}
+
+	parts := strings.Split(mf.Content, "## ")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		lines := strings.SplitN(part, "\n", 2)
+		header := strings.TrimSpace(lines[0])
+		content := ""
+		if len(lines) > 1 {
+			content = strings.TrimSpace(lines[1])
+		}
+		if sectionID, ok := sectionMap[header]; ok && content != "" {
+			sec, _ := p.registry.Get(sectionID)
+			profileID := fmt.Sprintf("profile_%s", sectionID)
+			profilePath := filepath.Join(p.baseDir, "user", fmt.Sprintf("profile_%s.md", sectionID))
+			now := time.Now()
+			newMF := MemoryFile{
+				ID: profileID, Scope: "user", Type: "profile",
+				CreatedAt: now, UpdatedAt: now, Strength: 1.0,
+				Metadata: map[string]string{
+					"type": "profile", "section": sectionID,
+					"priority":       strconv.Itoa(sec.Priority),
+					"confidence":     "0.30",
+					"evidence_count": "3",
+				},
+				Content: content,
+			}
+			if err := writeProfileAtomic(profilePath, newMF); err != nil {
+				slog.Warn("migration: failed to save section", "section", sectionID, "error", err)
+			}
+		}
+	}
+
+	archivedDir := filepath.Join(p.baseDir, "archived")
+	os.MkdirAll(archivedDir, 0755)
+	archivedPath := filepath.Join(archivedDir, filepath.Base(oldPath))
+	_ = os.Rename(oldPath, archivedPath)
+
+	slog.Info("legacy profile migrated", "user_id", userID)
+	return nil
+}
+
 // --- Legacy / fallback methods preserved below ---
 
 // GenerateProfile creates or updates a user profile from reflection memories (legacy single-file mode).

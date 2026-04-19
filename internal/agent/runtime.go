@@ -631,6 +631,14 @@ func (r *Runtime) buildSystemPromptUncached(ctx context.Context, userText string
 		}
 	}
 
+	// 5b. Cold-start profile building prompt
+	if r.profiler != nil {
+		if coldStart := r.profiler.ColdStartPrompt(); coldStart != "" {
+			sb.WriteString("\n\n")
+			sb.WriteString(coldStart)
+		}
+	}
+
 	// 6. Skills
 	if r.skillMgr != nil {
 		if section := r.skillMgr.BuildPromptSection(userText); section != "" {

@@ -277,3 +277,152 @@ func indexOf(s, substr string) int {
 func containsString(s, substr string) bool {
 	return indexOf(s, substr) >= 0
 }
+
+func TestProfiler_ColdStartPrompt_EmptyDir(t *testing.T) {
+	p := &Profiler{
+		registry: NewProfileSectionRegistry(),
+		buffers:  make(map[string]*SectionBuffer),
+		baseDir:  t.TempDir(),
+	}
+	for _, sec := range p.registry.All() {
+		p.buffers[sec.ID] = NewSectionBuffer(sec)
+	}
+
+	prompt := p.ColdStartPrompt()
+	if prompt == "" {
+		t.Error("expected non-empty cold start prompt for empty profile dir")
+	}
+	if !containsString(prompt, "Profile Building Mode") {
+		t.Error("cold start prompt should contain 'Profile Building Mode'")
+	}
+}
+
+func TestProfiler_ColdStartPrompt_PopulatedProfile(t *testing.T) {
+	baseDir := t.TempDir()
+	userDir := filepath.Join(baseDir, "user")
+	os.MkdirAll(userDir, 0755)
+
+	for _, sec := range []string{"communication", "tech_stack", "projects"} {
+		writeTestProfile(t, userDir, sec, map[string]string{
+			"type": "profile", "section": sec,
+			"confidence": "0.80", "evidence_count": "10",
+		}, "test content for "+sec)
+	}
+
+	p := &Profiler{
+		registry: NewProfileSectionRegistry(),
+		buffers:  make(map[string]*SectionBuffer),
+		baseDir:  baseDir,
+	}
+	for _, sec := range p.registry.All() {
+		p.buffers[sec.ID] = NewSectionBuffer(sec)
+	}
+
+	prompt := p.ColdStartPrompt()
+	if prompt != "" {
+		t.Errorf("expected empty cold start prompt with 3 high-confidence sections, got: %q", prompt)
+	}
+}
+
+func TestProfiler_MigrateLegacyProfile(t *testing.T) {
+	baseDir := t.TempDir()
+	userDir := filepath.Join(baseDir, "user")
+	os.MkdirAll(userDir, 0755)
+
+	legacyContent := `## Identity
+Senior Go developer, 5 years experience
+
+## Preferences
+Prefers concise answers in Chinese
+
+## Current Focus
+Building IronClaw AI agent framework`
+
+	legacyPath := filepath.Join(userDir, "profile_default.md")
+	mf := MemoryFile{
+		ID:       "profile_default",
+		Scope:    "user",
+		Type:     "profile",
+		Strength: 1.0,
+		Content:  legacyContent,
+	}
+	if err := writeProfileAtomic(legacyPath, mf); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Profiler{
+		registry: NewProfileSectionRegistry(),
+		buffers:  make(map[string]*SectionBuffer),
+		baseDir:  baseDir,
+	}
+	for _, sec := range p.registry.All() {
+		p.buffers[sec.ID] = NewSectionBuffer(sec)
+	}
+
+	if err := p.MigrateLegacyProfile(context.Background(), "default"); err != nil {
+		t.Fatalf("MigrateLegacyProfile failed: %v", err)
+	}
+
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Error("legacy profile should have been moved to archived/")
+	}
+	archivedPath := filepath.Join(baseDir, "archived", "profile_default.md")
+	if _, err := os.Stat(archivedPath); err != nil {
+		t.Error("legacy profile should exist in archived/")
+	}
+
+	identityPath := filepath.Join(userDir, "profile_identity.md")
+	identityMF, err := parseMemoryFile(identityPath)
+	if err != nil {
+		t.Fatalf("failed to parse migrated identity section: %v", err)
+	}
+	if identityMF.Metadata["section"] != "identity" {
+		t.Errorf("expected section=identity, got %q", identityMF.Metadata["section"])
+	}
+	if !containsString(identityMF.Content, "Senior Go developer") {
+		t.Error("identity section should contain original content")
+	}
+
+	commPath := filepath.Join(userDir, "profile_communication.md")
+	commMF, err := parseMemoryFile(commPath)
+	if err != nil {
+		t.Fatalf("failed to parse migrated communication section: %v", err)
+	}
+	if !containsString(commMF.Content, "concise answers") {
+		t.Error("communication section should contain preferences content")
+	}
+}
+
+func TestProfiler_MigrateLegacyProfile_SkipsNewFormat(t *testing.T) {
+	baseDir := t.TempDir()
+	userDir := filepath.Join(baseDir, "user")
+	os.MkdirAll(userDir, 0755)
+
+	newFormatMF := MemoryFile{
+		ID:       "profile_default",
+		Scope:    "user",
+		Type:     "profile",
+		Strength: 1.0,
+		Metadata: map[string]string{"section": "communication"},
+		Content:  "already migrated",
+	}
+	writeProfileAtomic(filepath.Join(userDir, "profile_default.md"), newFormatMF)
+
+	p := &Profiler{
+		registry: NewProfileSectionRegistry(),
+		buffers:  make(map[string]*SectionBuffer),
+		baseDir:  baseDir,
+	}
+	for _, sec := range p.registry.All() {
+		p.buffers[sec.ID] = NewSectionBuffer(sec)
+	}
+
+	if err := p.MigrateLegacyProfile(context.Background(), "default"); err != nil {
+		t.Fatalf("MigrateLegacyProfile should succeed for new-format files: %v", err)
+	}
+
+	mf, _ := parseMemoryFile(filepath.Join(userDir, "profile_default.md"))
+	if mf.Content != "already migrated" {
+		t.Error("new-format profile should not be modified")
+	}
+}
