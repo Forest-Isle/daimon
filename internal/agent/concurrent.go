@@ -168,6 +168,10 @@ func (r *Runtime) executeToolCall(
 				output = specResult.Output
 				status = "success"
 			}
+			if r.dashEmitter != nil {
+				r.dashEmitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
+				r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, status == "success", 0)
+			}
 			slog.Info("speculative result used", "tool", tc.Name, "status", status)
 			return toolResult{
 				toolUseID: tc.ID, output: output, status: status,

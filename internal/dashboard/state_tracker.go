@@ -72,6 +72,12 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 	}
 
 	switch ev.Type {
+	case EventSessionStart:
+		ss := t.getOrCreate(sid)
+		if ch, ok := ev.Data["channel"].(string); ok {
+			ss.Channel = ch
+		}
+
 	case EventPhaseStart:
 		ss := t.getOrCreate(sid)
 		if phase, ok := ev.Data["phase"].(string); ok {
@@ -80,8 +86,10 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 		ss.PhaseStart = ev.Timestamp
 
 	case EventPhaseEnd:
-		ss := t.getOrCreate(sid)
-		ss.CurrentPhase = ""
+		if ev.Data["source"] != "evolution" {
+			ss := t.getOrCreate(sid)
+			ss.CurrentPhase = ""
+		}
 
 	case EventToolStart:
 		ss := t.getOrCreate(sid)
@@ -90,9 +98,11 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 		}
 
 	case EventToolEnd:
-		ss := t.getOrCreate(sid)
-		ss.CurrentTool = ""
-		ss.ToolsExecuted++
+		if ev.Data["source"] != "evolution" {
+			ss := t.getOrCreate(sid)
+			ss.CurrentTool = ""
+			ss.ToolsExecuted++
+		}
 
 	case EventReplanStart:
 		ss := t.getOrCreate(sid)

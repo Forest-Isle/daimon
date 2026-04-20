@@ -43,6 +43,10 @@ func (e *TUIEmitter) EmitToolEnd(_, toolName string, succeeded bool, durationMs 
 	e.program.Send(toolEndMsg{toolName: toolName, succeeded: succeeded, durationMs: durationMs})
 }
 
+func (e *TUIEmitter) EmitSessionStart(_, _ string) {}
+
+func (e *TUIEmitter) EmitSessionEnd(_ string, _ bool, _ int64) {}
+
 // SendMetrics pushes a runtime metrics snapshot to the TUI.
 func (e *TUIEmitter) SendMetrics(m agent.RuntimeMetrics) {
 	if e == nil || e.program == nil {

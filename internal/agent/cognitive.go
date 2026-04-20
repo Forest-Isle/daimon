@@ -277,6 +277,11 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		return fmt.Errorf("get session: %w", err)
 	}
 
+	cogSessionStart := time.Now()
+	if ca.dashEmitter != nil {
+		ca.dashEmitter.EmitSessionStart(sess.ID, msg.Channel)
+	}
+
 	if ca.checkpointStore != nil && strings.HasPrefix(strings.TrimSpace(msg.Text), "/resume") {
 		return ca.handleResume(ctx, ch, msg, sess)
 	}
@@ -655,6 +660,11 @@ persist:
 		}); err != nil {
 			slog.Warn("cognitive: failed to save memory.md", "err", err)
 		}
+	}
+
+	if ca.dashEmitter != nil {
+		succeeded := reflection != nil && reflection.Succeeded
+		ca.dashEmitter.EmitSessionEnd(sess.ID, succeeded, time.Since(cogSessionStart).Milliseconds())
 	}
 
 	return nil

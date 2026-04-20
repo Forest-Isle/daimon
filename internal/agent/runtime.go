@@ -247,6 +247,11 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		return fmt.Errorf("get session: %w", err)
 	}
 
+	runtimeSessionStart := time.Now()
+	if r.dashEmitter != nil {
+		r.dashEmitter.EmitSessionStart(sess.ID, msg.Channel)
+	}
+
 	// Add user message to session
 	sess.AddMessage(session.Message{
 		ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
@@ -522,6 +527,10 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 				}
 			}
 		}()
+	}
+
+	if r.dashEmitter != nil {
+		r.dashEmitter.EmitSessionEnd(sess.ID, true, time.Since(runtimeSessionStart).Milliseconds())
 	}
 
 	return nil

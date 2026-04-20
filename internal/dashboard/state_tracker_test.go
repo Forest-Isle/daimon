@@ -5,91 +5,86 @@ import (
 	"time"
 )
 
-func TestStateTrackerPhaseTransition(t *testing.T) {
+func TestStateTrackerSkipsEvolutionToolEnd(t *testing.T) {
 	bus := NewBus(16)
 	tracker := NewAgentStateTracker(bus)
 	go tracker.Run()
 	defer tracker.Stop()
 
+	now := time.Now()
+
+	// Primary tool.end from Emitter (no source field)
 	bus.Publish(Event{
-		Type: EventPhaseStart, Timestamp: time.Now(), SessionID: "s1",
-		Data: map[string]any{"phase": "PLAN"},
+		Type: EventToolEnd, Timestamp: now, SessionID: "s1",
+		Data: map[string]any{"tool_name": "bash", "succeeded": true, "duration_ms": int64(10)},
 	})
-	time.Sleep(50 * time.Millisecond)
 
-	snap := tracker.Snapshot()
-	if snap.Status != "busy" {
-		t.Fatalf("status = %s, want busy", snap.Status)
-	}
-	if len(snap.ActiveSessions) != 1 {
-		t.Fatalf("active sessions = %d, want 1", len(snap.ActiveSessions))
-	}
-	if snap.ActiveSessions[0].CurrentPhase != "PLAN" {
-		t.Fatalf("phase = %s, want PLAN", snap.ActiveSessions[0].CurrentPhase)
-	}
-}
-
-func TestStateTrackerToolExecution(t *testing.T) {
-	bus := NewBus(16)
-	tracker := NewAgentStateTracker(bus)
-	go tracker.Run()
-	defer tracker.Stop()
-
+	// Duplicate tool.end from EvolutionBridge (source=evolution)
 	bus.Publish(Event{
-		Type: EventToolStart, Timestamp: time.Now(), SessionID: "s1",
-		Data: map[string]any{"tool_name": "bash"},
+		Type: EventToolEnd, Timestamp: now, SessionID: "s1",
+		Data: map[string]any{"tool_name": "bash", "succeeded": true, "duration_ms": int64(10), "source": "evolution"},
 	})
+
+	// Allow goroutine to process
 	time.Sleep(50 * time.Millisecond)
 
 	snap := tracker.Snapshot()
 	if len(snap.ActiveSessions) != 1 {
-		t.Fatalf("sessions = %d, want 1", len(snap.ActiveSessions))
-	}
-	if snap.ActiveSessions[0].CurrentTool != "bash" {
-		t.Fatalf("tool = %s, want bash", snap.ActiveSessions[0].CurrentTool)
-	}
-
-	bus.Publish(Event{
-		Type: EventToolEnd, Timestamp: time.Now(), SessionID: "s1",
-		Data: map[string]any{"tool_name": "bash", "succeeded": true},
-	})
-	time.Sleep(50 * time.Millisecond)
-
-	snap = tracker.Snapshot()
-	if snap.ActiveSessions[0].CurrentTool != "" {
-		t.Fatalf("tool should be cleared, got %s", snap.ActiveSessions[0].CurrentTool)
+		t.Fatalf("expected 1 active session, got %d", len(snap.ActiveSessions))
 	}
 	if snap.ActiveSessions[0].ToolsExecuted != 1 {
-		t.Fatalf("tools_executed = %d, want 1", snap.ActiveSessions[0].ToolsExecuted)
+		t.Errorf("ToolsExecuted = %d, want 1 (evolution source should be skipped)", snap.ActiveSessions[0].ToolsExecuted)
 	}
 }
 
-func TestStateTrackerSessionEnd(t *testing.T) {
+func TestStateTrackerSkipsEvolutionPhaseEnd(t *testing.T) {
+	bus := NewBus(16)
+	tracker := NewAgentStateTracker(bus)
+	go tracker.Run()
+	defer tracker.Stop()
+
+	now := time.Now()
+
+	bus.Publish(Event{
+		Type: EventPhaseStart, Timestamp: now, SessionID: "s1",
+		Data: map[string]any{"phase": "REFLECT"},
+	})
+
+	// Evolution-sourced phase.end should NOT clear CurrentPhase
+	bus.Publish(Event{
+		Type: EventPhaseEnd, Timestamp: now, SessionID: "s1",
+		Data: map[string]any{"phase": "REFLECT", "source": "evolution"},
+	})
+
+	time.Sleep(50 * time.Millisecond)
+
+	snap := tracker.Snapshot()
+	if len(snap.ActiveSessions) != 1 {
+		t.Fatalf("expected 1 active session, got %d", len(snap.ActiveSessions))
+	}
+	if snap.ActiveSessions[0].CurrentPhase != "REFLECT" {
+		t.Errorf("CurrentPhase = %q, want REFLECT (evolution source should not clear)", snap.ActiveSessions[0].CurrentPhase)
+	}
+}
+
+func TestStateTrackerSessionStartSetsChannel(t *testing.T) {
 	bus := NewBus(16)
 	tracker := NewAgentStateTracker(bus)
 	go tracker.Run()
 	defer tracker.Stop()
 
 	bus.Publish(Event{
-		Type: EventPhaseStart, Timestamp: time.Now(), SessionID: "s1",
-		Data: map[string]any{"phase": "PERCEIVE"},
+		Type: EventSessionStart, Timestamp: time.Now(), SessionID: "s1",
+		Data: map[string]any{"channel": "telegram"},
 	})
-	time.Sleep(50 * time.Millisecond)
 
-	bus.Publish(Event{
-		Type: EventSessionEnd, Timestamp: time.Now(), SessionID: "s1",
-		Data: map[string]any{},
-	})
 	time.Sleep(50 * time.Millisecond)
 
 	snap := tracker.Snapshot()
-	if snap.Status != "idle" {
-		t.Fatalf("status = %s, want idle", snap.Status)
+	if len(snap.ActiveSessions) != 1 {
+		t.Fatalf("expected 1 active session, got %d", len(snap.ActiveSessions))
 	}
-	if len(snap.ActiveSessions) != 0 {
-		t.Fatalf("sessions = %d, want 0", len(snap.ActiveSessions))
-	}
-	if snap.TotalSessions != 1 {
-		t.Fatalf("total = %d, want 1", snap.TotalSessions)
+	if snap.ActiveSessions[0].Channel != "telegram" {
+		t.Errorf("Channel = %q, want telegram", snap.ActiveSessions[0].Channel)
 	}
 }

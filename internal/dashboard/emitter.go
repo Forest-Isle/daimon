@@ -54,3 +54,24 @@ func (e *Emitter) EmitToolEnd(sessionID, toolName string, succeeded bool, durati
 		},
 	})
 }
+
+func (e *Emitter) EmitSessionStart(sessionID, channel string) {
+	e.bus.Publish(Event{
+		Type:      EventSessionStart,
+		Timestamp: time.Now(),
+		SessionID: sessionID,
+		Data:      map[string]any{"channel": channel},
+	})
+}
+
+func (e *Emitter) EmitSessionEnd(sessionID string, succeeded bool, durationMs int64) {
+	e.bus.Publish(Event{
+		Type:      EventSessionEnd,
+		Timestamp: time.Now(),
+		SessionID: sessionID,
+		Data: map[string]any{
+			"succeeded":   succeeded,
+			"duration_ms": durationMs,
+		},
+	})
+}

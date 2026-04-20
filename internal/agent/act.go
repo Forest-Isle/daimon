@@ -465,6 +465,9 @@ func (e *Executor) executeSubTaskViaChain(
 		SessionID: sess.ID,
 	}
 
+	if e.dashEmitter != nil {
+		e.dashEmitter.EmitToolStart(sess.ID, subtask.ToolName, toolInput)
+	}
 	start := time.Now()
 	res, err := e.interceptorChain.Execute(ctx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
 		result, execErr := t.Execute(ctx, []byte(call.Input))
@@ -484,6 +487,9 @@ func (e *Executor) executeSubTaskViaChain(
 	obs.DurationMs = durationMs
 
 	if err != nil {
+		if e.dashEmitter != nil {
+			e.dashEmitter.EmitToolEnd(sess.ID, subtask.ToolName, false, durationMs)
+		}
 		subtask.Status = SubTaskFailed
 		obs.Error = err.Error()
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
@@ -492,6 +498,9 @@ func (e *Executor) executeSubTaskViaChain(
 		return obs
 	}
 	if res.Error != "" {
+		if e.dashEmitter != nil {
+			e.dashEmitter.EmitToolEnd(sess.ID, subtask.ToolName, false, durationMs)
+		}
 		subtask.Status = SubTaskFailed
 		obs.Denied = true
 		obs.Error = res.Error
@@ -563,6 +572,10 @@ func (e *Executor) executeSubTaskViaChain(
 		ToolName:  fmt.Sprintf("tool_use_%s_%d", subtask.ID, time.Now().UnixNano()-1),
 		CreatedAt: time.Now(),
 	})
+
+	if e.dashEmitter != nil {
+		e.dashEmitter.EmitToolEnd(sess.ID, subtask.ToolName, true, durationMs)
+	}
 
 	session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, res.Output, "success", durationMs)
 	slog.Info("subtask done (chain)", "id", subtask.ID, "tool", subtask.ToolName, "duration_ms", durationMs)

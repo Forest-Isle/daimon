@@ -26,6 +26,7 @@ func (b *EvolutionBridge) OnReflectionComplete(_ context.Context, event evolutio
 			"phase":      "REFLECT",
 			"succeeded":  event.Succeeded,
 			"confidence": event.Confidence,
+			"source":     "evolution",
 		},
 	})
 }
@@ -39,6 +40,7 @@ func (b *EvolutionBridge) OnEpisodeComplete(_ context.Context, event evolution.E
 			"succeeded":    event.Succeeded,
 			"duration_ms":  event.DurationMs,
 			"replan_count": event.ReplanCount,
+			"source":       "evolution",
 		},
 	})
 }
@@ -52,6 +54,7 @@ func (b *EvolutionBridge) OnToolExecuted(_ context.Context, event evolution.Tool
 			"tool_name":   event.ToolName,
 			"succeeded":   event.Succeeded,
 			"duration_ms": event.DurationMs,
+			"source":      "evolution",
 		},
 	})
 }

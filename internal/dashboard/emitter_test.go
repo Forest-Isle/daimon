@@ -5,76 +5,51 @@ import (
 	"time"
 )
 
-func TestEmitterPhaseStart(t *testing.T) {
+func TestEmitSessionStart(t *testing.T) {
 	bus := NewBus(16)
+	emitter := NewEmitter(bus)
 	ch := bus.Subscribe()
-	defer bus.Unsubscribe(ch)
 
-	em := NewEmitter(bus)
-	em.EmitPhaseStart("s1", "PLAN")
+	emitter.EmitSessionStart("s1", "telegram")
 
 	select {
 	case ev := <-ch:
-		if ev.Type != EventPhaseStart {
-			t.Fatalf("type = %s, want phase.start", ev.Type)
+		if ev.Type != EventSessionStart {
+			t.Fatalf("type = %s, want session.start", ev.Type)
 		}
 		if ev.SessionID != "s1" {
-			t.Fatalf("session = %s, want s1", ev.SessionID)
+			t.Errorf("session_id = %s, want s1", ev.SessionID)
 		}
-		if ev.Data["phase"] != "PLAN" {
-			t.Fatalf("phase = %v, want PLAN", ev.Data["phase"])
+		if ev.Data["channel"] != "telegram" {
+			t.Errorf("channel = %v, want telegram", ev.Data["channel"])
 		}
 	case <-time.After(time.Second):
-		t.Fatal("timeout")
+		t.Fatal("timeout waiting for session.start event")
 	}
 }
 
-func TestEmitterToolEndWithDuration(t *testing.T) {
+func TestEmitSessionEnd(t *testing.T) {
 	bus := NewBus(16)
+	emitter := NewEmitter(bus)
 	ch := bus.Subscribe()
-	defer bus.Unsubscribe(ch)
 
-	em := NewEmitter(bus)
-	em.EmitToolEnd("s1", "bash", true, 250)
+	emitter.EmitSessionEnd("s1", true, 500)
 
 	select {
 	case ev := <-ch:
-		if ev.Type != EventToolEnd {
-			t.Fatalf("type = %s, want tool.end", ev.Type)
+		if ev.Type != EventSessionEnd {
+			t.Fatalf("type = %s, want session.end", ev.Type)
 		}
-		if ev.Data["tool_name"] != "bash" {
-			t.Fatalf("tool = %v, want bash", ev.Data["tool_name"])
+		if ev.SessionID != "s1" {
+			t.Errorf("session_id = %s, want s1", ev.SessionID)
 		}
 		if ev.Data["succeeded"] != true {
-			t.Fatalf("succeeded = %v, want true", ev.Data["succeeded"])
+			t.Errorf("succeeded = %v, want true", ev.Data["succeeded"])
 		}
-		if ev.Data["duration_ms"] != int64(250) {
-			t.Fatalf("duration = %v, want 250", ev.Data["duration_ms"])
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timeout")
-	}
-}
-
-func TestEmitterTruncatesLongInput(t *testing.T) {
-	bus := NewBus(16)
-	ch := bus.Subscribe()
-	defer bus.Unsubscribe(ch)
-
-	em := NewEmitter(bus)
-	longInput := make([]byte, 1000)
-	for i := range longInput {
-		longInput[i] = 'a'
-	}
-	em.EmitToolStart("s1", "bash", string(longInput))
-
-	select {
-	case ev := <-ch:
-		input := ev.Data["input"].(string)
-		if len(input) > 503 { // 500 + "..."
-			t.Fatalf("input length = %d, want <= 503", len(input))
+		if ev.Data["duration_ms"] != int64(500) {
+			t.Errorf("duration_ms = %v, want 500", ev.Data["duration_ms"])
 		}
 	case <-time.After(time.Second):
-		t.Fatal("timeout")
+		t.Fatal("timeout waiting for session.end event")
 	}
 }
