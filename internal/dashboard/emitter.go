@@ -76,6 +76,19 @@ func (e *Emitter) EmitSessionEnd(sessionID string, succeeded bool, durationMs in
 	})
 }
 
+func (e *Emitter) EmitPlanGenerated(sessionID string, taskCount int, complexity string, hasDirectReply bool) {
+	e.bus.Publish(Event{
+		Type:      EventPlanGenerated,
+		Timestamp: time.Now(),
+		SessionID: sessionID,
+		Data: map[string]any{
+			"task_count":       taskCount,
+			"complexity":       complexity,
+			"has_direct_reply": hasDirectReply,
+		},
+	})
+}
+
 func (e *Emitter) EmitMetricsUpdate(sessionID string, iteration, maxIter int, utilization float64, inputTokens, outputTokens, cacheCreate, cacheRead int64, model, provider string) {
 	e.bus.Publish(Event{
 		Type:      EventMetricsUpdate,
@@ -91,6 +104,32 @@ func (e *Emitter) EmitMetricsUpdate(sessionID string, iteration, maxIter int, ut
 			"cache_read":     cacheRead,
 			"model":          model,
 			"provider":       provider,
+		},
+	})
+}
+
+func (e *Emitter) EmitReplanStart(sessionID string, attempt int, reason string) {
+	e.bus.Publish(Event{
+		Type:      EventReplanStart,
+		Timestamp: time.Now(),
+		SessionID: sessionID,
+		Data: map[string]any{
+			"attempt": attempt,
+			"reason":  reason,
+		},
+	})
+}
+
+func (e *Emitter) EmitObservationResult(sessionID string, passed, failed, total int, overallProgress float64) {
+	e.bus.Publish(Event{
+		Type:      EventObservationResult,
+		Timestamp: time.Now(),
+		SessionID: sessionID,
+		Data: map[string]any{
+			"passed":           passed,
+			"failed":           failed,
+			"total":            total,
+			"overall_progress": overallProgress,
 		},
 	})
 }

@@ -3,6 +3,7 @@ import { Layout } from '../components/Layout'
 import { AgentStatus } from '../components/AgentStatus'
 import { TokenUsage } from '../components/TokenUsage'
 import { PhaseTimeline } from '../components/PhaseTimeline'
+import { CognitiveSummary } from '../components/CognitiveSummary'
 import { ToolCallFeed } from '../components/ToolCallFeed'
 import { SessionList } from '../components/SessionList'
 
@@ -23,6 +24,7 @@ export function Overview() {
       <AgentStatus status={state.status} sessions={state.activeSessions} replanCount={state.replanCount} />
       <TokenUsage metrics={state.metrics} />
       <PhaseTimeline phases={state.phaseHistory} />
+      <CognitiveSummary planInfo={state.planInfo} observationResult={state.observationResult} replanCount={state.replanCount} />
       <ToolCallFeed tools={state.recentTools} />
       <SessionList sessions={state.activeSessions} total={state.totalSessions} />
       <div style={{

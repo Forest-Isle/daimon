@@ -6,22 +6,27 @@ import (
 )
 
 type SessionState struct {
-	SessionID     string    `json:"session_id"`
-	Channel       string    `json:"channel,omitempty"`
-	CurrentPhase  string    `json:"current_phase"`
-	CurrentTool   string    `json:"current_tool,omitempty"`
-	PhaseStart    time.Time `json:"phase_started_at,omitempty"`
-	ToolsExecuted int       `json:"tools_executed"`
-	ReplanCount   int       `json:"replan_count"`
-	Iteration     int       `json:"iteration,omitempty"`
-	MaxIter       int       `json:"max_iterations,omitempty"`
-	Utilization   float64   `json:"utilization,omitempty"`
-	InputTokens   int64     `json:"input_tokens,omitempty"`
-	OutputTokens  int64     `json:"output_tokens,omitempty"`
-	CacheCreate   int64     `json:"cache_create,omitempty"`
-	CacheRead     int64     `json:"cache_read,omitempty"`
-	Model         string    `json:"model,omitempty"`
-	Provider      string    `json:"provider,omitempty"`
+	SessionID         string    `json:"session_id"`
+	Channel           string    `json:"channel,omitempty"`
+	CurrentPhase      string    `json:"current_phase"`
+	CurrentTool       string    `json:"current_tool,omitempty"`
+	PhaseStart        time.Time `json:"phase_started_at,omitempty"`
+	ToolsExecuted     int       `json:"tools_executed"`
+	ReplanCount       int       `json:"replan_count"`
+	Iteration         int       `json:"iteration,omitempty"`
+	MaxIter           int       `json:"max_iterations,omitempty"`
+	Utilization       float64   `json:"utilization,omitempty"`
+	InputTokens       int64     `json:"input_tokens,omitempty"`
+	OutputTokens      int64     `json:"output_tokens,omitempty"`
+	CacheCreate       int64     `json:"cache_create,omitempty"`
+	CacheRead         int64     `json:"cache_read,omitempty"`
+	Model             string    `json:"model,omitempty"`
+	Provider          string    `json:"provider,omitempty"`
+	PlanTaskCount     int       `json:"plan_task_count,omitempty"`
+	PlanComplexity    string    `json:"plan_complexity,omitempty"`
+	ObservationPassed int       `json:"observation_passed,omitempty"`
+	ObservationFailed int       `json:"observation_failed,omitempty"`
+	OverallProgress   float64   `json:"overall_progress,omitempty"`
 }
 
 type StateSnapshot struct {
@@ -113,6 +118,15 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 			ss.ToolsExecuted++
 		}
 
+	case EventPlanGenerated:
+		ss := t.getOrCreate(sid)
+		if tc, ok := ev.Data["task_count"].(int); ok {
+			ss.PlanTaskCount = tc
+		}
+		if c, ok := ev.Data["complexity"].(string); ok {
+			ss.PlanComplexity = c
+		}
+
 	case EventReplanStart:
 		ss := t.getOrCreate(sid)
 		ss.ReplanCount++
@@ -145,6 +159,18 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 		}
 		if v, ok := ev.Data["provider"].(string); ok {
 			ss.Provider = v
+		}
+
+	case EventObservationResult:
+		ss := t.getOrCreate(sid)
+		if p, ok := ev.Data["passed"].(int); ok {
+			ss.ObservationPassed = p
+		}
+		if f, ok := ev.Data["failed"].(int); ok {
+			ss.ObservationFailed = f
+		}
+		if prog, ok := ev.Data["overall_progress"].(float64); ok {
+			ss.OverallProgress = prog
 		}
 
 	case EventSessionEnd:

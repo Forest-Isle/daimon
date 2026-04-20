@@ -50,6 +50,10 @@ func (e *TUIEmitter) EmitSessionEnd(_ string, _ bool, _ int64) {}
 func (e *TUIEmitter) EmitMetricsUpdate(string, int, int, float64, int64, int64, int64, int64, string, string) {
 }
 
+func (e *TUIEmitter) EmitPlanGenerated(string, int, string, bool)          {}
+func (e *TUIEmitter) EmitReplanStart(string, int, string)                  {}
+func (e *TUIEmitter) EmitObservationResult(string, int, int, int, float64) {}
+
 // SendMetrics pushes a runtime metrics snapshot to the TUI.
 func (e *TUIEmitter) SendMetrics(m agent.RuntimeMetrics) {
 	if e == nil || e.program == nil {
