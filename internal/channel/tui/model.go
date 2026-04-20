@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // mode controls how key events are routed.
@@ -26,6 +27,22 @@ type chatMessage struct {
 	role      string // "user", "agent", "system"
 	content   string
 	timestamp time.Time
+}
+
+// toolHistoryEntry records a completed tool execution for the stats panel.
+type toolHistoryEntry struct {
+	name       string
+	succeeded  bool
+	durationMs int64
+}
+
+// metricsState holds the latest runtime metrics for display.
+type metricsState struct {
+	iteration   int
+	maxIter     int
+	utilization float64
+	cacheCreate int64
+	cacheRead   int64
 }
 
 // Model is the Bubble Tea model for the TUI channel.
@@ -56,12 +73,28 @@ type Model struct {
 	feedbackCh chan float64
 
 	// Suggestion state
-	suggestions         []SuggestionItem
-	selectedSuggestion  int // -1 means no selection
+	suggestions        []SuggestionItem
+	selectedSuggestion int // -1 means no selection
 	showingSuggestions  bool
 
 	// Scroll state
 	autoScroll bool // true = follow new content; false = user is reading history
+
+	// Input history (↑/↓ navigation)
+	inputHistory []string
+	historyIdx   int    // current position; len(inputHistory) = "new input"
+	historySaved string // stash current input when entering history
+
+	// Metrics & tool tracking
+	activeTool  string // currently executing tool name (empty when idle)
+	lastTool    string // most recent completed tool
+	lastToolOK  bool
+	lastToolMs  int64
+	toolHistory []toolHistoryEntry
+	toolCount   int // total tools executed this session
+	metrics     metricsState
+	phase       string // current cognitive phase (empty in simple mode)
+	showStats   bool   // toggle for detailed stats panel
 
 	// Layout
 	width  int
@@ -72,11 +105,13 @@ type Model struct {
 // NewModel creates a new TUI model.
 func NewModel(agentMode, version string) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Type a message... (Enter to send, Ctrl+C to quit)"
+	ta.Placeholder = "Type a message... (Enter to send, /help for commands)"
 	ta.Focus()
 	ta.CharLimit = 4096
 	ta.SetHeight(3)
 	ta.ShowLineNumbers = false
+	ta.Prompt = "  "
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 
 	return Model{
 		textarea:           ta,
@@ -105,8 +140,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		updateRendererWidth(m.width)
 
 		headerHeight := 1
-		inputHeight := 5 // textarea + border
-		vpHeight := m.height - headerHeight - inputHeight
+		inputHeight := 5 // textarea + border (3 lines + 2 border)
+		statusHeight := 1
+		vpHeight := m.height - headerHeight - inputHeight - statusHeight
 		if vpHeight < 1 {
 			vpHeight = 1
 		}
@@ -120,7 +156,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.Height = vpHeight
 			m.viewport.SetContent(m.renderChat()) // Re-render with new width
 		}
-		m.textarea.SetWidth(m.width)
+		m.textarea.SetWidth(m.width - 4) // account for input box padding+border
 
 	case tea.KeyMsg:
 		switch m.mode {
@@ -194,6 +230,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case setAgentModeMsg:
 		m.agentMode = msg.mode
 		return m, nil
+
+	case toolStartMsg:
+		m.activeTool = msg.toolName
+		return m, nil
+
+	case toolEndMsg:
+		m.activeTool = ""
+		m.lastTool = msg.toolName
+		m.lastToolOK = msg.succeeded
+		m.lastToolMs = msg.durationMs
+		m.toolCount++
+		entry := toolHistoryEntry{
+			name:       msg.toolName,
+			succeeded:  msg.succeeded,
+			durationMs: msg.durationMs,
+		}
+		m.toolHistory = append(m.toolHistory, entry)
+		const maxHistory = 50
+		if len(m.toolHistory) > maxHistory {
+			m.toolHistory = m.toolHistory[len(m.toolHistory)-maxHistory:]
+		}
+		return m, nil
+
+	case phaseStartMsg:
+		m.phase = msg.phase
+		return m, nil
+
+	case phaseEndMsg:
+		m.phase = ""
+		return m, nil
+
+	case metricsUpdateMsg:
+		m.metrics = metricsState(msg)
+		return m, nil
 	}
 
 	// Update sub-components
@@ -246,6 +316,22 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.Type {
+	case tea.KeyEsc:
+		// Priority: close panels first, then cancel running request
+		if m.showStats {
+			m.showStats = false
+			return m, nil
+		}
+		if m.streamingID != "" || m.activeTool != "" {
+			m.addMessage("system", "⏹ Request cancelled.")
+			m.streamingID = ""
+			m.streamingText = ""
+			m.activeTool = ""
+			m.refreshViewport()
+			return m, func() tea.Msg { return cancelRequestMsg{} }
+		}
+		return m, nil
+
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 
@@ -257,6 +343,31 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.autoScroll = m.viewport.AtBottom()
 			return m, cmd
 		}
+
+	case tea.KeyUp:
+		// Input history: navigate to previous entry
+		if len(m.inputHistory) > 0 && m.historyIdx > 0 {
+			if m.historyIdx == len(m.inputHistory) {
+				m.historySaved = m.textarea.Value()
+			}
+			m.historyIdx--
+			m.textarea.SetValue(m.inputHistory[m.historyIdx])
+			return m, nil
+		}
+		return m, nil
+
+	case tea.KeyDown:
+		// Input history: navigate to next entry
+		if m.historyIdx < len(m.inputHistory) {
+			m.historyIdx++
+			if m.historyIdx == len(m.inputHistory) {
+				m.textarea.SetValue(m.historySaved)
+			} else {
+				m.textarea.SetValue(m.inputHistory[m.historyIdx])
+			}
+			return m, nil
+		}
+		return m, nil
 
 	case tea.KeyEnter:
 		text := strings.TrimSpace(m.textarea.Value())
@@ -270,6 +381,17 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			text = strings.TrimSpace(ApplySuggestion(text, suggestion))
 			m.clearSuggestions()
 		}
+
+		// Save to input history (deduplicate consecutive)
+		if len(m.inputHistory) == 0 || m.inputHistory[len(m.inputHistory)-1] != text {
+			m.inputHistory = append(m.inputHistory, text)
+			const maxInputHistory = 100
+			if len(m.inputHistory) > maxInputHistory {
+				m.inputHistory = m.inputHistory[len(m.inputHistory)-maxInputHistory:]
+			}
+		}
+		m.historyIdx = len(m.inputHistory)
+		m.historySaved = ""
 
 		m.textarea.Reset()
 
@@ -465,12 +587,164 @@ func (m Model) View() string {
 			b.WriteString(m.renderSuggestions())
 			b.WriteString("\n")
 		}
-		b.WriteString(inputBorderStyle.Width(m.width).Render(""))
-		b.WriteString("\n")
-		b.WriteString(m.textarea.View())
+
+		// Stats panel (above input when visible)
+		if m.showStats {
+			b.WriteString(m.renderStatsPanel())
+			b.WriteString("\n")
+		}
+
+		// Input box with styled border
+		b.WriteString(inputBoxStyle.Width(m.width - 2).Render(m.textarea.View()))
 	}
 
+	// Status bar (always visible at the bottom)
+	b.WriteString("\n")
+	b.WriteString(m.renderStatusBar())
+
 	return b.String()
+}
+
+// renderStatusBar renders the compact one-line status bar below the input.
+func (m Model) renderStatusBar() string {
+	var parts []string
+
+	// Tool status
+	if m.activeTool != "" {
+		parts = append(parts, statusToolRunningStyle.Render("⏳ "+m.activeTool+"..."))
+	} else if m.lastTool != "" {
+		if m.lastToolOK {
+			parts = append(parts, statusToolOKStyle.Render(fmt.Sprintf("✓ %s %dms", m.lastTool, m.lastToolMs)))
+		} else {
+			parts = append(parts, statusToolFailStyle.Render(fmt.Sprintf("✗ %s %dms", m.lastTool, m.lastToolMs)))
+		}
+	}
+
+	// Cognitive phase
+	if m.phase != "" {
+		parts = append(parts, statusPhaseStyle.Render("⟨"+m.phase+"⟩"))
+	}
+
+	// Context utilization
+	if m.metrics.utilization > 0 {
+		pct := int(m.metrics.utilization * 100)
+		style := statusDimStyle
+		if pct >= 90 {
+			style = statusToolFailStyle
+		} else if pct >= 70 {
+			style = statusToolRunningStyle
+		}
+		parts = append(parts, style.Render(fmt.Sprintf("ctx:%d%%", pct)))
+	}
+
+	// Iteration
+	if m.metrics.maxIter > 0 {
+		parts = append(parts, statusDimStyle.Render(
+			fmt.Sprintf("i%d/%d", m.metrics.iteration+1, m.metrics.maxIter)))
+	}
+
+	// Tool count
+	if m.toolCount > 0 {
+		parts = append(parts, statusDimStyle.Render(fmt.Sprintf("tools:%d", m.toolCount)))
+	}
+
+	// Hint
+	parts = append(parts, statusDimStyle.Render("/stats"))
+
+	line := strings.Join(parts, statusDimStyle.Render("  │  "))
+	return statusBarStyle.Width(m.width).Render(line)
+}
+
+// renderStatsPanel renders the detailed stats panel.
+func (m Model) renderStatsPanel() string {
+	var b strings.Builder
+
+	// Session section
+	b.WriteString(statsHeaderStyle.Render("Session"))
+	b.WriteString("\n")
+	streaming := "idle"
+	if m.streamingID != "" {
+		streaming = "active"
+	}
+	_, _ = fmt.Fprintf(&b, "  %s %s    %s %s    %s %s    %s %s\n",
+		statsLabelStyle.Render("Mode:"), statsValueStyle.Render(m.agentMode),
+		statsLabelStyle.Render("Ver:"), statsValueStyle.Render(m.version),
+		statsLabelStyle.Render("Msgs:"), statsValueStyle.Render(fmt.Sprintf("%d", len(m.messages))),
+		statsLabelStyle.Render("Stream:"), statsValueStyle.Render(streaming))
+
+	// Tool History section
+	b.WriteString("\n")
+	b.WriteString(statsHeaderStyle.Render("Tool History"))
+	b.WriteString("\n")
+
+	if len(m.toolHistory) == 0 {
+		b.WriteString(statsLabelStyle.Render("  No tools executed yet"))
+	} else {
+		start := 0
+		if len(m.toolHistory) > 8 {
+			start = len(m.toolHistory) - 8
+		}
+		for _, entry := range m.toolHistory[start:] {
+			icon := statusToolOKStyle.Render("✓")
+			if !entry.succeeded {
+				icon = statusToolFailStyle.Render("✗")
+			}
+			name := statsValueStyle.Render(fmt.Sprintf("%-16s", entry.name))
+			dur := statsLabelStyle.Render(fmt.Sprintf("%5dms", entry.durationMs))
+			_, _ = fmt.Fprintf(&b, "  %s %s %s\n", icon, name, dur)
+		}
+	}
+
+	// Context section
+	b.WriteString("\n")
+	b.WriteString(statsHeaderStyle.Render("Context"))
+	b.WriteString("\n")
+
+	// Progress bar
+	pct := m.metrics.utilization
+	barWidth := 30
+	filled := int(pct * float64(barWidth))
+	if filled > barWidth {
+		filled = barWidth
+	}
+	barStyle := statsBarFilledStyle
+	if pct >= 0.9 {
+		barStyle = statsBarCritStyle
+	} else if pct >= 0.7 {
+		barStyle = statsBarWarnStyle
+	}
+	bar := barStyle.Render(strings.Repeat("█", filled)) +
+		statsBarEmptyStyle.Render(strings.Repeat("░", barWidth-filled))
+	_, _ = fmt.Fprintf(&b, "  %s %s %s\n",
+		statsLabelStyle.Render("Utilization:"),
+		bar,
+		statsValueStyle.Render(fmt.Sprintf("%d%%", int(pct*100))))
+
+	if m.metrics.maxIter > 0 {
+		_, _ = fmt.Fprintf(&b, "  %s %s    %s %s\n",
+			statsLabelStyle.Render("Iteration:"),
+			statsValueStyle.Render(fmt.Sprintf("%d/%d", m.metrics.iteration+1, m.metrics.maxIter)),
+			statsLabelStyle.Render("Tools:"),
+			statsValueStyle.Render(fmt.Sprintf("%d", m.toolCount)))
+	}
+
+	// Cache stats (only show if we have data)
+	if m.metrics.cacheCreate > 0 || m.metrics.cacheRead > 0 {
+		_, _ = fmt.Fprintf(&b, "  %s %s  %s %s\n",
+			statsLabelStyle.Render("Cache ↑"),
+			statsValueStyle.Render(formatTokenCount(m.metrics.cacheCreate)),
+			statsLabelStyle.Render("↓"),
+			statsValueStyle.Render(formatTokenCount(m.metrics.cacheRead)))
+	}
+
+	return statsPanelStyle.Width(m.width - 2).Render(b.String())
+}
+
+func formatTokenCount(n int64) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
 }
 
 func (m Model) renderChat() string {
@@ -641,9 +915,8 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 		m.updateViewportKeepScroll()
 		return true, nil
 
-	case "status":
-		m.showStatus()
-		m.updateViewportKeepScroll()
+	case "stats", "status":
+		m.showStats = !m.showStats
 		return true, nil
 
 	case "history", "hist":
@@ -693,22 +966,6 @@ func (m *Model) showHelp() {
 	}
 
 	b.WriteString("\nTip: Type / to see command suggestions with autocomplete")
-
-	m.addMessage("system", b.String())
-}
-
-// showStatus displays current session status.
-func (m *Model) showStatus() {
-	var b strings.Builder
-	b.WriteString("📊 Session Status:\n\n")
-	fmt.Fprintf(&b, "Mode: %s\n", m.agentMode)
-	fmt.Fprintf(&b, "Version: %s\n", m.version)
-	fmt.Fprintf(&b, "Messages: %d\n", len(m.messages))
-	if m.streamingID != "" {
-		b.WriteString("Streaming: active\n")
-	} else {
-		b.WriteString("Streaming: idle\n")
-	}
 
 	m.addMessage("system", b.String())
 }

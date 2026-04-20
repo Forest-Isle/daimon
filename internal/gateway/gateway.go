@@ -273,6 +273,24 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	return nil
 }
 
+// SetDashboardEmitter sets a DashboardEmitter on the runtime and cognitive agent.
+// Useful for wiring channel-specific emitters (e.g. TUI) after Start().
+func (gw *Gateway) SetDashboardEmitter(e agent.DashboardEmitter) {
+	if gw.runtime != nil {
+		gw.runtime.SetDashboardEmitter(e)
+	}
+	if gw.cognitiveAgent != nil {
+		gw.cognitiveAgent.SetDashboardEmitter(e)
+	}
+}
+
+// SetMetricsEmitter sets a MetricsEmitter on the runtime for TUI status reporting.
+func (gw *Gateway) SetMetricsEmitter(e agent.MetricsEmitter) {
+	if gw.runtime != nil {
+		gw.runtime.SetMetricsEmitter(e)
+	}
+}
+
 // Stop gracefully shuts down all components.
 func (gw *Gateway) Stop(ctx context.Context) error {
 	for name, ch := range gw.channels {

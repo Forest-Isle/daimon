@@ -59,3 +59,39 @@ type setAutoApproveMsg struct{}
 
 // setAgentModeMsg updates the TUI model's displayed agent mode.
 type setAgentModeMsg struct{ mode string }
+
+// cancelRequestMsg signals that the user wants to cancel the in-flight request.
+type cancelRequestMsg struct{}
+
+// toolStartMsg signals that a tool has started executing.
+type toolStartMsg struct {
+	toolName string
+	input    string
+}
+
+// toolEndMsg signals that a tool has finished executing.
+type toolEndMsg struct {
+	toolName   string
+	succeeded  bool
+	durationMs int64
+}
+
+// phaseStartMsg signals a cognitive agent phase has started.
+type phaseStartMsg struct {
+	phase string
+}
+
+// phaseEndMsg signals a cognitive agent phase has ended.
+type phaseEndMsg struct {
+	phase      string
+	durationMs int64
+}
+
+// metricsUpdateMsg carries periodic runtime metrics.
+type metricsUpdateMsg struct {
+	iteration    int
+	maxIter      int
+	utilization  float64 // 0.0–1.0 context window usage
+	cacheCreate  int64
+	cacheRead    int64
+}

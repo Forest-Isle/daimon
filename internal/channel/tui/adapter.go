@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +20,7 @@ type Adapter struct {
 	program     *tea.Program
 	handler     channel.InboundHandler
 	model       *Model
+	emitter     *TUIEmitter
 	stopCh      chan struct{}
 	agentMode   string
 	version     string
@@ -32,6 +34,11 @@ type Adapter struct {
 	// The Model writes here on Enter; the adapter's goroutine
 	// converts them to InboundMessages for the gateway.
 	userInputCh chan string
+
+	// cancelMu protects cancelFn for concurrent access.
+	cancelMu  sync.Mutex
+	cancelFn  context.CancelFunc // cancels the in-flight agent request
+	cancelGen uint64             // generation counter for cancel ownership
 }
 
 // New creates a new TUI adapter.
@@ -78,10 +85,19 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 		tea.WithMouseCellMotion(),
 	)
 
+	// Create emitter bound to this program
+	a.emitter = NewTUIEmitter(a.program)
+
 	// Route user input to the gateway in a background goroutine
 	go a.routeInput(ctx)
 
 	return nil
+}
+
+// Emitter returns the TUIEmitter that satisfies agent.DashboardEmitter.
+// Returns nil before Start() is called.
+func (a *Adapter) Emitter() *TUIEmitter {
+	return a.emitter
 }
 
 // Run starts the Bubble Tea event loop. This blocks until the user quits.
@@ -103,16 +119,48 @@ func (a *Adapter) routeInput(ctx context.Context) {
 		case <-a.stopCh:
 			return
 		case text := <-a.userInputCh:
-			if a.handler != nil {
-				go a.handler(ctx, channel.InboundMessage{
+			if a.handler == nil {
+				continue
+			}
+			// Cancel any in-flight request before starting a new one.
+			a.cancelCurrentRequest()
+
+			reqCtx, cancel := context.WithCancel(ctx)
+			a.cancelMu.Lock()
+			a.cancelFn = cancel
+			a.cancelGen++
+			gen := a.cancelGen
+			a.cancelMu.Unlock()
+
+			go func() {
+				defer func() {
+					a.cancelMu.Lock()
+					if a.cancelGen == gen {
+						a.cancelFn = nil
+					}
+					a.cancelMu.Unlock()
+					cancel()
+				}()
+				a.handler(reqCtx, channel.InboundMessage{
 					Channel:   "tui",
 					ChannelID: "tui_local",
 					UserID:    "local",
 					UserName:  "local",
 					Text:      text,
 				})
-			}
+			}()
 		}
+	}
+}
+
+// cancelCurrentRequest cancels the in-flight agent request, if any.
+func (a *Adapter) cancelCurrentRequest() {
+	a.cancelMu.Lock()
+	fn := a.cancelFn
+	a.cancelFn = nil
+	a.cancelMu.Unlock()
+	if fn != nil {
+		fn()
 	}
 }
 
@@ -268,10 +316,17 @@ func (w *modelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Info("tui: auto-approve enabled by user")
 	}
 
-	// Intercept Enter in chat mode to capture user input text
+	// Intercept cancelRequestMsg to cancel the in-flight agent request
+	if _, ok := msg.(cancelRequestMsg); ok {
+		w.adapter.cancelCurrentRequest()
+		slog.Info("tui: user cancelled current request")
+	}
+
+	// Intercept Enter in chat mode to capture user input text.
+	// Only forward to the agent if it is NOT a local slash command.
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && w.mode == modeChat && keyMsg.Type == tea.KeyEnter {
-		text := w.textarea.Value()
-		if text != "" {
+		text := strings.TrimSpace(w.textarea.Value())
+		if text != "" && !isLocalCommand(text) {
 			w.userInputCh <- text
 		}
 	}

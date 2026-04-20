@@ -47,11 +47,6 @@ var commandRegistry = []Command{
 		Aliases:     []string{"v"},
 		Category:    "builtin",
 	},
-	{
-		Name:        "status",
-		Description: "Show current session status",
-		Category:    "builtin",
-	},
 
 	// Memory management
 	{
@@ -117,10 +112,43 @@ var commandRegistry = []Command{
 	// Mode switching
 	{
 		Name:        "mode",
-		Description: "Show or switch agent mode",
+		Description: "Show or switch agent mode (simple|cognitive). Usage: /mode [simple|cognitive]",
 		ArgHint:     "[simple|cognitive]",
 		Category:    "builtin",
 	},
+
+	// Stats panel
+	{
+		Name:        "stats",
+		Description: "Toggle metrics panel (session, tools, context, tokens)",
+		Aliases:     []string{"status"},
+		Category:    "builtin",
+	},
+}
+
+// localCommands lists slash commands handled entirely in the TUI
+// without forwarding to the agent.
+var localCommands = map[string]bool{
+	"quit": true, "exit": true, "q": true,
+	"clear": true, "cls": true,
+	"help": true, "h": true, "?": true,
+	"version": true, "v": true,
+	"status": true, "stats": true,
+	"history": true, "hist": true,
+	"export": true,
+}
+
+// isLocalCommand returns true if text is a slash command handled locally.
+func isLocalCommand(text string) bool {
+	if !strings.HasPrefix(text, "/") {
+		return false
+	}
+	parts := strings.Fields(text)
+	if len(parts) == 0 {
+		return false
+	}
+	cmd := strings.TrimPrefix(parts[0], "/")
+	return localCommands[strings.ToLower(cmd)]
 }
 
 // GetCommands returns all registered commands.
