@@ -14,7 +14,9 @@ func TestSWEBenchAdapter_LoadTasks(t *testing.T) {
 	}
 	data, _ := json.Marshal(tasks)
 	path := filepath.Join(t.TempDir(), "swe.json")
-	os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	adapter := &SWEBenchAdapter{}
 	loaded, err := adapter.LoadTasks(path)
@@ -41,7 +43,9 @@ func TestHumanEvalAdapter_LoadTasks(t *testing.T) {
 	}
 	data, _ := json.Marshal(tasks)
 	path := filepath.Join(t.TempDir(), "he.json")
-	os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	adapter := &HumanEvalAdapter{}
 	loaded, err := adapter.LoadTasks(path)
@@ -63,7 +67,9 @@ func TestGAIAAdapter_LoadTasks(t *testing.T) {
 	}
 	data, _ := json.Marshal(tasks)
 	path := filepath.Join(t.TempDir(), "gaia.json")
-	os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	adapter := &GAIAAdapter{}
 	loaded, err := adapter.LoadTasks(path)

@@ -85,11 +85,12 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 			}
 			report.TaskRegressions = append(report.TaskRegressions, tr)
 
-			if status == "regressed" {
-				report.Regressions = append(report.Regressions, tr)
-			} else if status == "improved" {
-				report.Improvements = append(report.Improvements, tr)
-			}
+		switch status {
+		case "regressed":
+			report.Regressions = append(report.Regressions, tr)
+		case "improved":
+			report.Improvements = append(report.Improvements, tr)
+		}
 		}
 	}
 

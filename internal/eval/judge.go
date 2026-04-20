@@ -136,9 +136,10 @@ func extractJSON(text string) string {
 	if start := strings.Index(text, "{"); start >= 0 {
 		depth := 0
 		for i := start; i < len(text); i++ {
-			if text[i] == '{' {
+			switch text[i] {
+			case '{':
 				depth++
-			} else if text[i] == '}' {
+			case '}':
 				depth--
 				if depth == 0 {
 					return text[start : i+1]
