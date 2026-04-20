@@ -12,6 +12,8 @@ interface AgentState {
   totalSessions: number
   uptimeSeconds: number
   replanCount: number
+  planInfo: { taskCount: number; complexity: string } | null
+  observationResult: { passed: number; failed: number; total: number; progress: number } | null
   error: string | null
 }
 
@@ -41,7 +43,7 @@ function reducer(state: AgentState, action: Action): AgentState {
       return { ...state, error: action.message }
     case 'event': {
       const ev = action.data
-      let { activeSessions, recentTools, phaseHistory, status, totalSessions, replanCount } = state
+      let { activeSessions, recentTools, phaseHistory, status, totalSessions, replanCount, planInfo, observationResult } = state
 
       switch (ev.type) {
         case 'phase.start':
@@ -81,24 +83,42 @@ function reducer(state: AgentState, action: Action): AgentState {
         }
         case 'replan.start':
           replanCount++
+          planInfo = null
+          observationResult = null
           status = 'busy'
           break
         case 'plan.generated':
+          planInfo = {
+            taskCount: ev.data.task_count as number,
+            complexity: ev.data.complexity as string,
+          }
           status = 'busy'
+          break
+        case 'observation.result':
+          observationResult = {
+            passed: ev.data.passed as number,
+            failed: ev.data.failed as number,
+            total: ev.data.total as number,
+            progress: ev.data.overall_progress as number,
+          }
           break
         case 'session.start':
           status = 'busy'
           phaseHistory = []
           replanCount = 0
+          planInfo = null
+          observationResult = null
           break
         case 'session.end':
           status = 'idle'
           phaseHistory = []
           replanCount = 0
+          planInfo = null
+          observationResult = null
           totalSessions++
           break
       }
-      return { ...state, activeSessions, recentTools, phaseHistory, status, totalSessions, replanCount }
+      return { ...state, activeSessions, recentTools, phaseHistory, status, totalSessions, replanCount, planInfo, observationResult }
     }
     default:
       return state
@@ -114,6 +134,8 @@ const initialState: AgentState = {
   totalSessions: 0,
   uptimeSeconds: 0,
   replanCount: 0,
+  planInfo: null,
+  observationResult: null,
   error: null,
 }
 

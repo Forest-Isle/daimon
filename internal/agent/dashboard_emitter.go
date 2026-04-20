@@ -8,6 +8,9 @@ type DashboardEmitter interface {
 	EmitPhaseEnd(sessionID, phase string, durationMs int64)
 	EmitToolStart(sessionID, toolName, input string)
 	EmitToolEnd(sessionID, toolName string, succeeded bool, durationMs int64)
+	EmitPlanGenerated(sessionID string, taskCount int, complexity string, hasDirectReply bool)
+	EmitReplanStart(sessionID string, attempt int, reason string)
+	EmitObservationResult(sessionID string, passed, failed, total int, overallProgress float64)
 }
 
 // RuntimeMetrics is a point-in-time snapshot pushed to the TUI on every iteration.
@@ -80,5 +83,23 @@ func (m *multiEmitter) EmitToolStart(sessionID, toolName, input string) {
 func (m *multiEmitter) EmitToolEnd(sessionID, toolName string, succeeded bool, durationMs int64) {
 	for _, t := range m.targets {
 		t.EmitToolEnd(sessionID, toolName, succeeded, durationMs)
+	}
+}
+
+func (m *multiEmitter) EmitPlanGenerated(sessionID string, taskCount int, complexity string, hasDirectReply bool) {
+	for _, t := range m.targets {
+		t.EmitPlanGenerated(sessionID, taskCount, complexity, hasDirectReply)
+	}
+}
+
+func (m *multiEmitter) EmitReplanStart(sessionID string, attempt int, reason string) {
+	for _, t := range m.targets {
+		t.EmitReplanStart(sessionID, attempt, reason)
+	}
+}
+
+func (m *multiEmitter) EmitObservationResult(sessionID string, passed, failed, total int, overallProgress float64) {
+	for _, t := range m.targets {
+		t.EmitObservationResult(sessionID, passed, failed, total, overallProgress)
 	}
 }

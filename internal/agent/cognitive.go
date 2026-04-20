@@ -441,6 +441,13 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	for attempt := 0; attempt <= maxReplans; attempt++ {
 		if attempt > 0 {
 			slog.Info("cognitive: replanning", "attempt", attempt, "max", maxReplans, "session", sess.ID)
+			if ca.dashEmitter != nil {
+				reason := "low_confidence"
+				if reflection != nil && reflection.SuggestedAdjustment != "" {
+					reason = "adjustment: " + truncateStr(reflection.SuggestedAdjustment, 100)
+				}
+				ca.dashEmitter.EmitReplanStart(sess.ID, attempt, reason)
+			}
 		}
 
 		// ── PLAN ──────────────────────────────────────────────────────────────
@@ -459,6 +466,11 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			break
 		}
 		plan.ReplanCount = attempt
+
+		if ca.dashEmitter != nil {
+			complexity := string(state.Goal.Complexity)
+			ca.dashEmitter.EmitPlanGenerated(sess.ID, len(plan.SubTasks), complexity, plan.DirectReply != "")
+		}
 
 		// RL: apply PPO plan strategy adjustment
 		if rlEnabled && rlState != nil {
@@ -512,6 +524,11 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			"failure", obsResult.FailureCount,
 			"progress", fmt.Sprintf("%.0f%%", obsResult.OverallProgress*100),
 		)
+
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitObservationResult(sess.ID, obsResult.SuccessCount, obsResult.FailureCount,
+				obsResult.SuccessCount+obsResult.FailureCount, obsResult.OverallProgress)
+		}
 
 		if ca.observationCallback != nil && obsResult != nil {
 			ca.observationCallback(obsResult)

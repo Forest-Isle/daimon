@@ -64,6 +64,79 @@ func TestStateTrackerToolExecution(t *testing.T) {
 	}
 }
 
+func TestStateTrackerPlanGenerated(t *testing.T) {
+	bus := NewBus(16)
+	tracker := NewAgentStateTracker(bus)
+	go tracker.Run()
+	defer tracker.Stop()
+
+	bus.Publish(Event{
+		Type: EventPlanGenerated, Timestamp: time.Now(), SessionID: "s1",
+		Data: map[string]any{"task_count": 4, "complexity": "complex", "has_direct_reply": false},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	snap := tracker.Snapshot()
+	if len(snap.ActiveSessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(snap.ActiveSessions))
+	}
+	if snap.ActiveSessions[0].PlanTaskCount != 4 {
+		t.Fatalf("plan_task_count = %d, want 4", snap.ActiveSessions[0].PlanTaskCount)
+	}
+	if snap.ActiveSessions[0].PlanComplexity != "complex" {
+		t.Fatalf("plan_complexity = %s, want complex", snap.ActiveSessions[0].PlanComplexity)
+	}
+}
+
+func TestStateTrackerReplanStart(t *testing.T) {
+	bus := NewBus(16)
+	tracker := NewAgentStateTracker(bus)
+	go tracker.Run()
+	defer tracker.Stop()
+
+	bus.Publish(Event{
+		Type: EventReplanStart, Timestamp: time.Now(), SessionID: "s1",
+		Data: map[string]any{"attempt": 1, "reason": "low_confidence"},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	snap := tracker.Snapshot()
+	if len(snap.ActiveSessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(snap.ActiveSessions))
+	}
+	if snap.ActiveSessions[0].ReplanCount != 1 {
+		t.Fatalf("replan_count = %d, want 1", snap.ActiveSessions[0].ReplanCount)
+	}
+}
+
+func TestStateTrackerObservationResult(t *testing.T) {
+	bus := NewBus(16)
+	tracker := NewAgentStateTracker(bus)
+	go tracker.Run()
+	defer tracker.Stop()
+
+	bus.Publish(Event{
+		Type: EventObservationResult, Timestamp: time.Now(), SessionID: "s1",
+		Data: map[string]any{"passed": 3, "failed": 1, "total": 4, "overall_progress": 0.75},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	snap := tracker.Snapshot()
+	if len(snap.ActiveSessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(snap.ActiveSessions))
+	}
+	ss := snap.ActiveSessions[0]
+	if ss.ObservationPassed != 3 {
+		t.Fatalf("observation_passed = %d, want 3", ss.ObservationPassed)
+	}
+	if ss.ObservationFailed != 1 {
+		t.Fatalf("observation_failed = %d, want 1", ss.ObservationFailed)
+	}
+	if ss.OverallProgress != 0.75 {
+		t.Fatalf("overall_progress = %f, want 0.75", ss.OverallProgress)
+	}
+}
+
 func TestStateTrackerSessionEnd(t *testing.T) {
 	bus := NewBus(16)
 	tracker := NewAgentStateTracker(bus)

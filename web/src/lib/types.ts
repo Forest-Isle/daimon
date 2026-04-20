@@ -3,6 +3,7 @@ export type EventType =
   | 'tool.start' | 'tool.end'
   | 'plan.generated' | 'replan.start'
   | 'task.update'
+  | 'observation.result'
   | 'session.start' | 'session.end'
   | 'agent.idle'
 
@@ -21,6 +22,11 @@ export interface SessionState {
   phase_started_at?: string
   tools_executed: number
   replan_count: number
+  plan_task_count?: number
+  plan_complexity?: string
+  observation_passed?: number
+  observation_failed?: number
+  overall_progress?: number
 }
 
 export interface StateSnapshot {
