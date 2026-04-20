@@ -24,6 +24,7 @@ type Adapter struct {
 	stopCh      chan struct{}
 	agentMode   string
 	version     string
+	channelID   string // unique per launch so each TUI invocation gets a fresh session
 	autoApprove bool
 
 	// approvalTimeout is the max time to wait for the user to respond
@@ -41,11 +42,13 @@ type Adapter struct {
 	cancelGen uint64             // generation counter for cancel ownership
 }
 
-// New creates a new TUI adapter.
+// New creates a new TUI adapter. Each invocation generates a unique channelID
+// so the session manager creates a fresh session per TUI launch.
 func New(agentMode, version string) *Adapter {
 	return &Adapter{
 		agentMode:       agentMode,
 		version:         version,
+		channelID:       fmt.Sprintf("tui_%d", time.Now().UnixNano()),
 		stopCh:          make(chan struct{}),
 		userInputCh:     make(chan string, 16),
 		approvalTimeout: 120 * time.Second,
@@ -143,7 +146,7 @@ func (a *Adapter) routeInput(ctx context.Context) {
 				}()
 				a.handler(reqCtx, channel.InboundMessage{
 					Channel:   "tui",
-					ChannelID: "tui_local",
+					ChannelID: a.channelID,
 					UserID:    "local",
 					UserName:  "local",
 					Text:      text,
