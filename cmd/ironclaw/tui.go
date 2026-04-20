@@ -71,6 +71,12 @@ func runTUI(configPath string) error {
 		return fmt.Errorf("start gateway: %w", err)
 	}
 
+	// Wire TUI dashboard emitter (program is created after Start → ch.Start)
+	if em := tuiAdapter.Emitter(); em != nil {
+		gw.SetDashboardEmitter(em)
+		gw.SetMetricsEmitter(em)
+	}
+
 	// Handle signals for graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)

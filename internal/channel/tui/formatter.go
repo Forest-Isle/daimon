@@ -14,7 +14,7 @@ func init() {
 	rendererWidth = 80
 	var err error
 	mdRenderer, err = glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle("dark"),
 		glamour.WithWordWrap(rendererWidth),
 	)
 	if err != nil {
@@ -37,7 +37,7 @@ func updateRendererWidth(width int) {
 		rendererWidth = effectiveWidth
 		var err error
 		mdRenderer, err = glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
+			glamour.WithStandardStyle("dark"),
 			glamour.WithWordWrap(rendererWidth),
 		)
 		if err != nil {

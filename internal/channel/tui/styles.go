@@ -56,9 +56,10 @@ var (
 				MarginTop(1)
 
 	// Input area
-	inputBorderStyle = lipgloss.NewStyle().
-				Border(lipgloss.NormalBorder(), true, false, false, false).
-				BorderForeground(lipgloss.Color("#626262"))
+	inputBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7D56F4")).
+			Padding(0, 1)
 
 	// Streaming indicator
 	streamingStyle = lipgloss.NewStyle().
@@ -87,4 +88,52 @@ var (
 	suggestionHintStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#626262")).
 				Italic(true)
+
+	// Status bar (below input)
+	statusBarStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#929292")).
+			Padding(0, 1)
+
+	statusToolRunningStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFD700"))
+
+	statusToolOKStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#04B575"))
+
+	statusToolFailStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF5555"))
+
+	statusDimStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#626262"))
+
+	statusPhaseStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#7D56F4"))
+
+	// Stats detail panel
+	statsPanelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#444444")).
+			Padding(0, 1)
+
+	statsHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#7D56F4"))
+
+	statsLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#929292"))
+
+	statsValueStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FAFAFA"))
+
+	statsBarFilledStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#04B575"))
+
+	statsBarEmptyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#333333"))
+
+	statsBarWarnStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFD700"))
+
+	statsBarCritStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF5555"))
 )

@@ -9,3 +9,9 @@ type DashboardEmitter interface {
 	EmitToolStart(sessionID, toolName, input string)
 	EmitToolEnd(sessionID, toolName string, succeeded bool, durationMs int64)
 }
+
+// MetricsEmitter pushes runtime metrics (iteration progress, context usage,
+// cache stats) to a consumer such as the TUI status bar.
+type MetricsEmitter interface {
+	SendMetrics(iteration, maxIter int, utilization float64, cacheCreate, cacheRead int64)
+}

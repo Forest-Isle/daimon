@@ -323,6 +323,9 @@ func (r *Runtime) executeToolCallViaChain(
 		SessionID: sess.ID,
 	}
 
+	if r.dashEmitter != nil {
+		r.dashEmitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
+	}
 	start := time.Now()
 	res, err := r.interceptorChain.Execute(ctx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
 		result, execErr := t.Execute(ctx, []byte(call.Input))
@@ -341,9 +344,15 @@ func (r *Runtime) executeToolCallViaChain(
 	duration := time.Since(start).Milliseconds()
 
 	if err != nil {
+		if r.dashEmitter != nil {
+			r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, false, duration)
+		}
 		return toolResult{toolUseID: tc.ID, output: "error: " + err.Error(), status: "error", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 	}
 	if res.Error != "" {
+		if r.dashEmitter != nil {
+			r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, false, duration)
+		}
 		return toolResult{toolUseID: tc.ID, output: res.Error, status: "denied", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 	}
 
@@ -371,6 +380,9 @@ func (r *Runtime) executeToolCallViaChain(
 		}
 	}
 
+	if r.dashEmitter != nil {
+		r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, true, duration)
+	}
 	return toolResult{toolUseID: tc.ID, output: output, status: "success", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 }
 

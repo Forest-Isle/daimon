@@ -58,6 +58,7 @@ type Runtime struct {
 	taskLedger           taskledger.TaskLedger
 	interceptorChain     *tool.InterceptorChain
 	dashEmitter          DashboardEmitter
+	metricsEmitter       MetricsEmitter
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -166,6 +167,9 @@ func (r *Runtime) SetInterceptorChain(chain *tool.InterceptorChain) { r.intercep
 
 // SetDashboardEmitter attaches a dashboard event emitter to the runtime.
 func (r *Runtime) SetDashboardEmitter(e DashboardEmitter) { r.dashEmitter = e }
+
+// SetMetricsEmitter attaches a metrics emitter for TUI status reporting.
+func (r *Runtime) SetMetricsEmitter(e MetricsEmitter) { r.metricsEmitter = e }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.
@@ -306,6 +310,22 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 
 		// Compute budget pressure signal for this iteration
 		budgetWarning := r.computeBudgetPressure(iteration, sess, systemPrompt)
+
+		// Push metrics to TUI status bar
+		if r.metricsEmitter != nil {
+			util := 0.0
+			if r.contextManager != nil {
+				util = r.contextManager.Utilization(sess, systemPrompt)
+			} else if r.tokenBudget != nil {
+				check := r.tokenBudget.Check(sess.History(), systemPrompt)
+				util = check.UsageRatio
+			}
+			var cacheCreate, cacheRead int64
+			if cp, ok := r.provider.(*ClaudeProvider); ok {
+				cacheCreate, cacheRead = cp.GetCacheStats()
+			}
+			r.metricsEmitter.SendMetrics(iteration, r.cfg.MaxIterations, util, cacheCreate, cacheRead)
+		}
 
 		// Each iteration creates a fresh streaming message
 		updater, err := ch.SendStreaming(ctx, target)
