@@ -43,3 +43,50 @@ func TestDefaultDimension(t *testing.T) {
 		t.Error("non-empty dimension should remain unchanged")
 	}
 }
+
+func TestAggregateDimensions_Basic(t *testing.T) {
+	results := []EvalResult{
+		{TaskID: "t1", Dimension: DimPlanning, Success: true, FinalScore: 0.9, ReplanCount: 1},
+		{TaskID: "t2", Dimension: DimPlanning, Success: false, FinalScore: 0.4, ReplanCount: 3, FailureCategory: "planning_error"},
+		{TaskID: "t3", Dimension: DimErrorRecovery, Success: true, FinalScore: 0.85, ReplanCount: 0},
+	}
+	report := AggregateDimensions(results)
+	if report == nil {
+		t.Fatal("report is nil")
+	}
+	if len(report.Dimensions) < 2 {
+		t.Fatalf("expected at least 2 dimensions, got %d", len(report.Dimensions))
+	}
+	if report.FailureDistribution[FailPlanningError] != 1 {
+		t.Errorf("expected 1 planning_error, got %d", report.FailureDistribution[FailPlanningError])
+	}
+}
+
+func TestAggregateDimensions_WeakestStrongest(t *testing.T) {
+	results := []EvalResult{
+		{TaskID: "t1", Dimension: DimPlanning, FinalScore: 0.3},
+		{TaskID: "t2", Dimension: DimPlanning, FinalScore: 0.4},
+		{TaskID: "t3", Dimension: DimTaskExecution, FinalScore: 0.95},
+		{TaskID: "t4", Dimension: DimTaskExecution, FinalScore: 0.9},
+	}
+	report := AggregateDimensions(results)
+	if len(report.Weakest) == 0 {
+		t.Error("expected at least one weak dimension")
+	}
+	if len(report.Strongest) == 0 {
+		t.Error("expected at least one strong dimension")
+	}
+	if report.Weakest[0].Dimension != DimPlanning {
+		t.Errorf("expected planning as weakest, got %s", report.Weakest[0].Dimension)
+	}
+}
+
+func TestAggregateDimensions_Empty(t *testing.T) {
+	report := AggregateDimensions(nil)
+	if report == nil {
+		t.Fatal("report is nil")
+	}
+	if len(report.Dimensions) != 0 {
+		t.Errorf("expected 0 dimensions, got %d", len(report.Dimensions))
+	}
+}
