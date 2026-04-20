@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/gateway"
@@ -396,6 +398,7 @@ func newEvalDiagnoseCmd() *cobra.Command {
 		live       bool
 		judge      bool
 		configPath string
+		runID      string
 	)
 
 	cmd := &cobra.Command{
@@ -404,13 +407,130 @@ func newEvalDiagnoseCmd() *cobra.Command {
 		Long: `Runs the full evaluation suite, classifies failures, aggregates dimension scores,
 and generates a weakness report with optimization recommendations.
 
-This command combines eval run + failure classification + dimension analysis +
-weakness reporting into a single workflow. Output includes structured JSON,
-readable Markdown, and radar chart visualization.`,
+Output includes:
+  results.json          — raw evaluation results
+  weakness_report.json  — structured weakness report
+  weakness_report.md    — readable Markdown report
+  radar.html            — radar chart + pie chart + heatmap visualization`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("eval diagnose: coming in Phase 3")
-			fmt.Println("This command will run evaluation + weakness diagnosis.")
-			fmt.Println("For now, use 'eval run' with --judge flag.")
+			tasks, err := loadSuite(suite)
+			if err != nil {
+				return err
+			}
+
+			if runID == "" {
+				runID = fmt.Sprintf("diagnose-%s", time.Now().Format("20060102-150405"))
+			}
+
+			if outputDir == "" {
+				outputDir = fmt.Sprintf("eval_diagnose_%s", time.Now().Format("20060102"))
+			}
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				return fmt.Errorf("create output dir: %w", err)
+			}
+
+			var runner eval.AgentRunner
+			var gw *gateway.Gateway
+
+			if live {
+				var cleanup func()
+				gw, cleanup, err = initEvalGateway(configPath)
+				if err != nil {
+					return fmt.Errorf("init live eval: %w", err)
+				}
+				defer cleanup()
+
+				r := gw.NewEvalRunner()
+				if r == nil {
+					return fmt.Errorf("live eval requires agent.mode = cognitive in config")
+				}
+				runner = r
+				fmt.Printf("Starting LIVE diagnosis run: %s (%d tasks)\n\n", runID, len(tasks))
+			} else {
+				runner = &eval.DryRunner{}
+				fmt.Printf("Starting DRY diagnosis run: %s (%d tasks)\n\n", runID, len(tasks))
+			}
+
+			var runOpts *eval.RunOptions
+			if judge && live && gw != nil {
+				runOpts = &eval.RunOptions{
+					Judge: eval.NewLLMJudge(gw.LLMProvider()),
+				}
+				fmt.Println("LLM Judge: enabled")
+			}
+
+			ctx := context.Background()
+
+			// Step 1: Run evaluation
+			fmt.Println("=== Step 1: Running evaluation ===")
+			suiteResult, err := eval.RunSuiteWithOptions(ctx, runID, tasks, runner, runOpts)
+			if err != nil {
+				return fmt.Errorf("run suite: %w", err)
+			}
+
+			resultsPath := fmt.Sprintf("%s/results.json", outputDir)
+			if err := suiteResult.SaveJSON(resultsPath); err != nil {
+				slog.Warn("failed to save results", "err", err)
+			}
+
+			// Step 2: Diagnose
+			fmt.Println("\n=== Step 2: Diagnosing weaknesses ===")
+			var provider agent.Provider
+			if live && gw != nil {
+				provider = gw.LLMProvider()
+			}
+			classifier := eval.NewFailureClassifier(provider, 5*time.Minute)
+
+			report := eval.Diagnose(ctx, suiteResult, &eval.DiagnoseOptions{
+				Classifier: classifier,
+				Tasks:      tasks,
+			})
+
+			// Step 3: Save reports
+			fmt.Println("\n=== Step 3: Generating reports ===")
+
+			jsonPath := fmt.Sprintf("%s/weakness_report.json", outputDir)
+			jsonData, err := json.MarshalIndent(report, "", "  ")
+			if err == nil {
+				if writeErr := os.WriteFile(jsonPath, jsonData, 0o644); writeErr != nil {
+					slog.Warn("failed to write JSON report", "err", writeErr)
+				} else {
+					fmt.Printf("  JSON report: %s\n", jsonPath)
+				}
+			}
+
+			mdPath := fmt.Sprintf("%s/weakness_report.md", outputDir)
+			if writeErr := os.WriteFile(mdPath, []byte(report.FormatMarkdown()), 0o644); writeErr != nil {
+				slog.Warn("failed to write Markdown report", "err", writeErr)
+			} else {
+				fmt.Printf("  Markdown report: %s\n", mdPath)
+			}
+
+			radarPath := fmt.Sprintf("%s/radar.html", outputDir)
+			if writeErr := writeRadarHTML(report, radarPath); writeErr != nil {
+				slog.Warn("failed to write radar chart", "err", writeErr)
+			} else {
+				fmt.Printf("  Radar chart: %s\n", radarPath)
+			}
+
+			// Print summary
+			fmt.Printf("\n=== Diagnosis Summary ===\n")
+			fmt.Printf("Overall Score: %.2f / 1.00\n", report.OverallScore)
+			fmt.Printf("Tasks: %d total, %d failed\n", report.TotalTasks, report.FailedTasks)
+			fmt.Printf("Weaknesses found: %d\n", len(report.Weaknesses))
+			fmt.Printf("Recommendations: %d\n", len(report.Recommendations))
+
+			if len(report.Weaknesses) > 0 {
+				fmt.Println("\nTop weaknesses:")
+				for i, w := range report.Weaknesses {
+					if i >= 3 {
+						break
+					}
+					fmt.Printf("  [%s] %s: %s\n", strings.ToUpper(w.Severity), w.ID, w.Description)
+				}
+			}
+
+			fmt.Printf("\nFull report: %s\n", outputDir)
 			return nil
 		},
 	}
@@ -420,6 +540,7 @@ readable Markdown, and radar chart visualization.`,
 	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent")
 	cmd.Flags().BoolVar(&judge, "judge", true, "enable LLM-as-Judge")
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path")
+	cmd.Flags().StringVar(&runID, "run-id", "", "custom run identifier")
 	return cmd
 }
 

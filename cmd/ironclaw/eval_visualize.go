@@ -313,3 +313,318 @@ const chartTemplate = `<!DOCTYPE html>
 </script>
 </body>
 </html>`
+
+func writeRadarHTML(report *eval.WeaknessReport, path string) error {
+	if report == nil || report.DimReport == nil {
+		return fmt.Errorf("no dimension data for radar chart")
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create radar file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	tmpl, err := template.New("radar").Parse(radarTemplate)
+	if err != nil {
+		return fmt.Errorf("parse radar template: %w", err)
+	}
+
+	data := buildRadarData(report)
+	return tmpl.Execute(f, data)
+}
+
+type radarData struct {
+	Title           string
+	OverallScore    string
+	TotalTasks      int
+	FailedTasks     int
+	DimLabels       []string
+	DimScores       []float64
+	DimSuccessRates []float64
+	FailureLabels   []string
+	FailureCounts   []int
+	HeatmapDims     []string
+	HeatmapCats     []string
+	HeatmapMatrix   [][]int
+	Weaknesses      []weaknessItem
+	Recommendations []recItem
+}
+
+type weaknessItem struct {
+	ID       string
+	Severity string
+	Desc     string
+}
+
+type recItem struct {
+	Priority int
+	Target   string
+	Action   string
+	Detail   string
+}
+
+func buildRadarData(report *eval.WeaknessReport) radarData {
+	d := radarData{
+		Title:        "IronClaw Agent Diagnosis",
+		OverallScore: fmt.Sprintf("%.2f", report.OverallScore),
+		TotalTasks:   report.TotalTasks,
+		FailedTasks:  report.FailedTasks,
+	}
+
+	for _, ds := range report.DimReport.Dimensions {
+		d.DimLabels = append(d.DimLabels, string(ds.Dimension))
+		d.DimScores = append(d.DimScores, ds.AvgScore*100)
+		d.DimSuccessRates = append(d.DimSuccessRates, ds.SuccessRate*100)
+	}
+
+	for cat, cnt := range report.DimReport.FailureDistribution {
+		d.FailureLabels = append(d.FailureLabels, string(cat))
+		d.FailureCounts = append(d.FailureCounts, cnt)
+	}
+
+	dimSet := make(map[string]bool)
+	catSet := make(map[string]bool)
+	heatmap := make(map[string]map[string]int)
+
+	for _, r := range report.DimReport.Dimensions {
+		dim := string(r.Dimension)
+		dimSet[dim] = true
+		if heatmap[dim] == nil {
+			heatmap[dim] = make(map[string]int)
+		}
+		for _, f := range r.TopFailures {
+			cat := string(f)
+			catSet[cat] = true
+			heatmap[dim][cat]++
+		}
+	}
+
+	for cat := range report.DimReport.FailureDistribution {
+		catSet[string(cat)] = true
+	}
+
+	for dim := range dimSet {
+		d.HeatmapDims = append(d.HeatmapDims, dim)
+	}
+	for cat := range catSet {
+		d.HeatmapCats = append(d.HeatmapCats, cat)
+	}
+
+	for _, dim := range d.HeatmapDims {
+		row := make([]int, len(d.HeatmapCats))
+		for j, cat := range d.HeatmapCats {
+			if m, ok := heatmap[dim]; ok {
+				row[j] = m[cat]
+			}
+		}
+		d.HeatmapMatrix = append(d.HeatmapMatrix, row)
+	}
+
+	for _, w := range report.Weaknesses {
+		d.Weaknesses = append(d.Weaknesses, weaknessItem{
+			ID:       w.ID,
+			Severity: w.Severity,
+			Desc:     w.Description,
+		})
+	}
+
+	for _, r := range report.Recommendations {
+		d.Recommendations = append(d.Recommendations, recItem{
+			Priority: r.Priority,
+			Target:   r.TargetWeakness,
+			Action:   r.Action,
+			Detail:   r.Detail,
+		})
+	}
+
+	return d
+}
+
+const radarTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.Title}}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1b2e;
+    color: #e0e0e0;
+    padding: 2rem;
+    min-height: 100vh;
+  }
+  h1 { text-align: center; font-size: 1.8rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 2rem; font-size: 0.95rem; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; max-width: 1400px; margin: 0 auto 2rem; }
+  .card {
+    background: #252640;
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 1px solid #3a3b5c;
+  }
+  .card h2 { font-size: 1.1rem; color: #fff; margin-bottom: 1rem; }
+  .full-width { grid-column: 1 / -1; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #3a3b5c; }
+  th { color: #888; font-weight: 500; }
+  .severity-critical { color: #f87171; font-weight: 600; }
+  .severity-major { color: #fb923c; font-weight: 600; }
+  .severity-minor { color: #fbbf24; }
+  .score-badge {
+    display: inline-block;
+    font-size: 2rem;
+    font-weight: 700;
+    color: #4ade80;
+    margin-right: 1rem;
+  }
+  .stats { display: flex; gap: 2rem; align-items: center; justify-content: center; margin-bottom: 2rem; }
+  .stat-item { text-align: center; }
+  .stat-value { font-size: 1.5rem; font-weight: 600; color: #fff; }
+  .stat-label { font-size: 0.8rem; color: #888; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } body { padding: 1rem; } }
+</style>
+</head>
+<body>
+<h1>{{.Title}}</h1>
+<div class="subtitle">Comprehensive weakness analysis and optimization recommendations</div>
+
+<div class="stats">
+  <div class="stat-item">
+    <div class="score-badge">{{.OverallScore}}</div>
+    <div class="stat-label">Overall Score</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value">{{.TotalTasks}}</div>
+    <div class="stat-label">Total Tasks</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value">{{.FailedTasks}}</div>
+    <div class="stat-label">Failed</div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Dimension Radar</h2>
+    <canvas id="radarChart"></canvas>
+  </div>
+  <div class="card">
+    <h2>Failure Distribution</h2>
+    <canvas id="pieChart"></canvas>
+  </div>
+
+  {{if .Weaknesses}}
+  <div class="card full-width">
+    <h2>Weaknesses</h2>
+    <table>
+      <tr><th>ID</th><th>Severity</th><th>Description</th></tr>
+      {{range .Weaknesses}}
+      <tr>
+        <td>{{.ID}}</td>
+        <td class="severity-{{.Severity}}">{{.Severity}}</td>
+        <td>{{.Desc}}</td>
+      </tr>
+      {{end}}
+    </table>
+  </div>
+  {{end}}
+
+  {{if .Recommendations}}
+  <div class="card full-width">
+    <h2>Recommendations</h2>
+    <table>
+      <tr><th>#</th><th>Target</th><th>Action</th><th>Detail</th></tr>
+      {{range .Recommendations}}
+      <tr>
+        <td>{{.Priority}}</td>
+        <td>{{.Target}}</td>
+        <td>{{.Action}}</td>
+        <td>{{.Detail}}</td>
+      </tr>
+      {{end}}
+    </table>
+  </div>
+  {{end}}
+</div>
+
+<script>
+const dimLabels = [{{range .DimLabels}}"{{.}}",{{end}}];
+const dimScores = [{{range .DimScores}}{{.}},{{end}}];
+const dimSuccess = [{{range .DimSuccessRates}}{{.}},{{end}}];
+const failLabels = [{{range .FailureLabels}}"{{.}}",{{end}}];
+const failCounts = [{{range .FailureCounts}}{{.}},{{end}}];
+
+new Chart(document.getElementById('radarChart'), {
+  type: 'radar',
+  data: {
+    labels: dimLabels,
+    datasets: [
+      {
+        label: 'Avg Score (%)',
+        data: dimScores,
+        borderColor: '#4ade80',
+        backgroundColor: 'rgba(74,222,128,0.15)',
+        pointBackgroundColor: '#4ade80',
+        pointRadius: 4,
+      },
+      {
+        label: 'Success Rate (%)',
+        data: dimSuccess,
+        borderColor: '#60a5fa',
+        backgroundColor: 'rgba(96,165,250,0.10)',
+        pointBackgroundColor: '#60a5fa',
+        pointRadius: 4,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      r: {
+        min: 0,
+        max: 100,
+        ticks: { color: '#888', backdropColor: 'transparent' },
+        grid: { color: 'rgba(255,255,255,0.08)' },
+        pointLabels: { color: '#ccc', font: { size: 11 } },
+        angleLines: { color: 'rgba(255,255,255,0.08)' }
+      }
+    },
+    plugins: {
+      legend: { labels: { color: '#ccc', usePointStyle: true, padding: 16 } }
+    }
+  }
+});
+
+const pieColors = [
+  '#f87171','#fb923c','#fbbf24','#4ade80','#60a5fa',
+  '#c084fc','#f472b6','#a78bfa','#34d399','#38bdf8','#e879f9'
+];
+
+new Chart(document.getElementById('pieChart'), {
+  type: 'doughnut',
+  data: {
+    labels: failLabels,
+    datasets: [{
+      data: failCounts,
+      backgroundColor: pieColors.slice(0, failLabels.length),
+      borderColor: '#252640',
+      borderWidth: 2
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'right',
+        labels: { color: '#ccc', usePointStyle: true, padding: 8, font: { size: 11 } }
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>`
