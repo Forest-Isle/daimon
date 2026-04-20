@@ -20,7 +20,7 @@ func newEvalCmd() *cobra.Command {
 		Use:   "eval",
 		Short: "Evaluate agent performance with reproducible task suites",
 	}
-	cmd.AddCommand(newEvalRunCmd(), newEvalCompareCmd(), newEvalListCmd(), newEvalLongitudinalCmd(), newEvalVisualizeCmd())
+	cmd.AddCommand(newEvalRunCmd(), newEvalCompareCmd(), newEvalListCmd(), newEvalLongitudinalCmd(), newEvalVisualizeCmd(), newEvalDiagnoseCmd())
 	return cmd
 }
 
@@ -31,6 +31,7 @@ func newEvalRunCmd() *cobra.Command {
 		runID      string
 		live       bool
 		configPath string
+		judge      bool
 	)
 
 	cmd := &cobra.Command{
@@ -52,9 +53,11 @@ config file with LLM credentials and agent.mode set to "cognitive".`,
 			}
 
 			var runner eval.AgentRunner
+			var gw *gateway.Gateway
 
 			if live {
-				gw, cleanup, err := initEvalGateway(configPath)
+				var cleanup func()
+				gw, cleanup, err = initEvalGateway(configPath)
 				if err != nil {
 					return fmt.Errorf("init live eval: %w", err)
 				}
@@ -71,8 +74,20 @@ config file with LLM credentials and agent.mode set to "cognitive".`,
 				fmt.Printf("Starting DRY evaluation run: %s (%d tasks)\n\n", runID, len(tasks))
 			}
 
+			var runOpts *eval.RunOptions
+			if judge {
+				if !live {
+					fmt.Println("Warning: --judge requires --live; ignoring --judge flag")
+				} else {
+					runOpts = &eval.RunOptions{
+						Judge: eval.NewLLMJudge(gw.LLMProvider()),
+					}
+					fmt.Println("LLM Judge: enabled")
+				}
+			}
+
 			ctx := context.Background()
-			result, err := eval.RunSuite(ctx, runID, tasks, runner)
+			result, err := eval.RunSuiteWithOptions(ctx, runID, tasks, runner, runOpts)
 			if err != nil {
 				return fmt.Errorf("run suite: %w", err)
 			}
@@ -103,6 +118,7 @@ config file with LLM credentials and agent.mode set to "cognitive".`,
 	cmd.Flags().StringVar(&runID, "run-id", "", "custom run identifier (auto-generated if empty)")
 	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent (requires LLM credentials)")
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "path to config file (for --live)")
+	cmd.Flags().BoolVar(&judge, "judge", false, "enable LLM-as-Judge for tasks with Rubric (requires --live)")
 	return cmd
 }
 
@@ -370,6 +386,40 @@ genuine strategy/preference evolution between measurements.`,
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path (for --live)")
 	cmd.Flags().StringVar(&withWorkload, "with-workload", "", "workload suite to inject between iterations (e.g. 'workload')")
 	cmd.Flags().BoolVar(&forceInsights, "force-insights", true, "trigger insights cycle after each workload injection")
+	return cmd
+}
+
+func newEvalDiagnoseCmd() *cobra.Command {
+	var (
+		suite      string
+		outputDir  string
+		live       bool
+		judge      bool
+		configPath string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "diagnose",
+		Short: "Run evaluation and generate weakness diagnosis report",
+		Long: `Runs the full evaluation suite, classifies failures, aggregates dimension scores,
+and generates a weakness report with optimization recommendations.
+
+This command combines eval run + failure classification + dimension analysis +
+weakness reporting into a single workflow. Output includes structured JSON,
+readable Markdown, and radar chart visualization.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Println("eval diagnose: coming in Phase 3")
+			fmt.Println("This command will run evaluation + weakness diagnosis.")
+			fmt.Println("For now, use 'eval run' with --judge flag.")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&suite, "suite", "full", "suite name or JSON file path")
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory for reports")
+	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent")
+	cmd.Flags().BoolVar(&judge, "judge", true, "enable LLM-as-Judge")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path")
 	return cmd
 }
 

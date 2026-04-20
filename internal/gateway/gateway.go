@@ -369,6 +369,11 @@ func (gw *Gateway) EvolutionEngine() *evolution.Engine {
 	return gw.evoEngine
 }
 
+// LLMProvider returns the gateway's LLM provider for external use (e.g. eval judging).
+func (gw *Gateway) LLMProvider() agent.Provider {
+	return gw.provider
+}
+
 // handleInbound routes incoming messages to the agent runtime.
 func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage) {
 	if msg.Text == "" {
