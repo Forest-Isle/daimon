@@ -1,5 +1,5 @@
 import { useReducer, useEffect, useCallback } from 'preact/hooks'
-import type { DashboardEvent, StateSnapshot, ToolEvent, PhaseEvent } from '../lib/types'
+import type { DashboardEvent, StateSnapshot, ToolEvent, PhaseEvent, SubAgentEvent } from '../lib/types'
 import { fetchAgentState } from '../lib/api'
 import { useWebSocket } from './useWebSocket'
 
@@ -20,6 +20,8 @@ interface AgentState {
   activeSessions: StateSnapshot['active_sessions']
   recentTools: ToolEvent[]
   phaseHistory: PhaseEvent[]
+  subAgents: SubAgentEvent[]
+  compressionCount: number
   connected: boolean
   totalSessions: number
   uptimeSeconds: number
@@ -56,7 +58,7 @@ function reducer(state: AgentState, action: Action): AgentState {
       return { ...state, error: action.message }
     case 'event': {
       const ev = action.data
-      let { activeSessions, recentTools, phaseHistory, status, totalSessions, replanCount, planInfo, observationResult } = state
+      let { activeSessions, recentTools, phaseHistory, subAgents, compressionCount, status, totalSessions, replanCount, planInfo, observationResult } = state
 
       switch (ev.type) {
         case 'phase.start':
@@ -115,9 +117,36 @@ function reducer(state: AgentState, action: Action): AgentState {
             progress: ev.data.overall_progress as number,
           }
           break
+        case 'subagent.spawn':
+          subAgents = [...subAgents, {
+            session_id: ev.session_id || '',
+            parent_session_id: ev.data.parent_session_id as string,
+            agent_name: ev.data.agent_name as string,
+            task: ev.data.task as string | undefined,
+            started_at: ev.timestamp,
+            running: true,
+          }]
+          break
+        case 'subagent.complete': {
+          const sid = ev.session_id || ''
+          let matched = false
+          subAgents = subAgents.map(sa => {
+            if (!matched && sa.session_id === sid && sa.running) {
+              matched = true
+              return { ...sa, running: false, succeeded: ev.data.succeeded as boolean, duration_ms: ev.data.duration_ms as number }
+            }
+            return sa
+          })
+          break
+        }
+        case 'context.compress':
+          compressionCount++
+          break
         case 'session.start':
           status = 'busy'
           phaseHistory = []
+          subAgents = []
+          compressionCount = 0
           replanCount = 0
           planInfo = null
           observationResult = null
@@ -137,13 +166,15 @@ function reducer(state: AgentState, action: Action): AgentState {
         case 'session.end':
           status = 'idle'
           phaseHistory = []
+          subAgents = []
+          compressionCount = 0
           replanCount = 0
           planInfo = null
           observationResult = null
           totalSessions++
           break
       }
-      return { ...state, activeSessions, recentTools, phaseHistory, status, totalSessions, replanCount, planInfo, observationResult }
+      return { ...state, activeSessions, recentTools, phaseHistory, subAgents, compressionCount, status, totalSessions, replanCount, planInfo, observationResult }
     }
     default:
       return state
@@ -155,6 +186,8 @@ const initialState: AgentState = {
   activeSessions: [],
   recentTools: [],
   phaseHistory: [],
+  subAgents: [],
+  compressionCount: 0,
   connected: false,
   totalSessions: 0,
   uptimeSeconds: 0,

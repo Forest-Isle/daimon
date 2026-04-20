@@ -14,6 +14,9 @@ type DashboardEmitter interface {
 	EmitPlanGenerated(sessionID string, taskCount int, complexity string, hasDirectReply bool)
 	EmitReplanStart(sessionID string, attempt int, reason string)
 	EmitObservationResult(sessionID string, passed, failed, total int, overallProgress float64)
+	EmitSubAgentSpawn(sessionID, parentSessionID, agentName, task string)
+	EmitSubAgentComplete(sessionID, agentName string, succeeded bool, durationMs int64)
+	EmitContextCompress(sessionID, reason string, layersRun int, beforePct, afterPct float64)
 }
 
 // RuntimeMetrics is a point-in-time snapshot pushed to the TUI on every iteration.
@@ -122,5 +125,23 @@ func (m *multiEmitter) EmitReplanStart(sessionID string, attempt int, reason str
 func (m *multiEmitter) EmitObservationResult(sessionID string, passed, failed, total int, overallProgress float64) {
 	for _, t := range m.targets {
 		t.EmitObservationResult(sessionID, passed, failed, total, overallProgress)
+	}
+}
+
+func (m *multiEmitter) EmitSubAgentSpawn(sessionID, parentSessionID, agentName, task string) {
+	for _, t := range m.targets {
+		t.EmitSubAgentSpawn(sessionID, parentSessionID, agentName, task)
+	}
+}
+
+func (m *multiEmitter) EmitSubAgentComplete(sessionID, agentName string, succeeded bool, durationMs int64) {
+	for _, t := range m.targets {
+		t.EmitSubAgentComplete(sessionID, agentName, succeeded, durationMs)
+	}
+}
+
+func (m *multiEmitter) EmitContextCompress(sessionID, reason string, layersRun int, beforePct, afterPct float64) {
+	for _, t := range m.targets {
+		t.EmitContextCompress(sessionID, reason, layersRun, beforePct, afterPct)
 	}
 }

@@ -32,6 +32,12 @@ func (gw *Gateway) initDashboard() error {
 	if gw.cognitiveAgent != nil {
 		gw.cognitiveAgent.SetDashboardEmitter(emitter)
 	}
+	if gw.subAgentMgr != nil {
+		gw.subAgentMgr.SetDashboardEmitter(emitter)
+	}
+	if gw.contextMgr != nil {
+		gw.contextMgr.SetDashboardEmitter(emitter)
+	}
 
 	gw.dashboardHub = dashboard.NewHub(gw.dashboardBus)
 	go gw.dashboardHub.Run()

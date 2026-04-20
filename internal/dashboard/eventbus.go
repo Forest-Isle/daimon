@@ -20,6 +20,9 @@ const (
 	EventSessionEnd        EventType = "session.end"
 	EventAgentIdle         EventType = "agent.idle"
 	EventMetricsUpdate     EventType = "metrics.update"
+	EventSubAgentSpawn     EventType = "subagent.spawn"
+	EventSubAgentComplete  EventType = "subagent.complete"
+	EventContextCompress   EventType = "context.compress"
 )
 
 type Event struct {

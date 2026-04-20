@@ -5,6 +5,7 @@ import { TokenUsage } from '../components/TokenUsage'
 import { PhaseTimeline } from '../components/PhaseTimeline'
 import { CognitiveSummary } from '../components/CognitiveSummary'
 import { ToolCallFeed } from '../components/ToolCallFeed'
+import { SubAgentList } from '../components/SubAgentList'
 import { SessionList } from '../components/SessionList'
 
 export function Overview() {
@@ -26,6 +27,7 @@ export function Overview() {
       <PhaseTimeline phases={state.phaseHistory} />
       <CognitiveSummary planInfo={state.planInfo} observationResult={state.observationResult} replanCount={state.replanCount} />
       <ToolCallFeed tools={state.recentTools} />
+      <SubAgentList subAgents={state.subAgents} compressionCount={state.compressionCount} />
       <SessionList sessions={state.activeSessions} total={state.totalSessions} />
       <div style={{
         marginTop: 24, padding: '12px 20px', background: 'var(--bg-secondary)',

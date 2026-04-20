@@ -22,15 +22,16 @@ import (
 // It handles spawning sub-agents with isolated sessions, scoped tools,
 // and optional model overrides.
 type SubAgentManager struct {
-	provider  Provider
-	sessions  *session.Manager
-	db        *store.DB
-	memStore  memory.Store
-	tools     *tool.Registry
-	cfg       config.AgentConfig
-	llmCfg    config.LLMConfig
-	bgManager *BackgroundManager
-	agentMCP  *AgentMCPManager
+	provider    Provider
+	sessions    *session.Manager
+	db          *store.DB
+	memStore    memory.Store
+	tools       *tool.Registry
+	cfg         config.AgentConfig
+	llmCfg      config.LLMConfig
+	bgManager   *BackgroundManager
+	agentMCP    *AgentMCPManager
+	dashEmitter DashboardEmitter
 }
 
 // NewSubAgentManager creates a new SubAgentManager.
@@ -60,6 +61,9 @@ func (m *SubAgentManager) SetBackgroundManager(bm *BackgroundManager) { m.bgMana
 // SetAgentMCPManager attaches a per-agent MCP manager.
 func (m *SubAgentManager) SetAgentMCPManager(mgr *AgentMCPManager) { m.agentMCP = mgr }
 
+// SetDashboardEmitter attaches a dashboard emitter for sub-agent lifecycle events.
+func (m *SubAgentManager) SetDashboardEmitter(e DashboardEmitter) { m.dashEmitter = e }
+
 // SpawnRequest holds the parameters for spawning a sub-agent.
 type SpawnRequest struct {
 	Spec        *AgentSpec
@@ -81,12 +85,19 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 
 	sessionID := fmt.Sprintf("subagent_%s_%s", req.Spec.Name, uuid.New().String()[:8])
 
+	if m.dashEmitter != nil {
+		m.dashEmitter.EmitSubAgentSpawn(sessionID, req.ParentID, req.Spec.Name, req.Task)
+	}
+
 	scopedTools := buildScopedRegistryStandalone(m.tools, req.Spec.Tools)
 	subCfg, subLLMCfg := m.buildSubConfig(req.Spec)
 
 	subRuntime := NewRuntime(m.provider, scopedTools, m.sessions, m.db, subCfg, subLLMCfg)
 	if m.memStore != nil {
 		subRuntime.SetMemoryStore(m.memStore)
+	}
+	if m.dashEmitter != nil {
+		subRuntime.SetDashboardEmitter(m.dashEmitter)
 	}
 
 	agentID := uuid.New().String()
@@ -114,6 +125,11 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 	}
 
 	execErr := subRuntime.HandleMessage(ctx, capture, msg)
+
+	if m.dashEmitter != nil {
+		durationMs := time.Since(start).Milliseconds()
+		m.dashEmitter.EmitSubAgentComplete(sessionID, req.Spec.Name, execErr == nil, durationMs)
+	}
 
 	_ = m.sessions.Delete(ctx, "subagent", sessionID)
 
