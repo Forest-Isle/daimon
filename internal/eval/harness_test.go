@@ -227,3 +227,73 @@ func TestEvalResult_NewFields(t *testing.T) {
 		t.Error("FinalScore mismatch")
 	}
 }
+
+func TestComputeFinalScore_Deterministic(t *testing.T) {
+	vr := &VerifyResult{Score: 0.8}
+	score := ComputeFinalScore(VerifyDeterministic, vr, nil, 0.0)
+	if score != 0.8 {
+		t.Errorf("score = %f, want 0.8", score)
+	}
+}
+
+func TestComputeFinalScore_LLMJudge(t *testing.T) {
+	jr := &JudgeResult{Overall: 0.9}
+	score := ComputeFinalScore(VerifyLLMJudge, nil, jr, 0.0)
+	if score != 0.9 {
+		t.Errorf("score = %f, want 0.9", score)
+	}
+}
+
+func TestComputeFinalScore_Hybrid(t *testing.T) {
+	vr := &VerifyResult{Score: 0.8}
+	jr := &JudgeResult{Overall: 0.6}
+	score := ComputeFinalScore(VerifyHybrid, vr, jr, 0.0)
+	want := 0.5*0.8 + 0.5*0.6
+	if diff := score - want; diff > 0.001 || diff < -0.001 {
+		t.Errorf("score = %f, want %f", score, want)
+	}
+}
+
+func TestComputeFinalScore_Legacy(t *testing.T) {
+	score := ComputeFinalScore("", nil, nil, 0.75)
+	if score != 0.75 {
+		t.Errorf("legacy score = %f, want 0.75", score)
+	}
+}
+
+func TestRunSuiteWithOptions_SetupCleanup(t *testing.T) {
+	setupCalled := false
+	cleanupCalled := false
+
+	runner := &mockRunner{
+		results: map[string]*EvalResult{
+			"t1": {TaskID: "t1", Success: true, Duration: 50 * time.Millisecond, Timestamp: time.Now()},
+		},
+	}
+
+	tasks := []TaskCase{
+		{
+			ID:   "t1",
+			Goal: "test with setup",
+			SetupFunc: func() error {
+				setupCalled = true
+				return nil
+			},
+			CleanupFunc: func() error {
+				cleanupCalled = true
+				return nil
+			},
+		},
+	}
+
+	_, err := RunSuiteWithOptions(context.Background(), "test", tasks, runner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !setupCalled {
+		t.Error("SetupFunc was not called")
+	}
+	if !cleanupCalled {
+		t.Error("CleanupFunc was not called")
+	}
+}

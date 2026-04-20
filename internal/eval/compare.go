@@ -6,14 +6,28 @@ import (
 	"time"
 )
 
+// TaskRegression tracks per-task score changes between two evaluation runs.
+type TaskRegression struct {
+	TaskID      string    `json:"task_id"`
+	Dimension   Dimension `json:"dimension,omitempty"`
+	BeforeScore float64   `json:"before_score"`
+	AfterScore  float64   `json:"after_score"`
+	Delta       float64   `json:"delta"`
+	Status      string    `json:"status"` // "improved", "regressed", "stable"
+}
+
 // ComparisonReport compares two evaluation runs side by side.
 type ComparisonReport struct {
-	BeforeRunID string        `json:"before_run_id"`
-	AfterRunID  string        `json:"after_run_id"`
-	Before      SuiteSummary  `json:"before"`
-	After       SuiteSummary  `json:"after"`
-	Deltas      ComparisonDelta `json:"deltas"`
-	GeneratedAt time.Time     `json:"generated_at"`
+	BeforeRunID     string                `json:"before_run_id"`
+	AfterRunID      string                `json:"after_run_id"`
+	Before          SuiteSummary          `json:"before"`
+	After           SuiteSummary          `json:"after"`
+	Deltas          ComparisonDelta       `json:"deltas"`
+	TaskRegressions []TaskRegression      `json:"task_regressions,omitempty"`
+	Regressions     []TaskRegression      `json:"regressions,omitempty"`
+	Improvements    []TaskRegression      `json:"improvements,omitempty"`
+	DimensionDeltas map[Dimension]float64 `json:"dimension_deltas,omitempty"`
+	GeneratedAt     time.Time             `json:"generated_at"`
 }
 
 // ComparisonDelta holds the differences between two runs.
@@ -30,7 +44,7 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 	bs := before.Summary()
 	as := after.Summary()
 
-	return &ComparisonReport{
+	report := &ComparisonReport{
 		BeforeRunID: before.RunID,
 		AfterRunID:  after.RunID,
 		Before:      bs,
@@ -42,8 +56,69 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 			AvgReplanCountDelta:    as.AvgReplanCount - bs.AvgReplanCount,
 			DurationDelta:          as.Duration - bs.Duration,
 		},
-		GeneratedAt: time.Now(),
+		DimensionDeltas: make(map[Dimension]float64),
+		GeneratedAt:     time.Now(),
 	}
+
+	beforeMap := make(map[string]EvalResult)
+	for _, r := range before.Results {
+		beforeMap[r.TaskID] = r
+	}
+
+	for _, ar := range after.Results {
+		if br, ok := beforeMap[ar.TaskID]; ok {
+			delta := ar.FinalScore - br.FinalScore
+			status := "stable"
+			if delta > 0.05 {
+				status = "improved"
+			} else if delta < -0.05 {
+				status = "regressed"
+			}
+
+			tr := TaskRegression{
+				TaskID:      ar.TaskID,
+				Dimension:   ar.Dimension,
+				BeforeScore: br.FinalScore,
+				AfterScore:  ar.FinalScore,
+				Delta:       delta,
+				Status:      status,
+			}
+			report.TaskRegressions = append(report.TaskRegressions, tr)
+
+			if status == "regressed" {
+				report.Regressions = append(report.Regressions, tr)
+			} else if status == "improved" {
+				report.Improvements = append(report.Improvements, tr)
+			}
+		}
+	}
+
+	beforeDims := aggregateDimScores(before.Results)
+	afterDims := aggregateDimScores(after.Results)
+	for dim, afterScore := range afterDims {
+		if beforeScore, ok := beforeDims[dim]; ok {
+			report.DimensionDeltas[dim] = afterScore - beforeScore
+		}
+	}
+
+	return report
+}
+
+func aggregateDimScores(results []EvalResult) map[Dimension]float64 {
+	sums := make(map[Dimension]float64)
+	counts := make(map[Dimension]int)
+	for _, r := range results {
+		dim := DefaultDimension(r.Dimension)
+		sums[dim] += r.FinalScore
+		counts[dim]++
+	}
+	avgs := make(map[Dimension]float64)
+	for dim, sum := range sums {
+		if counts[dim] > 0 {
+			avgs[dim] = sum / float64(counts[dim])
+		}
+	}
+	return avgs
 }
 
 // FormatMarkdown renders the comparison as a human-readable Markdown report.

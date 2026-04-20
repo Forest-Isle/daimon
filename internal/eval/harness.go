@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 )
@@ -184,6 +185,136 @@ func statusLabel(ok bool) string {
 		return "PASS"
 	}
 	return "FAIL"
+}
+
+// RunOptions configures optional behavior for RunSuiteWithOptions.
+type RunOptions struct {
+	Judge *LLMJudge
+}
+
+// RunSuiteWithOptions extends RunSuite with verification, judging, and setup/cleanup.
+// Passing nil options is equivalent to calling RunSuite.
+func RunSuiteWithOptions(ctx context.Context, runID string, tasks []TaskCase, runner AgentRunner, opts *RunOptions) (*SuiteResult, error) {
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("no tasks to evaluate")
+	}
+
+	suite := &SuiteResult{
+		RunID:     runID,
+		Results:   make([]EvalResult, 0, len(tasks)),
+		StartedAt: time.Now(),
+	}
+
+	if sc, ok := runner.(SnapshotCaptor); ok {
+		suite.EvoBefore = sc.CaptureSnapshot()
+	}
+
+	for i, task := range tasks {
+		select {
+		case <-ctx.Done():
+			return suite, ctx.Err()
+		default:
+		}
+
+		if task.SetupFunc != nil {
+			if err := task.SetupFunc(); err != nil {
+				suite.Results = append(suite.Results, EvalResult{
+					TaskID:    task.ID,
+					Goal:      task.Goal,
+					Error:     fmt.Sprintf("setup failed: %v", err),
+					Dimension: DefaultDimension(task.Dimension),
+					Timestamp: time.Now(),
+				})
+				continue
+			}
+		}
+
+		result, err := runner.RunTask(ctx, task)
+
+		if task.CleanupFunc != nil {
+			_ = task.CleanupFunc()
+		}
+
+		if err != nil {
+			suite.Results = append(suite.Results, EvalResult{
+				TaskID:    task.ID,
+				Goal:      task.Goal,
+				Error:     err.Error(),
+				Dimension: DefaultDimension(task.Dimension),
+				Timestamp: time.Now(),
+			})
+			continue
+		}
+
+		result.Dimension = DefaultDimension(task.Dimension)
+
+		if task.SuccessFunc != nil {
+			result.Success = task.SuccessFunc(result)
+		}
+
+		agentOutput := result.AgentOutput
+
+		var vr *VerifyResult
+		if task.Reference != nil {
+			vr = VerifyReference(task, agentOutput)
+			result.VerifyResult = vr
+		}
+
+		var jr *JudgeResult
+		if opts != nil && opts.Judge != nil && task.Rubric != nil &&
+			(task.VerifyMethod == VerifyLLMJudge || task.VerifyMethod == VerifyHybrid) {
+			var judgeErr error
+			jr, judgeErr = opts.Judge.Judge(ctx, task, agentOutput)
+			if judgeErr != nil {
+				slog.Warn("judge failed for task", "task", task.ID, "err", judgeErr)
+			} else {
+				result.JudgeResult = jr
+			}
+		}
+
+		result.FinalScore = ComputeFinalScore(task.VerifyMethod, vr, jr, result.AssertionPassRate)
+
+		suite.Results = append(suite.Results, *result)
+
+		fmt.Printf("  [%d/%d] %s — %s (%.1fs, score=%.2f)\n",
+			i+1, len(tasks), task.ID, statusLabel(result.Success),
+			result.Duration.Seconds(), result.FinalScore)
+	}
+
+	if sc, ok := runner.(SnapshotCaptor); ok {
+		suite.EvoAfter = sc.CaptureSnapshot()
+	}
+
+	suite.Duration = time.Since(suite.StartedAt)
+	return suite, nil
+}
+
+// ComputeFinalScore synthesizes a single score from verification and judge results.
+func ComputeFinalScore(method VerifyMethod, vr *VerifyResult, jr *JudgeResult, assertionPassRate float64) float64 {
+	switch method {
+	case VerifyDeterministic:
+		if vr != nil {
+			return vr.Score
+		}
+		return assertionPassRate
+	case VerifyLLMJudge:
+		if jr != nil {
+			return jr.Overall
+		}
+		return 0.5
+	case VerifyHybrid:
+		vs := assertionPassRate
+		if vr != nil {
+			vs = vr.Score
+		}
+		js := 0.5
+		if jr != nil {
+			js = jr.Overall
+		}
+		return 0.5*vs + 0.5*js
+	default:
+		return assertionPassRate
+	}
 }
 
 // Summary computes aggregate statistics from a suite result.
