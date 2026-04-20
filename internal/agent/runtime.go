@@ -332,6 +332,11 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 				m.InputTokens, m.OutputTokens = cp.GetTokenStats()
 			}
 			r.metricsEmitter.SendMetrics(m)
+
+			if r.dashEmitter != nil {
+				r.dashEmitter.EmitMetricsUpdate(sess.ID, m.Iteration, m.MaxIter, m.Utilization,
+					m.InputTokens, m.OutputTokens, m.CacheCreate, m.CacheRead, m.Model, m.Provider)
+			}
 		}
 
 		// Each iteration creates a fresh streaming message

@@ -64,6 +64,62 @@ func TestStateTrackerToolExecution(t *testing.T) {
 	}
 }
 
+func TestStateTrackerMetricsUpdate(t *testing.T) {
+	bus := NewBus(16)
+	tracker := NewAgentStateTracker(bus)
+	go tracker.Run()
+	defer tracker.Stop()
+
+	bus.Publish(Event{
+		Type: EventMetricsUpdate, Timestamp: time.Now(), SessionID: "s1",
+		Data: map[string]any{
+			"iteration":      3,
+			"max_iterations": 10,
+			"utilization":    0.65,
+			"input_tokens":   int64(4200),
+			"output_tokens":  int64(900),
+			"cache_create":   int64(500),
+			"cache_read":     int64(300),
+			"model":          "claude-sonnet-4-20250514",
+			"provider":       "claude",
+		},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	snap := tracker.Snapshot()
+	if len(snap.ActiveSessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(snap.ActiveSessions))
+	}
+	ss := snap.ActiveSessions[0]
+	if ss.Iteration != 3 {
+		t.Fatalf("iteration = %d, want 3", ss.Iteration)
+	}
+	if ss.MaxIter != 10 {
+		t.Fatalf("max_iterations = %d, want 10", ss.MaxIter)
+	}
+	if ss.Utilization != 0.65 {
+		t.Fatalf("utilization = %f, want 0.65", ss.Utilization)
+	}
+	if ss.InputTokens != 4200 {
+		t.Fatalf("input_tokens = %d, want 4200", ss.InputTokens)
+	}
+	if ss.OutputTokens != 900 {
+		t.Fatalf("output_tokens = %d, want 900", ss.OutputTokens)
+	}
+	if ss.CacheCreate != 500 {
+		t.Fatalf("cache_create = %d, want 500", ss.CacheCreate)
+	}
+	if ss.CacheRead != 300 {
+		t.Fatalf("cache_read = %d, want 300", ss.CacheRead)
+	}
+	if ss.Model != "claude-sonnet-4-20250514" {
+		t.Fatalf("model = %s, want claude-sonnet-4-20250514", ss.Model)
+	}
+	if ss.Provider != "claude" {
+		t.Fatalf("provider = %s, want claude", ss.Provider)
+	}
+}
+
 func TestStateTrackerSessionEnd(t *testing.T) {
 	bus := NewBus(16)
 	tracker := NewAgentStateTracker(bus)

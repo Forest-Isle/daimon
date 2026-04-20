@@ -13,6 +13,15 @@ type SessionState struct {
 	PhaseStart    time.Time `json:"phase_started_at,omitempty"`
 	ToolsExecuted int       `json:"tools_executed"`
 	ReplanCount   int       `json:"replan_count"`
+	Iteration     int       `json:"iteration,omitempty"`
+	MaxIter       int       `json:"max_iterations,omitempty"`
+	Utilization   float64   `json:"utilization,omitempty"`
+	InputTokens   int64     `json:"input_tokens,omitempty"`
+	OutputTokens  int64     `json:"output_tokens,omitempty"`
+	CacheCreate   int64     `json:"cache_create,omitempty"`
+	CacheRead     int64     `json:"cache_read,omitempty"`
+	Model         string    `json:"model,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
 }
 
 type StateSnapshot struct {
@@ -97,6 +106,36 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 	case EventReplanStart:
 		ss := t.getOrCreate(sid)
 		ss.ReplanCount++
+
+	case EventMetricsUpdate:
+		ss := t.getOrCreate(sid)
+		if v, ok := ev.Data["iteration"].(int); ok {
+			ss.Iteration = v
+		}
+		if v, ok := ev.Data["max_iterations"].(int); ok {
+			ss.MaxIter = v
+		}
+		if v, ok := ev.Data["utilization"].(float64); ok {
+			ss.Utilization = v
+		}
+		if v, ok := ev.Data["input_tokens"].(int64); ok {
+			ss.InputTokens = v
+		}
+		if v, ok := ev.Data["output_tokens"].(int64); ok {
+			ss.OutputTokens = v
+		}
+		if v, ok := ev.Data["cache_create"].(int64); ok {
+			ss.CacheCreate = v
+		}
+		if v, ok := ev.Data["cache_read"].(int64); ok {
+			ss.CacheRead = v
+		}
+		if v, ok := ev.Data["model"].(string); ok {
+			ss.Model = v
+		}
+		if v, ok := ev.Data["provider"].(string); ok {
+			ss.Provider = v
+		}
 
 	case EventSessionEnd:
 		delete(t.activeSessions, sid)

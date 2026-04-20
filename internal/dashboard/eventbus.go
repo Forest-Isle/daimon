@@ -18,6 +18,7 @@ const (
 	EventSessionStart  EventType = "session.start"
 	EventSessionEnd    EventType = "session.end"
 	EventAgentIdle     EventType = "agent.idle"
+	EventMetricsUpdate EventType = "metrics.update"
 )
 
 type Event struct {
