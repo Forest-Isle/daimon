@@ -314,6 +314,218 @@ const chartTemplate = `<!DOCTYPE html>
 </body>
 </html>`
 
+func writeAdaptiveTrendHTML(summary *eval.AdaptiveSummary, path string) error {
+	if summary == nil || len(summary.Rounds) == 0 {
+		return fmt.Errorf("no rounds data for trend chart")
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create trend file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	tmpl, err := template.New("trend").Parse(trendTemplate)
+	if err != nil {
+		return fmt.Errorf("parse trend template: %w", err)
+	}
+
+	data := buildTrendData(summary)
+	return tmpl.Execute(f, data)
+}
+
+type trendData struct {
+	Title       string
+	RoundLabels []int
+	Scores      []float64
+	TaskCounts  []int
+	FailCounts  []int
+	WeakCounts  []int
+	DimLabels   []string
+	DimSeries   []dimTrendSeries
+	Converging  string
+	Diverging   string
+}
+
+type dimTrendSeries struct {
+	Label  string
+	Values []float64
+	Color  string
+}
+
+func buildTrendData(summary *eval.AdaptiveSummary) trendData {
+	d := trendData{
+		Title: "Adaptive Evaluation Trend",
+	}
+
+	for _, r := range summary.Rounds {
+		d.RoundLabels = append(d.RoundLabels, r.Round)
+		d.Scores = append(d.Scores, r.OverallScore*100)
+		d.TaskCounts = append(d.TaskCounts, r.TaskCount)
+		d.FailCounts = append(d.FailCounts, r.FailedTasks)
+		d.WeakCounts = append(d.WeakCounts, r.WeaknessCount)
+	}
+
+	colors := []string{"#4ade80", "#60a5fa", "#c084fc", "#fb923c", "#f87171", "#fbbf24", "#34d399", "#e879f9"}
+	colorIdx := 0
+	for dim, scores := range summary.WeaknessTrend {
+		d.DimLabels = append(d.DimLabels, dim)
+		color := colors[colorIdx%len(colors)]
+		colorIdx++
+		scaled := make([]float64, len(scores))
+		for i, s := range scores {
+			scaled[i] = s * 100
+		}
+		d.DimSeries = append(d.DimSeries, dimTrendSeries{
+			Label:  dim,
+			Values: scaled,
+			Color:  color,
+		})
+	}
+
+	if len(summary.Converging) > 0 {
+		d.Converging = fmt.Sprintf("Improving: %v", summary.Converging)
+	}
+	if len(summary.Diverging) > 0 {
+		d.Diverging = fmt.Sprintf("Declining: %v", summary.Diverging)
+	}
+
+	return d
+}
+
+const trendTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.Title}}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1b2e; color: #e0e0e0; padding: 2rem; min-height: 100vh;
+  }
+  h1 { text-align: center; font-size: 1.8rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 2rem; font-size: 0.95rem; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; max-width: 1400px; margin: 0 auto 2rem; }
+  .card { background: #252640; border-radius: 12px; padding: 1.5rem; border: 1px solid #3a3b5c; }
+  .card h2 { font-size: 1.1rem; color: #fff; margin-bottom: 1rem; }
+  .full-width { grid-column: 1 / -1; }
+  .trend-note { max-width: 1400px; margin: 0 auto; text-align: center; color: #888; font-size: 0.9rem; }
+  .trend-note .good { color: #4ade80; }
+  .trend-note .bad { color: #f87171; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } body { padding: 1rem; } }
+</style>
+</head>
+<body>
+<h1>{{.Title}}</h1>
+<div class="subtitle">Multi-round adaptive evaluation progress</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Overall Score Trend</h2>
+    <canvas id="scoreChart"></canvas>
+  </div>
+  <div class="card">
+    <h2>Task & Failure Counts</h2>
+    <canvas id="countChart"></canvas>
+  </div>
+  {{if .DimSeries}}
+  <div class="card full-width">
+    <h2>Per-Dimension Score Trend</h2>
+    <canvas id="dimChart"></canvas>
+  </div>
+  {{end}}
+</div>
+
+{{if or .Converging .Diverging}}
+<div class="trend-note">
+  {{if .Converging}}<span class="good">{{.Converging}}</span> {{end}}
+  {{if .Diverging}}<span class="bad">{{.Diverging}}</span>{{end}}
+</div>
+{{end}}
+
+<script>
+const labels = [{{range .RoundLabels}}{{.}},{{end}}];
+const scores = [{{range .Scores}}{{.}},{{end}}];
+const taskCounts = [{{range .TaskCounts}}{{.}},{{end}}];
+const failCounts = [{{range .FailCounts}}{{.}},{{end}}];
+const weakCounts = [{{range .WeakCounts}}{{.}},{{end}}];
+
+const gridColor = 'rgba(255,255,255,0.08)';
+const tickColor = '#888';
+
+new Chart(document.getElementById('scoreChart'), {
+  type: 'line',
+  data: {
+    labels: labels,
+    datasets: [{
+      label: 'Overall Score (%)',
+      data: scores,
+      borderColor: '#4ade80',
+      backgroundColor: 'rgba(74,222,128,0.15)',
+      tension: 0.3, pointRadius: 5, pointHoverRadius: 7, fill: true
+    }]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      x: { title: { display: true, text: 'Round', color: tickColor }, ticks: { color: tickColor }, grid: { color: gridColor } },
+      y: { min: 0, max: 100, title: { display: true, text: 'Score (%)', color: tickColor }, ticks: { color: tickColor }, grid: { color: gridColor } }
+    },
+    plugins: { legend: { labels: { color: '#ccc' } } }
+  }
+});
+
+new Chart(document.getElementById('countChart'), {
+  type: 'bar',
+  data: {
+    labels: labels,
+    datasets: [
+      { label: 'Total Tasks', data: taskCounts, backgroundColor: 'rgba(96,165,250,0.7)', borderRadius: 4 },
+      { label: 'Failed', data: failCounts, backgroundColor: 'rgba(248,113,113,0.7)', borderRadius: 4 },
+      { label: 'Weaknesses', data: weakCounts, backgroundColor: 'rgba(251,146,60,0.7)', borderRadius: 4 }
+    ]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      x: { title: { display: true, text: 'Round', color: tickColor }, ticks: { color: tickColor }, grid: { color: gridColor } },
+      y: { title: { display: true, text: 'Count', color: tickColor }, ticks: { color: tickColor, stepSize: 1 }, grid: { color: gridColor } }
+    },
+    plugins: { legend: { labels: { color: '#ccc' } } }
+  }
+});
+
+{{if .DimSeries}}
+new Chart(document.getElementById('dimChart'), {
+  type: 'line',
+  data: {
+    labels: labels,
+    datasets: [
+      {{range .DimSeries}}{
+        label: '{{.Label}}',
+        data: [{{range .Values}}{{.}},{{end}}],
+        borderColor: '{{.Color}}',
+        tension: 0.3, pointRadius: 4, pointHoverRadius: 6, fill: false
+      },{{end}}
+    ]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      x: { title: { display: true, text: 'Round', color: tickColor }, ticks: { color: tickColor }, grid: { color: gridColor } },
+      y: { min: 0, max: 100, title: { display: true, text: 'Dimension Score (%)', color: tickColor }, ticks: { color: tickColor }, grid: { color: gridColor } }
+    },
+    plugins: { legend: { position: 'bottom', labels: { color: '#ccc', usePointStyle: true, padding: 12 } } }
+  }
+});
+{{end}}
+</script>
+</body>
+</html>`
+
 func writeRadarHTML(report *eval.WeaknessReport, path string) error {
 	if report == nil || report.DimReport == nil {
 		return fmt.Errorf("no dimension data for radar chart")

@@ -22,7 +22,7 @@ func newEvalCmd() *cobra.Command {
 		Use:   "eval",
 		Short: "Evaluate agent performance with reproducible task suites",
 	}
-	cmd.AddCommand(newEvalRunCmd(), newEvalCompareCmd(), newEvalListCmd(), newEvalLongitudinalCmd(), newEvalVisualizeCmd(), newEvalDiagnoseCmd())
+	cmd.AddCommand(newEvalRunCmd(), newEvalCompareCmd(), newEvalListCmd(), newEvalLongitudinalCmd(), newEvalVisualizeCmd(), newEvalDiagnoseCmd(), newEvalAdaptiveCmd(), newEvalBenchmarkCmd())
 	return cmd
 }
 
@@ -541,6 +541,234 @@ Output includes:
 	cmd.Flags().BoolVar(&judge, "judge", true, "enable LLM-as-Judge")
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path")
 	cmd.Flags().StringVar(&runID, "run-id", "", "custom run identifier")
+	return cmd
+}
+
+func newEvalAdaptiveCmd() *cobra.Command {
+	var (
+		suite         string
+		outputDir     string
+		rounds        int
+		tasksPerRound int
+		live          bool
+		configPath    string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "adaptive",
+		Short: "Run multi-round adaptive evaluation targeting weaknesses",
+		Long: `Runs multiple evaluation rounds. After each round, the system diagnoses
+weaknesses and generates targeted tasks for the next round. This creates
+a feedback loop that progressively challenges the agent's weak areas.
+
+Output includes per-round reports and an overall adaptive summary with
+convergence/divergence trend analysis.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tasks, err := loadSuite(suite)
+			if err != nil {
+				return err
+			}
+
+			if outputDir == "" {
+				outputDir = fmt.Sprintf("eval_adaptive_%s", time.Now().Format("20060102"))
+			}
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				return fmt.Errorf("create output dir: %w", err)
+			}
+
+			var runner eval.AgentRunner
+			var gw *gateway.Gateway
+			var provider agent.Provider
+
+			if live {
+				var cleanup func()
+				gw, cleanup, err = initEvalGateway(configPath)
+				if err != nil {
+					return fmt.Errorf("init live eval: %w", err)
+				}
+				defer cleanup()
+
+				r := gw.NewEvalRunner()
+				if r == nil {
+					return fmt.Errorf("live eval requires agent.mode = cognitive in config")
+				}
+				runner = r
+				provider = gw.LLMProvider()
+			} else {
+				runner = &eval.DryRunner{}
+				fmt.Println("Warning: adaptive mode without --live uses DryRunner (no real LLM)")
+			}
+
+			fmt.Printf("Starting adaptive evaluation: %d rounds, %d tasks/round, base suite: %s (%d tasks)\n\n",
+				rounds, tasksPerRound, suite, len(tasks))
+
+			ctx := context.Background()
+			summary, err := eval.RunAdaptiveLoop(ctx, tasks, eval.AdaptiveLoopOptions{
+				Suite:         suite,
+				Rounds:        rounds,
+				TasksPerRound: tasksPerRound,
+				Runner:        runner,
+				Provider:      provider,
+				OutputDir:     outputDir,
+			})
+			if err != nil {
+				return fmt.Errorf("adaptive loop: %w", err)
+			}
+
+			summaryJSON, _ := json.MarshalIndent(summary, "", "  ")
+			_ = os.WriteFile(outputDir+"/adaptive_summary.json", summaryJSON, 0o644)
+			_ = os.WriteFile(outputDir+"/adaptive_summary.md", []byte(summary.FormatMarkdown()), 0o644)
+
+			if err := writeAdaptiveTrendHTML(summary, outputDir+"/trend.html"); err != nil {
+				slog.Warn("failed to write trend chart", "err", err)
+			}
+
+			fmt.Printf("\n=== Adaptive Evaluation Complete ===\n")
+			fmt.Printf("Rounds: %d\n", len(summary.Rounds))
+			if len(summary.Converging) > 0 {
+				fmt.Printf("Improving: %s\n", strings.Join(summary.Converging, ", "))
+			}
+			if len(summary.Diverging) > 0 {
+				fmt.Printf("Declining: %s\n", strings.Join(summary.Diverging, ", "))
+			}
+			fmt.Printf("\nReports saved to %s/\n", outputDir)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&suite, "suite", "full", "base suite name")
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory")
+	cmd.Flags().IntVarP(&rounds, "rounds", "n", 3, "number of adaptive rounds")
+	cmd.Flags().IntVar(&tasksPerRound, "tasks-per-round", 6, "number of tasks to generate per round")
+	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path")
+	return cmd
+}
+
+func newEvalBenchmarkCmd() *cobra.Command {
+	var (
+		benchmarkName string
+		dataPath      string
+		outputDir     string
+		live          bool
+		judge         bool
+		configPath    string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "benchmark",
+		Short: "Run external benchmark (swe-bench, humaneval, gaia)",
+		Long: `Load and run tasks from an external benchmark dataset.
+
+Supported benchmarks:
+  swe-bench  — Software engineering bug-fix tasks
+  humaneval  — Python function implementation tasks
+  gaia       — Real-world multi-step reasoning tasks
+
+Each benchmark requires a dataset file (--data). Results are compared
+against known reference scores from other agents.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			adapters := eval.AllBenchmarkAdapters()
+			adapter, ok := adapters[benchmarkName]
+			if !ok {
+				names := make([]string, 0, len(adapters))
+				for k := range adapters {
+					names = append(names, k)
+				}
+				return fmt.Errorf("unknown benchmark %q (available: %v)", benchmarkName, names)
+			}
+
+			tasks, err := adapter.LoadTasks(dataPath)
+			if err != nil {
+				return fmt.Errorf("load benchmark tasks: %w", err)
+			}
+
+			if outputDir == "" {
+				outputDir = fmt.Sprintf("eval_benchmark_%s_%s", benchmarkName, time.Now().Format("20060102"))
+			}
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				return fmt.Errorf("create output dir: %w", err)
+			}
+
+			var runner eval.AgentRunner
+			var gw *gateway.Gateway
+
+			if live {
+				var cleanup func()
+				gw, cleanup, err = initEvalGateway(configPath)
+				if err != nil {
+					return fmt.Errorf("init live eval: %w", err)
+				}
+				defer cleanup()
+
+				r := gw.NewEvalRunner()
+				if r == nil {
+					return fmt.Errorf("live eval requires agent.mode = cognitive in config")
+				}
+				runner = r
+			} else {
+				runner = &eval.DryRunner{}
+			}
+
+			runID := fmt.Sprintf("bench-%s-%s", benchmarkName, time.Now().Format("20060102-150405"))
+			fmt.Printf("Running benchmark %s: %d tasks (run: %s)\n\n", benchmarkName, len(tasks), runID)
+
+			var runOpts *eval.RunOptions
+			if judge && live && gw != nil {
+				runOpts = &eval.RunOptions{
+					Judge: eval.NewLLMJudge(gw.LLMProvider()),
+				}
+			}
+
+			ctx := context.Background()
+			suiteResult, err := eval.RunSuiteWithOptions(ctx, runID, tasks, runner, runOpts)
+			if err != nil {
+				return fmt.Errorf("run benchmark: %w", err)
+			}
+
+			_ = suiteResult.SaveJSON(outputDir + "/results.json")
+
+			formatted, _ := adapter.FormatResult(suiteResult.Results)
+			_ = os.WriteFile(outputDir+"/benchmark_results.json", formatted, 0o644)
+
+			var refs []eval.ReferenceScore
+			switch benchmarkName {
+			case "swe-bench":
+				refs = eval.SWEBenchReferences()
+			case "humaneval":
+				refs = eval.HumanEvalReferences()
+			case "gaia":
+				refs = eval.GAIAReferences()
+			}
+
+			comparison := eval.ComputeBenchmarkComparison(benchmarkName, suiteResult.Results, refs)
+			_ = comparison.SaveJSON(outputDir + "/comparison.json")
+			_ = os.WriteFile(outputDir+"/comparison.md", []byte(comparison.FormatComparisonMarkdown()), 0o644)
+
+			fmt.Printf("\n=== Benchmark Results: %s ===\n", benchmarkName)
+			fmt.Printf("IronClaw Score: %.1f%% (%d/%d passed)\n", comparison.IronClawScore*100, comparison.PassedTasks, comparison.TotalTasks)
+
+			if len(refs) > 0 {
+				fmt.Println("\nReference Scores:")
+				for _, ref := range refs {
+					fmt.Printf("  %s: %.1f%% (%s)\n", ref.AgentName, ref.Score*100, ref.Source)
+				}
+			}
+
+			fmt.Printf("\nReports saved to %s/\n", outputDir)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&benchmarkName, "name", "", "benchmark name (swe-bench, humaneval, gaia)")
+	cmd.Flags().StringVar(&dataPath, "data", "", "path to benchmark dataset JSON file")
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory")
+	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent")
+	cmd.Flags().BoolVar(&judge, "judge", true, "enable LLM-as-Judge")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path")
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("data")
 	return cmd
 }
 
