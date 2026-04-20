@@ -295,11 +295,33 @@ func WorkloadSuite() []TaskCase {
 	}
 }
 
+// FullSuite returns all tasks across all dimensions for comprehensive evaluation.
+func FullSuite() []TaskCase {
+	var all []TaskCase
+	all = append(all, BuiltinSuite()...)
+	all = append(all, PlanningSuite()...)
+	all = append(all, ErrorRecoverySuite()...)
+	all = append(all, ToolSelectionSuite()...)
+	all = append(all, ConversationSuite()...)
+	all = append(all, MemorySuite()...)
+	all = append(all, KnowledgeSuite()...)
+	all = append(all, MultiAgentSuite()...)
+	return all
+}
+
 // AllSuites returns a map of all available named suites.
 func AllSuites() map[string]func() []TaskCase {
 	return map[string]func() []TaskCase{
-		"builtin":   BuiltinSuite,
-		"evolution": EvolutionSuite,
-		"workload":  WorkloadSuite,
+		"builtin":        BuiltinSuite,
+		"evolution":      EvolutionSuite,
+		"workload":       WorkloadSuite,
+		"planning":       PlanningSuite,
+		"error_recovery": ErrorRecoverySuite,
+		"tool_selection": ToolSelectionSuite,
+		"conversation":   ConversationSuite,
+		"memory":         MemorySuite,
+		"knowledge":      KnowledgeSuite,
+		"multi_agent":    MultiAgentSuite,
+		"full":           FullSuite,
 	}
 }
