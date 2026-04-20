@@ -3,6 +3,7 @@ package hook
 import (
 	"context"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -21,8 +22,11 @@ func TestGitContextInjectorInGitRepo(t *testing.T) {
 	if !strings.Contains(ctx, "Git:") {
 		t.Errorf("expected Git: prefix, got %q", ctx)
 	}
-	if !strings.Contains(ctx, "Branch:") {
-		t.Errorf("expected Branch: info, got %q", ctx)
+	// In detached HEAD (e.g. CI checkout), branch may be empty — only check when present
+	if branch, _ := exec.Command("git", "branch", "--show-current").Output(); len(strings.TrimSpace(string(branch))) > 0 {
+		if !strings.Contains(ctx, "Branch:") {
+			t.Errorf("expected Branch: info, got %q", ctx)
+		}
 	}
 }
 
