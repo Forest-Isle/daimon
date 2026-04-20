@@ -161,6 +161,35 @@ func (r *ComparisonReport) FormatMarkdown() string {
 		b.WriteString("**Overall**: No change in success rate.\n")
 	}
 
+	if len(r.Regressions) > 0 {
+		b.WriteString("\n### Regressions\n\n")
+		b.WriteString("| Task | Dimension | Before | After | Delta |\n")
+		b.WriteString("|------|-----------|--------|-------|-------|\n")
+		for _, tr := range r.Regressions {
+			fmt.Fprintf(&b, "| %s | %s | %.2f | %.2f | %.2f |\n",
+				tr.TaskID, tr.Dimension, tr.BeforeScore, tr.AfterScore, tr.Delta)
+		}
+	}
+
+	if len(r.Improvements) > 0 {
+		b.WriteString("\n### Improvements\n\n")
+		b.WriteString("| Task | Dimension | Before | After | Delta |\n")
+		b.WriteString("|------|-----------|--------|-------|-------|\n")
+		for _, tr := range r.Improvements {
+			fmt.Fprintf(&b, "| %s | %s | %.2f | %.2f | +%.2f |\n",
+				tr.TaskID, tr.Dimension, tr.BeforeScore, tr.AfterScore, tr.Delta)
+		}
+	}
+
+	if len(r.DimensionDeltas) > 0 {
+		b.WriteString("\n### Dimension Changes\n\n")
+		b.WriteString("| Dimension | Delta |\n")
+		b.WriteString("|-----------|-------|\n")
+		for dim, delta := range r.DimensionDeltas {
+			fmt.Fprintf(&b, "| %s | %s |\n", dim, fmtDelta(delta, "", true))
+		}
+	}
+
 	return b.String()
 }
 

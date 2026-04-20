@@ -191,6 +191,70 @@ func TestTaskCase_NewFields_BackwardCompatible(t *testing.T) {
 	}
 }
 
+func TestCompare_TaskRegressions(t *testing.T) {
+	before := &SuiteResult{
+		RunID: "run-1",
+		Results: []EvalResult{
+			{TaskID: "t1", Success: true, FinalScore: 0.9, Dimension: DimTaskExecution},
+			{TaskID: "t2", Success: true, FinalScore: 0.8, Dimension: DimPlanning},
+			{TaskID: "t3", Success: false, FinalScore: 0.3, Dimension: DimPlanning},
+		},
+		Duration: 5 * time.Second,
+	}
+	after := &SuiteResult{
+		RunID: "run-2",
+		Results: []EvalResult{
+			{TaskID: "t1", Success: true, FinalScore: 0.96, Dimension: DimTaskExecution},
+			{TaskID: "t2", Success: false, FinalScore: 0.4, Dimension: DimPlanning},
+			{TaskID: "t3", Success: true, FinalScore: 0.7, Dimension: DimPlanning},
+		},
+		Duration: 3 * time.Second,
+	}
+
+	report := Compare(before, after)
+
+	if len(report.TaskRegressions) != 3 {
+		t.Fatalf("expected 3 task regressions, got %d", len(report.TaskRegressions))
+	}
+
+	if len(report.Regressions) != 1 {
+		t.Errorf("expected 1 regression, got %d", len(report.Regressions))
+	}
+	if len(report.Regressions) > 0 && report.Regressions[0].TaskID != "t2" {
+		t.Errorf("expected t2 to regress, got %s", report.Regressions[0].TaskID)
+	}
+
+	if len(report.Improvements) != 2 {
+		t.Errorf("expected 2 improvements, got %d", len(report.Improvements))
+	}
+}
+
+func TestCompare_DimensionDeltas(t *testing.T) {
+	before := &SuiteResult{
+		RunID: "run-1",
+		Results: []EvalResult{
+			{TaskID: "t1", FinalScore: 0.8, Dimension: DimTaskExecution},
+			{TaskID: "t2", FinalScore: 0.4, Dimension: DimPlanning},
+		},
+	}
+	after := &SuiteResult{
+		RunID: "run-2",
+		Results: []EvalResult{
+			{TaskID: "t1", FinalScore: 0.9, Dimension: DimTaskExecution},
+			{TaskID: "t2", FinalScore: 0.6, Dimension: DimPlanning},
+		},
+	}
+
+	report := Compare(before, after)
+
+	if len(report.DimensionDeltas) == 0 {
+		t.Fatal("expected dimension deltas")
+	}
+	if delta, ok := report.DimensionDeltas[DimPlanning]; !ok || delta < 0.19 {
+		t.Errorf("planning delta = %f, want ~0.2", delta)
+	}
+}
+
 func TestEvalResult_NewFields(t *testing.T) {
 	result := EvalResult{
 		TaskID:    "test",
