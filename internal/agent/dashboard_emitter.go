@@ -8,6 +8,9 @@ type DashboardEmitter interface {
 	EmitPhaseEnd(sessionID, phase string, durationMs int64)
 	EmitToolStart(sessionID, toolName, input string)
 	EmitToolEnd(sessionID, toolName string, succeeded bool, durationMs int64)
+	EmitSubAgentSpawn(sessionID, parentSessionID, agentName, task string)
+	EmitSubAgentComplete(sessionID, agentName string, succeeded bool, durationMs int64)
+	EmitContextCompress(sessionID, reason string, layersRun int, beforePct, afterPct float64)
 }
 
 // RuntimeMetrics is a point-in-time snapshot pushed to the TUI on every iteration.
@@ -80,5 +83,23 @@ func (m *multiEmitter) EmitToolStart(sessionID, toolName, input string) {
 func (m *multiEmitter) EmitToolEnd(sessionID, toolName string, succeeded bool, durationMs int64) {
 	for _, t := range m.targets {
 		t.EmitToolEnd(sessionID, toolName, succeeded, durationMs)
+	}
+}
+
+func (m *multiEmitter) EmitSubAgentSpawn(sessionID, parentSessionID, agentName, task string) {
+	for _, t := range m.targets {
+		t.EmitSubAgentSpawn(sessionID, parentSessionID, agentName, task)
+	}
+}
+
+func (m *multiEmitter) EmitSubAgentComplete(sessionID, agentName string, succeeded bool, durationMs int64) {
+	for _, t := range m.targets {
+		t.EmitSubAgentComplete(sessionID, agentName, succeeded, durationMs)
+	}
+}
+
+func (m *multiEmitter) EmitContextCompress(sessionID, reason string, layersRun int, beforePct, afterPct float64) {
+	for _, t := range m.targets {
+		t.EmitContextCompress(sessionID, reason, layersRun, beforePct, afterPct)
 	}
 }

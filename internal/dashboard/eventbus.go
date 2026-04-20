@@ -15,9 +15,12 @@ const (
 	EventPlanGenerated EventType = "plan.generated"
 	EventReplanStart   EventType = "replan.start"
 	EventTaskUpdate    EventType = "task.update"
-	EventSessionStart  EventType = "session.start"
-	EventSessionEnd    EventType = "session.end"
-	EventAgentIdle     EventType = "agent.idle"
+	EventSessionStart     EventType = "session.start"
+	EventSessionEnd       EventType = "session.end"
+	EventAgentIdle        EventType = "agent.idle"
+	EventSubAgentSpawn    EventType = "subagent.spawn"
+	EventSubAgentComplete EventType = "subagent.complete"
+	EventContextCompress  EventType = "context.compress"
 )
 
 type Event struct {

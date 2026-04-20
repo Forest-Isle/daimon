@@ -70,6 +70,7 @@ type Gateway struct {
 	dashboardSrv    *http.Server
 	stateTracker    *dashboard.AgentStateTracker
 	dashEmitter     agent.DashboardEmitter
+	contextMgr      *agent.PipelineContextManager
 	cogCollector    *cogmetrics.Collector
 	currentMode     atomic.Value // stores string: "simple" | "cognitive"
 	memoryDir       string // resolved base dir for file-based memory
@@ -284,6 +285,12 @@ func (gw *Gateway) SetDashboardEmitter(e agent.DashboardEmitter) {
 	}
 	if gw.cognitiveAgent != nil {
 		gw.cognitiveAgent.SetDashboardEmitter(e)
+	}
+	if gw.subAgentMgr != nil {
+		gw.subAgentMgr.SetDashboardEmitter(e)
+	}
+	if gw.contextMgr != nil {
+		gw.contextMgr.SetDashboardEmitter(e)
 	}
 }
 

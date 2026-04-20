@@ -5,6 +5,8 @@ export type EventType =
   | 'task.update'
   | 'session.start' | 'session.end'
   | 'agent.idle'
+  | 'subagent.spawn' | 'subagent.complete'
+  | 'context.compress'
 
 export interface DashboardEvent {
   type: EventType
@@ -28,6 +30,19 @@ export interface StateSnapshot {
   active_sessions: SessionState[]
   uptime_seconds: number
   total_sessions: number
+  active_subagents?: SubAgentEvent[]
+  compression_events?: number
+}
+
+export interface SubAgentEvent {
+  session_id: string
+  parent_session_id: string
+  agent_name: string
+  task?: string
+  started_at: string
+  running: boolean
+  succeeded?: boolean
+  duration_ms?: number
 }
 
 export interface ToolEvent {

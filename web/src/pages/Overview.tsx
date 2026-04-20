@@ -3,6 +3,7 @@ import { Layout } from '../components/Layout'
 import { AgentStatus } from '../components/AgentStatus'
 import { PhaseTimeline } from '../components/PhaseTimeline'
 import { ToolCallFeed } from '../components/ToolCallFeed'
+import { SubAgentList } from '../components/SubAgentList'
 import { SessionList } from '../components/SessionList'
 
 export function Overview() {
@@ -22,6 +23,7 @@ export function Overview() {
       <AgentStatus status={state.status} sessions={state.activeSessions} replanCount={state.replanCount} />
       <PhaseTimeline phases={state.phaseHistory} />
       <ToolCallFeed tools={state.recentTools} />
+      <SubAgentList subAgents={state.subAgents} compressionCount={state.compressionCount} />
       <SessionList sessions={state.activeSessions} total={state.totalSessions} />
       <div style={{
         marginTop: 24, padding: '12px 20px', background: 'var(--bg-secondary)',

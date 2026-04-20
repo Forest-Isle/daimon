@@ -93,3 +93,69 @@ func TestStateTrackerSessionEnd(t *testing.T) {
 		t.Fatalf("total = %d, want 1", snap.TotalSessions)
 	}
 }
+
+func TestStateTrackerSubAgentLifecycle(t *testing.T) {
+	bus := NewBus(16)
+	tracker := NewAgentStateTracker(bus)
+	go tracker.Run()
+	defer tracker.Stop()
+
+	bus.Publish(Event{
+		Type: EventSubAgentSpawn, Timestamp: time.Now(), SessionID: "sub1",
+		Data: map[string]any{
+			"parent_session_id": "parent1",
+			"agent_name":        "researcher",
+			"task":              "find docs",
+		},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	snap := tracker.Snapshot()
+	if len(snap.ActiveSubAgents) != 1 {
+		t.Fatalf("active sub-agents = %d, want 1", len(snap.ActiveSubAgents))
+	}
+	sa := snap.ActiveSubAgents[0]
+	if sa.SessionID != "sub1" {
+		t.Fatalf("session = %s, want sub1", sa.SessionID)
+	}
+	if sa.ParentSessionID != "parent1" {
+		t.Fatalf("parent = %s, want parent1", sa.ParentSessionID)
+	}
+	if sa.AgentName != "researcher" {
+		t.Fatalf("agent = %s, want researcher", sa.AgentName)
+	}
+	if sa.Task != "find docs" {
+		t.Fatalf("task = %s, want 'find docs'", sa.Task)
+	}
+
+	bus.Publish(Event{
+		Type: EventSubAgentComplete, Timestamp: time.Now(), SessionID: "sub1",
+		Data: map[string]any{"agent_name": "researcher", "succeeded": true, "duration_ms": int64(500)},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	snap = tracker.Snapshot()
+	if len(snap.ActiveSubAgents) != 0 {
+		t.Fatalf("active sub-agents after complete = %d, want 0", len(snap.ActiveSubAgents))
+	}
+}
+
+func TestStateTrackerCompressionCount(t *testing.T) {
+	bus := NewBus(16)
+	tracker := NewAgentStateTracker(bus)
+	go tracker.Run()
+	defer tracker.Stop()
+
+	for i := 0; i < 3; i++ {
+		bus.Publish(Event{
+			Type: EventContextCompress, Timestamp: time.Now(), SessionID: "s1",
+			Data: map[string]any{"reason": "proactive", "layers_run": 5, "before_pct": 0.9, "after_pct": 0.4},
+		})
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	snap := tracker.Snapshot()
+	if snap.CompressionEvents != 3 {
+		t.Fatalf("compression events = %d, want 3", snap.CompressionEvents)
+	}
+}
