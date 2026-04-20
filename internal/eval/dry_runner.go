@@ -2,6 +2,8 @@ package eval
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -13,6 +15,13 @@ type DryRunner struct{}
 
 func (d *DryRunner) RunTask(_ context.Context, task TaskCase) (*EvalResult, error) {
 	start := time.Now()
+
+	agentOutput := fmt.Sprintf("Dry-run result for task %s: all checks passed.", task.ID)
+	if task.Reference != nil && task.Reference.Answer != "" {
+		agentOutput = task.Reference.Answer
+	} else if task.Reference != nil && len(task.Reference.MustContain) > 0 {
+		agentOutput = strings.Join(task.Reference.MustContain, "\n")
+	}
 
 	result := &EvalResult{
 		TaskID:            task.ID,
@@ -26,6 +35,7 @@ func (d *DryRunner) RunTask(_ context.Context, task TaskCase) (*EvalResult, erro
 		AssertionPassed:   len(task.ExpectTools),
 		AssertionPassRate: 1.0,
 		Confidence:        0.95,
+		AgentOutput:       agentOutput,
 		Timestamp:         time.Now(),
 	}
 

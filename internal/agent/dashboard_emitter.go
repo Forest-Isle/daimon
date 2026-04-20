@@ -10,6 +10,7 @@ type DashboardEmitter interface {
 	EmitToolEnd(sessionID, toolName string, succeeded bool, durationMs int64)
 	EmitSessionStart(sessionID, channel string)
 	EmitSessionEnd(sessionID string, succeeded bool, durationMs int64)
+	EmitMetricsUpdate(sessionID string, iteration, maxIter int, utilization float64, inputTokens, outputTokens, cacheCreate, cacheRead int64, model, provider string)
 }
 
 // RuntimeMetrics is a point-in-time snapshot pushed to the TUI on every iteration.
@@ -94,5 +95,11 @@ func (m *multiEmitter) EmitSessionStart(sessionID, channel string) {
 func (m *multiEmitter) EmitSessionEnd(sessionID string, succeeded bool, durationMs int64) {
 	for _, t := range m.targets {
 		t.EmitSessionEnd(sessionID, succeeded, durationMs)
+	}
+}
+
+func (m *multiEmitter) EmitMetricsUpdate(sessionID string, iteration, maxIter int, utilization float64, inputTokens, outputTokens, cacheCreate, cacheRead int64, model, provider string) {
+	for _, t := range m.targets {
+		t.EmitMetricsUpdate(sessionID, iteration, maxIter, utilization, inputTokens, outputTokens, cacheCreate, cacheRead, model, provider)
 	}
 }

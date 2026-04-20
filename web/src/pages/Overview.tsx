@@ -1,6 +1,7 @@
 import { useAgentState } from '../hooks/useAgentState'
 import { Layout } from '../components/Layout'
 import { AgentStatus } from '../components/AgentStatus'
+import { TokenUsage } from '../components/TokenUsage'
 import { PhaseTimeline } from '../components/PhaseTimeline'
 import { ToolCallFeed } from '../components/ToolCallFeed'
 import { SessionList } from '../components/SessionList'
@@ -20,6 +21,7 @@ export function Overview() {
         </div>
       )}
       <AgentStatus status={state.status} sessions={state.activeSessions} replanCount={state.replanCount} />
+      <TokenUsage metrics={state.metrics} />
       <PhaseTimeline phases={state.phaseHistory} />
       <ToolCallFeed tools={state.recentTools} />
       <SessionList sessions={state.activeSessions} total={state.totalSessions} />

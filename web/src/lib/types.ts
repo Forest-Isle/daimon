@@ -5,6 +5,7 @@ export type EventType =
   | 'task.update'
   | 'session.start' | 'session.end'
   | 'agent.idle'
+  | 'metrics.update'
 
 export interface DashboardEvent {
   type: EventType
@@ -21,6 +22,15 @@ export interface SessionState {
   phase_started_at?: string
   tools_executed: number
   replan_count: number
+  iteration?: number
+  max_iterations?: number
+  utilization?: number
+  input_tokens?: number
+  output_tokens?: number
+  cache_create?: number
+  cache_read?: number
+  model?: string
+  provider?: string
 }
 
 export interface StateSnapshot {

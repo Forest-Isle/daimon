@@ -233,6 +233,7 @@ func newEvalLongitudinalCmd() *cobra.Command {
 		configPath    string
 		withWorkload  string
 		forceInsights bool
+		judge         bool
 	)
 
 	cmd := &cobra.Command{
@@ -289,6 +290,14 @@ genuine strategy/preference evolution between measurements.`,
 				defer cleanup()
 			}
 
+			var runOpts *eval.RunOptions
+			if judge && live && gw != nil {
+				runOpts = &eval.RunOptions{
+					Judge: eval.NewLLMJudge(gw.LLMProvider()),
+				}
+				fmt.Println("LLM Judge: enabled")
+			}
+
 			ctx := context.Background()
 			var results []*eval.SuiteResult
 			var points []eval.IterationPoint
@@ -297,7 +306,7 @@ genuine strategy/preference evolution between measurements.`,
 				runID := fmt.Sprintf("iter-%03d", i)
 				fmt.Printf("=== Iteration %d/%d (run: %s) ===\n", i, iterations, runID)
 
-				result, runErr := eval.RunSuite(ctx, runID, tasks, runner)
+				result, runErr := eval.RunSuiteWithOptions(ctx, runID, tasks, runner, runOpts)
 				if runErr != nil {
 					return fmt.Errorf("iteration %d: %w", i, runErr)
 				}
@@ -332,11 +341,10 @@ genuine strategy/preference evolution between measurements.`,
 				points = append(points, point)
 				results = append(results, result)
 
-				// Run workload between iterations (skip after last iteration)
 				if len(workloadTasks) > 0 && i < iterations {
 					fmt.Printf("\n  --- Workload injection (%d tasks) ---\n", len(workloadTasks))
 					wlRunID := fmt.Sprintf("workload-%03d", i)
-					wlResult, wlErr := eval.RunSuite(ctx, wlRunID, workloadTasks, runner)
+					wlResult, wlErr := eval.RunSuiteWithOptions(ctx, wlRunID, workloadTasks, runner, runOpts)
 					if wlErr != nil {
 						slog.Warn("workload iteration failed, continuing", "iter", i, "err", wlErr)
 					} else {
@@ -385,6 +393,7 @@ genuine strategy/preference evolution between measurements.`,
 	cmd.Flags().StringVar(&outputDir, "output-dir", "", "directory for iteration results (auto-generated if empty)")
 	cmd.Flags().IntVarP(&iterations, "iterations", "n", 3, "number of evaluation iterations")
 	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent")
+	cmd.Flags().BoolVar(&judge, "judge", true, "enable LLM-as-Judge for tasks with Rubric (requires --live)")
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path (for --live)")
 	cmd.Flags().StringVar(&withWorkload, "with-workload", "", "workload suite to inject between iterations (e.g. 'workload')")
 	cmd.Flags().BoolVar(&forceInsights, "force-insights", true, "trigger insights cycle after each workload injection")

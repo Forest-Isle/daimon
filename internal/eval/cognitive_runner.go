@@ -102,6 +102,8 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 		return result, nil
 	}
 
+	result.AgentOutput = r.channel.LastMessage()
+
 	r.populateFromObservation(result)
 	r.populateFromEvolution(result, sess.ID)
 	r.populateSuccessFallback(result)
@@ -217,6 +219,16 @@ func (r *CognitiveAgentRunner) populateFromEvolution(result *EvalResult, session
 		}
 		if !result.Success {
 			result.Success = ep.Succeeded
+		}
+	}
+
+	if execs := r.hook.GetToolExecs(sessionID); len(execs) > 0 && len(result.ToolsUsed) == 0 {
+		seen := make(map[string]bool)
+		for _, e := range execs {
+			if !seen[e.ToolName] {
+				result.ToolsUsed = append(result.ToolsUsed, e.ToolName)
+				seen[e.ToolName] = true
+			}
 		}
 	}
 }

@@ -3,6 +3,18 @@ import type { DashboardEvent, StateSnapshot, ToolEvent, PhaseEvent } from '../li
 import { fetchAgentState } from '../lib/api'
 import { useWebSocket } from './useWebSocket'
 
+export interface MetricsState {
+  iteration: number
+  maxIter: number
+  utilization: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreate: number
+  cacheRead: number
+  model: string
+  provider: string
+}
+
 interface AgentState {
   status: 'idle' | 'busy'
   activeSessions: StateSnapshot['active_sessions']
@@ -12,6 +24,7 @@ interface AgentState {
   totalSessions: number
   uptimeSeconds: number
   replanCount: number
+  metrics: MetricsState | null
   error: string | null
 }
 
@@ -91,6 +104,18 @@ function reducer(state: AgentState, action: Action): AgentState {
           phaseHistory = []
           replanCount = 0
           break
+        case 'metrics.update':
+          return { ...state, metrics: {
+            iteration: ev.data.iteration as number,
+            maxIter: ev.data.max_iterations as number,
+            utilization: ev.data.utilization as number,
+            inputTokens: ev.data.input_tokens as number,
+            outputTokens: ev.data.output_tokens as number,
+            cacheCreate: ev.data.cache_create as number,
+            cacheRead: ev.data.cache_read as number,
+            model: ev.data.model as string,
+            provider: ev.data.provider as string,
+          }, status: 'busy' }
         case 'session.end':
           status = 'idle'
           phaseHistory = []
@@ -114,6 +139,7 @@ const initialState: AgentState = {
   totalSessions: 0,
   uptimeSeconds: 0,
   replanCount: 0,
+  metrics: null,
   error: null,
 }
 
