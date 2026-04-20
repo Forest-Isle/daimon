@@ -320,11 +320,18 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 				check := r.tokenBudget.Check(sess.History(), systemPrompt)
 				util = check.UsageRatio
 			}
-			var cacheCreate, cacheRead int64
-			if cp, ok := r.provider.(*ClaudeProvider); ok {
-				cacheCreate, cacheRead = cp.GetCacheStats()
+			m := RuntimeMetrics{
+				Iteration:   iteration,
+				MaxIter:     r.cfg.MaxIterations,
+				Utilization: util,
+				Model:       r.llmCfg.Model,
+				Provider:    r.llmCfg.Provider,
 			}
-			r.metricsEmitter.SendMetrics(iteration, r.cfg.MaxIterations, util, cacheCreate, cacheRead)
+			if cp, ok := r.provider.(*ClaudeProvider); ok {
+				m.CacheCreate, m.CacheRead = cp.GetCacheStats()
+				m.InputTokens, m.OutputTokens = cp.GetTokenStats()
+			}
+			r.metricsEmitter.SendMetrics(m)
 		}
 
 		// Each iteration creates a fresh streaming message

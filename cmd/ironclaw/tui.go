@@ -62,6 +62,9 @@ func runTUI(configPath string) error {
 			time.Duration(cfg.Agent.Cognitive.ApprovalTimeoutSeconds) * time.Second,
 		)
 	}
+	if cfg.Dashboard.Enabled && cfg.Dashboard.Addr != "" {
+		tuiAdapter.SetDashboardURL("http://" + cfg.Dashboard.Addr)
+	}
 	gw.AddChannel(tuiAdapter)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -71,9 +74,9 @@ func runTUI(configPath string) error {
 		return fmt.Errorf("start gateway: %w", err)
 	}
 
-	// Wire TUI dashboard emitter (program is created after Start → ch.Start)
+	// Wire TUI emitter alongside (not replacing) the web dashboard emitter.
 	if em := tuiAdapter.Emitter(); em != nil {
-		gw.SetDashboardEmitter(em)
+		gw.AddDashboardEmitter(em)
 		gw.SetMetricsEmitter(em)
 	}
 

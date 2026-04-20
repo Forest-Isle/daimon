@@ -27,6 +27,7 @@ func (gw *Gateway) initDashboard() error {
 	}
 
 	emitter := dashboard.NewEmitter(gw.dashboardBus)
+	gw.dashEmitter = emitter
 	gw.runtime.SetDashboardEmitter(emitter)
 	if gw.cognitiveAgent != nil {
 		gw.cognitiveAgent.SetDashboardEmitter(emitter)

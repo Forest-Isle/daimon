@@ -17,11 +17,18 @@ import (
 type APIPromptCacheStats struct {
 	CacheCreationTokens atomic.Int64
 	CacheReadTokens     atomic.Int64
+	InputTokens         atomic.Int64
+	OutputTokens        atomic.Int64
 }
 
 // Snapshot returns a copy of the current cache stats.
 func (s *APIPromptCacheStats) Snapshot() (creation, read int64) {
 	return s.CacheCreationTokens.Load(), s.CacheReadTokens.Load()
+}
+
+// TokenSnapshot returns cumulative input/output token counts.
+func (s *APIPromptCacheStats) TokenSnapshot() (input, output int64) {
+	return s.InputTokens.Load(), s.OutputTokens.Load()
 }
 
 // ClaudeProvider implements Provider using the Anthropic SDK.
@@ -49,6 +56,11 @@ func (c *ClaudeProvider) supportsCaching() bool {
 // GetCacheStats returns a snapshot of accumulated prompt cache metrics.
 func (c *ClaudeProvider) GetCacheStats() (creation, read int64) {
 	return c.cacheStats.Snapshot()
+}
+
+// GetTokenStats returns cumulative input/output token counts.
+func (c *ClaudeProvider) GetTokenStats() (input, output int64) {
+	return c.cacheStats.TokenSnapshot()
 }
 
 func NewClaudeProvider(apiKey, model, baseURL string) *ClaudeProvider {
@@ -317,8 +329,14 @@ func parseStreamedMessage(msg *anthropic.Message) *CompletionResponse {
 	return result
 }
 
-// trackCacheUsage accumulates prompt cache metrics from an API response.
+// trackCacheUsage accumulates prompt cache and token usage metrics from an API response.
 func (c *ClaudeProvider) trackCacheUsage(usage anthropic.Usage) {
+	if usage.InputTokens > 0 {
+		c.cacheStats.InputTokens.Add(usage.InputTokens)
+	}
+	if usage.OutputTokens > 0 {
+		c.cacheStats.OutputTokens.Add(usage.OutputTokens)
+	}
 	if usage.CacheCreationInputTokens > 0 {
 		c.cacheStats.CacheCreationTokens.Add(usage.CacheCreationInputTokens)
 	}

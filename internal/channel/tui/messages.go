@@ -94,4 +94,8 @@ type metricsUpdateMsg struct {
 	utilization  float64 // 0.0–1.0 context window usage
 	cacheCreate  int64
 	cacheRead    int64
+	inputTokens  int64
+	outputTokens int64
+	model        string
+	provider     string
 }

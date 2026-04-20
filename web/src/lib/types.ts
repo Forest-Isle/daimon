@@ -45,3 +45,55 @@ export interface PhaseEvent {
   duration_ms?: number
   running: boolean
 }
+
+// --- REST API response types (from SQLite) ---
+
+export interface SessionInfo {
+  id: string
+  channel: string
+  channel_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface MessageInfo {
+  id: string
+  role: string
+  content: string
+  tool_name?: string
+  created_at: string
+}
+
+export interface ToolLogEntry {
+  id: string
+  tool_name: string
+  input: string
+  output: string
+  status: string
+  duration_ms: number
+  created_at: string
+}
+
+export interface MetricValue {
+  value: number
+  samples: number
+}
+
+export interface ReplanEfficiency {
+  with_replan: MetricValue
+  without_replan: MetricValue
+}
+
+export interface HealthReport {
+  timestamp: string
+  uptime_ms: number
+  total_episodes: number
+  total_reflections: number
+  strategy_version: number
+  assertion_pass_rate: MetricValue
+  replan_rate: MetricValue
+  replan_efficiency: ReplanEfficiency
+  avg_confidence: MetricValue
+  tool_reliability: Record<string, MetricValue>
+  complexity_success: Record<string, MetricValue>
+}

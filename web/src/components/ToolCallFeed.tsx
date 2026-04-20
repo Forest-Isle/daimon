@@ -11,8 +11,8 @@ export function ToolCallFeed({ tools }: { tools: ToolEvent[] }) {
       {tools.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No tool calls yet</div>
       )}
-      {tools.map((t, i) => (
-        <div key={i} style={{
+      {tools.map(t => (
+        <div key={t.id} style={{
           display: 'flex', gap: 12, padding: '6px 0',
           borderBottom: '1px solid var(--border)', fontSize: 13,
         }}>

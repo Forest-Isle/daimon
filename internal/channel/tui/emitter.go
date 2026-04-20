@@ -1,6 +1,9 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	"github.com/Forest-Isle/IronClaw/internal/agent"
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 // TUIEmitter implements agent.DashboardEmitter by forwarding events as
 // Bubble Tea messages. Safe for concurrent use (tea.Program.Send is goroutine-safe).
@@ -40,16 +43,20 @@ func (e *TUIEmitter) EmitToolEnd(_, toolName string, succeeded bool, durationMs 
 	e.program.Send(toolEndMsg{toolName: toolName, succeeded: succeeded, durationMs: durationMs})
 }
 
-// SendMetrics pushes a metrics snapshot to the TUI.
-func (e *TUIEmitter) SendMetrics(iteration, maxIter int, utilization float64, cacheCreate, cacheRead int64) {
+// SendMetrics pushes a runtime metrics snapshot to the TUI.
+func (e *TUIEmitter) SendMetrics(m agent.RuntimeMetrics) {
 	if e == nil || e.program == nil {
 		return
 	}
 	e.program.Send(metricsUpdateMsg{
-		iteration:   iteration,
-		maxIter:     maxIter,
-		utilization: utilization,
-		cacheCreate: cacheCreate,
-		cacheRead:   cacheRead,
+		iteration:    m.Iteration,
+		maxIter:      m.MaxIter,
+		utilization:  m.Utilization,
+		cacheCreate:  m.CacheCreate,
+		cacheRead:    m.CacheRead,
+		inputTokens:  m.InputTokens,
+		outputTokens: m.OutputTokens,
+		model:        m.Model,
+		provider:     m.Provider,
 	})
 }

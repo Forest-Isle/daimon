@@ -146,11 +146,13 @@ func NewServerMux(deps ServerDeps) http.Handler {
 		mux.HandleFunc("/ws", deps.authMiddleware(deps.Hub.HandleWS))
 	}
 
-	if deps.Collector != nil {
-		mux.HandleFunc("/api/metrics/health", deps.authMiddleware(func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, deps.Collector.Snapshot())
-		}))
-	}
+	mux.HandleFunc("/api/metrics/health", deps.authMiddleware(func(w http.ResponseWriter, _ *http.Request) {
+		if deps.Collector == nil {
+			http.Error(w, "cognitive metrics collector not enabled", http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(w, deps.Collector.Snapshot())
+	}))
 
 	mux.Handle("/", spaHandler{fs: deps.StaticFS})
 

@@ -22,10 +22,11 @@ type Adapter struct {
 	model       *Model
 	emitter     *TUIEmitter
 	stopCh      chan struct{}
-	agentMode   string
-	version     string
-	channelID   string // unique per launch so each TUI invocation gets a fresh session
-	autoApprove bool
+	agentMode    string
+	version      string
+	channelID    string // unique per launch so each TUI invocation gets a fresh session
+	dashboardURL string
+	autoApprove  bool
 
 	// approvalTimeout is the max time to wait for the user to respond
 	// to an approval or reflection request.
@@ -67,12 +68,18 @@ func (a *Adapter) SetAutoApprove(v bool) {
 	a.autoApprove = v
 }
 
+// SetDashboardURL stores the web dashboard URL so it can be shown in the TUI header.
+func (a *Adapter) SetDashboardURL(url string) {
+	a.dashboardURL = url
+}
+
 func (a *Adapter) Name() string { return "tui" }
 
 func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) error {
 	a.handler = handler
 
 	m := NewModel(a.agentMode, a.version)
+	m.dashboardURL = a.dashboardURL
 	a.model = &m
 
 	// Create a custom model wrapper that captures user input

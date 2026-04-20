@@ -69,6 +69,7 @@ type Gateway struct {
 	dashboardHub    *dashboard.Hub
 	dashboardSrv    *http.Server
 	stateTracker    *dashboard.AgentStateTracker
+	dashEmitter     agent.DashboardEmitter
 	cogCollector    *cogmetrics.Collector
 	currentMode     atomic.Value // stores string: "simple" | "cognitive"
 	memoryDir       string // resolved base dir for file-based memory
@@ -273,15 +274,24 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	return nil
 }
 
-// SetDashboardEmitter sets a DashboardEmitter on the runtime and cognitive agent.
-// Useful for wiring channel-specific emitters (e.g. TUI) after Start().
+// SetDashboardEmitter replaces the current DashboardEmitter on the runtime and
+// cognitive agent. Prefer AddDashboardEmitter when multiple consumers must
+// coexist (e.g. web dashboard + TUI).
 func (gw *Gateway) SetDashboardEmitter(e agent.DashboardEmitter) {
+	gw.dashEmitter = e
 	if gw.runtime != nil {
 		gw.runtime.SetDashboardEmitter(e)
 	}
 	if gw.cognitiveAgent != nil {
 		gw.cognitiveAgent.SetDashboardEmitter(e)
 	}
+}
+
+// AddDashboardEmitter merges e with the existing emitter so both the web
+// dashboard and channel-specific consumers (e.g. TUI status bar) receive events.
+func (gw *Gateway) AddDashboardEmitter(e agent.DashboardEmitter) {
+	merged := agent.NewMultiEmitter(gw.dashEmitter, e)
+	gw.SetDashboardEmitter(merged)
 }
 
 // SetMetricsEmitter sets a MetricsEmitter on the runtime for TUI status reporting.

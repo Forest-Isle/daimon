@@ -38,11 +38,15 @@ type toolHistoryEntry struct {
 
 // metricsState holds the latest runtime metrics for display.
 type metricsState struct {
-	iteration   int
-	maxIter     int
-	utilization float64
-	cacheCreate int64
-	cacheRead   int64
+	iteration    int
+	maxIter      int
+	utilization  float64
+	cacheCreate  int64
+	cacheRead    int64
+	inputTokens  int64
+	outputTokens int64
+	model        string
+	provider     string
 }
 
 // Model is the Bubble Tea model for the TUI channel.
@@ -58,6 +62,7 @@ type Model struct {
 	streamingText string
 	agentMode     string // "simple" or "cognitive"
 	version       string
+	dashboardURL  string // non-empty when web dashboard is enabled
 
 	// Approval state
 	approvalTool  string
@@ -563,9 +568,17 @@ func (m Model) View() string {
 
 	var b strings.Builder
 
-	// Header
-	header := headerStyle.Width(m.width).Render(
-		fmt.Sprintf(" IronClaw %s  [%s]", m.version, m.agentMode))
+	// Header — headerStyle has Padding(0,1), so content width = m.width - 2
+	left := fmt.Sprintf(" IronClaw %s  [%s]", m.version, m.agentMode)
+	if m.dashboardURL != "" {
+		dashLabel := "Dashboard: " + m.dashboardURL
+		contentWidth := m.width - 2
+		gap := contentWidth - lipgloss.Width(left) - lipgloss.Width(dashLabel)
+		if gap >= 2 {
+			left += strings.Repeat(" ", gap) + dashLabel
+		}
+	}
+	header := headerStyle.Width(m.width).Render(left)
 	b.WriteString(header)
 	b.WriteString("\n")
 
@@ -609,6 +622,11 @@ func (m Model) View() string {
 func (m Model) renderStatusBar() string {
 	var parts []string
 
+	// Model identifier (shown once metrics arrive)
+	if m.metrics.model != "" {
+		parts = append(parts, statusPhaseStyle.Render(m.metrics.model))
+	}
+
 	// Tool status
 	if m.activeTool != "" {
 		parts = append(parts, statusToolRunningStyle.Render("⏳ "+m.activeTool+"..."))
@@ -637,6 +655,13 @@ func (m Model) renderStatusBar() string {
 		parts = append(parts, style.Render(fmt.Sprintf("ctx:%d%%", pct)))
 	}
 
+	// Token usage
+	totalTokens := m.metrics.inputTokens + m.metrics.outputTokens
+	if totalTokens > 0 {
+		parts = append(parts, statusDimStyle.Render(
+			fmt.Sprintf("tok:%s", formatTokenCount(totalTokens))))
+	}
+
 	// Iteration
 	if m.metrics.maxIter > 0 {
 		parts = append(parts, statusDimStyle.Render(
@@ -659,18 +684,54 @@ func (m Model) renderStatusBar() string {
 func (m Model) renderStatsPanel() string {
 	var b strings.Builder
 
-	// Session section
-	b.WriteString(statsHeaderStyle.Render("Session"))
+	// Model & Session section
+	b.WriteString(statsHeaderStyle.Render("Model & Session"))
 	b.WriteString("\n")
 	streaming := "idle"
 	if m.streamingID != "" {
 		streaming = "active"
 	}
+	model := m.metrics.model
+	if model == "" {
+		model = "—"
+	}
+	provider := m.metrics.provider
+	if provider == "" {
+		provider = "—"
+	}
+	_, _ = fmt.Fprintf(&b, "  %s %s    %s %s\n",
+		statsLabelStyle.Render("Model:"), statsValueStyle.Render(model),
+		statsLabelStyle.Render("Provider:"), statsValueStyle.Render(provider))
 	_, _ = fmt.Fprintf(&b, "  %s %s    %s %s    %s %s    %s %s\n",
 		statsLabelStyle.Render("Mode:"), statsValueStyle.Render(m.agentMode),
 		statsLabelStyle.Render("Ver:"), statsValueStyle.Render(m.version),
 		statsLabelStyle.Render("Msgs:"), statsValueStyle.Render(fmt.Sprintf("%d", len(m.messages))),
 		statsLabelStyle.Render("Stream:"), statsValueStyle.Render(streaming))
+
+	// Token Usage section
+	b.WriteString("\n")
+	b.WriteString(statsHeaderStyle.Render("Token Usage"))
+	b.WriteString("\n")
+	if m.metrics.inputTokens > 0 || m.metrics.outputTokens > 0 {
+		total := m.metrics.inputTokens + m.metrics.outputTokens
+		_, _ = fmt.Fprintf(&b, "  %s %s    %s %s    %s %s\n",
+			statsLabelStyle.Render("Input:"),
+			statsValueStyle.Render(formatTokenCount(m.metrics.inputTokens)),
+			statsLabelStyle.Render("Output:"),
+			statsValueStyle.Render(formatTokenCount(m.metrics.outputTokens)),
+			statsLabelStyle.Render("Total:"),
+			statsValueStyle.Render(formatTokenCount(total)))
+	} else {
+		b.WriteString(statsLabelStyle.Render("  No token data yet"))
+		b.WriteString("\n")
+	}
+	if m.metrics.cacheCreate > 0 || m.metrics.cacheRead > 0 {
+		_, _ = fmt.Fprintf(&b, "  %s %s    %s %s\n",
+			statsLabelStyle.Render("Cache Write:"),
+			statsValueStyle.Render(formatTokenCount(m.metrics.cacheCreate)),
+			statsLabelStyle.Render("Cache Read:"),
+			statsValueStyle.Render(formatTokenCount(m.metrics.cacheRead)))
+	}
 
 	// Tool History section
 	b.WriteString("\n")
@@ -700,7 +761,6 @@ func (m Model) renderStatsPanel() string {
 	b.WriteString(statsHeaderStyle.Render("Context"))
 	b.WriteString("\n")
 
-	// Progress bar
 	pct := m.metrics.utilization
 	barWidth := 30
 	filled := int(pct * float64(barWidth))
@@ -726,15 +786,6 @@ func (m Model) renderStatsPanel() string {
 			statsValueStyle.Render(fmt.Sprintf("%d/%d", m.metrics.iteration+1, m.metrics.maxIter)),
 			statsLabelStyle.Render("Tools:"),
 			statsValueStyle.Render(fmt.Sprintf("%d", m.toolCount)))
-	}
-
-	// Cache stats (only show if we have data)
-	if m.metrics.cacheCreate > 0 || m.metrics.cacheRead > 0 {
-		_, _ = fmt.Fprintf(&b, "  %s %s  %s %s\n",
-			statsLabelStyle.Render("Cache ↑"),
-			statsValueStyle.Render(formatTokenCount(m.metrics.cacheCreate)),
-			statsLabelStyle.Render("↓"),
-			statsValueStyle.Render(formatTokenCount(m.metrics.cacheRead)))
 	}
 
 	return statsPanelStyle.Width(m.width - 2).Render(b.String())
