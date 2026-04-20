@@ -130,3 +130,100 @@ func TestSuiteSummary_ZeroResults(t *testing.T) {
 		t.Errorf("expected 0 success rate for empty suite, got %f", summary.SuccessRate)
 	}
 }
+
+func TestTaskCase_NewFields_BackwardCompatible(t *testing.T) {
+	old := TaskCase{
+		ID:          "legacy",
+		Goal:        "test",
+		Complexity:  "simple",
+		Tags:        []string{"bash"},
+		ExpectTools: []string{"bash"},
+	}
+	if old.Dimension != "" {
+		t.Error("empty Dimension expected for legacy tasks")
+	}
+	if old.Reference != nil {
+		t.Error("nil Reference expected for legacy tasks")
+	}
+	if old.Rubric != nil {
+		t.Error("nil Rubric expected for legacy tasks")
+	}
+
+	exitCode := 0
+	task := TaskCase{
+		ID:           "new-style",
+		Goal:         "test with reference",
+		Complexity:   "moderate",
+		Dimension:    DimPlanning,
+		VerifyMethod: VerifyHybrid,
+		Reference: &Reference{
+			Answer:         "hello world",
+			MustContain:    []string{"hello"},
+			MustNotContain: []string{"error"},
+			FileChecks: []FileCheck{
+				{Path: "/tmp/test.txt", MustExist: true, Contains: "hello"},
+			},
+			ExitCode: &exitCode,
+		},
+		Rubric: &Rubric{
+			Criteria: []JudgeCriterion{
+				{Name: "accuracy", Description: "Is the answer correct?", Weight: 0.6},
+				{Name: "clarity", Description: "Is it clear?", Weight: 0.4},
+			},
+		},
+	}
+
+	if task.Dimension != DimPlanning {
+		t.Error("Dimension should be planning")
+	}
+	if len(task.Reference.MustContain) != 1 {
+		t.Error("MustContain should have 1 entry")
+	}
+	if len(task.Rubric.Criteria) != 2 {
+		t.Error("Rubric should have 2 criteria")
+	}
+	totalWeight := 0.0
+	for _, c := range task.Rubric.Criteria {
+		totalWeight += c.Weight
+	}
+	if totalWeight < 0.99 || totalWeight > 1.01 {
+		t.Errorf("Rubric weights should sum to 1.0, got %f", totalWeight)
+	}
+}
+
+func TestEvalResult_NewFields(t *testing.T) {
+	result := EvalResult{
+		TaskID:    "test",
+		Success:   true,
+		Dimension: DimConversation,
+		AgentOutput: "The answer is 42.",
+		VerifyResult: &VerifyResult{
+			Passed: true,
+			Score:  1.0,
+			Checks: []CheckResult{
+				{Name: "must_contain:42", Passed: true, Detail: "found '42'"},
+			},
+		},
+		JudgeResult: &JudgeResult{
+			Scores:     map[string]float64{"accuracy": 0.9, "clarity": 0.8},
+			Overall:    0.86,
+			Reasoning:  "Good answer with clear explanation.",
+			Weaknesses: []string{},
+		},
+		FinalScore:      0.93,
+		FailureCategory: "",
+	}
+
+	if result.Dimension != DimConversation {
+		t.Error("Dimension mismatch")
+	}
+	if result.VerifyResult.Score != 1.0 {
+		t.Error("VerifyResult.Score mismatch")
+	}
+	if result.JudgeResult.Overall != 0.86 {
+		t.Error("JudgeResult.Overall mismatch")
+	}
+	if result.FinalScore != 0.93 {
+		t.Error("FinalScore mismatch")
+	}
+}

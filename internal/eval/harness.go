@@ -19,6 +19,38 @@ type TaskCase struct {
 	// SuccessFunc is an optional programmatic check run after execution.
 	// When nil the result relies on the agent's own reflection.
 	SuccessFunc func(result *EvalResult) bool `json:"-"`
+
+	Dimension    Dimension    `json:"dimension,omitempty"`
+	VerifyMethod VerifyMethod `json:"verify_method,omitempty"`
+	Reference    *Reference   `json:"reference,omitempty"`
+	Rubric       *Rubric      `json:"rubric,omitempty"`
+	SetupFunc    func() error `json:"-"`
+	CleanupFunc  func() error `json:"-"`
+}
+
+type Reference struct {
+	Answer         string      `json:"answer,omitempty"`
+	MustContain    []string    `json:"must_contain,omitempty"`
+	MustNotContain []string    `json:"must_not_contain,omitempty"`
+	FileChecks     []FileCheck `json:"file_checks,omitempty"`
+	ExitCode       *int        `json:"exit_code,omitempty"`
+}
+
+type FileCheck struct {
+	Path        string `json:"path"`
+	MustExist   bool   `json:"must_exist"`
+	Contains    string `json:"contains,omitempty"`
+	NotContains string `json:"not_contains,omitempty"`
+}
+
+type Rubric struct {
+	Criteria []JudgeCriterion `json:"criteria"`
+}
+
+type JudgeCriterion struct {
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Weight      float64 `json:"weight"`
 }
 
 // EvalResult captures the outcome of running one TaskCase.
@@ -36,6 +68,32 @@ type EvalResult struct {
 	Confidence        float64       `json:"confidence"`
 	Error             string        `json:"error,omitempty"`
 	Timestamp         time.Time     `json:"timestamp"`
+
+	Dimension       Dimension     `json:"dimension,omitempty"`
+	AgentOutput     string        `json:"agent_output,omitempty"`
+	VerifyResult    *VerifyResult `json:"verify_result,omitempty"`
+	JudgeResult     *JudgeResult  `json:"judge_result,omitempty"`
+	FinalScore      float64       `json:"final_score,omitempty"`
+	FailureCategory string        `json:"failure_category,omitempty"`
+}
+
+type VerifyResult struct {
+	Passed bool          `json:"passed"`
+	Checks []CheckResult `json:"checks"`
+	Score  float64       `json:"score"`
+}
+
+type CheckResult struct {
+	Name   string `json:"name"`
+	Passed bool   `json:"passed"`
+	Detail string `json:"detail,omitempty"`
+}
+
+type JudgeResult struct {
+	Scores     map[string]float64 `json:"scores"`
+	Overall    float64            `json:"overall"`
+	Reasoning  string             `json:"reasoning"`
+	Weaknesses []string           `json:"weaknesses,omitempty"`
 }
 
 // EvolutionSnapshot captures evolution subsystem state at a point in time.
