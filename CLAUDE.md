@@ -30,16 +30,26 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 - `simple` — linear loop: system prompt → LLM → tool calls → repeat (up to `max_iterations`)
 - `cognitive` — 5-phase loop: PERCEIVE → PLAN → ACT → OBSERVE → REFLECT, with replan support
 
+**Feature Registry** (`internal/feature/`, `internal/gateway/features.go`):
+- Centralized feature lifecycle management: register → dependency resolution (Kahn topo-sort) → auto-detect → enable/disable
+- 15 features across 3 tiers: Tier 1 (default ON, no deps), Tier 2 (auto-detect), Tier 3 (opt-in)
+- Config file `enabled` fields are overrides — features use `Feature.Default` when not configured
+- Runtime control via `/feature list|enable|disable` slash commands
+- `featureEnabled(name)` nil-safe helper used by all `init_*.go` files (replaces scattered `cfg.XXX.Enabled` checks)
+- AutoDetect: sandbox probes Docker; knowledge degrades to BM25-only without OpenAI key
+- Adding a new feature: register in `gateway/features.go`, done (no config struct / yaml / init gate changes needed)
+
 **Gateway wiring order** (`internal/gateway/gateway.go`) — initialization is sequential and order-dependent:
-1. DB → session manager → tool registry → LLM provider (Claude or OpenAI based on `llm.provider`) → agent runtime
-2. Memory store (optional fact extractor + lifecycle manager + profiler)
-3. Cognitive agent (if mode=cognitive)
-4. Knowledge base + hybrid retriever + knowledge graph (if enabled)
-5. SubAgentManager → AgentManager (with `.md` + `.yaml` agent specs) → TeamCoordinator (executor upgraded to use SubAgentManager.Spawn)
-6. Interceptor chain: PermissionInterceptor → HookInterceptor → SandboxInterceptor (if sandbox.enabled) → inject into runtime/cognitiveAgent
-7. Dashboard subsystem (if dashboard.enabled): Bus → StateTracker → EvolutionBridge → Emitter → Hub → HTTP server
-8. ContextManager (always created, wraps CompressionPipeline if strategy=layered)
-9. Skill manager → scheduler → channels
+1. DB → session manager → **Feature Registry** (register → apply config overrides → resolve & init)
+2. Tool registry → LLM provider (Claude or OpenAI based on `llm.provider`) → agent runtime
+3. Memory store (optional fact extractor + lifecycle manager + profiler)
+4. Cognitive agent (if mode=cognitive)
+5. Knowledge base + hybrid retriever + knowledge graph (if enabled)
+6. SubAgentManager → AgentManager (with `.md` + `.yaml` agent specs) → TeamCoordinator (executor upgraded to use SubAgentManager.Spawn)
+7. Interceptor chain: PermissionInterceptor → HookInterceptor → SandboxInterceptor (if sandbox.enabled) → inject into runtime/cognitiveAgent
+8. Dashboard subsystem (if dashboard.enabled): Bus → StateTracker → EvolutionBridge → Emitter → Hub → HTTP server
+9. ContextManager (always created, wraps CompressionPipeline if strategy=layered)
+10. Skill manager → scheduler → channels
 
 **Sub-agent isolation** (`internal/agent/subagent.go`):
 - `SubAgentManager` is the central manager for sub-agent lifecycle: `Spawn()` creates an isolated session + scoped tool registry + model override per invocation, runs a full `Runtime` loop, extracts structured results, and cleans up ephemeral sessions
@@ -95,6 +105,7 @@ Single test: `CGO_ENABLED=1 go test -tags "fts5" -run TestName ./internal/packag
 
 ## Key Packages
 
+- `internal/feature/` — **Feature Registry**: `feature.go` (Feature struct, Phase enum, DetectResult, FeatureInfo), `registry.go` (Registry with Kahn topo-sort, Register/ApplyOverrides/ResolveAndInit/Enable/Disable/IsEnabled/List). Thread-safe via `sync.RWMutex`. Used by gateway to manage 15 features across 3 tiers. Slash commands: `/feature list|enable|disable`, `/config show`, `/compact`, `/model`
 - `internal/agent/` — Provider interface (ClaudeProvider + OpenAIProvider), Runtime (simple), CognitiveAgent (5-phase), context building, history compaction. Cognitive subsystems: `assertion.go` (auto-verification for 10+ tool types with Observation Metadata and 3-tier fallback), `failure_context.go` (structured error analysis for REFLECT), `checkpoint.go` (SQLite-backed task resume), `tool_cache.go` (per-task read-only result cache), `project_scanner.go` (project type detection), `git_context.go` (branch/status/log injection), `context_budget.go` (complexity-aware context allocation), `context_manager.go` (ContextManager interface + PipelineContextManager with 5-layer compression + reactive 413 retry), `speculative.go` (read-only tool pre-execution during streaming). **Sub-agent subsystem**: `subagent.go` (SubAgentManager — context-isolated sub-agent lifecycle), `subagent_result.go` (structured result extraction with XML template + LLM fallback), `agent_tool.go` (AgentTool delegates to SubAgentManager), `agent_manager.go` (loads `.md` agent specs with YAML frontmatter + Markdown system prompt), `spec.go` (AgentSpec with FailureStrategy). **OpenAI subsystem**: `openai.go` (OpenAIProvider with Complete + Stream + SSE parsing, pure net/http, zero SDK dependency)
 - `internal/memory/` — **File-based storage**: Markdown files at `~/.ironclaw/memory/` as primary storage (YAML frontmatter + content), SQLite as auxiliary index for FTS5+vector hybrid search (RRF fusion). Scopes: session/user/global/feedback. Lifecycle management (ADD/UPDATE/DELETE/NOOP) with conflict detection. Forgetting curve integration for strength-based ranking and auto-archival. Migration tool: `ironclaw memory migrate` converts legacy SQLite data to files. **User Profile subsystem**: `profile_schema.go` (section registry with priority routing), `section_buffer.go` (per-section fact buffering with count/time triggers), `profiler.go` (fact routing → LLM-based section updates → `profile_*.md` files; `LoadProfileSections` for prompt injection; `ColdStartPrompt` for early-interaction learning; `MigrateLegacyProfile` for single→multi-section conversion). Profile files use `type: profile` with `ExcludeTypes` filtering to prevent duplicate injection.
 - `internal/dashboard/` — **Web Dashboard**: `eventbus.go` (in-process pub/sub, 10 event types, non-blocking publish), `emitter.go` (DashboardEmitter implementation), `state_tracker.go` (in-memory agent state snapshots via sync.RWMutex), `evolution_bridge.go` (evolution.Hook → dashboard events), `ws_hub.go` (WebSocket connection management + broadcast), `server.go` (HTTP server with 7 REST endpoints + SPA fallback + token auth), `embed.go` (go:embed for Preact SPA dist)

@@ -1,4 +1,12 @@
 # IronClaw 配置示例
+#
+# 大部分功能默认开启，无需手动 enabled: true。
+# 此文件中的 enabled 字段仅作为覆盖：省略则使用 Feature Registry 默认值。
+# 运行时可通过 /feature list 查看所有功能状态，/feature enable|disable 开关功能。
+#
+# 默认开启: memory, skills, multi_agent, team, speculative, scheduler, knowledge,
+#           knowledge_graph, reranker, sandbox (auto-detect Docker)
+# 默认关闭: evolution, rl, model_routing, dashboard, server
 
 llm:
   provider: claude                               # "claude" (default) or "openai" / "openai-compatible"
@@ -128,7 +136,7 @@ store:
   path: "./data/ironclaw.db"
 
 memory:
-  enabled: true
+  # enabled: true                      # 默认开启，无需显式设置
   storage_type: file                   # "file" (推荐) 或 "sqlite" (传统)
   storage_dir: ~/.IronClaw/memory      # 文件存储目录（默认）
   embedding_model: text-embedding-3-small  # 或 text-embedding-3-large（3072维，更高精度）
@@ -153,7 +161,7 @@ memory:
 
 # 知识库 - 文档摄入 + BM25/向量混合检索
 knowledge:
-  enabled: false
+  # enabled: true                      # 默认开启（无 OpenAI key 时退化为 BM25-only）
   chunk_size: 512
   chunk_overlap: 64
   bm25_weight: 0.4
@@ -172,7 +180,7 @@ knowledge:
   # search_cache_ttl: 5m           # 缓存过期时间
 
 scheduler:
-  enabled: true
+  # enabled: true                      # 默认开启
 
 tools:
   bash:
