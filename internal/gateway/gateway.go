@@ -249,8 +249,8 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		slog.Info("scheduler started")
 	}
 
-	// Start HTTP admin server if enabled
-	if gw.features.IsEnabled("server") && !gw.cfg.Dashboard.Enabled {
+	// Start HTTP admin server if enabled (standalone only — dashboard has its own server)
+	if gw.features.IsEnabled("server") && !gw.featureEnabled("dashboard") {
 		go startHTTPServer(gw.cfg.Server.Addr, gw.db)
 	}
 
@@ -272,13 +272,11 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		slog.Info("RL trainer started")
 	}
 
-	// Start evolution engine
-	if gw.evoEngine != nil {
+	// Start evolution engine only when feature is enabled
+	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
 		gw.evoEngine.Start()
 
-		// If both RL and evolution are enabled, import historical trajectories
-		// into the RL replay buffer for warm-starting.
-		if gw.rlTrainer != nil && gw.cfg.Evolution.Enabled {
+		if gw.rlTrainer != nil {
 			go gw.importTrajectoriesToRL()
 		}
 	}

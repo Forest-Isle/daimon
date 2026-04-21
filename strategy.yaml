@@ -1,0 +1,26 @@
+version: 6
+updated_at: 2026-04-21T12:19:20.231397+08:00
+replan_threshold:
+    value: 0.27
+    previous: 0.3
+    reason: replan effective (100.0% vs no-replan 77.8%)
+tool_priorities:
+    bash:
+        value: 0.6050000000000001
+        previous: 0.55
+        reason: tool highly successful (83.3%)
+    file_edit:
+        value: 0.7320500000000003
+        previous: 0.6655000000000002
+        reason: tool highly successful (100.0%)
+    file_read:
+        value: 0.45
+        previous: 0.5
+        reason: tool underperforming (33.3%)
+    file_write:
+        value: 0.5
+        previous: 0.5
+        reason: initial observation
+metrics:
+    overall_success_rate: 0.68
+    episodes_analyzed: 50

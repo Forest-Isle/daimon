@@ -14,7 +14,14 @@ func (gw *Gateway) initDashboard() error {
 	if !gw.featureEnabled("dashboard") {
 		return nil
 	}
+	return gw.setupDashboard()
+}
 
+// setupDashboard performs the actual dashboard initialization.
+// Separated from initDashboard so that lifecycle hooks can call it
+// without going through featureEnabled() (which would deadlock since
+// Registry.Enable holds the mutex when invoking OnEnable).
+func (gw *Gateway) setupDashboard() error {
 	gw.dashboardBus = dashboard.NewBus(256)
 	gw.stateTracker = dashboard.NewAgentStateTracker(gw.dashboardBus)
 	go gw.stateTracker.Run()
@@ -64,9 +71,9 @@ func (gw *Gateway) initDashboard() error {
 
 func (gw *Gateway) startDashboard() error {
 	if gw.dashboardHub != nil {
-		return nil // already running
+		return nil
 	}
-	return gw.initDashboard()
+	return gw.setupDashboard()
 }
 
 func (gw *Gateway) stopDashboard() error {

@@ -1,42 +1,38 @@
 ---
-name: Bug Report
-about: Report a bug to help us improve IronClaw
-title: "[Bug] "
+name: "🐛 Bug Report"
+about: "Report a bug or unexpected behavior"
+title: '[BUG] '
 labels: bug
+priority: bug
 assignees: ''
 ---
 
-## Describe the Bug
-
-A clear and concise description of what the bug is.
+## Bug Description
+[Describe the bug or unexpected behavior clearly and concisely]
 
 ## Steps to Reproduce
-
-1. ...
-2. ...
-3. ...
+1. [First step]
+2. [Second step]
+3. [Third step, etc.]
 
 ## Expected Behavior
-
-What you expected to happen.
+[What did you expect to happen?]
 
 ## Actual Behavior
-
-What actually happened.
+[What actually happened instead?]
 
 ## Environment
+- IronClaw version: [e.g., v0.4.0]
+- Go version: [e.g., 1.24.2]
+- OS: [e.g., macOS 14.0, Ubuntu 22.04]
+- LLM Provider: [e.g., Claude, OpenAI, Ollama]
+- Agent Mode: [e.g., simple, cognitive]
 
-- OS: [e.g., Ubuntu 22.04, macOS 14]
-- Go version: [e.g., 1.23.0]
-- IronClaw version: [e.g., v0.1.0]
-- Installation method: [source / Docker / binary]
+## Configuration
+[Paste relevant configuration (sensitive data redacted)]
 
 ## Logs
-
-```
-Paste relevant log output here
-```
+[Paste relevant log output, including stack traces if available]
 
 ## Additional Context
-
-Any other context about the problem.
+[Any other relevant information, screenshots, or related issues]

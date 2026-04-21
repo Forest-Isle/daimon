@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -253,6 +254,51 @@ func TestHotReloadableInList(t *testing.T) {
 	}
 	assert.True(t, hotReloadableMap["hot"])
 	assert.False(t, hotReloadableMap["cold"])
+}
+
+func TestEnableHookCanCallIsEnabled(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Feature{Name: "base", Default: true})
+	r.Register(Feature{Name: "hot", Default: false, HotReloadable: true})
+	require.NoError(t, r.ResolveAndInit(context.Background()))
+
+	require.NoError(t, r.SetOnEnable("hot", func(ctx context.Context) error {
+		_ = r.IsEnabled("base")
+		return nil
+	}))
+
+	done := make(chan error, 1)
+	go func() { done <- r.Enable(context.Background(), "hot") }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+		assert.True(t, r.IsEnabled("hot"))
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: Enable() did not return within 2s")
+	}
+}
+
+func TestDisableHookCanCallIsEnabled(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Feature{Name: "live", Default: true, HotReloadable: true})
+	require.NoError(t, r.ResolveAndInit(context.Background()))
+
+	require.NoError(t, r.SetOnDisable("live", func(ctx context.Context) error {
+		_ = r.IsEnabled("live")
+		return nil
+	}))
+
+	done := make(chan error, 1)
+	go func() { done <- r.Disable(context.Background(), "live") }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+		assert.False(t, r.IsEnabled("live"))
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: Disable() did not return within 2s")
+	}
 }
 
 func TestEnabledNames(t *testing.T) {

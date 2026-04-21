@@ -195,53 +195,65 @@ func (r *Registry) IsEnabled(name string) bool {
 }
 
 // Enable activates a previously disabled feature at runtime.
+// The lock is released before calling OnEnable to avoid deadlocks when the
+// hook calls back into the Registry (e.g. IsEnabled).
 func (r *Registry) Enable(ctx context.Context, name string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	st, ok := r.states[name]
 	if !ok {
+		r.mu.Unlock()
 		return fmt.Errorf("unknown feature %q", name)
 	}
 	if st.enabled {
+		r.mu.Unlock()
 		return nil
 	}
 
 	if st.feature.AutoDetect != nil {
 		result := st.feature.AutoDetect(ctx)
 		if !result.Available {
+			r.mu.Unlock()
 			return fmt.Errorf("feature %q not available: %s", name, result.Reason)
 		}
 	}
 
 	for _, dep := range st.feature.Dependencies {
 		if depSt, ok := r.states[dep]; ok && !depSt.enabled {
+			r.mu.Unlock()
 			return fmt.Errorf("dependency %q is not enabled", dep)
 		}
 	}
 
-	if st.feature.OnEnable != nil {
-		if err := st.feature.OnEnable(ctx); err != nil {
+	onEnable := st.feature.OnEnable
+	r.mu.Unlock()
+
+	if onEnable != nil {
+		if err := onEnable(ctx); err != nil {
 			return fmt.Errorf("OnEnable for %q failed: %w", name, err)
 		}
 	}
 
+	r.mu.Lock()
 	st.enabled = true
 	st.reason = "enabled at runtime"
+	r.mu.Unlock()
 	return nil
 }
 
 // Disable deactivates an enabled feature at runtime.
 // Fails if another enabled feature depends on this one.
+// The lock is released before calling OnDisable to avoid deadlocks.
 func (r *Registry) Disable(ctx context.Context, name string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	st, ok := r.states[name]
 	if !ok {
+		r.mu.Unlock()
 		return fmt.Errorf("unknown feature %q", name)
 	}
 	if !st.enabled {
+		r.mu.Unlock()
 		return nil
 	}
 
@@ -251,19 +263,25 @@ func (r *Registry) Disable(ctx context.Context, name string) error {
 		}
 		for _, dep := range otherSt.feature.Dependencies {
 			if dep == name {
+				r.mu.Unlock()
 				return fmt.Errorf("cannot disable %q: feature %q depends on it", name, otherName)
 			}
 		}
 	}
 
-	if st.feature.OnDisable != nil {
-		if err := st.feature.OnDisable(ctx); err != nil {
+	onDisable := st.feature.OnDisable
+	r.mu.Unlock()
+
+	if onDisable != nil {
+		if err := onDisable(ctx); err != nil {
 			return fmt.Errorf("OnDisable for %q failed: %w", name, err)
 		}
 	}
 
+	r.mu.Lock()
 	st.enabled = false
 	st.reason = "disabled at runtime"
+	r.mu.Unlock()
 	return nil
 }
 
