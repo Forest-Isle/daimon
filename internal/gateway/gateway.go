@@ -458,6 +458,12 @@ func (gw *Gateway) LLMProvider() agent.Provider {
 	return gw.provider
 }
 
+// Features returns the feature registry, allowing callers to inspect which
+// features are enabled. Returns nil if the registry was not initialized.
+func (gw *Gateway) Features() *feature.Registry {
+	return gw.features
+}
+
 // handleInbound routes incoming messages to the agent runtime.
 func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage) {
 	if msg.Text == "" {
