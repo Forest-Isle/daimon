@@ -29,7 +29,7 @@ func GenerateSuggestions(input string, cursorPos int, argCompleter ArgCompleter)
 		return nil
 	}
 
-	parts := strings.SplitN(input, " ", -1)
+	parts := strings.Split(input, " ")
 	commandPart := parts[0] // e.g. "/feature"
 
 	// If there is no space yet, complete the command name

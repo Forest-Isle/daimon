@@ -144,14 +144,14 @@ func (r *Runtime) executeTools(
 // It suggests alternative tools based on the denied tool's category.
 func buildDeniedOutput(toolName, reason string) string {
 	var hint string
-	switch {
-	case toolName == "bash":
+	switch toolName {
+	case "bash":
 		hint = "\n[Recovery Hint: bash was denied. Consider using file_read/file_write/file_list for file operations, or http for network requests. If you need to process data, reason about it directly from available information.]"
-	case toolName == "file_read":
+	case "file_read":
 		hint = "\n[Recovery Hint: file_read was denied. If you have information in the conversation context or error messages, reason from that data directly without requiring file access.]"
-	case toolName == "file_write" || toolName == "file_edit":
+	case "file_write", "file_edit":
 		hint = "\n[Recovery Hint: file write was denied. Consider writing to a different path (e.g., /tmp/) or using bash with echo/tee if available.]"
-	case toolName == "http":
+	case "http":
 		hint = "\n[Recovery Hint: HTTP request was denied. Consider using browser_search or browser_extract as alternatives, or work with cached/available data.]"
 	default:
 		hint = "\n[Recovery Hint: This tool was denied. Consider alternative tools or approaches to accomplish the same goal. You can still reason from available context.]"

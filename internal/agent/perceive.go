@@ -260,10 +260,7 @@ func assessAmbiguity(lower string, words []string) float64 {
 		score += 0.2
 	}
 
-	hasSpecifics := false
-	if strings.Contains(lower, "/") || strings.Contains(lower, "\"") || strings.Contains(lower, "'") {
-		hasSpecifics = true
-	}
+	hasSpecifics := strings.Contains(lower, "/") || strings.Contains(lower, "\"") || strings.Contains(lower, "'")
 	for _, w := range words {
 		isNumber := true
 		for _, c := range w {
