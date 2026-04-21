@@ -11,7 +11,7 @@ import (
 )
 
 func (gw *Gateway) initKnowledgeSystem() error {
-	if !gw.cfg.Knowledge.Enabled {
+	if !gw.featureEnabled("knowledge") {
 		return nil
 	}
 
@@ -35,7 +35,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 
 	// Build reranker + hybrid retriever (used as the searcher for perceiver)
 	var reranker knowledge.Reranker = &knowledge.NoopReranker{}
-	if gw.cfg.Knowledge.Reranker.Enabled && gw.cfg.Knowledge.Reranker.Provider == "llm" {
+	if gw.featureEnabled("reranker") && gw.cfg.Knowledge.Reranker.Provider == "llm" {
 		llmCompleter := &completerAdapter{provider: gw.provider, model: gw.cfg.LLM.Model}
 		reranker = knowledge.NewLLMReranker(llmCompleter)
 	}
@@ -53,7 +53,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 	}
 
 	// Knowledge graph (Phase 3)
-	if gw.cfg.Knowledge.GraphEnabled || gw.cfg.Graph.Enabled {
+	if gw.featureEnabled("knowledge_graph") {
 		kg := graph.NewSQLiteGraph(gw.db)
 		llmCompleter := &completerAdapter{provider: gw.provider, model: gw.cfg.LLM.Model}
 		extractor := graph.NewLLMEntityExtractor(kg, llmCompleter)

@@ -13,7 +13,7 @@ import (
 )
 
 func (gw *Gateway) initMemorySystem() error {
-	if !gw.cfg.Memory.Enabled {
+	if !gw.featureEnabled("memory") {
 		return nil
 	}
 
