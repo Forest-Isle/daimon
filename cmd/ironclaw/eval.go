@@ -185,8 +185,8 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 	// exercise real agent capabilities rather than skipping due to disabled features.
 	cfg.Memory.Enabled = true
 	cfg.Knowledge.Enabled = true
-	cfg.Agents.Enabled = true      // multi_agent feature
-	cfg.Agent.Team.Enabled = true  // team feature
+	cfg.Agents.Enabled = true     // multi_agent feature
+	cfg.Agent.Team.Enabled = true // team feature
 
 	// Disable dashboard in eval mode — it's not needed for headless evaluation and
 	// can cause port conflicts if a TUI or previous eval is running concurrently.
@@ -254,7 +254,7 @@ func newEvalCompareCmd() *cobra.Command {
 			}
 
 			if failOnRegression && len(report.Regressions) > 0 {
-				fmt.Fprintf(os.Stderr, "❌ %d regression(s) detected.\n", len(report.Regressions))
+				fmt.Fprintf(os.Stderr, "[!] %d regression(s) detected.\n", len(report.Regressions))
 				os.Exit(1)
 			}
 

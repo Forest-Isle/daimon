@@ -12,11 +12,11 @@ import (
 
 // LifecycleDecision represents the action to take for a new fact candidate.
 type LifecycleDecision struct {
-	Action        MemoryAction
-	TargetID      string   // for UPDATE/DELETE: the existing entry ID
-	Reason        string
+	Action         MemoryAction
+	TargetID       string // for UPDATE/DELETE: the existing entry ID
+	Reason         string
 	ConflictingIDs []string // IDs of conflicting memories
-	RelatedTo     string   // ID of related memory for complementary facts
+	RelatedTo      string   // ID of related memory for complementary facts
 }
 
 // LifecycleResult describes the outcome of a single Process() call.
@@ -50,7 +50,7 @@ func (s MemoryOperationSummary) String() string {
 	if s.Deleted > 0 {
 		parts = append(parts, fmt.Sprintf("%d deleted", s.Deleted))
 	}
-	return "🧠 Memory: " + strings.Join(parts, ", ")
+	return "Memory: " + strings.Join(parts, ", ")
 }
 
 // GraphSyncer is an optional interface for syncing memory events to the knowledge graph.

@@ -38,47 +38,47 @@ import (
 
 // Gateway is the central coordinator that wires all modules together.
 type Gateway struct {
-	cfg            *config.Config
-	db             *store.DB
-	sessions       *session.Manager
-	provider       agent.Provider        // stored for completerAdapter use
-	runtime        *agent.Runtime
-	cognitiveAgent *agent.CognitiveAgent
-	tools          *tool.Registry
-	hookMgr        *hook.Manager
-	permEngine     *tool.PermissionEngine
-	memStore       memory.Store
-	factExtractor  *memory.LLMFactExtractor
-	lifecycleMgr   *memory.LifecycleManager
-	skillMgr       *skill.Manager
-	channels       map[string]channel.Channel
-	sched          *scheduler.Scheduler
-	mcpManager     *mcp.Manager
-	rlTrainer      *rl.Trainer
-	resultStore    *tool.ResultStore
-	consolidator   *memory.Consolidator
-	compactor      *memory.Compactor
-	graphDecay     *graph.GraphDecayTask
+	cfg              *config.Config
+	db               *store.DB
+	sessions         *session.Manager
+	provider         agent.Provider // stored for completerAdapter use
+	runtime          *agent.Runtime
+	cognitiveAgent   *agent.CognitiveAgent
+	tools            *tool.Registry
+	hookMgr          *hook.Manager
+	permEngine       *tool.PermissionEngine
+	memStore         memory.Store
+	factExtractor    *memory.LLMFactExtractor
+	lifecycleMgr     *memory.LifecycleManager
+	skillMgr         *skill.Manager
+	channels         map[string]channel.Channel
+	sched            *scheduler.Scheduler
+	mcpManager       *mcp.Manager
+	rlTrainer        *rl.Trainer
+	resultStore      *tool.ResultStore
+	consolidator     *memory.Consolidator
+	compactor        *memory.Compactor
+	graphDecay       *graph.GraphDecayTask
 	evoEngine        *evolution.Engine
 	dockerSessionMgr *sandbox.DockerSessionManager
 	interceptorChain *tool.InterceptorChain
-	taskLedger      *taskledger.SQLiteTaskLedger
-	teamCoordinator *taskledger.TeamCoordinator
-	subAgentMgr     *agent.SubAgentManager
-	staleDetector   *taskledger.StaleDetector
-	dashboardBus    *dashboard.Bus
-	dashboardHub    *dashboard.Hub
-	dashboardSrv    *http.Server
-	stateTracker    *dashboard.AgentStateTracker
-	dashEmitter     agent.DashboardEmitter
-	contextMgr      *agent.PipelineContextManager
-	features        *feature.Registry
+	taskLedger       *taskledger.SQLiteTaskLedger
+	teamCoordinator  *taskledger.TeamCoordinator
+	subAgentMgr      *agent.SubAgentManager
+	staleDetector    *taskledger.StaleDetector
+	dashboardBus     *dashboard.Bus
+	dashboardHub     *dashboard.Hub
+	dashboardSrv     *http.Server
+	stateTracker     *dashboard.AgentStateTracker
+	dashEmitter      agent.DashboardEmitter
+	contextMgr       *agent.PipelineContextManager
+	features         *feature.Registry
 	featureStatePath string // path to ~/.IronClaw/feature_state.json
-	cogCollector    *cogmetrics.Collector
-	currentMode     atomic.Value // stores string: "simple" | "cognitive"
-	memoryDir       string // resolved base dir for file-based memory
-	stopCh          chan struct{} // closed in Stop() to signal background goroutines
-	stopOnce        sync.Once    // ensures stopCh is closed exactly once
+	cogCollector     *cogmetrics.Collector
+	currentMode      atomic.Value  // stores string: "simple" | "cognitive"
+	memoryDir        string        // resolved base dir for file-based memory
+	stopCh           chan struct{} // closed in Stop() to signal background goroutines
+	stopOnce         sync.Once     // ensures stopCh is closed exactly once
 }
 
 // GatewayOptions configures optional behaviour for Gateway.New.
@@ -540,14 +540,14 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 			_ = ch.Send(ctx, channel.OutboundMessage{
 				Channel:   msg.Channel,
 				ChannelID: msg.ChannelID,
-				Text:      "⚠️ Failed to reset session: " + err.Error(),
+				Text:      "Error: failed to reset session: " + err.Error(),
 			})
 			return
 		}
 		_ = ch.Send(ctx, channel.OutboundMessage{
 			Channel:   msg.Channel,
 			ChannelID: msg.ChannelID,
-			Text:      "🔄 New conversation started.",
+			Text:      "New conversation started.",
 		})
 		return
 	}
@@ -560,7 +560,7 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 			_ = ch.Send(ctx, channel.OutboundMessage{
 				Channel:   msg.Channel,
 				ChannelID: msg.ChannelID,
-				Text:      "⚠️ Error: " + err.Error(),
+				Text:      "Error: " + err.Error(),
 			})
 		}
 		return
@@ -571,7 +571,7 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 		_ = ch.Send(ctx, channel.OutboundMessage{
 			Channel:   msg.Channel,
 			ChannelID: msg.ChannelID,
-			Text:      "⚠️ Error: " + err.Error(),
+			Text:      "Error: " + err.Error(),
 		})
 	}
 }
@@ -692,7 +692,7 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 	running := taskledger.TaskStateRunning
 	runningTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &running})
 	if err != nil {
-		target.Text = "⚠️ Failed to list tasks: " + err.Error()
+		target.Text = "Error: failed to list tasks: " + err.Error()
 		_ = ch.Send(ctx, target)
 		return
 	}
@@ -700,13 +700,13 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 	pending := taskledger.TaskStatePending
 	pendingTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &pending})
 	if err != nil {
-		target.Text = "⚠️ Failed to list tasks: " + err.Error()
+		target.Text = "Error: failed to list tasks: " + err.Error()
 		_ = ch.Send(ctx, target)
 		return
 	}
 
 	var b strings.Builder
-	b.WriteString("📋 Task Ledger\n\n")
+	b.WriteString("**Task Ledger**\n\n")
 
 	if len(runningTasks) == 0 && len(pendingTasks) == 0 {
 		b.WriteString("No active tasks.")
@@ -792,16 +792,16 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 func (gw *Gateway) handleModeCommand(arg string) string {
 	current := gw.CurrentMode()
 	if arg == "" {
-		return fmt.Sprintf("ℹ️ Current mode: %s", current)
+		return fmt.Sprintf("Mode: %s", current)
 	}
 	if arg != "simple" && arg != "cognitive" {
-		return fmt.Sprintf("❌ Unknown mode %q. Valid modes: simple, cognitive", arg)
+		return fmt.Sprintf("Error: unknown mode %q. Valid modes: simple, cognitive", arg)
 	}
 	if arg == current {
-		return fmt.Sprintf("ℹ️ Already in %s mode", current)
+		return fmt.Sprintf("Already in %s mode", current)
 	}
 	_ = gw.SetMode(arg)
-	return fmt.Sprintf("✅ Mode switched to %s (was: %s)", arg, current)
+	return fmt.Sprintf("Mode switched to %s (was: %s)", arg, current)
 }
 
 // executeTeamTask runs a single team task by creating a temporary session
@@ -843,16 +843,16 @@ func (gw *Gateway) importTrajectoriesToRL() {
 	for _, exp := range exps {
 		gw.rlTrainer.AddExperience(rl.Experience{
 			State: &rl.RLState{
-				ComplexitySimple:   exp.ComplexitySimple,
-				ComplexityModerate: exp.ComplexityModerate,
-				ComplexityComplex:  exp.ComplexityComplex,
-				ToolCount:          exp.ToolCount,
-				SubTaskCount:       exp.SubTaskCount,
-				ReplanCount:        exp.ReplanCount,
-				SuccessCount:       exp.SuccessCount,
-				FailureCount:       exp.FailureCount,
-				Progress:           exp.Progress,
-				PlanConfidence:     exp.PlanConfidence,
+				ComplexitySimple:     exp.ComplexitySimple,
+				ComplexityModerate:   exp.ComplexityModerate,
+				ComplexityComplex:    exp.ComplexityComplex,
+				ToolCount:            exp.ToolCount,
+				SubTaskCount:         exp.SubTaskCount,
+				ReplanCount:          exp.ReplanCount,
+				SuccessCount:         exp.SuccessCount,
+				FailureCount:         exp.FailureCount,
+				Progress:             exp.Progress,
+				PlanConfidence:       exp.PlanConfidence,
 				ReflectionConfidence: exp.ReflectionConf,
 			},
 			Action: []float64{exp.Reward},

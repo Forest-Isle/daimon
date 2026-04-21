@@ -46,11 +46,11 @@ type ComparisonReport struct {
 
 // ComparisonDelta holds the differences between two runs.
 type ComparisonDelta struct {
-	SuccessRateDelta        float64 `json:"success_rate_delta"`
-	AvgAssertPassRateDelta  float64 `json:"avg_assert_pass_rate_delta"`
-	AvgConfidenceDelta      float64 `json:"avg_confidence_delta"`
-	AvgReplanCountDelta     float64 `json:"avg_replan_count_delta"`
-	DurationDelta           time.Duration `json:"duration_delta_ms"`
+	SuccessRateDelta       float64       `json:"success_rate_delta"`
+	AvgAssertPassRateDelta float64       `json:"avg_assert_pass_rate_delta"`
+	AvgConfidenceDelta     float64       `json:"avg_confidence_delta"`
+	AvgReplanCountDelta    float64       `json:"avg_replan_count_delta"`
+	DurationDelta          time.Duration `json:"duration_delta_ms"`
 }
 
 // Compare produces a side-by-side comparison of two suite results.
@@ -99,12 +99,12 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 			}
 			report.TaskRegressions = append(report.TaskRegressions, tr)
 
-		switch status {
-		case "regressed":
-			report.Regressions = append(report.Regressions, tr)
-		case "improved":
-			report.Improvements = append(report.Improvements, tr)
-		}
+			switch status {
+			case "regressed":
+				report.Regressions = append(report.Regressions, tr)
+			case "improved":
+				report.Improvements = append(report.Improvements, tr)
+			}
 		}
 	}
 
@@ -255,7 +255,7 @@ func (r *ComparisonReport) FormatMarkdown() string {
 	}
 
 	if len(r.FeatureStateDiff) > 0 {
-		b.WriteString("\n### ⚠️ Feature State Differences\n\n")
+		b.WriteString("\n### Feature State Differences\n\n")
 		b.WriteString("The following features changed between runs. Score deltas may reflect configuration differences rather than agent improvements:\n\n")
 		b.WriteString("| Feature | Change |\n")
 		b.WriteString("|---------|--------|\n")

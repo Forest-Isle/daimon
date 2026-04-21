@@ -24,12 +24,12 @@ func (gw *Gateway) handleFeatureCommand(ctx context.Context, ch channel.Channel,
 	case strings.HasPrefix(args, "enable "):
 		name := strings.TrimSpace(strings.TrimPrefix(args, "enable "))
 		if err := gw.features.Enable(ctx, name); err != nil {
-			gw.sendReply(ctx, ch, msg, fmt.Sprintf("❌ %v", err))
+			gw.sendReply(ctx, ch, msg, fmt.Sprintf("Error: %v", err))
 		} else {
 			gw.persistFeatureState()
-			reply := fmt.Sprintf("✅ Feature %q enabled.", name)
+			reply := fmt.Sprintf("Feature %q enabled.", name)
 			if info := gw.findFeatureInfo(name); info != nil && !info.HotReloadable {
-				reply += "\n⚠️ Not hot-reloadable. Restart IronClaw for full effect."
+				reply += "\nNote: not hot-reloadable — restart IronClaw for full effect."
 			}
 			gw.sendReply(ctx, ch, msg, reply)
 		}
@@ -37,12 +37,12 @@ func (gw *Gateway) handleFeatureCommand(ctx context.Context, ch channel.Channel,
 	case strings.HasPrefix(args, "disable "):
 		name := strings.TrimSpace(strings.TrimPrefix(args, "disable "))
 		if err := gw.features.Disable(ctx, name); err != nil {
-			gw.sendReply(ctx, ch, msg, fmt.Sprintf("❌ %v", err))
+			gw.sendReply(ctx, ch, msg, fmt.Sprintf("Error: %v", err))
 		} else {
 			gw.persistFeatureState()
-			reply := fmt.Sprintf("✅ Feature %q disabled.", name)
+			reply := fmt.Sprintf("Feature %q disabled.", name)
 			if info := gw.findFeatureInfo(name); info != nil && !info.HotReloadable {
-				reply += "\n⚠️ Not hot-reloadable. Restart IronClaw for full effect."
+				reply += "\nNote: not hot-reloadable — restart IronClaw for full effect."
 			}
 			gw.sendReply(ctx, ch, msg, reply)
 		}
@@ -52,7 +52,7 @@ func (gw *Gateway) handleFeatureCommand(ctx context.Context, ch channel.Channel,
 	}
 }
 
-// sendFeatureList formats and sends the current feature list.
+// sendFeatureList formats and sends the current feature list as Markdown.
 func (gw *Gateway) sendFeatureList(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) {
 	features := gw.features.List()
 	if len(features) == 0 {
@@ -60,25 +60,45 @@ func (gw *Gateway) sendFeatureList(ctx context.Context, ch channel.Channel, msg 
 		return
 	}
 
-	var b strings.Builder
-	b.WriteString("📋 Features\n\n")
+	var enabled, disabled []feature.FeatureInfo
 	for _, f := range features {
-		icon := "❌"
 		if f.Enabled {
-			icon = "✅"
+			enabled = append(enabled, f)
+		} else {
+			disabled = append(disabled, f)
 		}
-		reload := ""
-		if f.HotReloadable {
-			reload = " 🔄"
-		}
-		line := fmt.Sprintf("  %s %-20s %s%s", icon, f.Name, f.Description, reload)
-		if !f.Enabled && f.Reason != "" && f.Reason != "enabled" {
-			line += fmt.Sprintf(" (%s)", f.Reason)
-		}
-		b.WriteString(line + "\n")
 	}
-	b.WriteString("\n🔄 = hot-reloadable (no restart needed)")
-	b.WriteString("\nUse /feature enable <name> or /feature disable <name>")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "**Features** — %d active · %d inactive\n\n", len(enabled), len(disabled))
+
+	writeGroup := func(items []feature.FeatureInfo) {
+		for _, f := range items {
+			hot := ""
+			if f.HotReloadable {
+				hot = " [live]"
+			}
+			line := fmt.Sprintf("- **%s**%s — %s", f.Name, hot, f.Description)
+			if !f.Enabled && f.Reason != "" && f.Reason != "enabled" {
+				line += fmt.Sprintf(" *(%s)*", f.Reason)
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+
+	if len(enabled) > 0 {
+		b.WriteString("**Active**\n\n")
+		writeGroup(enabled)
+		b.WriteString("\n")
+	}
+	if len(disabled) > 0 {
+		b.WriteString("**Inactive**\n\n")
+		writeGroup(disabled)
+		b.WriteString("\n")
+	}
+
+	b.WriteString("---\n")
+	b.WriteString("[live] = hot-reloadable · /feature enable <name> · /feature disable <name>")
 	gw.sendReply(ctx, ch, msg, b.String())
 }
 
@@ -94,7 +114,7 @@ func (gw *Gateway) findFeatureInfo(name string) *feature.FeatureInfo {
 // handleConfigCommand shows current effective configuration.
 func (gw *Gateway) handleConfigCommand(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) {
 	var b strings.Builder
-	b.WriteString("⚙️ Current Configuration\n\n")
+	b.WriteString("**Configuration**\n\n")
 	fmt.Fprintf(&b, "  Provider:       %s\n", gw.cfg.LLM.Provider)
 	fmt.Fprintf(&b, "  Model:          %s\n", gw.cfg.LLM.Model)
 	fmt.Fprintf(&b, "  Max Tokens:     %d\n", gw.cfg.LLM.MaxTokens)
@@ -123,7 +143,7 @@ func (gw *Gateway) handleCompactCommand(ctx context.Context, ch channel.Channel,
 
 	sess, err := gw.sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
-		gw.sendReply(ctx, ch, msg, fmt.Sprintf("⚠️ Failed to get session: %v", err))
+		gw.sendReply(ctx, ch, msg, fmt.Sprintf("Error: failed to get session: %v", err))
 		return
 	}
 
@@ -132,14 +152,14 @@ func (gw *Gateway) handleCompactCommand(ctx context.Context, ch channel.Channel,
 	// TODO: pass actual system prompt once accessible from gateway context
 	compressed, err := gw.contextMgr.Compress(ctx, sess, "")
 	if err != nil {
-		gw.sendReply(ctx, ch, msg, fmt.Sprintf("⚠️ Compression error: %v", err))
+		gw.sendReply(ctx, ch, msg, fmt.Sprintf("Error: compression failed: %v", err))
 		return
 	}
 
 	afterCount := len(sess.History())
 
 	if !compressed {
-		gw.sendReply(ctx, ch, msg, fmt.Sprintf("ℹ️ No compression needed (current: %d messages).", beforeCount))
+		gw.sendReply(ctx, ch, msg, fmt.Sprintf("No compression needed (current: %d messages).", beforeCount))
 		return
 	}
 
@@ -147,13 +167,13 @@ func (gw *Gateway) handleCompactCommand(ctx context.Context, ch channel.Channel,
 		slog.Warn("gateway: failed to persist after compact", "err", err)
 	}
 
-	gw.sendReply(ctx, ch, msg, fmt.Sprintf("✅ Compressed: %d → %d messages.", beforeCount, afterCount))
+	gw.sendReply(ctx, ch, msg, fmt.Sprintf("Compressed: %d → %d messages.", beforeCount, afterCount))
 }
 
 // handleModelCommand shows or switches the current LLM model.
 func (gw *Gateway) handleModelCommand(ctx context.Context, ch channel.Channel, msg channel.InboundMessage, args string) {
 	if args == "" {
-		gw.sendReply(ctx, ch, msg, fmt.Sprintf("ℹ️ Current model: %s (provider: %s)", gw.cfg.LLM.Model, gw.cfg.LLM.Provider))
+		gw.sendReply(ctx, ch, msg, fmt.Sprintf("Model: %s (provider: %s)", gw.cfg.LLM.Model, gw.cfg.LLM.Provider))
 		return
 	}
 
@@ -163,7 +183,7 @@ func (gw *Gateway) handleModelCommand(ctx context.Context, ch channel.Channel, m
 	if gw.cognitiveAgent != nil {
 		gw.cognitiveAgent.SetModel(args)
 	}
-	gw.sendReply(ctx, ch, msg, fmt.Sprintf("✅ Model switched: %s → %s", old, args))
+	gw.sendReply(ctx, ch, msg, fmt.Sprintf("Model switched: %s → %s", old, args))
 }
 
 // BuildArgCompleter returns an ArgCompleter function for the TUI's dynamic

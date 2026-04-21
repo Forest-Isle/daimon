@@ -79,8 +79,8 @@ type Model struct {
 
 	// Suggestion state
 	suggestions        []SuggestionItem
-	selectedSuggestion int          // -1 means no selection
-	showingSuggestions  bool
+	selectedSuggestion int // -1 means no selection
+	showingSuggestions bool
 	argCompleter       ArgCompleter // optional; injected by the adapter
 
 	// Scroll state
@@ -228,11 +228,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionResetMsg:
 		m.messages = m.messages[:0]
-		m.addMessage("system", "🔄 New conversation started.")
+		m.addMessage("system", "New conversation started.")
 		m.refreshViewport()
 
 	case errorMsg:
-		m.addMessage("system", "⚠️ Error: "+msg.err.Error())
+		m.addMessage("system", "Error: "+msg.err.Error())
 		m.updateViewportKeepScroll()
 
 	case notificationMsg:
@@ -283,7 +283,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastCompressTo = msg.afterPct
 		m.lastCompressReason = msg.reason
 		notification := fmt.Sprintf(
-			"🗜️ Context compressed: %d%% → %d%% (%s, %d layers)",
+			"Context compressed: %d%% → %d%% (%s, %d layers)",
 			int(msg.beforePct*100), int(msg.afterPct*100),
 			msg.reason, msg.layersRun,
 		)
@@ -446,7 +446,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
-		m.addMessage("system", fmt.Sprintf("✅ Approved: %s", m.approvalTool))
+		m.addMessage("system", fmt.Sprintf("Approved: %s", m.approvalTool))
 		if m.approvalCh != nil {
 			m.approvalCh <- true
 			m.approvalCh = nil
@@ -454,7 +454,7 @@ func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeChat
 		m.updateViewportKeepScroll()
 	case "n", "N", "esc":
-		m.addMessage("system", fmt.Sprintf("❌ Denied: %s", m.approvalTool))
+		m.addMessage("system", fmt.Sprintf("Denied: %s", m.approvalTool))
 		if m.approvalCh != nil {
 			m.approvalCh <- false
 			m.approvalCh = nil
@@ -462,7 +462,7 @@ func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeChat
 		m.updateViewportKeepScroll()
 	case "a", "A":
-		m.addMessage("system", "🔓 Always approve enabled (all future tools will auto-approve)")
+		m.addMessage("system", "Always approve enabled (all future tools will auto-approve)")
 		if m.approvalCh != nil {
 			m.approvalCh <- true
 			m.approvalCh = nil
@@ -508,7 +508,7 @@ func (m *Model) handleReflectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeChat
 		m.updateViewportKeepScroll()
 	case "2", "a", "A":
-		m.addMessage("system", "🔄 Adjust & replan")
+		m.addMessage("system", "Adjust & replan")
 		if m.reflectCh != nil {
 			m.reflectCh <- channel.ReplanAdjust
 			m.reflectCh = nil
@@ -516,7 +516,7 @@ func (m *Model) handleReflectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeChat
 		m.updateViewportKeepScroll()
 	case "3", "x", "X", "esc":
-		m.addMessage("system", "🛑 Abort")
+		m.addMessage("system", "Aborted")
 		if m.reflectCh != nil {
 			m.reflectCh <- channel.ReplanAbort
 			m.reflectCh = nil
@@ -876,7 +876,7 @@ func (m Model) renderApprovalDialog() string {
 	}
 	content := fmt.Sprintf(
 		"%s %s\n\n%s\n\n%s",
-		approvalToolStyle.Render("🔧 Tool:"),
+		approvalToolStyle.Render("Tool:"),
 		approvalToolStyle.Render(m.approvalTool),
 		input,
 		approvalHintStyle.Render("[y] Approve  [n] Deny  [a] Always approve"),
@@ -1004,7 +1004,7 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 
 	case "clear", "cls":
 		m.messages = m.messages[:0]
-		m.addMessage("system", "🔄 Conversation cleared.")
+		m.addMessage("system", "Conversation cleared.")
 		m.refreshViewport()
 		return true, nil
 
@@ -1082,14 +1082,14 @@ func (m *Model) showHistory() {
 		b.WriteString("No messages yet.")
 	} else {
 		for i, msg := range m.messages {
-			icon := "💬"
+			icon := "?"
 			switch msg.role {
 			case "user":
-				icon = "👤"
+				icon = "you"
 			case "agent":
-				icon = "🤖"
+				icon = "bot"
 			case "system":
-				icon = "⚙️"
+				icon = "sys"
 			}
 			preview := msg.content
 			if len(preview) > 60 {
@@ -1109,4 +1109,3 @@ func (m *Model) exportConversation(filename string) {
 	// through a proper channel or command since Bubble Tea models shouldn't do I/O
 	m.addMessage("system", fmt.Sprintf("📤 Export requested: %s\n(Note: File export not yet implemented in TUI)", filename))
 }
-

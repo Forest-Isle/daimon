@@ -24,41 +24,41 @@ type ApprovalFunc func(ctx context.Context, ch channel.Channel, target channel.M
 
 // Runtime orchestrates the agent loop: context → LLM → tools → reply.
 type Runtime struct {
-	provider       Provider
-	tools          *tool.Registry
-	sessions       *session.Manager
-	db             *store.DB
-	cfg            config.AgentConfig
-	llmCfg         config.LLMConfig
-	approvalFunc   ApprovalFunc
-	memStore       memory.Store
-	skillMgr       *skill.Manager
-	agentMgr       *AgentManager
-	orchestrator   *AgentOrchestrator
-	compressor     *memory.IncrementalCompressor
-	memoryBaseDir  string // base directory for file-based memory storage
-	concurrentCfg  config.ConcurrentExecutionConfig
-	resultStore    *tool.ResultStore
+	provider            Provider
+	tools               *tool.Registry
+	sessions            *session.Manager
+	db                  *store.DB
+	cfg                 config.AgentConfig
+	llmCfg              config.LLMConfig
+	approvalFunc        ApprovalFunc
+	memStore            memory.Store
+	skillMgr            *skill.Manager
+	agentMgr            *AgentManager
+	orchestrator        *AgentOrchestrator
+	compressor          *memory.IncrementalCompressor
+	memoryBaseDir       string // base directory for file-based memory storage
+	concurrentCfg       config.ConcurrentExecutionConfig
+	resultStore         *tool.ResultStore
 	compressionPipeline *CompressionPipeline
-	tokenBudget    *TokenBudget
-	hookMgr        *hook.Manager
-	permEngine     *tool.PermissionEngine
-	agentID   string // unique ID for this runtime instance
-	parentID  string // parent agent ID (empty for top-level)
-	depth     int    // nesting depth
-	chainID   string // invocation chain ID
-	bgManager *BackgroundManager
-	promptCache *PromptCache
-	agentMCP             *AgentMCPManager
-	factExtractor        *memory.LLMFactExtractor
-	lifecycleMgr         *memory.LifecycleManager
-	profiler             *memory.Profiler
-	contextManager       ContextManager
-	speculativeExecutor  *SpeculativeExecutor
-	taskLedger           taskledger.TaskLedger
-	interceptorChain     *tool.InterceptorChain
-	dashEmitter          DashboardEmitter
-	metricsEmitter       MetricsEmitter
+	tokenBudget         *TokenBudget
+	hookMgr             *hook.Manager
+	permEngine          *tool.PermissionEngine
+	agentID             string // unique ID for this runtime instance
+	parentID            string // parent agent ID (empty for top-level)
+	depth               int    // nesting depth
+	chainID             string // invocation chain ID
+	bgManager           *BackgroundManager
+	promptCache         *PromptCache
+	agentMCP            *AgentMCPManager
+	factExtractor       *memory.LLMFactExtractor
+	lifecycleMgr        *memory.LifecycleManager
+	profiler            *memory.Profiler
+	contextManager      ContextManager
+	speculativeExecutor *SpeculativeExecutor
+	taskLedger          taskledger.TaskLedger
+	interceptorChain    *tool.InterceptorChain
+	dashEmitter         DashboardEmitter
+	metricsEmitter      MetricsEmitter
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -150,7 +150,6 @@ func (r *Runtime) SetAgentMCPManager(m *AgentMCPManager) { r.agentMCP = m }
 
 // AgentMCPManager returns the attached per-agent MCP manager, or nil.
 func (r *Runtime) AgentMCPManager() *AgentMCPManager { return r.agentMCP }
-
 
 // SetContextManager attaches a context manager to the runtime.
 func (r *Runtime) SetContextManager(cm ContextManager) { r.contextManager = cm }
@@ -461,9 +460,9 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 
 		// Finalize this message with tool-call status, then proceed.
 		// The approval request and final answer will be separate messages.
-		statusText := "🔧 Calling tools..."
+		statusText := "Calling tools..."
 		if fullText != "" {
-			statusText = fullText + "\n\n🔧 Calling tools..."
+			statusText = fullText + "\n\nCalling tools..."
 		}
 		_ = updater.Finish(statusText)
 
@@ -743,10 +742,10 @@ func (r *Runtime) computeBudgetPressure(iteration int, sess *session.Session, sy
 	iterationPct := float64(iteration+1) / float64(r.cfg.MaxIterations) * 100
 	if iterationPct >= 90 {
 		warnings = append(warnings, fmt.Sprintf(
-			"🚨 Critical budget pressure: %.0f%% of iterations used. Finish current task immediately.", iterationPct))
+			"[!] Critical budget pressure: %.0f%% of iterations used. Finish current task immediately.", iterationPct))
 	} else if iterationPct >= 70 {
 		warnings = append(warnings, fmt.Sprintf(
-			"⚠️ Budget pressure: %.0f%% of iterations used. Consider wrapping up.", iterationPct))
+			"[!] Budget pressure: %.0f%% of iterations used. Consider wrapping up.", iterationPct))
 	}
 
 	// Token budget pressure
@@ -755,10 +754,10 @@ func (r *Runtime) computeBudgetPressure(iteration int, sess *session.Session, sy
 		tokenPct := check.UsageRatio * 100
 		if tokenPct >= 90 {
 			warnings = append(warnings, fmt.Sprintf(
-				"🚨 Critical token budget: %.0f%% of context window used. Be extremely concise.", tokenPct))
+				"[!] Critical token budget: %.0f%% of context window used. Be extremely concise.", tokenPct))
 		} else if tokenPct >= 70 {
 			warnings = append(warnings, fmt.Sprintf(
-				"⚠️ Token budget pressure: %.0f%% of context window used. Consider being more concise.", tokenPct))
+				"[!] Token budget pressure: %.0f%% of context window used. Consider being more concise.", tokenPct))
 		}
 	}
 

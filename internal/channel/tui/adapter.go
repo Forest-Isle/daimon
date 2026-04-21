@@ -195,8 +195,8 @@ func (a *Adapter) Send(_ context.Context, msg channel.OutboundMessage) error {
 	}
 	a.program.Send(agentResponseMsg{text: msg.Text})
 
-	if strings.HasPrefix(msg.Text, "✅ Mode switched to ") {
-		rest := strings.TrimPrefix(msg.Text, "✅ Mode switched to ")
+	if strings.HasPrefix(msg.Text, "Mode switched to ") {
+		rest := strings.TrimPrefix(msg.Text, "Mode switched to ")
 		if idx := strings.Index(rest, " "); idx > 0 {
 			newMode := rest[:idx]
 			if newMode == "simple" || newMode == "cognitive" {
@@ -348,9 +348,17 @@ func (w *modelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Intercept Enter in chat mode to capture user input text.
+	// Apply any currently-selected autocomplete suggestion before forwarding,
+	// so the gateway receives the same text that the Model will display.
 	// Only forward to the agent if it is NOT a local slash command.
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && w.mode == modeChat && keyMsg.Type == tea.KeyEnter {
 		text := strings.TrimSpace(w.textarea.Value())
+		if w.showingSuggestions && w.selectedSuggestion >= 0 && w.selectedSuggestion < len(w.suggestions) {
+			applied := strings.TrimSpace(ApplySuggestion(text, w.suggestions[w.selectedSuggestion]))
+			if applied != "" {
+				text = applied
+			}
+		}
 		if text != "" && !isLocalCommand(text) {
 			w.userInputCh <- text
 		}

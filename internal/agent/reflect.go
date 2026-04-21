@@ -29,7 +29,7 @@ type Reflector struct {
 	graphExtractor *graph.LLMEntityExtractor
 	cfg            config.CognitiveConfig
 	llmModel       string
-	rlPolicy       RLPolicy       // optional RL policy
+	rlPolicy       RLPolicy         // optional RL policy
 	memoryNotify   MemoryNotifyFunc // optional notification callback
 }
 
@@ -358,7 +358,7 @@ func buildReflectUserMessage(state *CognitiveState, plan *TaskPlan, obsResult *O
 	outputLower := strings.ToLower(allOutputs.String())
 	for _, marker := range incompletenessMarkers {
 		if strings.Contains(outputLower, marker) {
-			stats = "⚠️ INCOMPLETENESS DETECTED: Output contains '" + marker + "' — completeness score MUST be reduced\n" + stats
+			stats = "[!] INCOMPLETENESS DETECTED: Output contains '" + marker + "' — completeness score MUST be reduced\n" + stats
 			break
 		}
 	}

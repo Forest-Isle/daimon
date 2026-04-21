@@ -150,7 +150,7 @@ func TestMemoryOperationSummary(t *testing.T) {
 				if !containsStr(s, tt.contains) {
 					t.Errorf("String() = %q, want to contain %q", s, tt.contains)
 				}
-				if !containsStr(s, "🧠 Memory:") {
+				if !containsStr(s, "Memory:") {
 					t.Errorf("String() = %q, want to contain emoji prefix", s)
 				}
 			}
