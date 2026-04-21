@@ -44,10 +44,11 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 		Phase:       feature.PhaseConstruct,
 	})
 	r.Register(feature.Feature{
-		Name:        "scheduler",
-		Description: "Scheduled task execution",
-		Default:     true,
-		Phase:       feature.PhaseStart,
+		Name:          "scheduler",
+		Description:   "Scheduled task execution",
+		Default:       true,
+		Phase:         feature.PhaseStart,
+		HotReloadable: true,
 	})
 
 	// Tier 2: AutoDetect driven
@@ -148,6 +149,19 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 	_ = gw.features.SetOnDisable("evolution", func(ctx context.Context) error {
 		if gw.evoEngine != nil {
 			gw.evoEngine.Stop()
+		}
+		return nil
+	})
+
+	_ = gw.features.SetOnEnable("scheduler", func(ctx context.Context) error {
+		if gw.sched != nil {
+			gw.sched.Start(ctx)
+		}
+		return nil
+	})
+	_ = gw.features.SetOnDisable("scheduler", func(ctx context.Context) error {
+		if gw.sched != nil {
+			gw.sched.Stop()
 		}
 		return nil
 	})

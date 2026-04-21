@@ -157,6 +157,10 @@ func (gw *Gateway) handleModelCommand(ctx context.Context, ch channel.Channel, m
 
 	old := gw.cfg.LLM.Model
 	gw.cfg.LLM.Model = args
+	gw.runtime.SetModel(args)
+	if gw.cognitiveAgent != nil {
+		gw.cognitiveAgent.SetModel(args)
+	}
 	gw.sendReply(ctx, ch, msg, fmt.Sprintf("✅ Model switched: %s → %s", old, args))
 }
 

@@ -190,6 +190,9 @@ func (r *Runtime) GetSystemPrompt(ctx context.Context, userText string) string {
 	return r.buildSystemPrompt(ctx, userText)
 }
 
+// SetModel updates the default model used for LLM requests.
+func (r *Runtime) SetModel(model string) { r.llmCfg.Model = model }
+
 // GetTools returns the runtime's tool registry.
 func (r *Runtime) GetTools() *tool.Registry { return r.tools }
 

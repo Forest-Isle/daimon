@@ -195,6 +195,19 @@ func (ca *CognitiveAgent) SetAgentManager(m *AgentManager) {
 	ca.runtime.SetAgentManager(m)
 }
 
+// SetModel updates the default model on the cognitive agent, its inner runtime,
+// and the planner/reflector components.
+func (ca *CognitiveAgent) SetModel(model string) {
+	ca.llmCfg.Model = model
+	ca.runtime.SetModel(model)
+	if ca.planner != nil {
+		ca.planner.llmModel = model
+	}
+	if ca.reflector != nil {
+		ca.reflector.llmModel = model
+	}
+}
+
 // SetDebateConfig sets the debate configuration from the agents config.
 func (ca *CognitiveAgent) SetDebateConfig(cfg config.DebateSettings) {
 	ca.debateCfg = cfg
