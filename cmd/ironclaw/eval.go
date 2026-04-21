@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -832,25 +833,17 @@ func loadSuite(name string) ([]eval.TaskCase, error) {
 
 	switch strings.ToLower(filepath.Ext(name)) {
 	case ".yaml", ".yml":
-		tasks, err := eval.LoadTaskSetYAML(name)
-		if err != nil {
-			available := make([]string, 0, len(suites))
-			for k := range suites {
-				available = append(available, k)
-			}
-			return nil, fmt.Errorf("unknown suite %q (available: %v); %w", name, available, err)
-		}
-		return tasks, nil
+		return eval.LoadTaskSetYAML(name)
+	case ".json":
+		return eval.LoadTaskSetJSON(name)
 	default:
-		tasks, err := eval.LoadTaskSetJSON(name)
-		if err != nil {
-			available := make([]string, 0, len(suites))
-			for k := range suites {
-				available = append(available, k)
-			}
-			return nil, fmt.Errorf("unknown suite %q (available: %v); %w", name, available, err)
+		// No extension match and no named suite — suggest available suites.
+		available := make([]string, 0, len(suites))
+		for k := range suites {
+			available = append(available, k)
 		}
-		return tasks, nil
+		sort.Strings(available)
+		return nil, fmt.Errorf("unknown suite %q; available: %v", name, available)
 	}
 }
 
