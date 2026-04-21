@@ -219,9 +219,21 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	// several seconds and should not block the TUI from appearing.
 	if len(gw.cfg.Tools.MCP.Servers) > 0 {
 		go func() {
-			if err := gw.mcpManager.StartServers(ctx, gw.cfg.Tools.MCP.Servers, gw.tools); err != nil {
-				slog.Error("some MCP servers failed to start", "err", err)
+			var wg sync.WaitGroup
+			for name, srv := range gw.cfg.Tools.MCP.Servers {
+				name, srv := name, srv
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if err := gw.mcpManager.StartServer(ctx, name, srv, gw.tools); err != nil {
+						slog.Error("mcp server failed to start", "server", name, "err", err)
+						if gw.features != nil {
+							_ = gw.features.Disable(ctx, "mcp_"+name)
+						}
+					}
+				}()
 			}
+			wg.Wait()
 		}()
 	}
 
