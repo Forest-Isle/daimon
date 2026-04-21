@@ -240,6 +240,8 @@ func (r *Reflector) saveExperience(_ context.Context, ch channel.Channel, target
 		}
 
 		err := r.memStore.Save(bgCtx, memory.Entry{
+			ID:        fmt.Sprintf("exp_%d", time.Now().UnixNano()),
+			Scope:     memory.ScopeSession,
 			SessionID: state.SessionID,
 			Content:   sb.String(),
 			Metadata: map[string]string{
