@@ -60,3 +60,12 @@ web/node_modules/
 
 # Git worktrees
 .worktrees/
+
+# Eval output
+eval_output/
+
+# Eval config (user-specific)
+configs/ironclaw_eval.yaml
+
+# Root binary (build artifact)
+/ironclaw

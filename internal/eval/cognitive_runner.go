@@ -172,12 +172,12 @@ func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 	return snap
 }
 
-// populateSuccessFallback sets Success and Confidence when neither the
-// evolution hook nor observation callback provided explicit success signals.
-// This covers runs where evolution is not configured.
+// populateSuccessFallback sets Success and Confidence when the evolution
+// hook did not provide explicit success signals. This covers runs where
+// evolution is disabled or did not emit events for the session.
 func (r *CognitiveAgentRunner) populateSuccessFallback(result *EvalResult) {
-	if r.hook != nil {
-		return // evolution hook already set Success
+	if result.Confidence > 0 {
+		return // evolution hook already populated success data
 	}
 
 	r.mu.Lock()

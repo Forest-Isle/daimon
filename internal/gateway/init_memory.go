@@ -19,7 +19,7 @@ func (gw *Gateway) initMemorySystem() error {
 
 	var embedder memory.EmbeddingProvider = &memory.NoopEmbedding{}
 	if gw.cfg.Memory.OpenAIAPIKey != "" {
-		baseEmbedder := memory.NewOpenAIEmbedding(gw.cfg.Memory.OpenAIAPIKey, gw.cfg.Memory.EmbeddingModel)
+		baseEmbedder := memory.NewOpenAIEmbeddingWithURL(gw.cfg.Memory.OpenAIAPIKey, gw.cfg.Memory.EmbeddingModel, gw.cfg.Memory.EmbeddingBaseURL)
 		embedder = memory.NewCachedEmbedder(baseEmbedder)
 		slog.Info("memory: cached embedder enabled")
 	}

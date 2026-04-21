@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 const (
-	openAIEmbeddingURL = "https://openrouter.ai/api/v1/embeddings"
+	defaultOpenAIEmbeddingURL = "https://api.openai.com/v1/embeddings"
 	openAIDefaultModel = "text-embedding-3-small"
 	openAIDimensions   = 1536
 )
@@ -18,17 +19,26 @@ const (
 type OpenAIEmbedding struct {
 	apiKey string
 	model  string
+	baseURL string
 	client *http.Client
 }
 
 func NewOpenAIEmbedding(apiKey, model string) *OpenAIEmbedding {
+	return NewOpenAIEmbeddingWithURL(apiKey, model, "")
+}
+
+func NewOpenAIEmbeddingWithURL(apiKey, model, baseURL string) *OpenAIEmbedding {
 	if model == "" {
 		model = openAIDefaultModel
 	}
+	if baseURL == "" {
+		baseURL = defaultOpenAIEmbeddingURL
+	}
 	return &OpenAIEmbedding{
-		apiKey: apiKey,
-		model:  model,
-		client: &http.Client{},
+		apiKey:   apiKey,
+		model:    model,
+		baseURL:  baseURL,
+		client:   &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -40,7 +50,7 @@ func (o *OpenAIEmbedding) Embed(ctx context.Context, text string) ([]float32, er
 		"model": o.model,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIEmbeddingURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +98,7 @@ func (o *OpenAIEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]f
 		"model": o.model,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIEmbeddingURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
