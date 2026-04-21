@@ -315,6 +315,52 @@ func buildReflectUserMessage(state *CognitiveState, plan *TaskPlan, obsResult *O
 			goalSection += fmt.Sprintf("\n  %d. [%s] %s → %s", i+1, obs.ToolName, obs.SubTaskID, status)
 		}
 	}
+	// Extract additional requirements from goal text keywords
+	requirementSignals := []struct{ keyword, label string }{
+		{"verify", "VERIFY step"},
+		{"confirm", "CONFIRM step"},
+		{"check", "CHECK step"},
+		{"ensure", "ENSURE step"},
+		{"then ", "THEN action"},
+		{"also ", "ALSO action"},
+		{"additionally", "ADDITIONAL action"},
+		{"return", "RETURN output"},
+		{"show", "SHOW output"},
+		{"print", "PRINT output"},
+	}
+	goalLower := strings.ToLower(state.Goal.Raw)
+	var checklist []string
+	for _, sig := range requirementSignals {
+		if strings.Contains(goalLower, sig.keyword) {
+			checklist = append(checklist, fmt.Sprintf("[ ] %s: explicitly required in goal — was it addressed?", sig.label))
+		}
+	}
+	if len(checklist) > 0 {
+		if len(obsResult.Observations) == 0 {
+			goalSection += "\n\nSUB-GOAL VERIFICATION CHECKLIST (check each):"
+		}
+		for _, item := range checklist {
+			goalSection += "\n  " + item
+		}
+	}
+
+	// Detect self-reported incompleteness markers in tool outputs
+	var allOutputs strings.Builder
+	for _, obs := range obsResult.Observations {
+		allOutputs.WriteString(obs.Output)
+		allOutputs.WriteString(" ")
+		allOutputs.WriteString(obs.Error)
+		allOutputs.WriteString(" ")
+	}
+	incompletenessMarkers := []string{"partial", "only completed", "but could not", "however, ", "unable to", "did not"}
+	outputLower := strings.ToLower(allOutputs.String())
+	for _, marker := range incompletenessMarkers {
+		if strings.Contains(outputLower, marker) {
+			stats = "⚠️ INCOMPLETENESS DETECTED: Output contains '" + marker + "' — completeness score MUST be reduced\n" + stats
+			break
+		}
+	}
+
 	msg = strings.ReplaceAll(msg, "{{GOAL}}", goalSection)
 	msg = strings.ReplaceAll(msg, "{{PLAN_SUMMARY}}", plan.Summary)
 	msg = strings.ReplaceAll(msg, "{{OBSERVATIONS}}", obsSB.String())
