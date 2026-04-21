@@ -22,6 +22,11 @@ type EvoSnapshotDiff struct {
 	StrategyVersionDelta int `json:"strategy_version_delta"`
 	SkillDraftCountDelta int `json:"skill_draft_count_delta"`
 	TrajectoryCountDelta int `json:"trajectory_count_delta"`
+
+	ReplanThresholdDelta float64            `json:"replan_threshold_delta,omitempty"`
+	ToolPriorityDeltas   map[string]float64 `json:"tool_priority_deltas,omitempty"`
+	RLAvgRewardDelta     float64            `json:"rl_avg_reward_delta,omitempty"`
+	RLSuccessRateDelta   float64            `json:"rl_success_rate_delta,omitempty"`
 }
 
 // ComparisonReport compares two evaluation runs side by side.
@@ -117,12 +122,28 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 	}
 
 	if before.EvoAfter != nil && after.EvoAfter != nil {
-		report.EvoSnapshot = &EvoSnapshotDiff{
+		diff := &EvoSnapshotDiff{
 			PreferenceCountDelta: after.EvoAfter.PreferenceCount - before.EvoAfter.PreferenceCount,
 			StrategyVersionDelta: after.EvoAfter.StrategyVersion - before.EvoAfter.StrategyVersion,
 			SkillDraftCountDelta: after.EvoAfter.SkillDraftCount - before.EvoAfter.SkillDraftCount,
 			TrajectoryCountDelta: after.EvoAfter.TrajectoryCount - before.EvoAfter.TrajectoryCount,
+			ReplanThresholdDelta: after.EvoAfter.ReplanThreshold - before.EvoAfter.ReplanThreshold,
+			RLAvgRewardDelta:     after.EvoAfter.RLAvgReward - before.EvoAfter.RLAvgReward,
+			RLSuccessRateDelta:   after.EvoAfter.RLSuccessRate - before.EvoAfter.RLSuccessRate,
 		}
+		// Per-tool priority deltas — only for tools present in both snapshots.
+		if len(before.EvoAfter.ToolPriorities) > 0 && len(after.EvoAfter.ToolPriorities) > 0 {
+			toolDeltas := make(map[string]float64)
+			for tool, afterVal := range after.EvoAfter.ToolPriorities {
+				if beforeVal, ok := before.EvoAfter.ToolPriorities[tool]; ok {
+					toolDeltas[tool] = afterVal - beforeVal
+				}
+			}
+			if len(toolDeltas) > 0 {
+				diff.ToolPriorityDeltas = toolDeltas
+			}
+		}
+		report.EvoSnapshot = diff
 	}
 
 	// Compute feature state diff — only meaningful when both runs recorded feature state.
@@ -252,6 +273,17 @@ func (r *ComparisonReport) FormatMarkdown() string {
 		fmt.Fprintf(&b, "| Strategy Version | %+d |\n", r.EvoSnapshot.StrategyVersionDelta)
 		fmt.Fprintf(&b, "| Skill Draft Count | %+d |\n", r.EvoSnapshot.SkillDraftCountDelta)
 		fmt.Fprintf(&b, "| Trajectory Count | %+d |\n", r.EvoSnapshot.TrajectoryCountDelta)
+		fmt.Fprintf(&b, "| Replan Threshold | %s |\n", fmtDelta(r.EvoSnapshot.ReplanThresholdDelta, "", false))
+		fmt.Fprintf(&b, "| RL Avg Reward | %s |\n", fmtDelta(r.EvoSnapshot.RLAvgRewardDelta, "", true))
+		fmt.Fprintf(&b, "| RL Success Rate | %s |\n", fmtDelta(r.EvoSnapshot.RLSuccessRateDelta*100, "%%", true))
+		if len(r.EvoSnapshot.ToolPriorityDeltas) > 0 {
+			b.WriteString("\n**Tool Priority Deltas:**\n\n")
+			b.WriteString("| Tool | Delta |\n")
+			b.WriteString("|------|-------|\n")
+			for tool, delta := range r.EvoSnapshot.ToolPriorityDeltas {
+				fmt.Fprintf(&b, "| %s | %s |\n", tool, fmtDelta(delta, "", true))
+			}
+		}
 	}
 
 	if len(r.FeatureStateDiff) > 0 {

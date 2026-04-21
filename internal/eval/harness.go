@@ -136,6 +136,18 @@ type EvolutionSnapshot struct {
 	StrategyVersion int `json:"strategy_version"`
 	SkillDraftCount int `json:"skill_draft_count"`
 	TrajectoryCount int `json:"trajectory_count"`
+
+	// Strategy parameter values captured at snapshot time.
+	ReplanThreshold      float64            `json:"replan_threshold,omitempty"`
+	ReplanThresholdPrev  float64            `json:"replan_threshold_prev,omitempty"`
+	ReplanThresholdReason string            `json:"replan_threshold_reason,omitempty"`
+	ToolPriorities       map[string]float64 `json:"tool_priorities,omitempty"`
+
+	// RLStats captures aggregate RL experience statistics from recent trajectories.
+	RLEpisodeCount int     `json:"rl_episode_count,omitempty"`
+	RLAvgReward    float64 `json:"rl_avg_reward,omitempty"`
+	RLSuccessRate  float64 `json:"rl_success_rate,omitempty"`
+	RLAvgProgress  float64 `json:"rl_avg_progress,omitempty"`
 }
 
 // SuiteResult aggregates results across a full evaluation run.

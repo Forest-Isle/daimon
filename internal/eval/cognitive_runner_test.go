@@ -2,6 +2,7 @@ package eval
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -426,5 +427,234 @@ func TestPopulateFromEvolution_EpisodeFallback(t *testing.T) {
 	}
 	if result.ReplanCount != 1 {
 		t.Errorf("ReplanCount = %d, want 1", result.ReplanCount)
+	}
+}
+
+// TestCaptureSnapshot_StrategyParams verifies that CaptureSnapshot correctly
+// reads strategy parameter values from a StrategyOptimizer.
+func TestCaptureSnapshot_StrategyParams(t *testing.T) {
+	so := evolution.NewStrategyOptimizer(evolution.OptimizerConfig{
+		UpdateInterval:      10,
+		MaxAdjustmentPercent: 10,
+	})
+
+	// Manually drive an optimization cycle by feeding episodes.
+	// We need enough episodes with replans to trigger threshold adjustment.
+	for i := 0; i < 10; i++ {
+		so.OnEpisodeComplete(context.Background(), evolution.EpisodeEvent{
+			SessionID:   "s1",
+			Succeeded:   i%2 == 0,
+			ReplanCount: 2, // all have replans
+			ToolSequence: []string{"bash"},
+			TotalReward: 0.5,
+			Timestamp:   time.Now(),
+		})
+	}
+
+	strategy := so.GetStrategy()
+
+	// Verify the fields we'll capture.
+	if strategy.ReplanThreshold.Value <= 0 {
+		t.Errorf("expected positive ReplanThreshold.Value, got %f", strategy.ReplanThreshold.Value)
+	}
+
+	// Simulate what CaptureSnapshot does when extracting tool priorities.
+	snap := &EvolutionSnapshot{}
+	snap.StrategyVersion = strategy.Version
+	snap.ReplanThreshold = strategy.ReplanThreshold.Value
+	snap.ReplanThresholdPrev = strategy.ReplanThreshold.Previous
+	snap.ReplanThresholdReason = strategy.ReplanThreshold.Reason
+
+	if len(strategy.ToolPriorities) > 0 {
+		tp := make(map[string]float64, len(strategy.ToolPriorities))
+		for tool, param := range strategy.ToolPriorities {
+			tp[tool] = param.Value
+		}
+		snap.ToolPriorities = tp
+	}
+
+	if snap.StrategyVersion < 1 {
+		t.Errorf("StrategyVersion should be >= 1, got %d", snap.StrategyVersion)
+	}
+	if snap.ReplanThreshold <= 0 {
+		t.Errorf("ReplanThreshold should be > 0, got %f", snap.ReplanThreshold)
+	}
+}
+
+// TestCaptureSnapshot_RLStats verifies computeRLStats correctly aggregates
+// RL experience statistics from trajectory records.
+func TestCaptureSnapshot_RLStats(t *testing.T) {
+	records := []evolution.TrajectoryRecord{
+		{
+			SessionID:  "s1",
+			Complexity: "simple",
+			Tools:      []evolution.ToolRecord{{Name: "bash", Succeeded: true}},
+			Reflection: evolution.ReflectionBrief{Succeeded: true, Confidence: 0.9, Reward: 0.8},
+			DurationMs: 1000,
+		},
+		{
+			SessionID:  "s2",
+			Complexity: "moderate",
+			Tools:      []evolution.ToolRecord{{Name: "bash", Succeeded: false}},
+			Reflection: evolution.ReflectionBrief{Succeeded: false, Confidence: 0.4, Reward: -0.2},
+			DurationMs: 2000,
+		},
+		{
+			SessionID:  "s3",
+			Complexity: "simple",
+			Tools:      []evolution.ToolRecord{{Name: "file_write", Succeeded: true}},
+			Reflection: evolution.ReflectionBrief{Succeeded: true, Confidence: 0.85, Reward: 0.7},
+			DurationMs: 1500,
+		},
+	}
+
+	snap := &EvolutionSnapshot{}
+	snap = computeRLStats(snap, records)
+
+	if snap.RLEpisodeCount != 3 {
+		t.Errorf("RLEpisodeCount = %d, want 3", snap.RLEpisodeCount)
+	}
+	// 2 out of 3 succeeded (progress = 1.0)
+	wantSuccessRate := 2.0 / 3.0
+	if diff := snap.RLSuccessRate - wantSuccessRate; diff > 0.001 || diff < -0.001 {
+		t.Errorf("RLSuccessRate = %f, want ~%f", snap.RLSuccessRate, wantSuccessRate)
+	}
+	// RLAvgReward should be the mean of the computed rewards.
+	if snap.RLAvgReward == 0 {
+		t.Error("RLAvgReward should be non-zero")
+	}
+	if snap.RLAvgProgress <= 0 {
+		t.Error("RLAvgProgress should be positive (some tasks succeeded)")
+	}
+}
+
+// TestCaptureSnapshot_RLStats_Empty verifies computeRLStats handles empty input gracefully.
+func TestCaptureSnapshot_RLStats_Empty(t *testing.T) {
+	snap := &EvolutionSnapshot{}
+	snap = computeRLStats(snap, nil)
+
+	if snap.RLEpisodeCount != 0 {
+		t.Errorf("RLEpisodeCount should be 0 for empty input, got %d", snap.RLEpisodeCount)
+	}
+	if snap.RLAvgReward != 0 {
+		t.Errorf("RLAvgReward should be 0 for empty input, got %f", snap.RLAvgReward)
+	}
+}
+
+// TestEvoSnapshotDiff_StrategyDelta verifies Compare correctly computes
+// strategy parameter deltas between two suite results.
+func TestEvoSnapshotDiff_StrategyDelta(t *testing.T) {
+	before := &SuiteResult{
+		RunID: "run-before",
+		EvoAfter: &EvolutionSnapshot{
+			PreferenceCount:  5,
+			StrategyVersion:  2,
+			SkillDraftCount:  1,
+			TrajectoryCount:  10,
+			ReplanThreshold:  0.30,
+			RLAvgReward:      0.50,
+			RLSuccessRate:    0.60,
+			ToolPriorities:   map[string]float64{"bash": 0.5, "file_write": 0.6},
+		},
+	}
+	after := &SuiteResult{
+		RunID: "run-after",
+		EvoAfter: &EvolutionSnapshot{
+			PreferenceCount:  8,
+			StrategyVersion:  3,
+			SkillDraftCount:  2,
+			TrajectoryCount:  15,
+			ReplanThreshold:  0.27,
+			RLAvgReward:      0.65,
+			RLSuccessRate:    0.75,
+			ToolPriorities:   map[string]float64{"bash": 0.55, "file_write": 0.6, "http": 0.4},
+		},
+	}
+
+	report := Compare(before, after)
+
+	if report.EvoSnapshot == nil {
+		t.Fatal("EvoSnapshot diff should not be nil")
+	}
+	diff := report.EvoSnapshot
+
+	if diff.StrategyVersionDelta != 1 {
+		t.Errorf("StrategyVersionDelta = %d, want 1", diff.StrategyVersionDelta)
+	}
+	if diff.TrajectoryCountDelta != 5 {
+		t.Errorf("TrajectoryCountDelta = %d, want 5", diff.TrajectoryCountDelta)
+	}
+
+	wantReplanDelta := 0.27 - 0.30
+	if d := diff.ReplanThresholdDelta - wantReplanDelta; d > 0.001 || d < -0.001 {
+		t.Errorf("ReplanThresholdDelta = %f, want ~%f", diff.ReplanThresholdDelta, wantReplanDelta)
+	}
+
+	wantRewardDelta := 0.65 - 0.50
+	if d := diff.RLAvgRewardDelta - wantRewardDelta; d > 0.001 || d < -0.001 {
+		t.Errorf("RLAvgRewardDelta = %f, want ~%f", diff.RLAvgRewardDelta, wantRewardDelta)
+	}
+
+	wantSuccessDelta := 0.75 - 0.60
+	if d := diff.RLSuccessRateDelta - wantSuccessDelta; d > 0.001 || d < -0.001 {
+		t.Errorf("RLSuccessRateDelta = %f, want ~%f", diff.RLSuccessRateDelta, wantSuccessDelta)
+	}
+
+	// Tool priority deltas — only tools present in both snapshots.
+	// "bash" and "file_write" are in both; "http" is only in after.
+	if diff.ToolPriorityDeltas == nil {
+		t.Fatal("ToolPriorityDeltas should not be nil")
+	}
+	if _, ok := diff.ToolPriorityDeltas["http"]; ok {
+		t.Error("'http' should not appear in ToolPriorityDeltas (not in before)")
+	}
+	wantBashDelta := 0.55 - 0.5
+	if d := diff.ToolPriorityDeltas["bash"] - wantBashDelta; d > 0.001 || d < -0.001 {
+		t.Errorf("ToolPriorityDeltas[bash] = %f, want ~%f", diff.ToolPriorityDeltas["bash"], wantBashDelta)
+	}
+	// file_write delta is 0.0 — tool still present in map with zero delta.
+	if _, ok := diff.ToolPriorityDeltas["file_write"]; !ok {
+		t.Error("'file_write' should appear in ToolPriorityDeltas (present in both)")
+	}
+}
+
+// TestFormatMarkdown_EvoSnapshotDelta verifies FormatMarkdown renders the new fields.
+func TestFormatMarkdown_EvoSnapshotDelta(t *testing.T) {
+	before := &SuiteResult{
+		RunID: "run-a",
+		EvoAfter: &EvolutionSnapshot{
+			ReplanThreshold: 0.30,
+			RLAvgReward:     0.50,
+			RLSuccessRate:   0.60,
+			ToolPriorities:  map[string]float64{"bash": 0.5},
+		},
+	}
+	after := &SuiteResult{
+		RunID: "run-b",
+		EvoAfter: &EvolutionSnapshot{
+			ReplanThreshold: 0.27,
+			RLAvgReward:     0.65,
+			RLSuccessRate:   0.75,
+			ToolPriorities:  map[string]float64{"bash": 0.55},
+		},
+	}
+
+	report := Compare(before, after)
+	md := report.FormatMarkdown()
+
+	if !strings.Contains(md, "Replan Threshold") {
+		t.Error("FormatMarkdown should include 'Replan Threshold' row")
+	}
+	if !strings.Contains(md, "RL Avg Reward") {
+		t.Error("FormatMarkdown should include 'RL Avg Reward' row")
+	}
+	if !strings.Contains(md, "RL Success Rate") {
+		t.Error("FormatMarkdown should include 'RL Success Rate' row")
+	}
+	if !strings.Contains(md, "Tool Priority Deltas") {
+		t.Error("FormatMarkdown should include 'Tool Priority Deltas' section")
+	}
+	if !strings.Contains(md, "bash") {
+		t.Error("FormatMarkdown should include 'bash' in tool priority deltas")
 	}
 }

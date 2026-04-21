@@ -266,7 +266,18 @@ func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 		snap.PreferenceCount = pl.EntryCount()
 	}
 	if so := evo.StrategyOptimizerHook(); so != nil {
-		snap.StrategyVersion = so.GetStrategy().Version
+		strategy := so.GetStrategy()
+		snap.StrategyVersion = strategy.Version
+		snap.ReplanThreshold = strategy.ReplanThreshold.Value
+		snap.ReplanThresholdPrev = strategy.ReplanThreshold.Previous
+		snap.ReplanThresholdReason = strategy.ReplanThreshold.Reason
+		if len(strategy.ToolPriorities) > 0 {
+			tp := make(map[string]float64, len(strategy.ToolPriorities))
+			for tool, param := range strategy.ToolPriorities {
+				tp[tool] = param.Value
+			}
+			snap.ToolPriorities = tp
+		}
 	}
 	if ss := evo.SkillSynthesizerHook(); ss != nil {
 		snap.SkillDraftCount = ss.DraftCount()
@@ -274,12 +285,37 @@ func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 	if tr := evo.TrajectoryRecorderHook(); tr != nil {
 		dir := tr.Dir()
 		if dir != "" {
-			since := time.Now().Add(-24 * time.Hour)
+			since := time.Now().Add(-7 * 24 * time.Hour)
 			if records, err := evolution.ReadTrajectories(dir, since, time.Now()); err == nil {
 				snap.TrajectoryCount = len(records)
+				snap = computeRLStats(snap, records)
 			}
 		}
 	}
+	return snap
+}
+
+// computeRLStats converts trajectory records to RLExperiences and computes
+// aggregate statistics, populating the RL* fields of the snapshot.
+func computeRLStats(snap *EvolutionSnapshot, records []evolution.TrajectoryRecord) *EvolutionSnapshot {
+	exps := evolution.ConvertTrajectories(records)
+	if len(exps) == 0 {
+		return snap
+	}
+	snap.RLEpisodeCount = len(exps)
+	var totalReward, totalProgress float64
+	var successCount int
+	for _, e := range exps {
+		totalReward += e.Reward
+		totalProgress += e.Progress
+		if e.Progress >= 1.0 {
+			successCount++
+		}
+	}
+	n := float64(len(exps))
+	snap.RLAvgReward = totalReward / n
+	snap.RLSuccessRate = float64(successCount) / n
+	snap.RLAvgProgress = totalProgress / n
 	return snap
 }
 
