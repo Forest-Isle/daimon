@@ -159,6 +159,31 @@ func (r *Registry) topoSort() ([]string, error) {
 	return sorted, nil
 }
 
+// SetOnEnable sets or replaces the OnEnable hook for a feature.
+// Used for late-binding when the hook needs access to objects created after registration.
+func (r *Registry) SetOnEnable(name string, fn func(ctx context.Context) error) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	st, ok := r.states[name]
+	if !ok {
+		return fmt.Errorf("unknown feature %q", name)
+	}
+	st.feature.OnEnable = fn
+	return nil
+}
+
+// SetOnDisable sets or replaces the OnDisable hook for a feature.
+func (r *Registry) SetOnDisable(name string, fn func(ctx context.Context) error) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	st, ok := r.states[name]
+	if !ok {
+		return fmt.Errorf("unknown feature %q", name)
+	}
+	st.feature.OnDisable = fn
+	return nil
+}
+
 // IsEnabled reports whether a feature is currently enabled. Thread-safe.
 func (r *Registry) IsEnabled(name string) bool {
 	r.mu.RLock()
@@ -251,12 +276,13 @@ func (r *Registry) List() []FeatureInfo {
 	for _, name := range r.order {
 		st := r.states[name]
 		result = append(result, FeatureInfo{
-			Name:         st.feature.Name,
-			Description:  st.feature.Description,
-			Enabled:      st.enabled,
-			Reason:       st.reason,
-			Phase:        st.feature.Phase,
-			Dependencies: st.feature.Dependencies,
+			Name:          st.feature.Name,
+			Description:   st.feature.Description,
+			Enabled:       st.enabled,
+			Reason:        st.reason,
+			Phase:         st.feature.Phase,
+			Dependencies:  st.feature.Dependencies,
+			HotReloadable: st.feature.HotReloadable,
 		})
 	}
 	return result

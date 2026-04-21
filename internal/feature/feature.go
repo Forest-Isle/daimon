@@ -32,22 +32,24 @@ type DetectResult struct {
 
 // Feature defines a registrable capability with lifecycle hooks.
 type Feature struct {
-	Name         string
-	Description  string
-	Default      bool
-	Phase        Phase
-	Dependencies []string
-	AutoDetect   func(ctx context.Context) DetectResult
-	OnEnable     func(ctx context.Context) error
-	OnDisable    func(ctx context.Context) error
+	Name          string
+	Description   string
+	Default       bool
+	Phase         Phase
+	Dependencies  []string
+	HotReloadable bool
+	AutoDetect    func(ctx context.Context) DetectResult
+	OnEnable      func(ctx context.Context) error
+	OnDisable     func(ctx context.Context) error
 }
 
 // FeatureInfo is a read-only snapshot of a feature's current state.
 type FeatureInfo struct {
-	Name         string
-	Description  string
-	Enabled      bool
-	Reason       string
-	Phase        Phase
-	Dependencies []string
+	Name          string
+	Description   string
+	Enabled       bool
+	Reason        string
+	Phase         Phase
+	Dependencies  []string
+	HotReloadable bool
 }

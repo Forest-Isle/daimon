@@ -202,6 +202,59 @@ func TestList_ReturnsAllInOrder(t *testing.T) {
 	assert.False(t, list[topIdx].Enabled)
 }
 
+func TestSetOnEnable(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Feature{Name: "lazy", Default: false, HotReloadable: true})
+	require.NoError(t, r.ResolveAndInit(context.Background()))
+
+	called := false
+	require.NoError(t, r.SetOnEnable("lazy", func(ctx context.Context) error {
+		called = true
+		return nil
+	}))
+
+	require.NoError(t, r.Enable(context.Background(), "lazy"))
+	assert.True(t, called)
+	assert.True(t, r.IsEnabled("lazy"))
+}
+
+func TestSetOnDisable(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Feature{Name: "active", Default: true, HotReloadable: true})
+	require.NoError(t, r.ResolveAndInit(context.Background()))
+
+	called := false
+	require.NoError(t, r.SetOnDisable("active", func(ctx context.Context) error {
+		called = true
+		return nil
+	}))
+
+	require.NoError(t, r.Disable(context.Background(), "active"))
+	assert.True(t, called)
+	assert.False(t, r.IsEnabled("active"))
+}
+
+func TestSetOnEnableUnknownFeature(t *testing.T) {
+	r := NewRegistry()
+	err := r.SetOnEnable("nope", func(ctx context.Context) error { return nil })
+	assert.Error(t, err)
+}
+
+func TestHotReloadableInList(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Feature{Name: "hot", Default: true, HotReloadable: true})
+	r.Register(Feature{Name: "cold", Default: true, HotReloadable: false})
+	require.NoError(t, r.ResolveAndInit(context.Background()))
+
+	list := r.List()
+	hotReloadableMap := make(map[string]bool)
+	for _, f := range list {
+		hotReloadableMap[f.Name] = f.HotReloadable
+	}
+	assert.True(t, hotReloadableMap["hot"])
+	assert.False(t, hotReloadableMap["cold"])
+}
+
 func TestEnabledNames(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(Feature{Name: "on1", Default: true})
