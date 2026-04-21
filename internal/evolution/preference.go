@@ -327,6 +327,27 @@ func (p *PreferenceLearner) EntryCount() int {
 	return len(p.preferences)
 }
 
+// ListByCategory returns all preference entries for the given category
+// regardless of confidence level, sorted by confidence descending.
+// Unlike GetPreferences, this method does not filter by MinConfidence,
+// making it suitable for quality distribution analysis.
+func (p *PreferenceLearner) ListByCategory(category string) []PreferenceEntry {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var result []PreferenceEntry
+	for _, entry := range p.preferences {
+		if entry.Category == category {
+			result = append(result, *entry)
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Confidence > result[j].Confidence
+	})
+	return result
+}
+
 // clampUnit restricts v to [0.0, 1.0].
 func clampUnit(v float64) float64 {
 	if v < 0 {

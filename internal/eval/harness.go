@@ -37,6 +37,10 @@ type TaskCase struct {
 	// directly into the agent (e.g. memory fixtures via MemoryAwareRunner).
 	SetupWithRunner   func(ctx context.Context, runner AgentRunner) error `json:"-" yaml:"-"`
 	CleanupWithRunner func(ctx context.Context, runner AgentRunner) error `json:"-" yaml:"-"`
+
+	// UserFeedback simulates user rating for this task during eval.
+	// Range: -1.0 (negative) to 1.0 (positive). 0 means no feedback.
+	UserFeedback float64 `json:"user_feedback,omitempty" yaml:"user_feedback,omitempty"`
 }
 
 type Reference struct {
@@ -109,6 +113,7 @@ type EvalResult struct {
 	EpisodeReward     float64            `json:"episode_reward,omitempty"`
 	CompressionCount  int                `json:"compression_count,omitempty"`
 	CompressionEvents []CompressionEvent `json:"compression_events,omitempty"`
+	UserFeedback      float64            `json:"user_feedback,omitempty"`
 }
 
 type VerifyResult struct {
@@ -148,6 +153,14 @@ type EvolutionSnapshot struct {
 	RLAvgReward    float64 `json:"rl_avg_reward,omitempty"`
 	RLSuccessRate  float64 `json:"rl_success_rate,omitempty"`
 	RLAvgProgress  float64 `json:"rl_avg_progress,omitempty"`
+
+	// PreferenceQuality captures the distribution of learned preferences.
+	PreferenceHighConfCount   int     `json:"pref_high_conf_count,omitempty"`   // confidence >= 0.8
+	PreferenceMedConfCount    int     `json:"pref_med_conf_count,omitempty"`    // 0.4 <= confidence < 0.8
+	PreferenceLowConfCount    int     `json:"pref_low_conf_count,omitempty"`    // confidence < 0.4
+	PreferenceAvgConfidence   float64 `json:"pref_avg_confidence,omitempty"`
+	PreferenceToolCount       int     `json:"pref_tool_count,omitempty"`        // tool_preference entries
+	PreferenceComplexityCount int     `json:"pref_complexity_count,omitempty"` // complexity_handling entries
 }
 
 // SuiteResult aggregates results across a full evaluation run.

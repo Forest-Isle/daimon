@@ -207,6 +207,18 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 	r.populateFromObservation(result)
 	r.populateFromEvolution(result, sess.ID)
 
+	// Override episode reward to include simulated user feedback when set.
+	if task.UserFeedback != 0 {
+		result.UserFeedback = task.UserFeedback
+		result.EpisodeReward = evolution.ComputeReward(evolution.RewardInput{
+			Succeeded:    result.Success,
+			Progress:     result.AssertionPassRate,
+			DurationMs:   result.Duration.Milliseconds(),
+			ReplanCount:  result.ReplanCount,
+			UserFeedback: task.UserFeedback,
+		})
+	}
+
 	// Feed assertion pass rate into the cogmetrics collector so HealthReport
 	// reflects eval-run assertion quality in addition to live agent stats.
 	if r.cogCollector != nil && result.AssertionTotal > 0 {
@@ -264,6 +276,7 @@ func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 	}
 	if pl := evo.PreferenceLearnerHook(); pl != nil {
 		snap.PreferenceCount = pl.EntryCount()
+		populatePreferenceQuality(snap, pl)
 	}
 	if so := evo.StrategyOptimizerHook(); so != nil {
 		strategy := so.GetStrategy()
@@ -425,4 +438,41 @@ func (r *CognitiveAgentRunner) populateFromEvolution(result *EvalResult, session
 		result.CompressionCount = len(compressions)
 		result.CompressionEvents = compressions
 	}
+}
+
+// populatePreferenceQuality fills preference quality distribution metrics in
+// the snapshot using all entries (not filtered by MinConfidence) so that the
+// full distribution including low-confidence, recently observed entries is
+// captured.
+func populatePreferenceQuality(snap *EvolutionSnapshot, pl *evolution.PreferenceLearner) {
+	toolEntries := pl.ListByCategory("tool_preference")
+	complexityEntries := pl.ListByCategory("complexity_handling")
+
+	snap.PreferenceToolCount = len(toolEntries)
+	snap.PreferenceComplexityCount = len(complexityEntries)
+
+	all := make([]evolution.PreferenceEntry, 0, len(toolEntries)+len(complexityEntries))
+	all = append(all, toolEntries...)
+	all = append(all, complexityEntries...)
+
+	// Include replan_tendency entries in distribution too.
+	all = append(all, pl.ListByCategory("replan_tendency")...)
+
+	if len(all) == 0 {
+		return
+	}
+
+	var sumConf float64
+	for _, e := range all {
+		sumConf += e.Confidence
+		switch {
+		case e.Confidence >= 0.8:
+			snap.PreferenceHighConfCount++
+		case e.Confidence >= 0.4:
+			snap.PreferenceMedConfCount++
+		default:
+			snap.PreferenceLowConfCount++
+		}
+	}
+	snap.PreferenceAvgConfidence = sumConf / float64(len(all))
 }
