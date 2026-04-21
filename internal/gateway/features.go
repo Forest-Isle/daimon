@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
@@ -185,6 +186,26 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 		return nil
 	})
 
+	// MCP servers — bind start/stop hooks for each registered mcp_* feature
+	for _, srv := range gw.features.List() {
+		if !strings.HasPrefix(srv.Name, "mcp_") {
+			continue
+		}
+		serverName := strings.TrimPrefix(srv.Name, "mcp_")
+		srvCfg, ok := gw.cfg.Tools.MCP.Servers[serverName]
+		if !ok {
+			continue
+		}
+		sName := serverName
+		sCfg := srvCfg
+		_ = gw.features.SetOnEnable("mcp_"+sName, func(ctx context.Context) error {
+			return gw.mcpManager.StartServer(ctx, sName, sCfg, gw.tools)
+		})
+		_ = gw.features.SetOnDisable("mcp_"+sName, func(ctx context.Context) error {
+			gw.mcpManager.StopServer(sName, gw.tools)
+			return nil
+		})
+	}
 }
 
 func configToOverrides(cfg *config.Config) map[string]bool {
