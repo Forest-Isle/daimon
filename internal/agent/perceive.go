@@ -80,6 +80,7 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 	words := strings.Fields(lower)
 
 	complexity := assessComplexity(lower, words)
+	ambiguity := assessAmbiguity(lower, words)
 
 	// Memory retrieval — include user and session scopes for richer context.
 	var memories []memory.SearchResult
@@ -144,9 +145,10 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 		UserID:      userID,
 		UserMessage: userMsg,
 		Goal: Goal{
-			Raw:        userMsg,
-			Intent:     extractIntent(lower),
-			Complexity: complexity,
+			Raw:            userMsg,
+			Intent:         extractIntent(lower),
+			Complexity:     complexity,
+			AmbiguityScore: ambiguity,
 		},
 		RelevantMemories: memories,
 		RecentHistory:    recentHistory,
@@ -171,6 +173,7 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 
 	slog.Info("perceive complete",
 		"complexity", complexity,
+		"ambiguity", ambiguity,
 		"memories", len(state.RelevantMemories),
 		"knowledge_snippets", len(state.KnowledgeContext),
 		"graph_relations", len(state.GraphContext),
@@ -234,6 +237,72 @@ func extractIntent(lower string) string {
 		}
 	}
 	return "query"
+}
+
+// assessAmbiguity scores how ambiguous/vague a user request is.
+// High scores indicate the agent should seek clarification before acting.
+func assessAmbiguity(lower string, words []string) float64 {
+	score := 0.0
+
+	if len(words) <= 3 {
+		score += 0.3
+	}
+
+	vagueVerbs := []string{"improve", "better", "fix", "help", "do", "make", "change", "update", "handle"}
+	hasVagueVerb := false
+	for _, v := range vagueVerbs {
+		if strings.Contains(lower, v) {
+			hasVagueVerb = true
+			break
+		}
+	}
+	if hasVagueVerb {
+		score += 0.2
+	}
+
+	hasSpecifics := false
+	if strings.Contains(lower, "/") || strings.Contains(lower, "\"") || strings.Contains(lower, "'") {
+		hasSpecifics = true
+	}
+	for _, w := range words {
+		isNumber := true
+		for _, c := range w {
+			if c < '0' || c > '9' {
+				isNumber = false
+				break
+			}
+		}
+		if isNumber && len(w) > 0 {
+			hasSpecifics = true
+			break
+		}
+	}
+	for _, trig := range toolTriggers {
+		if strings.Contains(lower, trig) {
+			hasSpecifics = true
+			break
+		}
+	}
+	if !hasSpecifics {
+		score += 0.3
+	}
+
+	verifiableKeywords := []string{"should", "must", "expect", "verify", "confirm", "check", "ensure", "assert", "contain", "equal", "return", "output", "result"}
+	hasVerifiable := false
+	for _, kw := range verifiableKeywords {
+		if strings.Contains(lower, kw) {
+			hasVerifiable = true
+			break
+		}
+	}
+	if !hasVerifiable {
+		score += 0.2
+	}
+
+	if score > 1.0 {
+		score = 1.0
+	}
+	return score
 }
 
 // queryGraphWithEntities extracts key terms from the user message, queries the knowledge
