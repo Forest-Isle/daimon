@@ -266,6 +266,40 @@ func (r *CognitiveAgentRunner) populateFromObservation(result *EvalResult) {
 	result.ToolsUsed = tools
 }
 
+// RunInsightsCycle implements InsightsTrigger. It triggers the evolution
+// engine's insights feedback loop immediately, bypassing the 6-hour timer.
+// Returns whether the cycle ran and a human-readable reason.
+func (r *CognitiveAgentRunner) RunInsightsCycle() (ran bool, reason string) {
+	evo := r.agent.EvolutionEngine()
+	if evo == nil {
+		return false, "evolution engine not configured"
+	}
+	if !evo.IsEnabled() {
+		return false, "evolution engine disabled"
+	}
+	evo.RunInsightsCycle()
+	return true, "insights cycle completed"
+}
+
+// TrajectoryCount implements InsightsTrigger. Returns the number of trajectory
+// records written in the last 7 days by the evolution engine.
+func (r *CognitiveAgentRunner) TrajectoryCount() int {
+	evo := r.agent.EvolutionEngine()
+	if evo == nil {
+		return 0
+	}
+	dir := evo.TrajectoryDir()
+	if dir == "" {
+		return 0
+	}
+	since := time.Now().Add(-7 * 24 * time.Hour)
+	records, err := evolution.ReadTrajectories(dir, since, time.Now())
+	if err != nil {
+		return 0
+	}
+	return len(records)
+}
+
 // CaptureSnapshot returns a point-in-time snapshot of the evolution subsystem.
 // Returns a zero-valued snapshot when no evolution engine is configured.
 func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
