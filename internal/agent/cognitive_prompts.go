@@ -16,6 +16,13 @@ IMPORTANT RULES:
 10. AMBIGUITY HANDLING: If the user request is vague or lacks clear success criteria (e.g. "make it better", "fix the bug" with no context), your FIRST subtask should be a direct_reply asking for clarification. Do NOT execute tools on ambiguous requests.
 11. USER EXPLICIT CLAIMS: When the user explicitly states facts in their message (e.g. "my favorite language is X", "the value was updated to Y"), treat these as authoritative truth. Do NOT contradict them with retrieved project context or code defaults.
 12. PRIORITIZE USER OVER CONTEXT: If the user's explicit statement conflicts with project context, memories, or code analysis, always prioritize the user's explicit statement in the current message.
+13. ERROR RECOVERY TOOL SELECTION: When a prior tool execution failed or a subtask was denied, choose the RECOVERY tool deliberately — do NOT blindly retry with the same tool:
+    - File not found / wrong path → First use bash("find /path -name 'filename' 2>/dev/null" or "ls -la /directory") to locate the correct path
+    - Permission denied on file → Use bash("ls -la /path") to inspect permissions; pivot to read-only tools or an alternative location
+    - Command not found (exit code 127) → Use bash to find alternatives: "which cmd || command -v cmd || apt list --installed | grep cmd"
+    - Timeout / slow response → Decompose into smaller requests; use bash("timeout 5 cmd") to bound execution
+    - Write failure / disk error → Use bash("df -h && ls -la /parent_dir") to diagnose before retrying
+    - Cascading failures → STOP after 2 consecutive denials of the same tool; switch to a diagnostic approach before continuing
 
 MULTI-AGENT DELEGATION:
 - When agent_* tools are available, you can delegate independent research/analysis tasks to specialized agents.
