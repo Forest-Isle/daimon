@@ -102,6 +102,12 @@ type Model struct {
 	phase       string // current cognitive phase (empty in simple mode)
 	showStats   bool   // toggle for detailed stats panel
 
+	// Compression tracking for stats panel
+	compressionCount   int
+	lastCompressFrom   float64 // before utilization (0.0–1.0)
+	lastCompressTo     float64 // after utilization (0.0–1.0)
+	lastCompressReason string
+
 	// Layout
 	width  int
 	height int
@@ -269,6 +275,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case metricsUpdateMsg:
 		m.metrics = metricsState(msg)
+		return m, nil
+
+	case compressionNotificationMsg:
+		m.compressionCount++
+		m.lastCompressFrom = msg.beforePct
+		m.lastCompressTo = msg.afterPct
+		m.lastCompressReason = msg.reason
+		notification := fmt.Sprintf(
+			"🗜️ Context compressed: %d%% → %d%% (%s, %d layers)",
+			int(msg.beforePct*100), int(msg.afterPct*100),
+			msg.reason, msg.layersRun,
+		)
+		m.messages = append(m.messages, chatMessage{
+			role:      "system",
+			content:   notification,
+			timestamp: time.Now(),
+		})
+		m.updateViewportKeepScroll()
 		return m, nil
 	}
 
@@ -792,6 +816,16 @@ func (m Model) renderStatsPanel() string {
 			statsValueStyle.Render(fmt.Sprintf("%d/%d", m.metrics.iteration+1, m.metrics.maxIter)),
 			statsLabelStyle.Render("Tools:"),
 			statsValueStyle.Render(fmt.Sprintf("%d", m.toolCount)))
+	}
+
+	if m.compressionCount > 0 {
+		compVal := fmt.Sprintf("%d", m.compressionCount)
+		if m.lastCompressFrom > 0 {
+			compVal += fmt.Sprintf(" (last: %d%%→%d%%)", int(m.lastCompressFrom*100), int(m.lastCompressTo*100))
+		}
+		_, _ = fmt.Fprintf(&b, "  %s %s\n",
+			statsLabelStyle.Render("Compressions:"),
+			statsValueStyle.Render(compVal))
 	}
 
 	return statsPanelStyle.Width(m.width - 2).Render(b.String())

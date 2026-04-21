@@ -99,3 +99,12 @@ type metricsUpdateMsg struct {
 	model        string
 	provider     string
 }
+
+// compressionNotificationMsg is sent when context compression fires.
+type compressionNotificationMsg struct {
+	sessionID string
+	reason    string
+	layersRun int
+	beforePct float64
+	afterPct  float64
+}
