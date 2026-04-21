@@ -511,6 +511,17 @@ func defaultConfig() Config {
 				},
 				TokenEstimateRatio: 0.25,
 			},
+			SpeculativeExecution: SpeculativeExecutionConfig{
+				Enabled:     true,
+				MaxInFlight: 3,
+			},
+			Team: TeamConfig{
+				Enabled:    true,
+				MaxWorkers: 3,
+			},
+		},
+		Memory: MemoryConfig{
+			Enabled: true,
 		},
 		Store: StoreConfig{
 			Path: "./data/ironclaw.db",
@@ -523,6 +534,7 @@ func defaultConfig() Config {
 			Format: "text",
 		},
 		Scheduler: SchedulerConfig{
+			Enabled:      true,
 			PollInterval: 30 * time.Second,
 		},
 		Tools: ToolsConfig{
@@ -556,7 +568,11 @@ func defaultConfig() Config {
 		Skills: SkillsConfig{
 			Enabled: true,
 		},
+		Agents: AgentsConfig{
+			Enabled: true,
+		},
 		Knowledge: KnowledgeConfig{
+			Enabled:      true,
 			ChunkSize:    512,
 			ChunkOverlap: 64,
 			BM25Weight:   0.4,
