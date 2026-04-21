@@ -164,7 +164,7 @@ func buildDeniedOutput(toolName, reason string) string {
 	var errorHint string
 	switch {
 	case strings.Contains(lower, "no such file") || strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist"):
-		errorHint = fmt.Sprintf("\nPATH_RECOVERY: Use bash to locate the file first: bash: find / -name '<filename>' -type f 2>/dev/null | head -5  or  bash: ls -la <parent_directory>")
+		errorHint = "\nPATH_RECOVERY: Use bash to locate the file first: bash: find / -name '<filename>' -type f 2>/dev/null | head -5  or  bash: ls -la <parent_directory>"
 	case strings.Contains(lower, "permission denied"):
 		errorHint = "\nPERMISSION_RECOVERY: Check permissions with bash: ls -la <path> — consider read-only alternative or different directory"
 	case strings.Contains(lower, "exit code 127") || strings.Contains(lower, "command not found"):
