@@ -223,6 +223,41 @@ func TestStateTrackerSessionEnd(t *testing.T) {
 	}
 }
 
+func TestStateTrackerSkipsEvolutionSessionEnd(t *testing.T) {
+	bus := NewBus(16)
+	tracker := NewAgentStateTracker(bus)
+	go tracker.Run()
+	defer tracker.Stop()
+
+	now := time.Now()
+
+	bus.Publish(Event{
+		Type: EventSessionStart, Timestamp: now, SessionID: "s1",
+		Data: map[string]any{"channel": "telegram"},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	bus.Publish(Event{
+		Type: EventSessionEnd, Timestamp: now, SessionID: "s1",
+		Data: map[string]any{"succeeded": true, "duration_ms": int64(1000)},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	bus.Publish(Event{
+		Type: EventSessionEnd, Timestamp: now, SessionID: "s1",
+		Data: map[string]any{"succeeded": true, "duration_ms": int64(1000), "source": "evolution"},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	snap := tracker.Snapshot()
+	if len(snap.ActiveSessions) != 0 {
+		t.Fatalf("expected 0 active sessions, got %d", len(snap.ActiveSessions))
+	}
+	if snap.TotalSessions != 1 {
+		t.Errorf("TotalSessions = %d, want 1 (evolution source should not double-count)", snap.TotalSessions)
+	}
+}
+
 func TestStateTrackerSubAgentLifecycle(t *testing.T) {
 	bus := NewBus(16)
 	tracker := NewAgentStateTracker(bus)

@@ -164,6 +164,7 @@ function reducer(state: AgentState, action: Action): AgentState {
             provider: ev.data.provider as string,
           }, status: 'busy' }
         case 'session.end':
+          if (ev.data.source === 'evolution') break
           status = 'idle'
           phaseHistory = []
           subAgents = []

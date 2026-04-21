@@ -187,8 +187,10 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 		}
 
 	case EventSessionEnd:
-		delete(t.activeSessions, sid)
-		t.totalToday++
+		if ev.Data["source"] != "evolution" {
+			delete(t.activeSessions, sid)
+			t.totalToday++
+		}
 
 	case EventSubAgentSpawn:
 		sa := &SubAgentState{
