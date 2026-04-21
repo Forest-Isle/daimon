@@ -28,6 +28,23 @@ func newEvalCmd() *cobra.Command {
 	return cmd
 }
 
+// applyFeatureState populates result.FeatureState from the gateway's feature registry.
+// Called after every live RunSuiteWithOptions to record which features were active,
+// enabling meaningful comparison between runs.
+func applyFeatureState(result *eval.SuiteResult, gw *gateway.Gateway) {
+	if gw == nil || result == nil {
+		return
+	}
+	features := gw.Features()
+	if features == nil {
+		return
+	}
+	result.FeatureState = make(map[string]bool)
+	for _, f := range features.List() {
+		result.FeatureState[f.Name] = features.IsEnabled(f.Name)
+	}
+}
+
 func newEvalRunCmd() *cobra.Command {
 	var (
 		suite      string
@@ -96,15 +113,7 @@ config file with LLM credentials and agent.mode set to "cognitive".`,
 				return fmt.Errorf("run suite: %w", err)
 			}
 
-			// Record feature state for result comparability diagnostics
-			if gw != nil {
-				if features := gw.Features(); features != nil {
-					result.FeatureState = make(map[string]bool)
-					for _, f := range features.List() {
-						result.FeatureState[f.Name] = features.IsEnabled(f.Name)
-					}
-				}
-			}
+			applyFeatureState(result, gw)
 
 			summary := result.Summary()
 			fmt.Printf("\n--- Results ---\n")
@@ -127,7 +136,7 @@ config file with LLM credentials and agent.mode set to "cognitive".`,
 		},
 	}
 
-	cmd.Flags().StringVar(&suite, "suite", "builtin", "suite name or path to JSON task file")
+	cmd.Flags().StringVar(&suite, "suite", "builtin", "suite name or path to task file (.yaml/.yml/.json)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "output JSON file for results")
 	cmd.Flags().StringVar(&runID, "run-id", "", "custom run identifier (auto-generated if empty)")
 	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent (requires LLM credentials)")
@@ -290,7 +299,7 @@ func newEvalListCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&suite, "suite", "all", "suite to list (builtin, evolution, all)")
+	cmd.Flags().StringVar(&suite, "suite", "all", "suite to list: 'all' shows every named suite, or specify a name (builtin, evolution, workload, planning, error_recovery, tool_selection, conversation, memory, knowledge, multi_agent, full)")
 	return cmd
 }
 
@@ -381,6 +390,8 @@ genuine strategy/preference evolution between measurements.`,
 					return fmt.Errorf("iteration %d: %w", i, runErr)
 				}
 
+				applyFeatureState(result, gw)
+
 				outPath := fmt.Sprintf("%s/%s.json", outputDir, runID)
 				if err := result.SaveJSON(outPath); err != nil {
 					return fmt.Errorf("save iteration %d: %w", i, err)
@@ -459,7 +470,7 @@ genuine strategy/preference evolution between measurements.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&suite, "suite", "evolution", "benchmark suite name or JSON file path")
+	cmd.Flags().StringVar(&suite, "suite", "evolution", "suite name or path to task file (.yaml/.yml/.json)")
 	cmd.Flags().StringVar(&outputDir, "output-dir", "", "directory for iteration results (auto-generated if empty)")
 	cmd.Flags().IntVarP(&iterations, "iterations", "n", 3, "number of evaluation iterations")
 	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent")
@@ -547,6 +558,8 @@ Output includes:
 				return fmt.Errorf("run suite: %w", err)
 			}
 
+			applyFeatureState(suiteResult, gw)
+
 			resultsPath := fmt.Sprintf("%s/results.json", outputDir)
 			if err := suiteResult.SaveJSON(resultsPath); err != nil {
 				slog.Warn("failed to save results", "err", err)
@@ -614,7 +627,7 @@ Output includes:
 		},
 	}
 
-	cmd.Flags().StringVar(&suite, "suite", "full", "suite name or JSON file path")
+	cmd.Flags().StringVar(&suite, "suite", "full", "suite name or path to task file (.yaml/.yml/.json)")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory for reports")
 	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent")
 	cmd.Flags().BoolVar(&judge, "judge", true, "enable LLM-as-Judge")
@@ -805,6 +818,8 @@ against known reference scores from other agents.`,
 			if err != nil {
 				return fmt.Errorf("run benchmark: %w", err)
 			}
+
+			applyFeatureState(suiteResult, gw)
 
 			_ = suiteResult.SaveJSON(outputDir + "/results.json")
 

@@ -38,7 +38,9 @@ type ComparisonReport struct {
 	EvoSnapshot     *EvoSnapshotDiff      `json:"evo_snapshot,omitempty"`
 	// FeatureStateDiff lists features whose enablement changed between runs.
 	// Non-empty means comparison scores may be affected by config differences.
-	FeatureStateDiff map[string]string `json:"feature_state_diff,omitempty"` // feature -> "before:true->after:false"
+	// Values are formatted as "enabled->disabled" or "disabled->enabled".
+	// Only populated when both runs recorded FeatureState (live eval with --live).
+	FeatureStateDiff map[string]string `json:"feature_state_diff,omitempty"`
 	GeneratedAt      time.Time         `json:"generated_at"`
 }
 
@@ -123,8 +125,9 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 		}
 	}
 
-	// Compute feature state diff
-	if before.FeatureState != nil || after.FeatureState != nil {
+	// Compute feature state diff — only meaningful when both runs recorded feature state.
+	// If only one side has it, skip diff to avoid false positives (missing data ≠ disabled).
+	if before.FeatureState != nil && after.FeatureState != nil {
 		diff := make(map[string]string)
 		allFeatures := make(map[string]bool)
 		for k := range before.FeatureState {
@@ -136,7 +139,15 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 		for name := range allFeatures {
 			beforeVal, afterVal := before.FeatureState[name], after.FeatureState[name]
 			if beforeVal != afterVal {
-				diff[name] = fmt.Sprintf("%v->%v", beforeVal, afterVal)
+				// Format: "enabled->disabled" or "disabled->enabled"
+				bStr, aStr := "disabled", "disabled"
+				if beforeVal {
+					bStr = "enabled"
+				}
+				if afterVal {
+					aStr = "enabled"
+				}
+				diff[name] = fmt.Sprintf("%s->%s", bStr, aStr)
 			}
 		}
 		if len(diff) > 0 {
