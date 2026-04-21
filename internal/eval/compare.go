@@ -27,6 +27,11 @@ type EvoSnapshotDiff struct {
 	ToolPriorityDeltas   map[string]float64 `json:"tool_priority_deltas,omitempty"`
 	RLAvgRewardDelta     float64            `json:"rl_avg_reward_delta,omitempty"`
 	RLSuccessRateDelta   float64            `json:"rl_success_rate_delta,omitempty"`
+
+	// RouterModelChanges lists models whose task-routing counts changed between
+	// runs. Key is model name; value is delta (positive = more tasks routed there).
+	// Only populated when both snapshots contain RouterDecisions data.
+	RouterModelChanges map[string]int `json:"router_model_changes,omitempty"`
 }
 
 // ComparisonReport compares two evaluation runs side by side.
@@ -141,6 +146,25 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 			}
 			if len(toolDeltas) > 0 {
 				diff.ToolPriorityDeltas = toolDeltas
+			}
+		}
+		if len(before.EvoAfter.RouterDecisions) > 0 || len(after.EvoAfter.RouterDecisions) > 0 {
+			changes := make(map[string]int)
+			allModels := make(map[string]bool)
+			for m := range before.EvoAfter.RouterDecisions {
+				allModels[m] = true
+			}
+			for m := range after.EvoAfter.RouterDecisions {
+				allModels[m] = true
+			}
+			for model := range allModels {
+				delta := after.EvoAfter.RouterDecisions[model] - before.EvoAfter.RouterDecisions[model]
+				if delta != 0 {
+					changes[model] = delta
+				}
+			}
+			if len(changes) > 0 {
+				diff.RouterModelChanges = changes
 			}
 		}
 		report.EvoSnapshot = diff
@@ -282,6 +306,14 @@ func (r *ComparisonReport) FormatMarkdown() string {
 			b.WriteString("|------|-------|\n")
 			for tool, delta := range r.EvoSnapshot.ToolPriorityDeltas {
 				fmt.Fprintf(&b, "| %s | %s |\n", tool, fmtDelta(delta, "", true))
+			}
+		}
+		if len(r.EvoSnapshot.RouterModelChanges) > 0 {
+			b.WriteString("\n#### Router Model Changes\n\n")
+			b.WriteString("| Model | Task Count Delta |\n")
+			b.WriteString("|-------|------------------|\n")
+			for model, delta := range r.EvoSnapshot.RouterModelChanges {
+				fmt.Fprintf(&b, "| %s | %+d |\n", model, delta)
 			}
 		}
 	}

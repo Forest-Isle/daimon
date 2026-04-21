@@ -103,6 +103,10 @@ type EvalResult struct {
 	Error             string        `json:"error,omitempty"`
 	Timestamp         time.Time     `json:"timestamp"`
 
+	// RoutedModel is the model name selected by the Model Router for this task's
+	// complexity. Empty when routing is disabled or the complexity is unrecognized.
+	RoutedModel string `json:"routed_model,omitempty"`
+
 	Dimension         Dimension          `json:"dimension,omitempty"`
 	AgentOutput       string             `json:"agent_output,omitempty"`
 	VerifyResult      *VerifyResult      `json:"verify_result,omitempty"`
@@ -161,6 +165,11 @@ type EvolutionSnapshot struct {
 	PreferenceAvgConfidence   float64 `json:"pref_avg_confidence,omitempty"`
 	PreferenceToolCount       int     `json:"pref_tool_count,omitempty"`        // tool_preference entries
 	PreferenceComplexityCount int     `json:"pref_complexity_count,omitempty"` // complexity_handling entries
+
+	// RouterDecisions aggregates how many tasks were routed to each model
+	// during a suite run. Keyed by model name; populated by RunSuite after
+	// collecting all EvalResult.RoutedModel values.
+	RouterDecisions map[string]int `json:"router_decisions,omitempty"`
 }
 
 // SuiteResult aggregates results across a full evaluation run.
@@ -262,6 +271,9 @@ func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentR
 
 	if sc, ok := runner.(SnapshotCaptor); ok {
 		suite.EvoAfter = sc.CaptureSnapshot()
+	}
+	if suite.EvoAfter != nil {
+		suite.EvoAfter.RouterDecisions = aggregateRouterDecisions(suite.Results)
 	}
 	if chc, ok := runner.(CogHealthCaptor); ok {
 		suite.CogHealth = chc.CaptureCogHealth()
@@ -393,6 +405,9 @@ func RunSuiteWithOptions(ctx context.Context, runID string, tasks []TaskCase, ru
 	if sc, ok := runner.(SnapshotCaptor); ok {
 		suite.EvoAfter = sc.CaptureSnapshot()
 	}
+	if suite.EvoAfter != nil {
+		suite.EvoAfter.RouterDecisions = aggregateRouterDecisions(suite.Results)
+	}
 	if chc, ok := runner.(CogHealthCaptor); ok {
 		suite.CogHealth = chc.CaptureCogHealth()
 	}
@@ -463,21 +478,40 @@ func (s *SuiteResult) Summary() SuiteSummary {
 		sum.AvgReplanCount = float64(totalReplan) / n
 	}
 
+	if decisions := aggregateRouterDecisions(s.Results); len(decisions) > 0 {
+		sum.RouterDecisions = decisions
+	}
+
 	return sum
+}
+
+// aggregateRouterDecisions counts how many tasks were routed to each model.
+// Tasks with an empty RoutedModel (routing disabled) are skipped.
+func aggregateRouterDecisions(results []EvalResult) map[string]int {
+	decisions := make(map[string]int)
+	for _, r := range results {
+		if r.RoutedModel != "" {
+			decisions[r.RoutedModel]++
+		}
+	}
+	return decisions
 }
 
 // SuiteSummary holds aggregate metrics for an evaluation run.
 type SuiteSummary struct {
-	RunID              string        `json:"run_id"`
-	TotalTasks         int           `json:"total_tasks"`
-	Passed             int           `json:"passed"`
-	Failed             int           `json:"failed"`
-	Errors             int           `json:"errors"`
-	SuccessRate        float64       `json:"success_rate"`
-	AvgAssertionPassRate float64     `json:"avg_assertion_pass_rate"`
-	AvgConfidence      float64       `json:"avg_confidence"`
-	AvgReplanCount     float64       `json:"avg_replan_count"`
-	Duration           time.Duration `json:"duration_ms"`
+	RunID                string         `json:"run_id"`
+	TotalTasks           int            `json:"total_tasks"`
+	Passed               int            `json:"passed"`
+	Failed               int            `json:"failed"`
+	Errors               int            `json:"errors"`
+	SuccessRate          float64        `json:"success_rate"`
+	AvgAssertionPassRate float64        `json:"avg_assertion_pass_rate"`
+	AvgConfidence        float64        `json:"avg_confidence"`
+	AvgReplanCount       float64        `json:"avg_replan_count"`
+	Duration             time.Duration  `json:"duration_ms"`
+	// RouterDecisions counts how many tasks were routed to each model.
+	// Only populated when the Model Router is enabled and tasks have a Complexity set.
+	RouterDecisions      map[string]int `json:"router_decisions,omitempty"`
 }
 
 // SaveJSON writes the suite result to a JSON file.
