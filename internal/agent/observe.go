@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -27,12 +28,19 @@ func (o *Observer) Run(observations []Observation, plan *TaskPlan) *ObservationR
 	for _, obs := range observations {
 		if obs.Denied {
 			result.DeniedCount++
-			result.Failures = append(result.Failures, FailureContext{
+
+			fc := FailureContext{
 				SubTaskID: obs.SubTaskID,
 				ToolName:  obs.ToolName,
 				ErrorType: FailureDenied,
-				ErrorMsg:  "tool execution denied by user",
-			})
+				ErrorMsg:  fmt.Sprintf("tool '%s' was denied — this is recoverable; consider alternative tools or reasoning from available context", obs.ToolName),
+			}
+
+			if idx := strings.Index(obs.Output, "[Recovery Hint:"); idx >= 0 {
+				fc.ErrorMsg += ". " + obs.Output[idx:]
+			}
+
+			result.Failures = append(result.Failures, fc)
 			continue
 		}
 
@@ -118,6 +126,10 @@ func detectErrorPatterns(observations []Observation, result *ObservationResult) 
 	}
 	if toolNotFound {
 		patterns = append(patterns, "tool_not_found")
+	}
+
+	if result.DeniedCount > 0 && result.DeniedCount < len(observations) {
+		patterns = append(patterns, "partial_denied_recoverable")
 	}
 
 	return patterns
