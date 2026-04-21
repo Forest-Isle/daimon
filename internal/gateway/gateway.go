@@ -91,6 +91,14 @@ func New(cfg *config.Config) (*Gateway, error) {
 	if err := gw.initDatabase(); err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
+
+	// Feature registry — register all features, apply config overrides, resolve dependencies
+	gw.features = registerFeatures(cfg)
+	gw.features.ApplyOverrides(configToOverrides(cfg))
+	if err := gw.features.ResolveAndInit(context.Background()); err != nil {
+		return nil, fmt.Errorf("feature registry: %w", err)
+	}
+
 	if err := gw.initToolsAndHooks(); err != nil {
 		return nil, fmt.Errorf("tools: %w", err)
 	}
@@ -123,7 +131,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 	}
 
 	// Team coordinator
-	if cfg.Agent.Team.Enabled {
+	if gw.features.IsEnabled("team") {
 		maxWorkers := cfg.Agent.Team.MaxWorkers
 		if maxWorkers <= 0 {
 			maxWorkers = 3
@@ -234,13 +242,13 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	}
 
 	// Start scheduler
-	if gw.cfg.Scheduler.Enabled {
+	if gw.features.IsEnabled("scheduler") {
 		gw.sched.Start(ctx)
 		slog.Info("scheduler started")
 	}
 
 	// Start HTTP admin server if enabled
-	if gw.cfg.Server.Enabled && !gw.cfg.Dashboard.Enabled {
+	if gw.features.IsEnabled("server") && !gw.cfg.Dashboard.Enabled {
 		go startHTTPServer(gw.cfg.Server.Addr, gw.db)
 	}
 
@@ -318,7 +326,7 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		}
 	}
 
-	if gw.cfg.Scheduler.Enabled {
+	if gw.features.IsEnabled("scheduler") {
 		gw.sched.Stop()
 	}
 
