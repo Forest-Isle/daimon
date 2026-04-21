@@ -79,6 +79,44 @@ func bashAssertions(obs Observation) []AssertionResult {
 		Actual: stderrActual(out.Stderr, matched),
 	})
 
+	// Content-level assertions: detect wrong output despite exit_code=0
+	results = append(results, bashOutputContentAssertions(out)...)
+
+	return results
+}
+
+// bashOutputContentAssertions detects common patterns of incorrect bash output:
+// empty stdout when output is expected, or stdout containing error-like patterns
+// despite a zero exit code (command ran but produced wrong output).
+func bashOutputContentAssertions(out bashOutput) []AssertionResult {
+	var results []AssertionResult
+
+	// Flag empty stdout on successful exit — likely command ran but produced nothing.
+	if out.ExitCode == 0 && strings.TrimSpace(out.Stdout) == "" && strings.TrimSpace(out.Stderr) == "" {
+		results = append(results, AssertionResult{
+			Check:  "bash stdout is non-empty on success",
+			Passed: false,
+			Actual: "exit_code=0 but stdout and stderr are both empty — verify command produced expected output",
+		})
+	}
+
+	// Flag stdout that contains error-like patterns despite exit_code=0.
+	// This catches commands that print errors to stdout (non-standard but common).
+	if out.ExitCode == 0 && out.Stdout != "" {
+		stdoutLower := strings.ToLower(out.Stdout)
+		errorPatterns := []string{"error:", "fatal:", "failed:", "exception:", "traceback", "command not found"}
+		for _, pat := range errorPatterns {
+			if strings.Contains(stdoutLower, pat) {
+				results = append(results, AssertionResult{
+					Check:  "bash stdout does not contain error patterns",
+					Passed: false,
+					Actual: fmt.Sprintf("stdout contains '%s' despite exit_code=0: %s", pat, truncate(out.Stdout, 100)),
+				})
+				break
+			}
+		}
+	}
+
 	return results
 }
 
@@ -150,11 +188,21 @@ func fileReadAssertions(obs Observation) []AssertionResult {
 	})
 
 	if obs.Error == "" {
+		trimmed := strings.TrimSpace(obs.Output)
 		results = append(results, AssertionResult{
 			Check:  "file content is non-empty",
-			Passed: len(strings.TrimSpace(obs.Output)) > 0,
+			Passed: len(trimmed) > 0,
 			Actual: fmt.Sprintf("output length = %d", len(obs.Output)),
 		})
+
+		// For file_read: detect if content looks like an error or is suspiciously short for a code/config file
+		if len(trimmed) > 0 && len(trimmed) < 10 {
+			results = append(results, AssertionResult{
+				Check:  "file content is substantive",
+				Passed: false,
+				Actual: fmt.Sprintf("file content is very short (%d chars): '%s'", len(trimmed), trimmed),
+			})
+		}
 	}
 
 	return results

@@ -109,13 +109,21 @@ SCORING RUBRIC — evaluate each dimension independently (0–25 points):
     5 = Minimal progress made
     0 = No meaningful progress
 
-2. ACCURACY (0–25): Were the outputs correct and error-free?
-   25 = Flawless output, no errors
-   20 = Correct with negligible imperfections
-   15 = Mostly correct, minor errors present
-   10 = Partially correct, some notable errors
-    5 = Significant errors undermine usefulness
-    0 = Output is wrong or unusable
+2. ACCURACY (0–25): Were the outputs CORRECT and error-free? This measures output quality, NOT just whether tools ran.
+   CRITICAL DISTINCTION: A tool with exit_code=0 does NOT automatically mean accuracy=25.
+   Ask: "Is the actual content of the output what was needed?"
+   25 = Output is factually correct AND matches the task requirement precisely
+   20 = Output is correct with negligible imperfections (minor formatting, off-by-one)
+   15 = Mostly correct but contains verifiable factual errors or missing key details
+   10 = Output is partially correct but has significant factual errors or wrong values
+    5 = Output runs without error but produces wrong/irrelevant content
+    0 = Output is factually wrong, hallucinated, or completely unrelated to the task
+
+   ACCURACY ANTI-PATTERNS (reduce score when present):
+   - Agent reports file created but didn't verify content matches requirements
+   - Agent reports command succeeded but stdout shows wrong values
+   - Agent states facts it cannot have verified (no read tool was used)
+   - Numbers/values in output don't match what was computed by tools
 
 3. EFFICIENCY (0–25): Was the execution path reasonable?
    25 = Optimal path, no wasted steps
@@ -197,6 +205,7 @@ Before scoring completeness, you MUST:
 2. For each, note whether it was explicitly verified (not just attempted)
 3. If ANY sub-goal was not verified, completeness score MUST be reduced proportionally
 4. "Task completed" is NOT the same as "all constraints verified" — check each one
+5. ACCURACY VERIFICATION: For each claim in the final_answer, is it directly supported by a tool output? Any claim without tool evidence = potential hallucination → reduce accuracy score.
 
 Common pitfall: Agent creates files but does not verify contents match requirements.
 If the agent itself says "not verified" or "could not confirm", completeness CANNOT exceed 15/25.
