@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -182,9 +183,10 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 
 func newEvalCompareCmd() *cobra.Command {
 	var (
-		beforePath string
-		afterPath  string
-		jsonOutput bool
+		beforePath       string
+		afterPath        string
+		jsonOutput       bool
+		failOnRegression bool
 	)
 
 	cmd := &cobra.Command{
@@ -206,10 +208,18 @@ func newEvalCompareCmd() *cobra.Command {
 			if jsonOutput {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
-				return enc.Encode(report)
+				if encErr := enc.Encode(report); encErr != nil {
+					return encErr
+				}
+			} else {
+				fmt.Print(report.FormatMarkdown())
 			}
 
-			fmt.Print(report.FormatMarkdown())
+			if failOnRegression && len(report.Regressions) > 0 {
+				fmt.Fprintf(os.Stderr, "❌ %d regression(s) detected.\n", len(report.Regressions))
+				os.Exit(1)
+			}
+
 			return nil
 		},
 	}
@@ -217,6 +227,7 @@ func newEvalCompareCmd() *cobra.Command {
 	cmd.Flags().StringVar(&beforePath, "before", "", "path to the baseline results JSON")
 	cmd.Flags().StringVar(&afterPath, "after", "", "path to the comparison results JSON")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output as JSON")
+	cmd.Flags().BoolVar(&failOnRegression, "fail-on-regression", false, "exit with code 1 if any regressions are detected")
 	_ = cmd.MarkFlagRequired("before")
 	_ = cmd.MarkFlagRequired("after")
 	return cmd
@@ -812,26 +823,35 @@ against known reference scores from other agents.`,
 }
 
 // loadSuite resolves a suite name to task cases. Checks named suites first,
-// then falls back to reading a JSON file.
+// then falls back to reading a file (YAML for .yaml/.yml, JSON otherwise).
 func loadSuite(name string) ([]eval.TaskCase, error) {
 	suites := eval.AllSuites()
 	if fn, ok := suites[name]; ok {
 		return fn(), nil
 	}
 
-	data, err := os.ReadFile(name)
-	if err != nil {
-		available := make([]string, 0, len(suites))
-		for k := range suites {
-			available = append(available, k)
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".yaml", ".yml":
+		tasks, err := eval.LoadTaskSetYAML(name)
+		if err != nil {
+			available := make([]string, 0, len(suites))
+			for k := range suites {
+				available = append(available, k)
+			}
+			return nil, fmt.Errorf("unknown suite %q (available: %v); %w", name, available, err)
 		}
-		return nil, fmt.Errorf("unknown suite %q (available: %v); also not a readable file: %w", name, available, err)
+		return tasks, nil
+	default:
+		tasks, err := eval.LoadTaskSetJSON(name)
+		if err != nil {
+			available := make([]string, 0, len(suites))
+			for k := range suites {
+				available = append(available, k)
+			}
+			return nil, fmt.Errorf("unknown suite %q (available: %v); %w", name, available, err)
+		}
+		return tasks, nil
 	}
-	var tasks []eval.TaskCase
-	if err := json.Unmarshal(data, &tasks); err != nil {
-		return nil, fmt.Errorf("parse suite file %s: %w", name, err)
-	}
-	return tasks, nil
 }
 
 func truncateGoal(s string, max int) string {
