@@ -167,8 +167,11 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 		"evolution.enabled", true,
 		"permissions.default", "none",
 	)
+	slog.Info("eval: persisted feature state ignored (eval mode forces required features)")
 
-	gw, err := gateway.New(cfg)
+	gw, err := gateway.New(cfg, gateway.GatewayOptions{
+		SkipPersistedFeatureState: true,
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("init gateway: %w", err)
 	}
