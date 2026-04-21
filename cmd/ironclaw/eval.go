@@ -96,6 +96,16 @@ config file with LLM credentials and agent.mode set to "cognitive".`,
 				return fmt.Errorf("run suite: %w", err)
 			}
 
+			// Record feature state for result comparability diagnostics
+			if gw != nil {
+				if features := gw.Features(); features != nil {
+					result.FeatureState = make(map[string]bool)
+					for _, f := range features.List() {
+						result.FeatureState[f.Name] = features.IsEnabled(f.Name)
+					}
+				}
+			}
+
 			summary := result.Summary()
 			fmt.Printf("\n--- Results ---\n")
 			fmt.Printf("Total: %d | Passed: %d | Failed: %d | Errors: %d\n",

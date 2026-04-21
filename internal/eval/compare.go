@@ -36,7 +36,10 @@ type ComparisonReport struct {
 	Improvements    []TaskRegression      `json:"improvements,omitempty"`
 	DimensionDeltas map[Dimension]float64 `json:"dimension_deltas,omitempty"`
 	EvoSnapshot     *EvoSnapshotDiff      `json:"evo_snapshot,omitempty"`
-	GeneratedAt     time.Time             `json:"generated_at"`
+	// FeatureStateDiff lists features whose enablement changed between runs.
+	// Non-empty means comparison scores may be affected by config differences.
+	FeatureStateDiff map[string]string `json:"feature_state_diff,omitempty"` // feature -> "before:true->after:false"
+	GeneratedAt      time.Time         `json:"generated_at"`
 }
 
 // ComparisonDelta holds the differences between two runs.
@@ -117,6 +120,27 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 			StrategyVersionDelta: after.EvoAfter.StrategyVersion - before.EvoAfter.StrategyVersion,
 			SkillDraftCountDelta: after.EvoAfter.SkillDraftCount - before.EvoAfter.SkillDraftCount,
 			TrajectoryCountDelta: after.EvoAfter.TrajectoryCount - before.EvoAfter.TrajectoryCount,
+		}
+	}
+
+	// Compute feature state diff
+	if before.FeatureState != nil || after.FeatureState != nil {
+		diff := make(map[string]string)
+		allFeatures := make(map[string]bool)
+		for k := range before.FeatureState {
+			allFeatures[k] = true
+		}
+		for k := range after.FeatureState {
+			allFeatures[k] = true
+		}
+		for name := range allFeatures {
+			beforeVal, afterVal := before.FeatureState[name], after.FeatureState[name]
+			if beforeVal != afterVal {
+				diff[name] = fmt.Sprintf("%v->%v", beforeVal, afterVal)
+			}
+		}
+		if len(diff) > 0 {
+			report.FeatureStateDiff = diff
 		}
 	}
 
@@ -217,6 +241,16 @@ func (r *ComparisonReport) FormatMarkdown() string {
 		fmt.Fprintf(&b, "| Strategy Version | %+d |\n", r.EvoSnapshot.StrategyVersionDelta)
 		fmt.Fprintf(&b, "| Skill Draft Count | %+d |\n", r.EvoSnapshot.SkillDraftCountDelta)
 		fmt.Fprintf(&b, "| Trajectory Count | %+d |\n", r.EvoSnapshot.TrajectoryCountDelta)
+	}
+
+	if len(r.FeatureStateDiff) > 0 {
+		b.WriteString("\n### ⚠️ Feature State Differences\n\n")
+		b.WriteString("The following features changed between runs. Score deltas may reflect configuration differences rather than agent improvements:\n\n")
+		b.WriteString("| Feature | Change |\n")
+		b.WriteString("|---------|--------|\n")
+		for name, change := range r.FeatureStateDiff {
+			fmt.Fprintf(&b, "| %s | %s |\n", name, change)
+		}
 	}
 
 	return b.String()

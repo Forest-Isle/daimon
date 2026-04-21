@@ -115,6 +115,11 @@ type SuiteResult struct {
 
 	EvoBefore *EvolutionSnapshot `json:"evo_before,omitempty"`
 	EvoAfter  *EvolutionSnapshot `json:"evo_after,omitempty"`
+
+	// FeatureState records which gateway features were enabled during this eval run.
+	// Populated when running against a live cognitive agent. Used to detect
+	// configuration differences when comparing two runs.
+	FeatureState map[string]bool `json:"feature_state,omitempty"`
 }
 
 // AgentRunner abstracts the cognitive agent interface for evaluation.
