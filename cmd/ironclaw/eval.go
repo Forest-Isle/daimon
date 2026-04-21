@@ -162,10 +162,25 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 	cfg.Tools.HTTP.RequiresApproval = false
 	cfg.Tools.Browser.RequiresApproval = false
 
+	// Force all eval-critical features on so that all 8 evaluation dimensions
+	// exercise real agent capabilities rather than skipping due to disabled features.
+	cfg.Memory.Enabled = true
+	cfg.Knowledge.Enabled = true
+	cfg.Agents.Enabled = true      // multi_agent feature
+	cfg.Agent.Team.Enabled = true  // team feature
+
+	// Disable dashboard in eval mode — it's not needed for headless evaluation and
+	// can cause port conflicts if a TUI or previous eval is running concurrently.
+	cfg.Dashboard.Enabled = false
+
 	slog.Info("eval: config overrides applied",
 		"agent.mode", "cognitive",
 		"evolution.enabled", true,
 		"permissions.default", "none",
+		"memory.enabled", true,
+		"knowledge.enabled", true,
+		"multi_agent.enabled", true,
+		"dashboard.enabled", false,
 	)
 	slog.Info("eval: persisted feature state ignored (eval mode forces required features)")
 
