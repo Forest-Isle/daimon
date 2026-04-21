@@ -22,6 +22,11 @@ type EvoSnapshotDiff struct {
 	StrategyVersionDelta int `json:"strategy_version_delta"`
 	SkillDraftCountDelta int `json:"skill_draft_count_delta"`
 	TrajectoryCountDelta int `json:"trajectory_count_delta"`
+
+	// RouterModelChanges lists models whose task-routing counts changed between
+	// runs. Key is model name; value is delta (positive = more tasks routed there).
+	// Only populated when both snapshots contain RouterDecisions data.
+	RouterModelChanges map[string]int `json:"router_model_changes,omitempty"`
 }
 
 // ComparisonReport compares two evaluation runs side by side.
@@ -117,12 +122,32 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 	}
 
 	if before.EvoAfter != nil && after.EvoAfter != nil {
-		report.EvoSnapshot = &EvoSnapshotDiff{
+		diff := &EvoSnapshotDiff{
 			PreferenceCountDelta: after.EvoAfter.PreferenceCount - before.EvoAfter.PreferenceCount,
 			StrategyVersionDelta: after.EvoAfter.StrategyVersion - before.EvoAfter.StrategyVersion,
 			SkillDraftCountDelta: after.EvoAfter.SkillDraftCount - before.EvoAfter.SkillDraftCount,
 			TrajectoryCountDelta: after.EvoAfter.TrajectoryCount - before.EvoAfter.TrajectoryCount,
 		}
+		if len(before.EvoAfter.RouterDecisions) > 0 || len(after.EvoAfter.RouterDecisions) > 0 {
+			changes := make(map[string]int)
+			allModels := make(map[string]bool)
+			for m := range before.EvoAfter.RouterDecisions {
+				allModels[m] = true
+			}
+			for m := range after.EvoAfter.RouterDecisions {
+				allModels[m] = true
+			}
+			for model := range allModels {
+				delta := after.EvoAfter.RouterDecisions[model] - before.EvoAfter.RouterDecisions[model]
+				if delta != 0 {
+					changes[model] = delta
+				}
+			}
+			if len(changes) > 0 {
+				diff.RouterModelChanges = changes
+			}
+		}
+		report.EvoSnapshot = diff
 	}
 
 	// Compute feature state diff — only meaningful when both runs recorded feature state.
@@ -252,6 +277,14 @@ func (r *ComparisonReport) FormatMarkdown() string {
 		fmt.Fprintf(&b, "| Strategy Version | %+d |\n", r.EvoSnapshot.StrategyVersionDelta)
 		fmt.Fprintf(&b, "| Skill Draft Count | %+d |\n", r.EvoSnapshot.SkillDraftCountDelta)
 		fmt.Fprintf(&b, "| Trajectory Count | %+d |\n", r.EvoSnapshot.TrajectoryCountDelta)
+		if len(r.EvoSnapshot.RouterModelChanges) > 0 {
+			b.WriteString("\n#### Router Model Changes\n\n")
+			b.WriteString("| Model | Task Count Delta |\n")
+			b.WriteString("|-------|------------------|\n")
+			for model, delta := range r.EvoSnapshot.RouterModelChanges {
+				fmt.Fprintf(&b, "| %s | %+d |\n", model, delta)
+			}
+		}
 	}
 
 	if len(r.FeatureStateDiff) > 0 {

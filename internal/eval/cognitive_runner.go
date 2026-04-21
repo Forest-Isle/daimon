@@ -197,6 +197,13 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 		Timestamp:  time.Now(),
 	}
 
+	// Capture routing decision for this task's complexity level.
+	if evo := r.agent.EvolutionEngine(); evo != nil {
+		if rr := evo.Router().SelectModel(task.Complexity); rr.Routed {
+			result.RoutedModel = rr.Model
+		}
+	}
+
 	if handleErr != nil {
 		result.Error = handleErr.Error()
 		return result, nil
