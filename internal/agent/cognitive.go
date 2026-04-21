@@ -683,6 +683,8 @@ persist:
 	// Save user message to memory.md
 	if ca.memStore != nil {
 		if err := ca.memStore.Save(ctx, memory.Entry{
+			ID:        fmt.Sprintf("conv_%d", time.Now().UnixNano()),
+			Scope:     memory.ScopeSession,
 			SessionID: sess.ID,
 			Content:   msg.Text,
 			Metadata:  map[string]string{"role": "user", "channel": msg.Channel},

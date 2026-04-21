@@ -657,6 +657,10 @@ func (s *FileMemoryStore) buildFilePath(scope MemoryScope, id string, createdAt 
 }
 
 func (s *FileMemoryStore) writeFileAtomic(path string, mf MemoryFile) error {
+	// Ensure parent directory exists before writing — defensive against scope path mismatches.
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create parent dir for %s: %w", path, err)
+	}
 	tmpPath := path + ".tmp"
 
 	f, err := os.Create(tmpPath)
