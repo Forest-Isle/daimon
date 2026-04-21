@@ -43,7 +43,7 @@ func (gw *Gateway) initCognitiveAgent() error {
 	gw.cognitiveAgent.SetCheckpointStore(checkpointStore)
 
 	// RL System (requires cognitive agent)
-	if gw.cfg.Agent.RL.Enabled {
+	if gw.featureEnabled("rl") {
 		rlStorage := rl.NewStorage(gw.db)
 		rlPolicy := rl.NewPolicy(rlStorage, gw.cfg.Agent.RL)
 		if err := rlPolicy.LoadCheckpoint(context.Background()); err != nil {
@@ -75,7 +75,7 @@ func (gw *Gateway) initCognitiveAgent() error {
 // after evolution.NewEngine and before gateway.Start (hooks must register
 // before Engine.Start). No-op when evolution is disabled in config.
 func (gw *Gateway) registerEvolutionHooks() {
-	if gw.evoEngine == nil || !gw.cfg.Evolution.Enabled {
+	if gw.evoEngine == nil || !gw.featureEnabled("evolution") {
 		return
 	}
 
