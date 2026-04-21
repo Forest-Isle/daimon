@@ -71,6 +71,13 @@ RECENT CONVERSATION:
 
 {{PREFERENCES}}
 {{STRATEGY}}
+REQUIREMENT CHECKLIST (complete before producing plan):
+Scan the USER REQUEST above for ALL of these signals:
+- Primary action: what is the main thing to do?
+- Secondary actions: keywords "then", "also", "and", "additionally" → each needs a subtask
+- Verification steps: keywords "verify", "confirm", "check", "ensure" → each needs a subtask
+- Output requirements: keywords "return", "show", "print", "output", "explain" → final subtask
+Every identified requirement MUST map to at least one sub_task or be addressed in direct_reply.
 Produce the JSON execution plan now.`
 
 // ReflectSystemPrompt is the system prompt for the REFLECT phase LLM call.
