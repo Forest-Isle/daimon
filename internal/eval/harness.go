@@ -30,6 +30,13 @@ type TaskCase struct {
 	Rubric       *Rubric      `json:"rubric,omitempty"        yaml:"rubric,omitempty"`
 	SetupFunc    func() error `json:"-" yaml:"-"`
 	CleanupFunc  func() error `json:"-" yaml:"-"`
+
+	// SetupWithRunner and CleanupWithRunner are runner-aware variants of
+	// SetupFunc/CleanupFunc. When set they take precedence over the plain
+	// func() error variants. Use these when the setup needs to inject data
+	// directly into the agent (e.g. memory fixtures via MemoryAwareRunner).
+	SetupWithRunner   func(ctx context.Context, runner AgentRunner) error `json:"-" yaml:"-"`
+	CleanupWithRunner func(ctx context.Context, runner AgentRunner) error `json:"-" yaml:"-"`
 }
 
 type Reference struct {
@@ -193,24 +200,20 @@ func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentR
 		default:
 		}
 
-		if task.SetupFunc != nil {
-			if err := task.SetupFunc(); err != nil {
-				suite.Results = append(suite.Results, EvalResult{
-					TaskID:    task.ID,
-					Goal:      task.Goal,
-					Error:     fmt.Sprintf("setup failed: %v", err),
-					Dimension: DefaultDimension(task.Dimension),
-					Timestamp: time.Now(),
-				})
-				continue
-			}
+		if setupErr := runSetup(ctx, task, runner); setupErr != nil {
+			suite.Results = append(suite.Results, EvalResult{
+				TaskID:    task.ID,
+				Goal:      task.Goal,
+				Error:     fmt.Sprintf("setup failed: %v", setupErr),
+				Dimension: DefaultDimension(task.Dimension),
+				Timestamp: time.Now(),
+			})
+			continue
 		}
 
 		result, err := runner.RunTask(ctx, task)
 
-		if task.CleanupFunc != nil {
-			_ = task.CleanupFunc()
-		}
+		runCleanup(ctx, task, runner)
 
 		if err != nil {
 			suite.Results = append(suite.Results, EvalResult{
@@ -241,6 +244,28 @@ func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentR
 
 	suite.Duration = time.Since(suite.StartedAt)
 	return suite, nil
+}
+
+// runSetup executes a task's setup, preferring SetupWithRunner when available.
+func runSetup(ctx context.Context, task TaskCase, runner AgentRunner) error {
+	if task.SetupWithRunner != nil {
+		return task.SetupWithRunner(ctx, runner)
+	}
+	if task.SetupFunc != nil {
+		return task.SetupFunc()
+	}
+	return nil
+}
+
+// runCleanup executes a task's cleanup, preferring CleanupWithRunner when available.
+func runCleanup(ctx context.Context, task TaskCase, runner AgentRunner) {
+	if task.CleanupWithRunner != nil {
+		_ = task.CleanupWithRunner(ctx, runner)
+		return
+	}
+	if task.CleanupFunc != nil {
+		_ = task.CleanupFunc()
+	}
 }
 
 func statusLabel(ok bool) string {
@@ -279,24 +304,20 @@ func RunSuiteWithOptions(ctx context.Context, runID string, tasks []TaskCase, ru
 		default:
 		}
 
-		if task.SetupFunc != nil {
-			if err := task.SetupFunc(); err != nil {
-				suite.Results = append(suite.Results, EvalResult{
-					TaskID:    task.ID,
-					Goal:      task.Goal,
-					Error:     fmt.Sprintf("setup failed: %v", err),
-					Dimension: DefaultDimension(task.Dimension),
-					Timestamp: time.Now(),
-				})
-				continue
-			}
+		if setupErr := runSetup(ctx, task, runner); setupErr != nil {
+			suite.Results = append(suite.Results, EvalResult{
+				TaskID:    task.ID,
+				Goal:      task.Goal,
+				Error:     fmt.Sprintf("setup failed: %v", setupErr),
+				Dimension: DefaultDimension(task.Dimension),
+				Timestamp: time.Now(),
+			})
+			continue
 		}
 
 		result, err := runner.RunTask(ctx, task)
 
-		if task.CleanupFunc != nil {
-			_ = task.CleanupFunc()
-		}
+		runCleanup(ctx, task, runner)
 
 		if err != nil {
 			suite.Results = append(suite.Results, EvalResult{

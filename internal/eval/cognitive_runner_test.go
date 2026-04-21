@@ -3,10 +3,12 @@ package eval
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
 
 func TestEvalChannel_AutoApproves(t *testing.T) {
@@ -260,6 +262,147 @@ func TestPopulateFromEvolution_NoHook(t *testing.T) {
 	if result.Confidence != 0 {
 		t.Error("Confidence should remain 0 when hook is nil")
 	}
+}
+
+// mockMemoryStore is a minimal in-memory implementation of memory.Store
+// used to verify InjectMemory / CleanupMemory without file I/O.
+type mockMemoryStore struct {
+	entries map[string]memory.Entry
+}
+
+func newMockMemoryStore() *mockMemoryStore {
+	return &mockMemoryStore{entries: make(map[string]memory.Entry)}
+}
+
+func (m *mockMemoryStore) Save(_ context.Context, e memory.Entry) error {
+	m.entries[e.ID] = e
+	return nil
+}
+
+func (m *mockMemoryStore) Search(_ context.Context, _ memory.SearchQuery) ([]memory.SearchResult, error) {
+	return nil, nil
+}
+
+func (m *mockMemoryStore) ListByScope(_ context.Context, _ memory.MemoryScope, _ string) ([]memory.Entry, error) {
+	return nil, nil
+}
+
+func (m *mockMemoryStore) Update(_ context.Context, id, content string, _ int) error {
+	if e, ok := m.entries[id]; ok {
+		e.Content = content
+		m.entries[id] = e
+	}
+	return nil
+}
+
+func (m *mockMemoryStore) Delete(_ context.Context, id string) error {
+	delete(m.entries, id)
+	return nil
+}
+
+func TestMemoryAwareRunner_InjectAndCleanup(t *testing.T) {
+	store := newMockMemoryStore()
+
+	// Wire the mock store directly; no need for a real CognitiveAgent.
+	r := &CognitiveAgentRunner{
+		agent:    &agent.CognitiveAgent{},
+		channel:  &EvalChannel{},
+		memStore: store,
+	}
+
+	ctx := context.Background()
+
+	// Inject two entries.
+	entries := []memory.Entry{
+		{ID: "e1", Scope: memory.ScopeUser, UserID: "eval_user", Content: "cat is Muffin", CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "e2", Scope: memory.ScopeUser, UserID: "eval_user", Content: "dog is Rex", CreatedAt: time.Now(), UpdatedAt: time.Now()},
+	}
+	if err := r.InjectMemory(ctx, entries...); err != nil {
+		t.Fatalf("InjectMemory: %v", err)
+	}
+	if len(store.entries) != 2 {
+		t.Errorf("expected 2 entries after inject, got %d", len(store.entries))
+	}
+
+	// Cleanup one entry.
+	if err := r.CleanupMemory(ctx, "e1"); err != nil {
+		t.Fatalf("CleanupMemory: %v", err)
+	}
+	if len(store.entries) != 1 {
+		t.Errorf("expected 1 entry after cleanup, got %d", len(store.entries))
+	}
+	if _, ok := store.entries["e2"]; !ok {
+		t.Error("expected e2 to still be present")
+	}
+}
+
+func TestMemoryAwareRunner_NoStore(t *testing.T) {
+	// memStore is nil — should return error from InjectMemory.
+	r := &CognitiveAgentRunner{
+		agent:   &agent.CognitiveAgent{},
+		channel: &EvalChannel{},
+	}
+	ctx := context.Background()
+	err := r.InjectMemory(ctx, memory.Entry{ID: "x"})
+	if err == nil {
+		t.Error("expected error when memory store is nil")
+	}
+}
+
+func TestRunSuite_SetupWithRunner(t *testing.T) {
+	injected := false
+	cleaned := false
+
+	task := TaskCase{
+		ID:   "mem-test",
+		Goal: "test",
+		SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
+			injected = true
+			_, ok := runner.(MemoryAwareRunner)
+			if !ok {
+				t.Error("runner should implement MemoryAwareRunner")
+			}
+			return nil
+		},
+		CleanupWithRunner: func(ctx context.Context, runner AgentRunner) error {
+			cleaned = true
+			return nil
+		},
+	}
+
+	store := newMockMemoryStore()
+	r := &CognitiveAgentRunner{
+		agent:    &agent.CognitiveAgent{},
+		channel:  &EvalChannel{},
+		memStore: store,
+	}
+
+	runner := &mockRunnerWithMemory{r: r}
+	_, _ = RunSuite(context.Background(), "test", []TaskCase{task}, runner)
+
+	if !injected {
+		t.Error("SetupWithRunner was not called")
+	}
+	if !cleaned {
+		t.Error("CleanupWithRunner was not called")
+	}
+}
+
+// mockRunnerWithMemory wraps CognitiveAgentRunner so RunTask doesn't need a real agent.
+type mockRunnerWithMemory struct {
+	r *CognitiveAgentRunner
+}
+
+func (m *mockRunnerWithMemory) RunTask(_ context.Context, task TaskCase) (*EvalResult, error) {
+	return &EvalResult{TaskID: task.ID, Success: true}, nil
+}
+
+func (m *mockRunnerWithMemory) InjectMemory(ctx context.Context, entries ...memory.Entry) error {
+	return m.r.InjectMemory(ctx, entries...)
+}
+
+func (m *mockRunnerWithMemory) CleanupMemory(ctx context.Context, ids ...string) error {
+	return m.r.CleanupMemory(ctx, ids...)
 }
 
 func TestPopulateFromEvolution_EpisodeFallback(t *testing.T) {

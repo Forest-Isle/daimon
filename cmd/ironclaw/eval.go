@@ -192,11 +192,20 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 	// can cause port conflicts if a TUI or previous eval is running concurrently.
 	cfg.Dashboard.Enabled = false
 
+	// Isolate eval memory in a temp directory so test fixture writes never touch
+	// the user's real ~/.IronClaw/memory/ directory.
+	evalMemDir, err := os.MkdirTemp("", "ironclaw-eval-memory-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create eval memory temp dir: %w", err)
+	}
+	cfg.Memory.StorageDir = evalMemDir
+
 	slog.Info("eval: config overrides applied",
 		"agent.mode", "cognitive",
 		"evolution.enabled", true,
 		"permissions.default", "none",
 		"memory.enabled", true,
+		"memory.storage_dir", evalMemDir,
 		"knowledge.enabled", true,
 		"multi_agent.enabled", true,
 		"dashboard.enabled", false,
@@ -207,12 +216,16 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 		SkipPersistedFeatureState: true,
 	})
 	if err != nil {
+		_ = os.RemoveAll(evalMemDir)
 		return nil, nil, fmt.Errorf("init gateway: %w", err)
 	}
 
 	cleanup := func() {
 		if stopErr := gw.Stop(context.Background()); stopErr != nil {
 			slog.Warn("eval: gateway stop error", "err", stopErr)
+		}
+		if removeErr := os.RemoveAll(evalMemDir); removeErr != nil {
+			slog.Warn("eval: remove temp memory dir failed", "dir", evalMemDir, "err", removeErr)
 		}
 	}
 

@@ -457,6 +457,7 @@ func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
 	}
 	r := eval.NewCognitiveAgentRunner(gw.cognitiveAgent)
 	r.SetCogCollector(gw.cogCollector)
+	r.SetMemoryStore(gw.memStore)
 	// Route context compression events through the eval hook so they appear
 	// in EvalResult.CompressionEvents even when the dashboard is disabled.
 	if gw.contextMgr != nil {

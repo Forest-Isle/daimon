@@ -93,6 +93,11 @@ func NewCognitiveAgent(
 	return ca
 }
 
+// MemoryStore returns the active memory store, or nil when memory is disabled.
+// Used by the eval harness to inject test fixtures directly into the store the
+// agent reads from during PERCEIVE.
+func (ca *CognitiveAgent) MemoryStore() memory.Store { return ca.memStore }
+
 // SetMemoryStore injects the memory.md store into all phases that need it.
 func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	ca.memStore = s

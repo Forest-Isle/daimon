@@ -12,6 +12,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
 
 // CognitiveAgentRunner implements AgentRunner by driving a real CognitiveAgent.
@@ -21,6 +22,7 @@ type CognitiveAgentRunner struct {
 	hook         *EvalHook
 	channel      *EvalChannel
 	cogCollector *cogmetrics.Collector
+	memStore     memory.Store // the agent's active store, wired by gateway.NewEvalRunner
 
 	mu              sync.Mutex
 	lastObservation *agent.ObservationResult
@@ -50,6 +52,49 @@ func NewCognitiveAgentRunner(ca *agent.CognitiveAgent) *CognitiveAgentRunner {
 	}
 
 	return r
+}
+
+// MemoryAwareRunner is implemented by runners that can inject and clean up
+// memory fixtures directly into the agent's active memory store.
+type MemoryAwareRunner interface {
+	// InjectMemory writes test entries into the agent's live memory store so
+	// the PERCEIVE phase can retrieve them during task execution.
+	InjectMemory(ctx context.Context, entries ...memory.Entry) error
+	// CleanupMemory removes previously injected entries by ID.
+	CleanupMemory(ctx context.Context, ids ...string) error
+}
+
+// SetMemoryStore attaches the gateway's memory store so that InjectMemory and
+// CleanupMemory can write test fixtures directly into the store the agent reads
+// from during the PERCEIVE phase. Called by gateway.NewEvalRunner.
+func (r *CognitiveAgentRunner) SetMemoryStore(s memory.Store) { r.memStore = s }
+
+// InjectMemory writes entries into the agent's active memory store.
+// Returns an error when no store is wired (memory disabled in eval gateway).
+func (r *CognitiveAgentRunner) InjectMemory(ctx context.Context, entries ...memory.Entry) error {
+	if r.memStore == nil {
+		return fmt.Errorf("eval runner: memory store not available (memory disabled?)")
+	}
+	for _, e := range entries {
+		if err := r.memStore.Save(ctx, e); err != nil {
+			return fmt.Errorf("eval runner: inject memory entry %q: %w", e.ID, err)
+		}
+	}
+	return nil
+}
+
+// CleanupMemory removes previously injected entries by ID.
+func (r *CognitiveAgentRunner) CleanupMemory(ctx context.Context, ids ...string) error {
+	if r.memStore == nil {
+		return nil
+	}
+	var firstErr error
+	for _, id := range ids {
+		if err := r.memStore.Delete(ctx, id); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("eval runner: cleanup memory entry %q: %w", id, err)
+		}
+	}
+	return firstErr
 }
 
 // SetCogCollector attaches the gateway's cogmetrics.Collector so that
