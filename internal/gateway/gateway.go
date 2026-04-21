@@ -347,8 +347,8 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		gw.rlTrainer.Stop()
 	}
 
-	// Persist evolution state and stop engine
-	if gw.evoEngine != nil {
+	// Persist evolution state and stop engine (only when feature was enabled)
+	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
 		prefPath := ""
 		if p, err := gw.resolveEvolutionPreferencePath(gw.cfg.Evolution.PreferenceFile); err == nil {
 			prefPath = p

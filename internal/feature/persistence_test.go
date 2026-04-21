@@ -1,6 +1,7 @@
 package feature
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,7 +76,7 @@ func TestRuntimeOverrides_ReturnsAllStates(t *testing.T) {
 	r := NewRegistry()
 	r.Register(Feature{Name: "on", Default: true})
 	r.Register(Feature{Name: "off", Default: false})
-	require.NoError(t, r.ResolveAndInit(nil)) //nolint:staticcheck
+	require.NoError(t, r.ResolveAndInit(context.Background()))
 
 	overrides := r.RuntimeOverrides()
 	assert.True(t, overrides["on"])

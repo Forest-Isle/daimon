@@ -26,11 +26,13 @@ func (gw *Gateway) setupDashboard() error {
 	gw.stateTracker = dashboard.NewAgentStateTracker(gw.dashboardBus)
 	go gw.stateTracker.Run()
 
-	if gw.evoEngine != nil && gw.evoEngine.IsEnabled() {
+	// Use featureEnabled to check registry state, not evoEngine.IsEnabled()
+	// (which reads static config and misses runtime-enabled evolution).
+	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
 		gw.evoEngine.RegisterHook(dashboard.NewEvolutionBridge(gw.dashboardBus))
 	}
 
-	if gw.evoEngine != nil && gw.evoEngine.IsEnabled() {
+	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
 		gw.cogCollector = cogmetrics.NewCollector()
 		gw.evoEngine.RegisterHook(gw.cogCollector)
 	}

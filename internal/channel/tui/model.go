@@ -897,7 +897,13 @@ func (m Model) renderSuggestions() string {
 		}
 	}
 
-	b.WriteString(suggestionHeaderStyle.Render("Commands:"))
+	// Header changes based on whether we're completing a command or an argument
+	isArgCompletion := len(m.suggestions) > 0 && m.suggestions[0].ArgValue != ""
+	header := "Commands:"
+	if isArgCompletion {
+		header = "Arguments:"
+	}
+	b.WriteString(suggestionHeaderStyle.Render(header))
 	b.WriteString("\n")
 
 	// Show indicator if there are items above
@@ -911,16 +917,22 @@ func (m Model) renderSuggestions() string {
 		suggestion := m.suggestions[i]
 		isSelected := i == m.selectedSuggestion
 
+		// For arg completions show the arg value + full completion line as hint.
+		// For command completions show the command name + description.
+		var primary, secondary string
+		if suggestion.ArgValue != "" {
+			primary = suggestion.ArgValue
+			secondary = suggestion.DisplayText
+		} else {
+			primary = suggestion.Command.Name
+			secondary = suggestion.Command.Description
+		}
+
 		var line string
 		if isSelected {
-			// Highlight selected suggestion
-			line = selectedSuggestionStyle.Render(fmt.Sprintf("▶ %-20s  %s",
-				suggestion.Command.Name,
-				suggestion.Command.Description))
+			line = selectedSuggestionStyle.Render(fmt.Sprintf("▶ %-20s  %s", primary, secondary))
 		} else {
-			line = suggestionStyle.Render(fmt.Sprintf("  %-20s  %s",
-				suggestion.Command.Name,
-				suggestion.Command.Description))
+			line = suggestionStyle.Render(fmt.Sprintf("  %-20s  %s", primary, secondary))
 		}
 		b.WriteString(line)
 		b.WriteString("\n")
