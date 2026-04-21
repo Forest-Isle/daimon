@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/feature"
 )
 
 // handleFeatureCommand processes /feature [list|enable|disable] [name].
@@ -21,19 +22,27 @@ func (gw *Gateway) handleFeatureCommand(ctx context.Context, ch channel.Channel,
 		gw.sendFeatureList(ctx, ch, msg)
 
 	case strings.HasPrefix(args, "enable "):
-		name := strings.TrimPrefix(args, "enable ")
-		if err := gw.features.Enable(ctx, strings.TrimSpace(name)); err != nil {
+		name := strings.TrimSpace(strings.TrimPrefix(args, "enable "))
+		if err := gw.features.Enable(ctx, name); err != nil {
 			gw.sendReply(ctx, ch, msg, fmt.Sprintf("❌ %v", err))
 		} else {
-			gw.sendReply(ctx, ch, msg, fmt.Sprintf("✅ Feature %q enabled.", strings.TrimSpace(name)))
+			reply := fmt.Sprintf("✅ Feature %q enabled.", name)
+			if info := gw.findFeatureInfo(name); info != nil && !info.HotReloadable {
+				reply += "\n⚠️ Not hot-reloadable. Restart IronClaw for full effect."
+			}
+			gw.sendReply(ctx, ch, msg, reply)
 		}
 
 	case strings.HasPrefix(args, "disable "):
-		name := strings.TrimPrefix(args, "disable ")
-		if err := gw.features.Disable(ctx, strings.TrimSpace(name)); err != nil {
+		name := strings.TrimSpace(strings.TrimPrefix(args, "disable "))
+		if err := gw.features.Disable(ctx, name); err != nil {
 			gw.sendReply(ctx, ch, msg, fmt.Sprintf("❌ %v", err))
 		} else {
-			gw.sendReply(ctx, ch, msg, fmt.Sprintf("❌ Feature %q disabled.", strings.TrimSpace(name)))
+			reply := fmt.Sprintf("✅ Feature %q disabled.", name)
+			if info := gw.findFeatureInfo(name); info != nil && !info.HotReloadable {
+				reply += "\n⚠️ Not hot-reloadable. Restart IronClaw for full effect."
+			}
+			gw.sendReply(ctx, ch, msg, reply)
 		}
 
 	default:
@@ -52,17 +61,32 @@ func (gw *Gateway) sendFeatureList(ctx context.Context, ch channel.Channel, msg 
 	var b strings.Builder
 	b.WriteString("📋 Features\n\n")
 	for _, f := range features {
+		icon := "❌"
 		if f.Enabled {
-			fmt.Fprintf(&b, "  ✅ %s — %s\n", f.Name, f.Description)
-		} else {
-			line := fmt.Sprintf("  ❌ %s — %s", f.Name, f.Description)
-			if f.Reason != "" {
-				line += fmt.Sprintf(" (%s)", f.Reason)
-			}
-			b.WriteString(line + "\n")
+			icon = "✅"
+		}
+		reload := ""
+		if f.HotReloadable {
+			reload = " 🔄"
+		}
+		line := fmt.Sprintf("  %s %-20s %s%s", icon, f.Name, f.Description, reload)
+		if !f.Enabled && f.Reason != "" && f.Reason != "enabled" {
+			line += fmt.Sprintf(" (%s)", f.Reason)
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n🔄 = hot-reloadable (no restart needed)")
+	b.WriteString("\nUse /feature enable <name> or /feature disable <name>")
+	gw.sendReply(ctx, ch, msg, b.String())
+}
+
+func (gw *Gateway) findFeatureInfo(name string) *feature.FeatureInfo {
+	for _, f := range gw.features.List() {
+		if f.Name == name {
+			return &f
 		}
 	}
-	gw.sendReply(ctx, ch, msg, b.String())
+	return nil
 }
 
 // handleConfigCommand shows current effective configuration.
