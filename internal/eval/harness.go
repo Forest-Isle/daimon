@@ -55,6 +55,17 @@ type JudgeCriterion struct {
 	Weight      float64 `json:"weight"`
 }
 
+// ToolExecStat aggregates execution statistics for a single tool within a task.
+type ToolExecStat struct {
+	ToolName        string  `json:"tool_name"`
+	CallCount       int     `json:"call_count"`
+	SuccessCount    int     `json:"success_count"`
+	FailCount       int     `json:"fail_count"`
+	SuccessRate     float64 `json:"success_rate"`
+	AvgDurationMs   float64 `json:"avg_duration_ms"`
+	TotalDurationMs int64   `json:"total_duration_ms"`
+}
+
 // EvalResult captures the outcome of running one TaskCase.
 type EvalResult struct {
 	TaskID            string        `json:"task_id"`
@@ -71,12 +82,14 @@ type EvalResult struct {
 	Error             string        `json:"error,omitempty"`
 	Timestamp         time.Time     `json:"timestamp"`
 
-	Dimension       Dimension     `json:"dimension,omitempty"`
-	AgentOutput     string        `json:"agent_output,omitempty"`
-	VerifyResult    *VerifyResult `json:"verify_result,omitempty"`
-	JudgeResult     *JudgeResult  `json:"judge_result,omitempty"`
-	FinalScore      float64       `json:"final_score,omitempty"`
-	FailureCategory string        `json:"failure_category,omitempty"`
+	Dimension       Dimension      `json:"dimension,omitempty"`
+	AgentOutput     string         `json:"agent_output,omitempty"`
+	VerifyResult    *VerifyResult  `json:"verify_result,omitempty"`
+	JudgeResult     *JudgeResult   `json:"judge_result,omitempty"`
+	FinalScore      float64        `json:"final_score,omitempty"`
+	FailureCategory string         `json:"failure_category,omitempty"`
+	ToolExecStats   []ToolExecStat `json:"tool_exec_stats,omitempty"`
+	EpisodeReward   float64        `json:"episode_reward,omitempty"`
 }
 
 type VerifyResult struct {
