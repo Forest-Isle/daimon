@@ -124,6 +124,37 @@ var commandRegistry = []Command{
 		Aliases:     []string{"status"},
 		Category:    "builtin",
 	},
+
+	// Feature management
+	{
+		Name:        "feature",
+		Description: "List, enable, or disable features. Usage: /feature [list|enable|disable] [name]",
+		ArgHint:     "[list|enable|disable] [name]",
+		Category:    "builtin",
+	},
+
+	// Config inspection
+	{
+		Name:        "config",
+		Description: "Show current effective configuration",
+		ArgHint:     "show",
+		Category:    "builtin",
+	},
+
+	// Context compression
+	{
+		Name:        "compact",
+		Description: "Manually trigger context compression",
+		Category:    "builtin",
+	},
+
+	// Model switching
+	{
+		Name:        "model",
+		Description: "Show or switch the current LLM model. Usage: /model [name]",
+		ArgHint:     "[model_name]",
+		Category:    "builtin",
+	},
 }
 
 // localCommands lists slash commands handled entirely in the TUI

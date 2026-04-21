@@ -20,6 +20,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/dashboard"
 	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
+	"github.com/Forest-Isle/IronClaw/internal/feature"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
@@ -71,6 +72,7 @@ type Gateway struct {
 	stateTracker    *dashboard.AgentStateTracker
 	dashEmitter     agent.DashboardEmitter
 	contextMgr      *agent.PipelineContextManager
+	features        *feature.Registry
 	cogCollector    *cogmetrics.Collector
 	currentMode     atomic.Value // stores string: "simple" | "cognitive"
 	memoryDir       string // resolved base dir for file-based memory
@@ -449,6 +451,32 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 			ChannelID: msg.ChannelID,
 			Text:      response,
 		})
+		return
+	}
+
+	// Handle /feature command
+	if msg.Text == "/feature" || strings.HasPrefix(msg.Text, "/feature ") {
+		args := strings.TrimPrefix(msg.Text, "/feature")
+		gw.handleFeatureCommand(ctx, ch, msg, strings.TrimSpace(args))
+		return
+	}
+
+	// Handle /config command
+	if msg.Text == "/config" || msg.Text == "/config show" {
+		gw.handleConfigCommand(ctx, ch, msg)
+		return
+	}
+
+	// Handle /compact command
+	if msg.Text == "/compact" {
+		gw.handleCompactCommand(ctx, ch, msg)
+		return
+	}
+
+	// Handle /model command
+	if msg.Text == "/model" || strings.HasPrefix(msg.Text, "/model ") {
+		args := strings.TrimPrefix(msg.Text, "/model")
+		gw.handleModelCommand(ctx, ch, msg, strings.TrimSpace(args))
 		return
 	}
 
