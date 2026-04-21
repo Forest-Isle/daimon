@@ -1,0 +1,24 @@
+# Example IronClaw eval task set
+# Use with: ironclaw eval run --suite ./eval/example_tasks.yaml
+
+- id: echo_hello
+  goal: "Echo the string 'hello world' using bash"
+  complexity: simple
+  dimension: tool_selection
+  expect_tools:
+    - bash
+
+- id: count_lines
+  goal: "Count the number of lines in the file /etc/hosts"
+  complexity: simple
+  dimension: tool_selection
+  expect_tools:
+    - bash
+
+- id: write_and_read
+  goal: "Write 'test content' to /tmp/ironclaw_test.txt and then read it back"
+  complexity: medium
+  dimension: task_execution
+  expect_tools:
+    - file_write
+    - file_read

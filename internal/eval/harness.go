@@ -11,37 +11,37 @@ import (
 
 // TaskCase defines a single evaluation task with success criteria.
 type TaskCase struct {
-	ID          string   `json:"id"`
-	Goal        string   `json:"goal"`
-	Complexity  string   `json:"complexity"`
-	Tags        []string `json:"tags,omitempty"`
-	ExpectTools []string `json:"expect_tools,omitempty"`
+	ID          string   `json:"id"          yaml:"id"`
+	Goal        string   `json:"goal"        yaml:"goal"`
+	Complexity  string   `json:"complexity"  yaml:"complexity"`
+	Tags        []string `json:"tags,omitempty"         yaml:"tags,omitempty"`
+	ExpectTools []string `json:"expect_tools,omitempty" yaml:"expect_tools,omitempty"`
 
 	// SuccessFunc is an optional programmatic check run after execution.
 	// When nil the result relies on the agent's own reflection.
-	SuccessFunc func(result *EvalResult) bool `json:"-"`
+	SuccessFunc func(result *EvalResult) bool `json:"-" yaml:"-"`
 
-	Dimension    Dimension    `json:"dimension,omitempty"`
-	VerifyMethod VerifyMethod `json:"verify_method,omitempty"`
-	Reference    *Reference   `json:"reference,omitempty"`
-	Rubric       *Rubric      `json:"rubric,omitempty"`
-	SetupFunc    func() error `json:"-"`
-	CleanupFunc  func() error `json:"-"`
+	Dimension    Dimension    `json:"dimension,omitempty"     yaml:"dimension,omitempty"`
+	VerifyMethod VerifyMethod `json:"verify_method,omitempty" yaml:"verify_method,omitempty"`
+	Reference    *Reference   `json:"reference,omitempty"     yaml:"reference,omitempty"`
+	Rubric       *Rubric      `json:"rubric,omitempty"        yaml:"rubric,omitempty"`
+	SetupFunc    func() error `json:"-" yaml:"-"`
+	CleanupFunc  func() error `json:"-" yaml:"-"`
 }
 
 type Reference struct {
-	Answer         string      `json:"answer,omitempty"`
-	MustContain    []string    `json:"must_contain,omitempty"`
-	MustNotContain []string    `json:"must_not_contain,omitempty"`
-	FileChecks     []FileCheck `json:"file_checks,omitempty"`
-	ExitCode       *int        `json:"exit_code,omitempty"`
+	Answer         string      `json:"answer,omitempty"           yaml:"answer,omitempty"`
+	MustContain    []string    `json:"must_contain,omitempty"     yaml:"must_contain,omitempty"`
+	MustNotContain []string    `json:"must_not_contain,omitempty" yaml:"must_not_contain,omitempty"`
+	FileChecks     []FileCheck `json:"file_checks,omitempty"      yaml:"file_checks,omitempty"`
+	ExitCode       *int        `json:"exit_code,omitempty"        yaml:"exit_code,omitempty"`
 }
 
 type FileCheck struct {
-	Path        string `json:"path"`
-	MustExist   bool   `json:"must_exist"`
-	Contains    string `json:"contains,omitempty"`
-	NotContains string `json:"not_contains,omitempty"`
+	Path        string `json:"path"                  yaml:"path"`
+	MustExist   bool   `json:"must_exist"            yaml:"must_exist"`
+	Contains    string `json:"contains,omitempty"    yaml:"contains,omitempty"`
+	NotContains string `json:"not_contains,omitempty" yaml:"not_contains,omitempty"`
 }
 
 type Rubric struct {
