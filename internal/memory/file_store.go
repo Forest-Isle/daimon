@@ -271,11 +271,7 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 	}
 
 	for i := range results {
-		var filePath string
-		err := s.db.QueryRowContext(ctx, `SELECT file_path FROM memory_index WHERE memory_id = ?`, results[i].Entry.ID).Scan(&filePath)
-		if err != nil {
-			continue
-		}
+		filePath := string(results[i].Entry.Scope)
 
 		mf, err := s.parseFile(filePath)
 		if err != nil {
