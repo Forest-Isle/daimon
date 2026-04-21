@@ -3,6 +3,7 @@ package eval
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -228,13 +229,51 @@ func (r *CognitiveAgentRunner) populateFromEvolution(result *EvalResult, session
 		}
 	}
 
-	if execs := r.hook.GetToolExecs(sessionID); len(execs) > 0 && len(result.ToolsUsed) == 0 {
-		seen := make(map[string]bool)
+	if execs := r.hook.GetToolExecs(sessionID); len(execs) > 0 {
+		statsMap := make(map[string]*ToolExecStat)
 		for _, e := range execs {
-			if !seen[e.ToolName] {
-				result.ToolsUsed = append(result.ToolsUsed, e.ToolName)
-				seen[e.ToolName] = true
+			st, ok := statsMap[e.ToolName]
+			if !ok {
+				st = &ToolExecStat{ToolName: e.ToolName}
+				statsMap[e.ToolName] = st
+			}
+			st.CallCount++
+			if e.Succeeded {
+				st.SuccessCount++
+			} else {
+				st.FailCount++
+			}
+			st.TotalDurationMs += e.DurationMs
+		}
+
+		stats := make([]ToolExecStat, 0, len(statsMap))
+		for _, st := range statsMap {
+			if st.CallCount > 0 {
+				st.SuccessRate = float64(st.SuccessCount) / float64(st.CallCount)
+				st.AvgDurationMs = float64(st.TotalDurationMs) / float64(st.CallCount)
+			}
+			stats = append(stats, *st)
+		}
+		sort.Slice(stats, func(i, j int) bool {
+			return stats[i].ToolName < stats[j].ToolName
+		})
+		result.ToolExecStats = stats
+
+		if len(result.ToolsUsed) == 0 {
+			seen := make(map[string]bool)
+			for _, e := range execs {
+				if !seen[e.ToolName] {
+					result.ToolsUsed = append(result.ToolsUsed, e.ToolName)
+					seen[e.ToolName] = true
+				}
 			}
 		}
 	}
+
+	result.EpisodeReward = evolution.ComputeReward(evolution.RewardInput{
+		Succeeded:   result.Success,
+		Progress:    result.AssertionPassRate,
+		DurationMs:  result.Duration.Milliseconds(),
+		ReplanCount: result.ReplanCount,
+	})
 }
