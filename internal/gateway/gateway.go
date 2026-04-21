@@ -192,6 +192,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		return nil, fmt.Errorf("dashboard: %w", err)
 	}
 
+	gw.bindFeatureLifecycleHooks()
+
 	return gw, nil
 }
 
