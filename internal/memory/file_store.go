@@ -285,10 +285,11 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 		results[i].Entry.CreatedAt = mf.CreatedAt
 		results[i].Entry.UpdatedAt = mf.UpdatedAt
 
-		// Track access
-		if err := s.trackAccess(ctx, results[i].Entry.ID, filePath, mf); err != nil {
-			_ = err // Log but don't fail
-		}
+		go func(id, fp string, mf *MemoryFile) {
+			if err := s.trackAccess(context.Background(), id, fp, mf); err != nil {
+				slog.Warn("memory: track access", "id", id, "err", err)
+			}
+		}(results[i].Entry.ID, filePath, mf)
 	}
 
 	return results, nil
