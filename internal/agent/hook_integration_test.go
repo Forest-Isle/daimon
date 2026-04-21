@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -106,8 +107,11 @@ func TestPreToolUseDenyPreventsExecution(t *testing.T) {
 		t.Errorf("expected status 'denied', got '%s'", result.status)
 	}
 
-	if result.output != "denied by hook: blocked by test" {
-		t.Errorf("unexpected output: %s", result.output)
+	if !strings.Contains(result.output, "denied by hook: blocked by test") {
+		t.Errorf("expected output to contain denial reason, got: %s", result.output)
+	}
+	if !strings.Contains(result.output, "[Recovery Hint:") {
+		t.Errorf("expected output to contain recovery hint, got: %s", result.output)
 	}
 }
 
