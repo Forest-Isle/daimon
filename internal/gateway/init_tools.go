@@ -65,7 +65,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 	// Sandbox components
 	var fileGuard *sandbox.FileGuard
 	var networkPolicy *sandbox.NetworkPolicy
-	sandboxEnabled := gw.cfg.Sandbox.Enabled
+	sandboxEnabled := gw.featureEnabled("sandbox")
 
 	if sandboxEnabled {
 		if len(gw.cfg.Sandbox.AllowedDirectories) > 0 {
