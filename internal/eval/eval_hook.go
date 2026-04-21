@@ -8,13 +8,14 @@ import (
 )
 
 // EvalHook implements evolution.Hook to capture metrics during evaluation runs.
-// It accumulates reflection and episode data per session, which the
-// CognitiveAgentRunner reads after each task completes.
+// It accumulates reflection, episode, tool-execution, and context-compression
+// data per session, which the CognitiveAgentRunner reads after each task completes.
 type EvalHook struct {
-	mu          sync.Mutex
-	reflections map[string]*evolution.ReflectionEvent
-	episodes    map[string]*evolution.EpisodeEvent
-	toolExecs   map[string][]evolution.ToolExecEvent
+	mu           sync.Mutex
+	reflections  map[string]*evolution.ReflectionEvent
+	episodes     map[string]*evolution.EpisodeEvent
+	toolExecs    map[string][]evolution.ToolExecEvent
+	compressions map[string][]CompressionEvent
 }
 
 var _ evolution.Hook = (*EvalHook)(nil)
@@ -22,9 +23,10 @@ var _ evolution.Hook = (*EvalHook)(nil)
 // NewEvalHook creates a hook for capturing eval metrics.
 func NewEvalHook() *EvalHook {
 	return &EvalHook{
-		reflections: make(map[string]*evolution.ReflectionEvent),
-		episodes:    make(map[string]*evolution.EpisodeEvent),
-		toolExecs:   make(map[string][]evolution.ToolExecEvent),
+		reflections:  make(map[string]*evolution.ReflectionEvent),
+		episodes:     make(map[string]*evolution.EpisodeEvent),
+		toolExecs:    make(map[string][]evolution.ToolExecEvent),
+		compressions: make(map[string][]CompressionEvent),
 	}
 }
 
@@ -72,6 +74,29 @@ func (h *EvalHook) GetToolExecs(sessionID string) []evolution.ToolExecEvent {
 	return out
 }
 
+// RecordCompression records one context compression event for the session.
+// Called by the compressionAdapter wired into the context manager.
+func (h *EvalHook) RecordCompression(sessionID, reason string, layersRun int, beforePct, afterPct float64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.compressions[sessionID] = append(h.compressions[sessionID], CompressionEvent{
+		Reason:    reason,
+		LayersRun: layersRun,
+		BeforePct: beforePct,
+		AfterPct:  afterPct,
+	})
+}
+
+// GetCompressions returns all compression events captured for a session.
+func (h *EvalHook) GetCompressions(sessionID string) []CompressionEvent {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	events := h.compressions[sessionID]
+	out := make([]CompressionEvent, len(events))
+	copy(out, events)
+	return out
+}
+
 // ClearSession removes captured data for a session (call between tasks).
 func (h *EvalHook) ClearSession(sessionID string) {
 	h.mu.Lock()
@@ -79,4 +104,5 @@ func (h *EvalHook) ClearSession(sessionID string) {
 	delete(h.reflections, sessionID)
 	delete(h.episodes, sessionID)
 	delete(h.toolExecs, sessionID)
+	delete(h.compressions, sessionID)
 }

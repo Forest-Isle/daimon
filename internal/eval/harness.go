@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 )
 
 // TaskCase defines a single evaluation task with success criteria.
@@ -55,6 +57,14 @@ type JudgeCriterion struct {
 	Weight      float64 `json:"weight"`
 }
 
+// CompressionEvent records a single context compression occurrence during task execution.
+type CompressionEvent struct {
+	Reason    string  `json:"reason"`
+	LayersRun int     `json:"layers_run"`
+	BeforePct float64 `json:"before_pct"`
+	AfterPct  float64 `json:"after_pct"`
+}
+
 // EvalResult captures the outcome of running one TaskCase.
 type EvalResult struct {
 	TaskID            string        `json:"task_id"`
@@ -71,12 +81,14 @@ type EvalResult struct {
 	Error             string        `json:"error,omitempty"`
 	Timestamp         time.Time     `json:"timestamp"`
 
-	Dimension       Dimension     `json:"dimension,omitempty"`
-	AgentOutput     string        `json:"agent_output,omitempty"`
-	VerifyResult    *VerifyResult `json:"verify_result,omitempty"`
-	JudgeResult     *JudgeResult  `json:"judge_result,omitempty"`
-	FinalScore      float64       `json:"final_score,omitempty"`
-	FailureCategory string        `json:"failure_category,omitempty"`
+	Dimension         Dimension          `json:"dimension,omitempty"`
+	AgentOutput       string             `json:"agent_output,omitempty"`
+	VerifyResult      *VerifyResult      `json:"verify_result,omitempty"`
+	JudgeResult       *JudgeResult       `json:"judge_result,omitempty"`
+	FinalScore        float64            `json:"final_score,omitempty"`
+	FailureCategory   string             `json:"failure_category,omitempty"`
+	CompressionCount  int                `json:"compression_count,omitempty"`
+	CompressionEvents []CompressionEvent `json:"compression_events,omitempty"`
 }
 
 type VerifyResult struct {
@@ -108,13 +120,18 @@ type EvolutionSnapshot struct {
 
 // SuiteResult aggregates results across a full evaluation run.
 type SuiteResult struct {
-	RunID     string       `json:"run_id"`
-	Results   []EvalResult `json:"results"`
-	StartedAt time.Time    `json:"started_at"`
+	RunID     string        `json:"run_id"`
+	Results   []EvalResult  `json:"results"`
+	StartedAt time.Time     `json:"started_at"`
 	Duration  time.Duration `json:"duration_ms"`
 
 	EvoBefore *EvolutionSnapshot `json:"evo_before,omitempty"`
 	EvoAfter  *EvolutionSnapshot `json:"evo_after,omitempty"`
+
+	// CogHealth is a point-in-time snapshot of cognitive-metrics accumulated
+	// across the suite. Populated when the runner has a cogmetrics.Collector
+	// wired (i.e. evolution is enabled). Nil when evolution is disabled.
+	CogHealth *cogmetrics.HealthReport `json:"cog_health,omitempty"`
 
 	// FeatureState records which gateway features were enabled during this eval run.
 	// Populated when running against a live cognitive agent. Used to detect
@@ -132,6 +149,12 @@ type AgentRunner interface {
 // SnapshotCaptor is optionally implemented by AgentRunner to capture evolution state.
 type SnapshotCaptor interface {
 	CaptureSnapshot() *EvolutionSnapshot
+}
+
+// CogHealthCaptor is optionally implemented by AgentRunner to capture a
+// cognitive-metrics health report after a suite completes.
+type CogHealthCaptor interface {
+	CaptureCogHealth() *cogmetrics.HealthReport
 }
 
 // RunSuite executes all tasks against the given runner and collects results.
@@ -180,6 +203,9 @@ func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentR
 
 	if sc, ok := runner.(SnapshotCaptor); ok {
 		suite.EvoAfter = sc.CaptureSnapshot()
+	}
+	if chc, ok := runner.(CogHealthCaptor); ok {
+		suite.CogHealth = chc.CaptureCogHealth()
 	}
 
 	suite.Duration = time.Since(suite.StartedAt)
@@ -289,6 +315,9 @@ func RunSuiteWithOptions(ctx context.Context, runID string, tasks []TaskCase, ru
 
 	if sc, ok := runner.(SnapshotCaptor); ok {
 		suite.EvoAfter = sc.CaptureSnapshot()
+	}
+	if chc, ok := runner.(CogHealthCaptor); ok {
+		suite.CogHealth = chc.CaptureCogHealth()
 	}
 
 	suite.Duration = time.Since(suite.StartedAt)

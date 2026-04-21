@@ -215,6 +215,10 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		})
 	})
 
+	// initCogMetrics runs unconditionally so eval runs (dashboard disabled)
+	// still populate cogCollector.
+	gw.initCogMetrics()
+
 	if err := gw.initDashboard(); err != nil {
 		return nil, fmt.Errorf("dashboard: %w", err)
 	}
@@ -438,12 +442,29 @@ func (gw *Gateway) SetMode(mode string) error {
 	return nil
 }
 
+// CogMetricsCollector returns the cognitive-metrics collector, or nil when
+// evolution is not enabled. Used by the eval harness to populate CogHealth.
+func (gw *Gateway) CogMetricsCollector() *cogmetrics.Collector {
+	return gw.cogCollector
+}
+
 // NewEvalRunner creates an eval.AgentRunner backed by the gateway's cognitive agent.
+// It also wires the runner's compression emitter into the context manager so that
+// context compression events are captured even when the dashboard is disabled.
 func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
 	if gw.cognitiveAgent == nil { // defensive: should not happen after init
 		return nil
 	}
-	return eval.NewCognitiveAgentRunner(gw.cognitiveAgent)
+	r := eval.NewCognitiveAgentRunner(gw.cognitiveAgent)
+	r.SetCogCollector(gw.cogCollector)
+	// Route context compression events through the eval hook so they appear
+	// in EvalResult.CompressionEvents even when the dashboard is disabled.
+	if gw.contextMgr != nil {
+		gw.contextMgr.SetDashboardEmitter(
+			agent.NewMultiEmitter(gw.dashEmitter, r.CompressionEmitter()),
+		)
+	}
+	return r
 }
 
 // EvolutionEngine returns the gateway's evolution engine, or nil if evolution

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/dashboard"
 )
 
@@ -32,10 +31,10 @@ func (gw *Gateway) setupDashboard() error {
 		gw.evoEngine.RegisterHook(dashboard.NewEvolutionBridge(gw.dashboardBus))
 	}
 
-	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
-		gw.cogCollector = cogmetrics.NewCollector()
-		gw.evoEngine.RegisterHook(gw.cogCollector)
-	}
+	// Ensure the cog-metrics collector exists (idempotent — initCogMetrics
+	// already ran during the normal init sequence; this covers the hot-reload
+	// path where setupDashboard is called via OnEnable after a fresh start).
+	gw.initCogMetrics()
 
 	emitter := dashboard.NewEmitter(gw.dashboardBus)
 	gw.dashEmitter = emitter

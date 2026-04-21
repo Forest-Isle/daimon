@@ -9,15 +9,17 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 )
 
 // CognitiveAgentRunner implements AgentRunner by driving a real CognitiveAgent.
 // Each task gets a fresh session and an EvalChannel that auto-approves tools.
 type CognitiveAgentRunner struct {
-	agent   *agent.CognitiveAgent
-	hook    *EvalHook
-	channel *EvalChannel
+	agent        *agent.CognitiveAgent
+	hook         *EvalHook
+	channel      *EvalChannel
+	cogCollector *cogmetrics.Collector
 
 	mu              sync.Mutex
 	lastObservation *agent.ObservationResult
@@ -48,6 +50,57 @@ func NewCognitiveAgentRunner(ca *agent.CognitiveAgent) *CognitiveAgentRunner {
 
 	return r
 }
+
+// SetCogCollector attaches the gateway's cogmetrics.Collector so that
+// CaptureCogHealth() can return a populated HealthReport after the suite.
+func (r *CognitiveAgentRunner) SetCogCollector(c *cogmetrics.Collector) {
+	r.cogCollector = c
+}
+
+// CaptureCogHealth implements CogHealthCaptor. Returns nil when no collector
+// is wired (e.g. evolution is disabled).
+func (r *CognitiveAgentRunner) CaptureCogHealth() *cogmetrics.HealthReport {
+	if r.cogCollector == nil {
+		return nil
+	}
+	h := r.cogCollector.Snapshot()
+	return &h
+}
+
+// CompressionEmitter returns a DashboardEmitter that routes context compression
+// events into the eval hook. The gateway wires this into the context manager so
+// that compression events are tracked even when the dashboard is disabled.
+func (r *CognitiveAgentRunner) CompressionEmitter() agent.DashboardEmitter {
+	if r.hook == nil {
+		return nil
+	}
+	return &compressionAdapter{hook: r.hook}
+}
+
+// compressionAdapter is a thin agent.DashboardEmitter whose only live method is
+// EmitContextCompress; all others are no-ops. This keeps EvalHook focused on
+// evolution.Hook responsibility while still satisfying the full interface.
+type compressionAdapter struct {
+	hook *EvalHook
+}
+
+func (a *compressionAdapter) EmitContextCompress(sessionID, reason string, layersRun int, beforePct, afterPct float64) {
+	a.hook.RecordCompression(sessionID, reason, layersRun, beforePct, afterPct)
+}
+
+func (a *compressionAdapter) EmitPhaseStart(_ string, _ string)                            {}
+func (a *compressionAdapter) EmitPhaseEnd(_ string, _ string, _ int64)                     {}
+func (a *compressionAdapter) EmitToolStart(_ string, _ string, _ string)                   {}
+func (a *compressionAdapter) EmitToolEnd(_ string, _ string, _ bool, _ int64)              {}
+func (a *compressionAdapter) EmitSessionStart(_ string, _ string)                          {}
+func (a *compressionAdapter) EmitSessionEnd(_ string, _ bool, _ int64)                     {}
+func (a *compressionAdapter) EmitMetricsUpdate(_ string, _, _ int, _ float64, _, _, _, _ int64, _, _ string) {
+}
+func (a *compressionAdapter) EmitPlanGenerated(_ string, _ int, _ string, _ bool)           {}
+func (a *compressionAdapter) EmitReplanStart(_ string, _ int, _ string)                     {}
+func (a *compressionAdapter) EmitObservationResult(_ string, _, _, _ int, _ float64)        {}
+func (a *compressionAdapter) EmitSubAgentSpawn(_ string, _ string, _ string, _ string)      {}
+func (a *compressionAdapter) EmitSubAgentComplete(_ string, _ string, _ bool, _ int64)      {}
 
 // RunTask executes a single evaluation task against the cognitive agent.
 func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*EvalResult, error) {
@@ -236,5 +289,10 @@ func (r *CognitiveAgentRunner) populateFromEvolution(result *EvalResult, session
 				seen[e.ToolName] = true
 			}
 		}
+	}
+
+	if compressions := r.hook.GetCompressions(sessionID); len(compressions) > 0 {
+		result.CompressionCount = len(compressions)
+		result.CompressionEvents = compressions
 	}
 }
