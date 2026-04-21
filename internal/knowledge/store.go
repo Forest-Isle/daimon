@@ -365,6 +365,25 @@ func (kb *SQLiteKnowledgeBase) saveChunk(ctx context.Context, chunk Chunk) error
 	return err
 }
 
+// optimizeFTS merges FTS5 b-tree segments after bulk ingestion so newly
+// inserted chunks are immediately and efficiently queryable.
+func (kb *SQLiteKnowledgeBase) optimizeFTS(ctx context.Context) {
+	if !kb.fts5Available {
+		return
+	}
+	if _, err := kb.db.ExecContext(ctx, `INSERT INTO kb_chunks_fts(kb_chunks_fts) VALUES('optimize')`); err != nil {
+		slog.Warn("knowledge: FTS5 optimize failed (non-fatal)", "err", err)
+	}
+}
+
+// InvalidateCache clears the search result cache so subsequent queries reflect
+// the latest state of the knowledge base.
+func (kb *SQLiteKnowledgeBase) InvalidateCache() {
+	if kb.searchCache != nil {
+		kb.searchCache.Invalidate()
+	}
+}
+
 // updateChunkCount updates the chunk_count on a source.
 func (kb *SQLiteKnowledgeBase) updateChunkCount(ctx context.Context, sourceID string) {
 	kb.db.ExecContext(ctx, //nolint:errcheck

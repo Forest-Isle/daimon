@@ -133,7 +133,26 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 
 	_ = m.sessions.Delete(ctx, "subagent", sessionID)
 
-	return m.buildResult(ctx, req.Spec.Name, capture, start, execErr)
+	result, err := m.buildResult(ctx, req.Spec.Name, capture, start, execErr)
+
+	// Recovery retry: when the sub-agent produced empty output and the context
+	// is still valid, attempt one recovery spawn. MaxRetries >= 0 is the normal
+	// state; -1 is used internally as a sentinel to stop recursion.
+	if err == nil && strings.TrimSpace(result.Output) == "" && ctx.Err() == nil && req.Spec.MaxRetries >= 0 {
+		slog.Warn("subagent: empty result, attempting one recovery retry",
+			"agent", req.Spec.Name)
+		retrySpec := copySpec(req.Spec)
+		retrySpec.MaxRetries = -1 // sentinel: no further retry in the nested call
+		retryReq := req
+		retryReq.Spec = retrySpec
+		if retryResult, retryErr := m.Spawn(ctx, retryReq); retryErr == nil && strings.TrimSpace(retryResult.Output) != "" {
+			slog.Info("subagent: recovery retry succeeded", "agent", req.Spec.Name)
+			return retryResult, nil
+		}
+		slog.Warn("subagent: recovery retry also failed", "agent", req.Spec.Name)
+	}
+
+	return result, err
 }
 
 // SpawnParallel runs multiple sub-agents concurrently with the given failure strategy.
