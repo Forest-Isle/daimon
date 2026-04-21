@@ -2,21 +2,23 @@ package tui
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFilterCommands(t *testing.T) {
-	// Get the actual number of registered commands
 	allCommands := GetCommands()
 	totalCommands := len(allCommands)
 
 	tests := []struct {
 		name     string
 		query    string
-		expected int // expected number of matches
+		expected int
 	}{
 		{"empty query returns all", "", totalCommands},
 		{"exact match", "/quit", 1},
-		{"prefix match", "/q", 1}, // only "quit" starts with q
+		{"prefix match", "/q", 1},
 		{"partial match", "/hel", 1},
 		{"no match", "/xyz", 0},
 	}
@@ -32,11 +34,11 @@ func TestFilterCommands(t *testing.T) {
 	}
 }
 
-func TestGenerateSuggestions(t *testing.T) {
+func TestGenerateSuggestions_CommandNames(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		expected bool // should return suggestions
+		name        string
+		input       string
+		wantSuggest bool
 	}{
 		{"slash at start", "/", true},
 		{"slash with partial command", "/qu", true},
@@ -46,37 +48,88 @@ func TestGenerateSuggestions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suggestions := GenerateSuggestions(tt.input, len(tt.input))
+			suggestions := GenerateSuggestions(tt.input, len(tt.input), nil)
 			hasSuggestions := len(suggestions) > 0
-			if hasSuggestions != tt.expected {
+			if hasSuggestions != tt.wantSuggest {
 				t.Errorf("GenerateSuggestions(%q) returned suggestions=%v, expected=%v",
-					tt.input, hasSuggestions, tt.expected)
+					tt.input, hasSuggestions, tt.wantSuggest)
 			}
 		})
 	}
 }
 
-func TestApplySuggestion(t *testing.T) {
+func TestGenerateSuggestions_StaticSubArgs(t *testing.T) {
+	// /feature has SubArgs: list, enable, disable
+	suggestions := GenerateSuggestions("/feature ", 9, nil)
+	require.NotEmpty(t, suggestions)
+	var names []string
+	for _, s := range suggestions {
+		names = append(names, s.ArgValue)
+	}
+	assert.Contains(t, names, "list")
+	assert.Contains(t, names, "enable")
+	assert.Contains(t, names, "disable")
+}
+
+func TestGenerateSuggestions_StaticSubArgs_Filtered(t *testing.T) {
+	suggestions := GenerateSuggestions("/feature en", 11, nil)
+	require.NotEmpty(t, suggestions)
+	for _, s := range suggestions {
+		assert.Equal(t, "enable", s.ArgValue)
+	}
+}
+
+func TestGenerateSuggestions_DynamicArgCompleter(t *testing.T) {
+	completer := func(cmd, subCmd, argSoFar string) []string {
+		if cmd == "feature" && subCmd == "enable" {
+			return []string{"dashboard", "evolution"}
+		}
+		return nil
+	}
+
+	suggestions := GenerateSuggestions("/feature enable d", 17, completer)
+	require.Len(t, suggestions, 1)
+	assert.Equal(t, "dashboard", suggestions[0].ArgValue)
+}
+
+func TestGenerateSuggestions_ModeSubArgs(t *testing.T) {
+	suggestions := GenerateSuggestions("/mode ", 6, nil)
+	require.NotEmpty(t, suggestions)
+	var values []string
+	for _, s := range suggestions {
+		values = append(values, s.ArgValue)
+	}
+	assert.Contains(t, values, "simple")
+	assert.Contains(t, values, "cognitive")
+}
+
+func TestApplySuggestion_CommandName(t *testing.T) {
 	cmd := Command{Name: "quit", Description: "Exit"}
 	suggestion := SuggestionItem{Command: cmd, DisplayText: "/quit"}
 
 	tests := []struct {
-		name     string
 		input    string
 		expected string
 	}{
-		{"replace command only", "/q", "/quit "},
-		{"replace with args", "/q arg1", "/quit arg1"},
-		{"exact match", "/quit", "/quit "},
+		{"/q", "/quit "},
+		{"/q arg1", "/quit arg1"},
+		{"/quit", "/quit "},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ApplySuggestion(tt.input, suggestion)
-			if result != tt.expected {
-				t.Errorf("ApplySuggestion(%q) = %q, expected %q",
-					tt.input, result, tt.expected)
-			}
-		})
+		result := ApplySuggestion(tt.input, suggestion)
+		assert.Equal(t, tt.expected, result, "input: %q", tt.input)
 	}
+}
+
+func TestApplySuggestion_ArgValue(t *testing.T) {
+	cmd := Command{Name: "feature"}
+	suggestion := SuggestionItem{
+		Command:     cmd,
+		DisplayText: "/feature enable dashboard",
+		ArgValue:    "dashboard",
+	}
+
+	result := ApplySuggestion("/feature enable d", suggestion)
+	assert.Equal(t, "/feature enable dashboard ", result)
 }

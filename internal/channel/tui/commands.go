@@ -9,8 +9,9 @@ type Command struct {
 	Name        string
 	Description string
 	Aliases     []string
-	ArgHint     string // e.g., "<message>" or "[options]"
-	Category    string // "builtin", "skill", etc.
+	ArgHint     string   // e.g., "<message>" or "[options]"
+	Category    string   // "builtin", "skill", etc.
+	SubArgs     []string // static first-level sub-arguments for autocomplete (e.g., ["list","enable","disable"])
 }
 
 // commandRegistry holds all available slash commands.
@@ -115,6 +116,7 @@ var commandRegistry = []Command{
 		Description: "Show or switch agent mode (simple|cognitive). Usage: /mode [simple|cognitive]",
 		ArgHint:     "[simple|cognitive]",
 		Category:    "builtin",
+		SubArgs:     []string{"simple", "cognitive"},
 	},
 
 	// Stats panel
@@ -131,6 +133,7 @@ var commandRegistry = []Command{
 		Description: "List, enable, or disable features. Usage: /feature [list|enable|disable] [name]",
 		ArgHint:     "[list|enable|disable] [name]",
 		Category:    "builtin",
+		SubArgs:     []string{"list", "enable", "disable"},
 	},
 
 	// Config inspection

@@ -65,6 +65,7 @@ func runTUI(configPath string) error {
 	if cfg.Dashboard.Enabled && cfg.Dashboard.Addr != "" {
 		tuiAdapter.SetDashboardURL("http://" + cfg.Dashboard.Addr)
 	}
+	tuiAdapter.SetArgCompleter(gw.BuildArgCompleter())
 	gw.AddChannel(tuiAdapter)
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -26,6 +26,7 @@ func (gw *Gateway) handleFeatureCommand(ctx context.Context, ch channel.Channel,
 		if err := gw.features.Enable(ctx, name); err != nil {
 			gw.sendReply(ctx, ch, msg, fmt.Sprintf("❌ %v", err))
 		} else {
+			gw.persistFeatureState()
 			reply := fmt.Sprintf("✅ Feature %q enabled.", name)
 			if info := gw.findFeatureInfo(name); info != nil && !info.HotReloadable {
 				reply += "\n⚠️ Not hot-reloadable. Restart IronClaw for full effect."
@@ -38,6 +39,7 @@ func (gw *Gateway) handleFeatureCommand(ctx context.Context, ch channel.Channel,
 		if err := gw.features.Disable(ctx, name); err != nil {
 			gw.sendReply(ctx, ch, msg, fmt.Sprintf("❌ %v", err))
 		} else {
+			gw.persistFeatureState()
 			reply := fmt.Sprintf("✅ Feature %q disabled.", name)
 			if info := gw.findFeatureInfo(name); info != nil && !info.HotReloadable {
 				reply += "\n⚠️ Not hot-reloadable. Restart IronClaw for full effect."
@@ -162,6 +164,53 @@ func (gw *Gateway) handleModelCommand(ctx context.Context, ch channel.Channel, m
 		gw.cognitiveAgent.SetModel(args)
 	}
 	gw.sendReply(ctx, ch, msg, fmt.Sprintf("✅ Model switched: %s → %s", old, args))
+}
+
+// BuildArgCompleter returns an ArgCompleter function for the TUI's dynamic
+// argument autocomplete. The returned function is safe to call concurrently.
+// Signature matches tui.ArgCompleter: func(cmd, subCmd, argSoFar string) []string.
+func (gw *Gateway) BuildArgCompleter() func(cmd, subCmd, argSoFar string) []string {
+	return func(cmd, subCmd, argSoFar string) []string {
+		if gw.features == nil {
+			return nil
+		}
+		switch cmd {
+		case "feature":
+			switch subCmd {
+			case "enable":
+				// Suggest currently disabled features
+				var names []string
+				for _, f := range gw.features.List() {
+					if !f.Enabled {
+						names = append(names, f.Name)
+					}
+				}
+				return names
+			case "disable":
+				// Suggest currently enabled features
+				var names []string
+				for _, f := range gw.features.List() {
+					if f.Enabled {
+						names = append(names, f.Name)
+					}
+				}
+				return names
+			}
+		}
+		return nil
+	}
+}
+
+// persistFeatureState saves the current runtime feature overrides to disk.
+// Logs a warning on failure but does not return an error to keep command handlers simple.
+func (gw *Gateway) persistFeatureState() {
+	if gw.featureStatePath == "" {
+		return
+	}
+	overrides := gw.features.RuntimeOverrides()
+	if err := feature.SaveOverrides(gw.featureStatePath, overrides); err != nil {
+		slog.Warn("gateway: failed to persist feature state", "err", err)
+	}
 }
 
 // sendReply is a convenience helper to send a text reply.

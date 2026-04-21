@@ -79,8 +79,9 @@ type Model struct {
 
 	// Suggestion state
 	suggestions        []SuggestionItem
-	selectedSuggestion int // -1 means no selection
+	selectedSuggestion int          // -1 means no selection
 	showingSuggestions  bool
+	argCompleter       ArgCompleter // optional; injected by the adapter
 
 	// Scroll state
 	autoScroll bool // true = follow new content; false = user is reading history
@@ -532,10 +533,15 @@ func (m *Model) updateViewportKeepScroll() {
 	}
 }
 
+// SetArgCompleter injects a dynamic argument completer into the model.
+func (m *Model) SetArgCompleter(fn ArgCompleter) {
+	m.argCompleter = fn
+}
+
 // updateSuggestions refreshes the suggestion list based on current input.
 func (m *Model) updateSuggestions() {
 	input := m.textarea.Value()
-	suggestions := GenerateSuggestions(input, len(input))
+	suggestions := GenerateSuggestions(input, len(input), m.argCompleter)
 
 	if len(suggestions) == 0 {
 		m.clearSuggestions()

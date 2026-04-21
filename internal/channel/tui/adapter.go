@@ -17,16 +17,17 @@ import (
 // channel.ReflectionSender, channel.NotificationSender, and
 // channel.FeedbackSender for an interactive terminal UI.
 type Adapter struct {
-	program     *tea.Program
-	handler     channel.InboundHandler
-	model       *Model
-	emitter     *TUIEmitter
-	stopCh      chan struct{}
+	program      *tea.Program
+	handler      channel.InboundHandler
+	model        *Model
+	emitter      *TUIEmitter
+	stopCh       chan struct{}
 	agentMode    string
 	version      string
 	channelID    string // unique per launch so each TUI invocation gets a fresh session
 	dashboardURL string
 	autoApprove  bool
+	argCompleter ArgCompleter // optional dynamic argument completer
 
 	// approvalTimeout is the max time to wait for the user to respond
 	// to an approval or reflection request.
@@ -73,6 +74,17 @@ func (a *Adapter) SetDashboardURL(url string) {
 	a.dashboardURL = url
 }
 
+// SetArgCompleter injects a dynamic argument completer for slash command autocomplete.
+// Should be called before Start(). If called after Start(), the completer is
+// forwarded to the running Model immediately.
+func (a *Adapter) SetArgCompleter(fn ArgCompleter) {
+	if a.model != nil {
+		a.model.SetArgCompleter(fn)
+	}
+	// Store for propagation in Start()
+	a.argCompleter = fn
+}
+
 func (a *Adapter) Name() string { return "tui" }
 
 func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) error {
@@ -80,6 +92,9 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 
 	m := NewModel(a.agentMode, a.version)
 	m.dashboardURL = a.dashboardURL
+	if a.argCompleter != nil {
+		m.SetArgCompleter(a.argCompleter)
+	}
 	a.model = &m
 
 	// Create a custom model wrapper that captures user input
