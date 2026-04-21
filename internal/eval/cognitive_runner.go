@@ -162,6 +162,12 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 	r.populateFromObservation(result)
 	r.populateFromEvolution(result, sess.ID)
 
+	// Feed assertion pass rate into the cogmetrics collector so HealthReport
+	// reflects eval-run assertion quality in addition to live agent stats.
+	if r.cogCollector != nil && result.AssertionTotal > 0 {
+		r.cogCollector.RecordAssertionRate(result.AssertionPassRate)
+	}
+
 	if len(result.ToolsUsed) > 0 {
 		result.AgentOutput += "\n\n[Tool Execution Summary: " + strings.Join(result.ToolsUsed, ", ") + "]"
 	}
@@ -260,6 +266,17 @@ func (r *CognitiveAgentRunner) populateSuccessFallback(result *EvalResult) {
 }
 
 func (r *CognitiveAgentRunner) populateFromEvolution(result *EvalResult, sessionID string) {
+	// Always compute episode reward — it only depends on result fields already
+	// populated by populateFromObservation, not on the evolution hook.
+	defer func() {
+		result.EpisodeReward = evolution.ComputeReward(evolution.RewardInput{
+			Succeeded:   result.Success,
+			Progress:    result.AssertionPassRate,
+			DurationMs:  result.Duration.Milliseconds(),
+			ReplanCount: result.ReplanCount,
+		})
+	}()
+
 	if r.hook == nil {
 		return
 	}
@@ -322,13 +339,6 @@ func (r *CognitiveAgentRunner) populateFromEvolution(result *EvalResult, session
 			}
 		}
 	}
-
-	result.EpisodeReward = evolution.ComputeReward(evolution.RewardInput{
-		Succeeded:   result.Success,
-		Progress:    result.AssertionPassRate,
-		DurationMs:  result.Duration.Milliseconds(),
-		ReplanCount: result.ReplanCount,
-	})
 
 	if compressions := r.hook.GetCompressions(sessionID); len(compressions) > 0 {
 		result.CompressionCount = len(compressions)

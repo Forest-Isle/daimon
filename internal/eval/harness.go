@@ -193,7 +193,25 @@ func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentR
 		default:
 		}
 
+		if task.SetupFunc != nil {
+			if err := task.SetupFunc(); err != nil {
+				suite.Results = append(suite.Results, EvalResult{
+					TaskID:    task.ID,
+					Goal:      task.Goal,
+					Error:     fmt.Sprintf("setup failed: %v", err),
+					Dimension: DefaultDimension(task.Dimension),
+					Timestamp: time.Now(),
+				})
+				continue
+			}
+		}
+
 		result, err := runner.RunTask(ctx, task)
+
+		if task.CleanupFunc != nil {
+			_ = task.CleanupFunc()
+		}
+
 		if err != nil {
 			suite.Results = append(suite.Results, EvalResult{
 				TaskID:    task.ID,
