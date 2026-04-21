@@ -111,6 +111,12 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 			for _, r := range kResults {
 				knowledgeContext = append(knowledgeContext, r.Chunk.Content)
 			}
+			// Explicitly mark empty results so the agent knows KB was searched but found nothing.
+			// This prevents the agent from treating an empty KNOWLEDGE section as "no KB configured"
+			// and fabricating answers from general knowledge.
+			if len(knowledgeContext) == 0 {
+				knowledgeContext = []string{"[KNOWLEDGE BASE SEARCHED: no relevant information found for this query]"}
+			}
 		}
 	}
 
