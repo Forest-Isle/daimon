@@ -264,7 +264,7 @@ func RunSuiteWithOptions(ctx context.Context, runID string, tasks []TaskCase, ru
 		if opts != nil && opts.Judge != nil && task.Rubric != nil &&
 			(task.VerifyMethod == VerifyLLMJudge || task.VerifyMethod == VerifyHybrid) {
 			var judgeErr error
-			jr, judgeErr = opts.Judge.Judge(ctx, task, agentOutput)
+			jr, judgeErr = opts.Judge.Judge(ctx, task, agentOutput, result.ToolsUsed)
 			if judgeErr != nil {
 				slog.Warn("judge failed for task", "task", task.ID, "err", judgeErr)
 			} else {

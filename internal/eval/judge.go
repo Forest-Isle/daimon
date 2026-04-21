@@ -18,7 +18,7 @@ func NewLLMJudge(provider agent.Provider) *LLMJudge {
 	return &LLMJudge{provider: provider}
 }
 
-func (j *LLMJudge) Judge(ctx context.Context, task TaskCase, agentOutput string) (*JudgeResult, error) {
+func (j *LLMJudge) Judge(ctx context.Context, task TaskCase, agentOutput string, toolsUsed []string) (*JudgeResult, error) {
 	if task.Rubric == nil || len(task.Rubric.Criteria) == 0 {
 		return &JudgeResult{
 			Scores:    map[string]float64{},
@@ -35,7 +35,7 @@ func (j *LLMJudge) Judge(ctx context.Context, task TaskCase, agentOutput string)
 		}, nil
 	}
 
-	prompt := j.buildPrompt(task, agentOutput)
+	prompt := j.buildPrompt(task, agentOutput, toolsUsed)
 
 	resp, err := j.provider.Complete(ctx, agent.CompletionRequest{
 		System:    "You are an evaluation judge. Score the agent output against the given criteria. Respond ONLY with a JSON object.",
@@ -50,7 +50,7 @@ func (j *LLMJudge) Judge(ctx context.Context, task TaskCase, agentOutput string)
 	return result, nil
 }
 
-func (j *LLMJudge) buildPrompt(task TaskCase, agentOutput string) string {
+func (j *LLMJudge) buildPrompt(task TaskCase, agentOutput string, toolsUsed []string) string {
 	var b strings.Builder
 
 	b.WriteString("## Task\n")
@@ -66,6 +66,16 @@ func (j *LLMJudge) buildPrompt(task TaskCase, agentOutput string) string {
 	b.WriteString("## Agent Output\n")
 	b.WriteString(agentOutput)
 	b.WriteString("\n\n")
+
+	b.WriteString("## Tools Used by Agent\n")
+	if len(toolsUsed) > 0 {
+		b.WriteString("[")
+		b.WriteString(strings.Join(toolsUsed, ", "))
+		b.WriteString("]\n\n")
+		b.WriteString("Note: These tool names are captured from actual execution metadata, not from the agent's text output. Use this information when evaluating tool selection criteria.\n\n")
+	} else {
+		b.WriteString("No tool usage data available.\n\n")
+	}
 
 	b.WriteString("## Scoring Criteria\n")
 	for _, c := range task.Rubric.Criteria {
@@ -87,11 +97,15 @@ func (j *LLMJudge) parseResponse(text string, rubric *Rubric) *JudgeResult {
 
 	var result JudgeResult
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
-		slog.Warn("judge: failed to parse LLM response, using fallback", "err", err)
-		return &JudgeResult{
-			Scores:    map[string]float64{},
-			Overall:   0.5,
-			Reasoning: "Failed to parse judge response; fallback score assigned.",
+		if parsed, ok := extractScoresJSON(text); ok {
+			result = *parsed
+		} else {
+			slog.Warn("judge: failed to parse LLM response, using fallback", "err", err)
+			return &JudgeResult{
+				Scores:    map[string]float64{},
+				Overall:   0.5,
+				Reasoning: "Failed to parse judge response; fallback score assigned.",
+			}
 		}
 	}
 
@@ -114,6 +128,38 @@ func (j *LLMJudge) parseResponse(text string, rubric *Rubric) *JudgeResult {
 	}
 
 	return &result
+}
+
+// extractScoresJSON attempts aggressive extraction of a JSON object containing
+// "scores" from malformed LLM output. It walks backwards from the "scores" key
+// to find the opening brace, then forward to find the matching close.
+func extractScoresJSON(text string) (*JudgeResult, bool) {
+	idx := strings.Index(text, `"scores"`)
+	if idx < 0 {
+		return nil, false
+	}
+	for i := idx; i >= 0; i-- {
+		if text[i] != '{' {
+			continue
+		}
+		candidate := text[i:]
+		depth := 0
+		for j := 0; j < len(candidate); j++ {
+			switch candidate[j] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					var result JudgeResult
+					if err := json.Unmarshal([]byte(candidate[:j+1]), &result); err == nil {
+						return &result, true
+					}
+				}
+			}
+		}
+	}
+	return nil, false
 }
 
 func extractJSON(text string) string {

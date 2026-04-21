@@ -38,7 +38,7 @@ func TestLLMJudge_Judge_ValidResponse(t *testing.T) {
 		},
 	}
 
-	result, err := judge.Judge(context.Background(), task, "Go interfaces define method sets...")
+	result, err := judge.Judge(context.Background(), task, "Go interfaces define method sets...", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestLLMJudge_Judge_MalformedResponse(t *testing.T) {
 		},
 	}
 
-	result, err := judge.Judge(context.Background(), task, "some output")
+	result, err := judge.Judge(context.Background(), task, "some output", nil)
 	if err != nil {
 		t.Fatalf("should not error on malformed response, got: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestLLMJudge_Judge_NilRubric(t *testing.T) {
 	judge := NewLLMJudge(provider)
 
 	task := TaskCase{Goal: "test"}
-	result, err := judge.Judge(context.Background(), task, "output")
+	result, err := judge.Judge(context.Background(), task, "output", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestLLMJudge_BuildPrompt(t *testing.T) {
 			},
 		},
 	}
-	prompt := judge.buildPrompt(task, "My answer about channels")
+	prompt := judge.buildPrompt(task, "My answer about channels", []string{"bash", "file_read"})
 	if prompt == "" {
 		t.Error("prompt should not be empty")
 	}

@@ -3,6 +3,7 @@ package eval
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,6 +107,11 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 
 	r.populateFromObservation(result)
 	r.populateFromEvolution(result, sess.ID)
+
+	if len(result.ToolsUsed) > 0 {
+		result.AgentOutput += "\n\n[Tool Execution Summary: " + strings.Join(result.ToolsUsed, ", ") + "]"
+	}
+
 	r.populateSuccessFallback(result)
 
 	return result, nil
