@@ -340,15 +340,28 @@ func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, i
 
 	// Vector search
 	vectorResults := make(map[string]float64)
-	if len(query.Embedding) > 0 {
-		// Simple cosine similarity (placeholder for HNSW)
+	if len(query.Embedding) > 0 && len(idMap) > 0 {
+		ids := make([]string, 0, len(idMap))
 		for id := range idMap {
-			var embBytes []byte
-			err := s.db.QueryRowContext(ctx, `SELECT embedding FROM memory_embeddings WHERE memory_id = ?`, id).Scan(&embBytes)
-			if err == nil {
-				emb := deserializeEmbedding(embBytes)
-				sim := cosineSimilarity(query.Embedding, emb)
-				vectorResults[id] = sim
+			ids = append(ids, id)
+		}
+		placeholders := make([]string, len(ids))
+		batchArgs := make([]any, len(ids))
+		for i, id := range ids {
+			placeholders[i] = "?"
+			batchArgs[i] = id
+		}
+		batchQuery := "SELECT memory_id, embedding FROM memory_embeddings WHERE memory_id IN (" + strings.Join(placeholders, ",") + ")"
+		embRows, embErr := s.db.QueryContext(ctx, batchQuery, batchArgs...)
+		if embErr == nil {
+			defer func() { _ = embRows.Close() }()
+			for embRows.Next() {
+				var id string
+				var embBytes []byte
+				if scanErr := embRows.Scan(&id, &embBytes); scanErr == nil {
+					emb := deserializeEmbedding(embBytes)
+					vectorResults[id] = cosineSimilarity(query.Embedding, emb)
+				}
 			}
 		}
 	}
