@@ -288,6 +288,32 @@ func (r *Registry) List() []FeatureInfo {
 	return result
 }
 
+// SetOnEnable replaces the OnEnable hook for a registered feature.
+// Used for late-binding hooks that need access to subsystems not available at
+// registration time.
+func (r *Registry) SetOnEnable(name string, fn func(ctx context.Context) error) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	st, ok := r.states[name]
+	if !ok {
+		return fmt.Errorf("unknown feature %q", name)
+	}
+	st.feature.OnEnable = fn
+	return nil
+}
+
+// SetOnDisable replaces the OnDisable hook for a registered feature.
+func (r *Registry) SetOnDisable(name string, fn func(ctx context.Context) error) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	st, ok := r.states[name]
+	if !ok {
+		return fmt.Errorf("unknown feature %q", name)
+	}
+	st.feature.OnDisable = fn
+	return nil
+}
+
 // EnabledNames returns the names of all currently enabled features.
 func (r *Registry) EnabledNames() []string {
 	r.mu.RLock()

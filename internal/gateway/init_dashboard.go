@@ -1,8 +1,10 @@
 package gateway
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/dashboard"
@@ -57,5 +59,36 @@ func (gw *Gateway) initDashboard() error {
 	}()
 
 	slog.Info("dashboard initialized", "addr", gw.cfg.Dashboard.Addr)
+	return nil
+}
+
+func (gw *Gateway) startDashboard() error {
+	if gw.dashboardHub != nil {
+		return nil // already running
+	}
+	return gw.initDashboard()
+}
+
+func (gw *Gateway) stopDashboard() error {
+	if gw.dashboardSrv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := gw.dashboardSrv.Shutdown(ctx); err != nil {
+			slog.Warn("dashboard shutdown error", "err", err)
+		}
+		gw.dashboardSrv = nil
+	}
+	if gw.dashboardHub != nil {
+		gw.dashboardHub.Stop()
+		gw.dashboardHub = nil
+	}
+	if gw.stateTracker != nil {
+		gw.stateTracker.Stop()
+		gw.stateTracker = nil
+	}
+	gw.dashboardBus = nil
+	gw.dashEmitter = nil
+	gw.cogCollector = nil
+	slog.Info("dashboard stopped")
 	return nil
 }
