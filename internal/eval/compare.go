@@ -16,6 +16,14 @@ type TaskRegression struct {
 	Status      string    `json:"status"` // "improved", "regressed", "stable"
 }
 
+// EvoSnapshotDiff holds the per-field deltas between two EvolutionSnapshots.
+type EvoSnapshotDiff struct {
+	PreferenceCountDelta int `json:"preference_count_delta"`
+	StrategyVersionDelta int `json:"strategy_version_delta"`
+	SkillDraftCountDelta int `json:"skill_draft_count_delta"`
+	TrajectoryCountDelta int `json:"trajectory_count_delta"`
+}
+
 // ComparisonReport compares two evaluation runs side by side.
 type ComparisonReport struct {
 	BeforeRunID     string                `json:"before_run_id"`
@@ -27,6 +35,7 @@ type ComparisonReport struct {
 	Regressions     []TaskRegression      `json:"regressions,omitempty"`
 	Improvements    []TaskRegression      `json:"improvements,omitempty"`
 	DimensionDeltas map[Dimension]float64 `json:"dimension_deltas,omitempty"`
+	EvoSnapshot     *EvoSnapshotDiff      `json:"evo_snapshot,omitempty"`
 	GeneratedAt     time.Time             `json:"generated_at"`
 }
 
@@ -99,6 +108,15 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 	for dim, afterScore := range afterDims {
 		if beforeScore, ok := beforeDims[dim]; ok {
 			report.DimensionDeltas[dim] = afterScore - beforeScore
+		}
+	}
+
+	if before.EvoAfter != nil && after.EvoAfter != nil {
+		report.EvoSnapshot = &EvoSnapshotDiff{
+			PreferenceCountDelta: after.EvoAfter.PreferenceCount - before.EvoAfter.PreferenceCount,
+			StrategyVersionDelta: after.EvoAfter.StrategyVersion - before.EvoAfter.StrategyVersion,
+			SkillDraftCountDelta: after.EvoAfter.SkillDraftCount - before.EvoAfter.SkillDraftCount,
+			TrajectoryCountDelta: after.EvoAfter.TrajectoryCount - before.EvoAfter.TrajectoryCount,
 		}
 	}
 
@@ -189,6 +207,16 @@ func (r *ComparisonReport) FormatMarkdown() string {
 		for dim, delta := range r.DimensionDeltas {
 			fmt.Fprintf(&b, "| %s | %s |\n", dim, fmtDelta(delta, "", true))
 		}
+	}
+
+	if r.EvoSnapshot != nil {
+		b.WriteString("\n### Evolution Snapshot Delta\n\n")
+		b.WriteString("| Field | Delta |\n")
+		b.WriteString("|-------|-------|\n")
+		fmt.Fprintf(&b, "| Preference Count | %+d |\n", r.EvoSnapshot.PreferenceCountDelta)
+		fmt.Fprintf(&b, "| Strategy Version | %+d |\n", r.EvoSnapshot.StrategyVersionDelta)
+		fmt.Fprintf(&b, "| Skill Draft Count | %+d |\n", r.EvoSnapshot.SkillDraftCountDelta)
+		fmt.Fprintf(&b, "| Trajectory Count | %+d |\n", r.EvoSnapshot.TrajectoryCountDelta)
 	}
 
 	return b.String()
