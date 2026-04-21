@@ -216,6 +216,11 @@ func (m *Manager) RunningServers() map[string]struct{} {
 	return out
 }
 
+// StartServer connects to a single MCP server with retry logic. Used by hot-reload.
+func (m *Manager) StartServer(ctx context.Context, name string, srv config.MCPServerConfig, registry *tool.Registry) error {
+	return m.startServerWithRetry(ctx, name, srv, registry)
+}
+
 // SyncServers compares the desired server set against running servers.
 // New servers are started, removed servers are stopped, and changed servers are restarted.
 func (m *Manager) SyncServers(ctx context.Context, desired map[string]config.MCPServerConfig, registry *tool.Registry) {
