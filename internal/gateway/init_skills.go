@@ -8,7 +8,7 @@ import (
 )
 
 func (gw *Gateway) initSkillManager() error {
-	if !gw.cfg.Skills.Enabled {
+	if !gw.featureEnabled("skills") {
 		return nil
 	}
 

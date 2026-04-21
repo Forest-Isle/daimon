@@ -9,7 +9,7 @@ import (
 )
 
 func (gw *Gateway) initDashboard() error {
-	if !gw.cfg.Dashboard.Enabled {
+	if !gw.featureEnabled("dashboard") {
 		return nil
 	}
 

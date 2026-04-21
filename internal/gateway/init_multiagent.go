@@ -11,7 +11,7 @@ import (
 
 func (gw *Gateway) initMultiAgent() error {
 	// Multi-agent system
-	if gw.cfg.Agents.Enabled {
+	if gw.featureEnabled("multi_agent") {
 		agentMgr := agent.NewAgentManager(gw.provider, gw.sessions, gw.db, gw.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
 
 		subAgentMgr := agent.NewSubAgentManager(gw.provider, gw.sessions, gw.db, gw.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
@@ -75,7 +75,7 @@ func (gw *Gateway) initMultiAgent() error {
 	}
 
 	// Speculative execution of read-only tools during streaming
-	if gw.cfg.Agent.SpeculativeExecution.Enabled {
+	if gw.featureEnabled("speculative") {
 		maxInFlight := gw.cfg.Agent.SpeculativeExecution.MaxInFlight
 		se := agent.NewSpeculativeExecutor(gw.tools, maxInFlight)
 		gw.runtime.SetSpeculativeExecutor(se)
