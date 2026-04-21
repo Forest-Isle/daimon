@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -22,6 +23,10 @@ type FileMemoryStore struct {
 	db       *sql.DB
 	embedder EmbeddingProvider
 	cfg      MemoryConfig
+
+	indexCacheMu    sync.RWMutex
+	indexCache      map[string][]IndexEntry
+	indexCacheMtime time.Time
 }
 
 // MemoryFile represents a memory stored as Markdown with YAML frontmatter.
@@ -166,10 +171,49 @@ type indexResult struct {
 	strength float64
 }
 
+func (s *FileMemoryStore) invalidateIndexCache() {
+	s.indexCacheMu.Lock()
+	s.indexCache = nil
+	s.indexCacheMu.Unlock()
+}
+
+func (s *FileMemoryStore) cachedIndex() (map[string][]IndexEntry, error) {
+	indexPath := filepath.Join(s.baseDir, "MEMORY.md")
+	info, err := os.Stat(indexPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string][]IndexEntry), nil
+		}
+		return nil, err
+	}
+	mtime := info.ModTime()
+
+	s.indexCacheMu.RLock()
+	if s.indexCache != nil && !mtime.After(s.indexCacheMtime) {
+		cached := s.indexCache
+		s.indexCacheMu.RUnlock()
+		return cached, nil
+	}
+	s.indexCacheMu.RUnlock()
+
+	s.indexCacheMu.Lock()
+	defer s.indexCacheMu.Unlock()
+	if s.indexCache != nil && !mtime.After(s.indexCacheMtime) {
+		return s.indexCache, nil
+	}
+	idx := NewMemoryIndex(s.baseDir)
+	entries, parseErr := idx.Parse()
+	if parseErr != nil {
+		return nil, parseErr
+	}
+	s.indexCache = entries
+	s.indexCacheMtime = mtime
+	return entries, nil
+}
+
 func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]SearchResult, error) {
 	// Step 1: Parse MEMORY.md for quick filtering
-	idx := NewMemoryIndex(s.baseDir)
-	indexEntries, err := idx.Parse()
+	indexEntries, err := s.cachedIndex()
 	if err != nil {
 		return nil, fmt.Errorf("parse MEMORY.md: %w", err)
 	}
@@ -668,6 +712,8 @@ func (s *FileMemoryStore) parseFile(path string) (*MemoryFile, error) {
 }
 
 func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath string) error {
+	s.invalidateIndexCache()
+
 	// Update MEMORY.md index
 	idx := NewMemoryIndex(s.baseDir)
 	title := fmt.Sprintf("%s_%s", entry.ID, entry.CreatedAt.Format("20060102"))
@@ -737,6 +783,8 @@ func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath s
 
 // RebuildIndex scans all memory files and rebuilds the SQLite index.
 func (s *FileMemoryStore) RebuildIndex(ctx context.Context) error {
+	s.invalidateIndexCache()
+
 	// Clear existing index
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_index`); err != nil {
 		return fmt.Errorf("clear memory_index: %w", err)
