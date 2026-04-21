@@ -480,6 +480,8 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	// Save user message to memory.md for future retrieval
 	if r.memStore != nil {
 		if err := r.memStore.Save(ctx, memory.Entry{
+			ID:        fmt.Sprintf("conv_%d", time.Now().UnixNano()),
+			Scope:     memory.ScopeSession,
 			SessionID: sess.ID,
 			Content:   msg.Text,
 			Metadata:  map[string]string{"role": "user", "channel": msg.Channel},

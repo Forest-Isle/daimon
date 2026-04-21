@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/memory"
@@ -47,6 +48,12 @@ func (gw *Gateway) initMemorySystem() error {
 			return err
 		}
 		storageDir = filepath.Join(home, ".IronClaw", "memory")
+	} else if strings.HasPrefix(storageDir, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("resolve storage_dir tilde: %w", err)
+		}
+		storageDir = filepath.Join(home, storageDir[2:])
 	}
 
 	// Create file store
