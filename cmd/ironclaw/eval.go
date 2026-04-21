@@ -429,6 +429,15 @@ genuine strategy/preference evolution between measurements.`,
 						point.PreferenceCount = snap.PreferenceCount
 						point.SkillDraftCount = snap.SkillDraftCount
 						point.TrajectoryCount = snap.TrajectoryCount
+						// Extended evolution metrics from new eval branches.
+						point.ReplanThreshold = snap.ReplanThreshold
+						point.RLAvgReward = snap.RLAvgReward
+						point.RLSuccessRate = snap.RLSuccessRate
+						point.PreferenceAvgConfidence = snap.PreferenceAvgConfidence
+						point.PreferenceHighConfCount = snap.PreferenceHighConfCount
+						if len(snap.RouterDecisions) > 0 {
+							point.RouterDecisions = snap.RouterDecisions
+						}
 					}
 				}
 
