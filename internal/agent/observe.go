@@ -25,9 +25,13 @@ func (o *Observer) Run(observations []Observation, plan *TaskPlan) *ObservationR
 		}
 	}
 
+	// Track consecutive denials per tool for cascading failure detection.
+	denialCounts := make(map[string]int)
+
 	for _, obs := range observations {
 		if obs.Denied {
 			result.DeniedCount++
+			denialCounts[obs.ToolName]++
 
 			fc := FailureContext{
 				SubTaskID: obs.SubTaskID,
@@ -38,6 +42,20 @@ func (o *Observer) Run(observations []Observation, plan *TaskPlan) *ObservationR
 
 			if idx := strings.Index(obs.Output, "[Recovery Hint:"); idx >= 0 {
 				fc.ErrorMsg += ". " + obs.Output[idx:]
+			}
+
+			// Inject error-pattern specific recovery hints based on output content.
+			lower := strings.ToLower(obs.Output)
+			switch {
+			case strings.Contains(lower, "no such file") || strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist"):
+				fc.ErrorMsg += " Use bash with find/ls to locate the correct path before retrying."
+			case strings.Contains(lower, "permission denied"):
+				fc.ErrorMsg += " Check permissions with 'ls -la', consider read-only alternatives."
+			}
+
+			// Cascading failure: same tool denied 2+ times — instruct diagnostic pivot.
+			if denialCounts[obs.ToolName] >= 2 {
+				fc.ErrorMsg += " STOP retrying same tool — switch to diagnostic mode with bash to understand environment state."
 			}
 
 			result.Failures = append(result.Failures, fc)

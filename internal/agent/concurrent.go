@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -141,7 +142,8 @@ func (r *Runtime) executeTools(
 }
 
 // buildDeniedOutput creates a denied tool result message with recovery hints.
-// It suggests alternative tools based on the denied tool's category.
+// It suggests alternative tools based on the denied tool's category and parses
+// the reason string for error-specific recovery guidance.
 func buildDeniedOutput(toolName, reason string) string {
 	var hint string
 	switch toolName {
@@ -156,6 +158,26 @@ func buildDeniedOutput(toolName, reason string) string {
 	default:
 		hint = "\n[Recovery Hint: This tool was denied. Consider alternative tools or approaches to accomplish the same goal. You can still reason from available context.]"
 	}
+
+	// Inject error-pattern specific recovery hints based on the failure reason.
+	lower := strings.ToLower(reason)
+	var errorHint string
+	switch {
+	case strings.Contains(lower, "no such file") || strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist"):
+		errorHint = fmt.Sprintf("\nPATH_RECOVERY: Use bash to locate the file first: bash: find / -name '<filename>' -type f 2>/dev/null | head -5  or  bash: ls -la <parent_directory>")
+	case strings.Contains(lower, "permission denied"):
+		errorHint = "\nPERMISSION_RECOVERY: Check permissions with bash: ls -la <path> — consider read-only alternative or different directory"
+	case strings.Contains(lower, "exit code 127") || strings.Contains(lower, "command not found"):
+		errorHint = "\nCOMMAND_RECOVERY: Find alternative with bash: which <cmd> || command -v <cmd> || type <cmd>"
+	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded"):
+		errorHint = "\nTIMEOUT_RECOVERY: Decompose task; use bash with timeout: timeout 10 <cmd>"
+	case strings.Contains(lower, "exit code 1") || strings.Contains(lower, "exit code 2"):
+		errorHint = "\nEXIT_ERROR_RECOVERY: Read stderr output above carefully; fix the specific error before retrying"
+	}
+	if errorHint != "" {
+		hint += errorHint
+	}
+
 	return reason + hint
 }
 
