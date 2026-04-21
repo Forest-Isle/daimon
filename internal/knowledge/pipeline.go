@@ -92,6 +92,14 @@ func (p *IngestPipeline) Ingest(ctx context.Context, uri, sourceType string) err
 	// Update chunk count
 	p.kb.updateChunkCount(ctx, sourceID)
 
+	// Merge FTS5 b-tree segments so newly ingested chunks are immediately
+	// queryable without waiting for the next auto-merge.
+	p.kb.optimizeFTS(ctx)
+
+	// Invalidate the search result cache so subsequent queries hit the DB
+	// and reflect all newly ingested content.
+	p.kb.InvalidateCache()
+
 	slog.Info("knowledge: ingested", "uri", uri, "chunks_saved", saved, "chunks_total", len(chunks))
 	return nil
 }

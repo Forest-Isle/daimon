@@ -3,6 +3,8 @@ package taskledger
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -146,6 +148,15 @@ func (tc *TeamCoordinator) runWorker(ctx context.Context, workerID string, exec 
 			stats.failed++
 			tc.Notify(Notification{FromTaskID: task.ID, Type: "failed", Message: execErr.Error()})
 		} else {
+			// Replace empty sub-agent output with an explicit failure marker so
+			// downstream tasks and merge steps can detect the missing result
+			// rather than silently treating it as successful completion.
+			if strings.TrimSpace(result) == "" {
+				slog.Warn("team: sub-agent returned empty result, task may be incomplete",
+					"task_id", task.ID, "title", task.Title, "assignee", task.Assignee)
+				result = fmt.Sprintf("[Sub-agent '%s' returned no result for task '%s'. The coordinator should consider this task as failed.]",
+					task.Assignee, task.Title)
+			}
 			tc.completeTask(ctx, task, result)
 			stats.completed++
 			tc.Notify(Notification{FromTaskID: task.ID, Type: "completed", Message: result})
