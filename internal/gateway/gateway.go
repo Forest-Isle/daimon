@@ -81,7 +81,16 @@ type Gateway struct {
 	stopOnce        sync.Once    // ensures stopCh is closed exactly once
 }
 
-func New(cfg *config.Config) (*Gateway, error) {
+// GatewayOptions configures optional behaviour for Gateway.New.
+type GatewayOptions struct {
+	// SkipPersistedFeatureState prevents loading ~/.IronClaw/feature_state.json
+	// during feature registry initialization. Set to true in eval mode so that
+	// eval's forced config overrides cannot be silently reverted by a user's
+	// runtime `/feature disable` state from a previous interactive session.
+	SkipPersistedFeatureState bool
+}
+
+func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw := &Gateway{
 		cfg:      cfg,
 		channels: make(map[string]channel.Channel),
@@ -93,17 +102,24 @@ func New(cfg *config.Config) (*Gateway, error) {
 		return nil, fmt.Errorf("database: %w", err)
 	}
 
+	opt := GatewayOptions{}
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
 	// Feature registry — register all features, apply config overrides, resolve dependencies
 	gw.features = registerFeatures(cfg)
 	gw.features.ApplyOverrides(configToOverrides(cfg))
 	// Apply any persisted runtime overrides (highest priority — user's explicit choices survive restarts)
-	if home, err := os.UserHomeDir(); err == nil {
-		gw.featureStatePath = feature.DefaultStatePath(filepath.Join(home, ".IronClaw"))
-		if persisted, err := feature.LoadOverrides(gw.featureStatePath); err != nil {
-			slog.Warn("gateway: failed to load persisted feature state", "err", err)
-		} else if len(persisted) > 0 {
-			gw.features.ApplyOverrides(persisted)
-			slog.Info("gateway: applied persisted feature overrides", "count", len(persisted))
+	if !opt.SkipPersistedFeatureState {
+		if home, err := os.UserHomeDir(); err == nil {
+			gw.featureStatePath = feature.DefaultStatePath(filepath.Join(home, ".IronClaw"))
+			if persisted, err := feature.LoadOverrides(gw.featureStatePath); err != nil {
+				slog.Warn("gateway: failed to load persisted feature state", "err", err)
+			} else if len(persisted) > 0 {
+				gw.features.ApplyOverrides(persisted)
+				slog.Info("gateway: applied persisted feature overrides", "count", len(persisted))
+			}
 		}
 	}
 	if err := gw.features.ResolveAndInit(context.Background()); err != nil {
