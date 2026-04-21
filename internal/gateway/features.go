@@ -91,10 +91,11 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 
 	// Tier 3: Opt-in (default false)
 	r.Register(feature.Feature{
-		Name:        "evolution",
-		Description: "Self-evolution engine (preference learning, skill synthesis)",
-		Default:     false,
-		Phase:       feature.PhaseStart,
+		Name:          "evolution",
+		Description:   "Self-evolution engine (preference learning, skill synthesis)",
+		Default:       false,
+		Phase:         feature.PhaseStart,
+		HotReloadable: true,
 	})
 	r.Register(feature.Feature{
 		Name:         "rl",
@@ -111,10 +112,11 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 		Dependencies: []string{"evolution"},
 	})
 	r.Register(feature.Feature{
-		Name:        "dashboard",
-		Description: "Web dashboard for real-time agent monitoring",
-		Default:     false,
-		Phase:       feature.PhaseConstruct,
+		Name:          "dashboard",
+		Description:   "Web dashboard for real-time agent monitoring",
+		Default:       false,
+		Phase:         feature.PhaseConstruct,
+		HotReloadable: true,
 	})
 	r.Register(feature.Feature{
 		Name:        "server",
@@ -124,6 +126,31 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 	})
 
 	return r
+}
+
+// bindFeatureLifecycleHooks wires OnEnable/OnDisable hooks for hot-reloadable
+// features. Called after all subsystems are initialized so that hooks can
+// reference Gateway fields (dashboard server, evolution engine, etc.).
+func (gw *Gateway) bindFeatureLifecycleHooks() {
+	_ = gw.features.SetOnEnable("dashboard", func(ctx context.Context) error {
+		return gw.startDashboard()
+	})
+	_ = gw.features.SetOnDisable("dashboard", func(ctx context.Context) error {
+		return gw.stopDashboard()
+	})
+
+	_ = gw.features.SetOnEnable("evolution", func(ctx context.Context) error {
+		if gw.evoEngine != nil {
+			gw.evoEngine.Start()
+		}
+		return nil
+	})
+	_ = gw.features.SetOnDisable("evolution", func(ctx context.Context) error {
+		if gw.evoEngine != nil {
+			gw.evoEngine.Stop()
+		}
+		return nil
+	})
 }
 
 func configToOverrides(cfg *config.Config) map[string]bool {
