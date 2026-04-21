@@ -41,8 +41,14 @@ func (c *EvalChannel) SendApprovalRequest(_ context.Context, _ channel.MessageTa
 	return true, nil
 }
 
-// SendReflectionRequest always continues during evaluation.
-func (c *EvalChannel) SendReflectionRequest(_ context.Context, _ channel.MessageTarget, _ string, _ float64) (channel.ReplanDecision, error) {
+// SendReflectionRequest allows the agent to replan during evaluation when
+// the cognitive loop has determined replanning is warranted. The loop only
+// calls this method when NeedsReplan=true AND confidence < threshold, so
+// returning ReplanAdjust lets the agent retry with a revised plan.
+func (c *EvalChannel) SendReflectionRequest(_ context.Context, _ channel.MessageTarget, _ string, confidence float64) (channel.ReplanDecision, error) {
+	if confidence < 0.6 {
+		return channel.ReplanAdjust, nil
+	}
 	return channel.ReplanContinue, nil
 }
 

@@ -93,11 +93,16 @@ func (j *LLMJudge) buildPrompt(task TaskCase, agentOutput string, toolsUsed []st
 }
 
 func (j *LLMJudge) parseResponse(text string, rubric *Rubric) *JudgeResult {
+	raw := text
 	text = extractJSON(text)
 
 	var result JudgeResult
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		// Try aggressive extraction on both the extracted fragment and the
+		// original raw text — extractJSON may have selected a wrong fragment.
 		if parsed, ok := extractScoresJSON(text); ok {
+			result = *parsed
+		} else if parsed, ok := extractScoresJSON(raw); ok {
 			result = *parsed
 		} else {
 			slog.Warn("judge: failed to parse LLM response, using fallback", "err", err)

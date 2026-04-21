@@ -126,6 +126,15 @@ config file with LLM credentials and agent.mode set to "cognitive".`,
 
 // initEvalGateway boots a full gateway for live evaluation. Returns a cleanup
 // function that must be called when done.
+//
+// The config is adjusted for eval mode:
+//   - agent.mode forced to "cognitive"
+//   - evolution.enabled forced to true (so StrategyOptimizer/PreferenceLearner
+//     can learn from eval feedback and evo_before/evo_after are populated)
+//   - permissions.default set to "none" and deny rules cleared (eval measures
+//     agent capability, not permission policy; tool denials distort results)
+//   - tool requires_approval set to false (EvalChannel auto-approves, but
+//     bypassing the approval flow entirely is more reliable)
 func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -135,6 +144,27 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 	if err := userdir.Apply(cfg); err != nil {
 		slog.Warn("eval: apply user config overlay", "err", err)
 	}
+
+	// Force cognitive mode for eval
+	cfg.Agent.Mode = "cognitive"
+
+	// Enable evolution engine so hooks capture reflection/episode/tool metrics
+	cfg.Evolution.Enabled = true
+
+	// Remove all permission barriers for eval — we want to measure agent
+	// capability, not security policy enforcement
+	cfg.Permissions.Default = "none"
+	cfg.Permissions.Rules = nil
+	cfg.Tools.Bash.RequiresApproval = false
+	cfg.Tools.File.RequiresApproval = false
+	cfg.Tools.HTTP.RequiresApproval = false
+	cfg.Tools.Browser.RequiresApproval = false
+
+	slog.Info("eval: config overrides applied",
+		"agent.mode", "cognitive",
+		"evolution.enabled", true,
+		"permissions.default", "none",
+	)
 
 	gw, err := gateway.New(cfg)
 	if err != nil {
