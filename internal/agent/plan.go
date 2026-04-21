@@ -159,7 +159,13 @@ func buildPlanUserMessage(state *CognitiveState, tools *tool.Registry) string {
 	}
 
 	msg := PlanUserPromptTemplate
-	msg = strings.ReplaceAll(msg, "{{USER_REQUEST}}", state.UserMessage)
+	userRequest := state.UserMessage
+	if state.Goal.AmbiguityScore >= 0.6 {
+		userRequest = "[HIGH AMBIGUITY WARNING: This request is vague and lacks specific success criteria. " +
+			"Your first action should be to ask the user for clarification via direct_reply. " +
+			"Do NOT execute tools until requirements are clear.]\n\n" + userRequest
+	}
+	msg = strings.ReplaceAll(msg, "{{USER_REQUEST}}", userRequest)
 	msg = strings.ReplaceAll(msg, "{{TOOLS}}", toolsSB.String())
 	msg = strings.ReplaceAll(msg, "{{MEMORIES}}", memSB.String())
 	msg = strings.ReplaceAll(msg, "{{HISTORY}}", histSB.String())

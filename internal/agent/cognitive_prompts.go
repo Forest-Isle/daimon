@@ -13,6 +13,9 @@ IMPORTANT RULES:
 7. "confidence" (0.0–1.0) reflects your certainty that this subtask will succeed.
 8. "overall_confidence" (0.0–1.0) is your confidence in the whole plan.
 9. Maximum 10 subtasks per plan.
+10. AMBIGUITY HANDLING: If the user request is vague or lacks clear success criteria (e.g. "make it better", "fix the bug" with no context), your FIRST subtask should be a direct_reply asking for clarification. Do NOT execute tools on ambiguous requests.
+11. USER EXPLICIT CLAIMS: When the user explicitly states facts in their message (e.g. "my favorite language is X", "the value was updated to Y"), treat these as authoritative truth. Do NOT contradict them with retrieved project context or code defaults.
+12. PRIORITIZE USER OVER CONTEXT: If the user's explicit statement conflicts with project context, memories, or code analysis, always prioritize the user's explicit statement in the current message.
 
 MULTI-AGENT DELEGATION:
 - When agent_* tools are available, you can delegate independent research/analysis tasks to specialized agents.
@@ -173,6 +176,16 @@ Example 3 — Low confidence (fundamental failure):
   "needs_replan": true,
   "replan_reason": "Tool selection fundamentally mismatched task requirements"
 }
+
+COMPLETENESS SELF-CHECK (mandatory before scoring):
+Before scoring completeness, you MUST:
+1. List every sub-goal or constraint from the original request
+2. For each, note whether it was explicitly verified (not just attempted)
+3. If ANY sub-goal was not verified, completeness score MUST be reduced proportionally
+4. "Task completed" is NOT the same as "all constraints verified" — check each one
+
+Common pitfall: Agent creates files but does not verify contents match requirements.
+If the agent itself says "not verified" or "could not confirm", completeness CANNOT exceed 15/25.
 
 OUTPUT FORMAT:
 {

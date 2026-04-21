@@ -302,7 +302,20 @@ func buildReflectUserMessage(state *CognitiveState, plan *TaskPlan, obsResult *O
 	)
 
 	msg := ReflectUserPromptTemplate
-	msg = strings.ReplaceAll(msg, "{{GOAL}}", state.Goal.Raw)
+	goalSection := state.Goal.Raw
+	if len(obsResult.Observations) > 0 {
+		goalSection += "\n\nSUB-GOAL VERIFICATION CHECKLIST (check each):"
+		for i, obs := range obsResult.Observations {
+			status := "VERIFIED"
+			if obs.Denied {
+				status = "DENIED (not completed)"
+			} else if obs.Error != "" {
+				status = "FAILED"
+			}
+			goalSection += fmt.Sprintf("\n  %d. [%s] %s → %s", i+1, obs.ToolName, obs.SubTaskID, status)
+		}
+	}
+	msg = strings.ReplaceAll(msg, "{{GOAL}}", goalSection)
 	msg = strings.ReplaceAll(msg, "{{PLAN_SUMMARY}}", plan.Summary)
 	msg = strings.ReplaceAll(msg, "{{OBSERVATIONS}}", obsSB.String())
 	msg = strings.ReplaceAll(msg, "{{STATS}}", stats)

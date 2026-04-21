@@ -41,9 +41,10 @@ const (
 
 // Goal captures the parsed intent from the user message.
 type Goal struct {
-	Raw        string
-	Intent     string
-	Complexity TaskComplexity
+	Raw            string
+	Intent         string
+	Complexity     TaskComplexity
+	AmbiguityScore float64 // 0.0 = perfectly clear, 1.0 = highly ambiguous
 }
 
 // ProjectContext holds auto-detected information about the current working directory.
