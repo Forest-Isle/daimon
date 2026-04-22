@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
@@ -353,6 +354,37 @@ func (s *FileMemoryStore) trackAccess(ctx context.Context, id, filePath string, 
 	return err
 }
 
+// sanitizeFTS5Query removes characters that FTS5 treats as syntax (operators,
+// quotes, punctuation) so that arbitrary natural-language text can be safely
+// passed to a MATCH expression. Each remaining word becomes an implicit AND term.
+func sanitizeFTS5Query(text string) string {
+	if text == "" {
+		return ""
+	}
+	// Replace non-alphanumeric, non-hyphen, non-underscore chars with spaces.
+	var b strings.Builder
+	for _, r := range text {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune(' ')
+		}
+	}
+	// Drop FTS5 boolean operators (case-insensitive) and very short tokens.
+	words := strings.Fields(b.String())
+	clean := make([]string, 0, len(words))
+	for _, w := range words {
+		switch strings.ToUpper(w) {
+		case "AND", "OR", "NOT", "NEAR":
+			continue
+		}
+		if len(w) >= 2 {
+			clean = append(clean, w)
+		}
+	}
+	return strings.Join(clean, " ")
+}
+
 func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, indexResults []indexResult) ([]SearchResult, error) {
 	idMap := make(map[string]indexResult)
 	for _, r := range indexResults {
@@ -362,21 +394,26 @@ func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, i
 	// BM25 search via FTS5
 	bm25Results := make(map[string]float64)
 	if query.Text != "" {
-		rows, err := s.db.QueryContext(ctx, `
-			SELECT memory_id, rank
-			FROM memory_fts
-			WHERE memory_fts MATCH ?
-			ORDER BY rank
-			LIMIT 100
-		`, query.Text)
-		if err == nil {
-			defer func() { _ = rows.Close() }()
-			for rows.Next() {
-				var id string
-				var rank float64
-				if err := rows.Scan(&id, &rank); err == nil {
-					if _, ok := idMap[id]; ok {
-						bm25Results[id] = -rank // FTS5 rank is negative
+		ftsQuery := sanitizeFTS5Query(query.Text)
+		if ftsQuery != "" {
+			rows, err := s.db.QueryContext(ctx, `
+				SELECT memory_id, rank
+				FROM memory_fts
+				WHERE memory_fts MATCH ?
+				ORDER BY rank
+				LIMIT 100
+			`, ftsQuery)
+			if err != nil {
+				slog.Debug("memory: FTS5 search error", "err", err, "query_preview", truncateStr(ftsQuery, 60))
+			} else {
+				defer func() { _ = rows.Close() }()
+				for rows.Next() {
+					var id string
+					var rank float64
+					if err := rows.Scan(&id, &rank); err == nil {
+						if _, ok := idMap[id]; ok {
+							bm25Results[id] = -rank // FTS5 rank is negative
+						}
 					}
 				}
 			}
@@ -842,6 +879,15 @@ func (s *FileMemoryStore) RebuildIndex(ctx context.Context) error {
 	// Rebuild MEMORY.md
 	idx := NewMemoryIndex(s.baseDir)
 	return idx.Rebuild()
+}
+
+// truncateStr returns the first n runes of s (or all of s if shorter).
+func truncateStr(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n])
 }
 
 func serializeEmbedding(vec []float32) []byte {

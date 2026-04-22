@@ -142,3 +142,29 @@ func TestFileMemoryStore_RebuildIndex(t *testing.T) {
 		t.Error("MEMORY.md not created")
 	}
 }
+
+func TestSanitizeFTS5Query(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"hello world", "hello world"},
+		// Apostrophe and question mark stripped; short words kept if >= 2 chars
+		{"What is Kira Voss's preferred framework?", "What is Kira Voss preferred framework"},
+		// FTS5 boolean operators removed (case-insensitive)
+		{"foo AND bar OR NOT baz", "foo bar baz"},
+		// NEAR is an FTS5 operator; slash stripped leaving NEAR removed, "3" is 1 char → dropped
+		{"NEAR/3 something", "something"},
+		// Two-char token kept
+		{"it", "it"},
+		// Punctuation replaced with spaces, tokens < 2 chars dropped
+		{"hello.world!", "hello world"},
+	}
+	for _, tc := range cases {
+		got := sanitizeFTS5Query(tc.input)
+		if got != tc.want {
+			t.Errorf("sanitizeFTS5Query(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
