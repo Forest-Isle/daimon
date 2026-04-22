@@ -147,10 +147,10 @@ type EvolutionSnapshot struct {
 	TrajectoryCount int `json:"trajectory_count"`
 
 	// Strategy parameter values captured at snapshot time.
-	ReplanThreshold      float64            `json:"replan_threshold,omitempty"`
-	ReplanThresholdPrev  float64            `json:"replan_threshold_prev,omitempty"`
-	ReplanThresholdReason string            `json:"replan_threshold_reason,omitempty"`
-	ToolPriorities       map[string]float64 `json:"tool_priorities,omitempty"`
+	ReplanThreshold       float64            `json:"replan_threshold,omitempty"`
+	ReplanThresholdPrev   float64            `json:"replan_threshold_prev,omitempty"`
+	ReplanThresholdReason string             `json:"replan_threshold_reason,omitempty"`
+	ToolPriorities        map[string]float64 `json:"tool_priorities,omitempty"`
 
 	// RLStats captures aggregate RL experience statistics from recent trajectories.
 	RLEpisodeCount int     `json:"rl_episode_count,omitempty"`
@@ -159,11 +159,11 @@ type EvolutionSnapshot struct {
 	RLAvgProgress  float64 `json:"rl_avg_progress,omitempty"`
 
 	// PreferenceQuality captures the distribution of learned preferences.
-	PreferenceHighConfCount   int     `json:"pref_high_conf_count,omitempty"`   // confidence >= 0.8
-	PreferenceMedConfCount    int     `json:"pref_med_conf_count,omitempty"`    // 0.4 <= confidence < 0.8
-	PreferenceLowConfCount    int     `json:"pref_low_conf_count,omitempty"`    // confidence < 0.4
+	PreferenceHighConfCount   int     `json:"pref_high_conf_count,omitempty"` // confidence >= 0.8
+	PreferenceMedConfCount    int     `json:"pref_med_conf_count,omitempty"`  // 0.4 <= confidence < 0.8
+	PreferenceLowConfCount    int     `json:"pref_low_conf_count,omitempty"`  // confidence < 0.4
 	PreferenceAvgConfidence   float64 `json:"pref_avg_confidence,omitempty"`
-	PreferenceToolCount       int     `json:"pref_tool_count,omitempty"`        // tool_preference entries
+	PreferenceToolCount       int     `json:"pref_tool_count,omitempty"`       // tool_preference entries
 	PreferenceComplexityCount int     `json:"pref_complexity_count,omitempty"` // complexity_handling entries
 
 	// RouterDecisions aggregates how many tasks were routed to each model
@@ -501,19 +501,19 @@ func aggregateRouterDecisions(results []EvalResult) map[string]int {
 
 // SuiteSummary holds aggregate metrics for an evaluation run.
 type SuiteSummary struct {
-	RunID                string         `json:"run_id"`
-	TotalTasks           int            `json:"total_tasks"`
-	Passed               int            `json:"passed"`
-	Failed               int            `json:"failed"`
-	Errors               int            `json:"errors"`
-	SuccessRate          float64        `json:"success_rate"`
-	AvgAssertionPassRate float64        `json:"avg_assertion_pass_rate"`
-	AvgConfidence        float64        `json:"avg_confidence"`
-	AvgReplanCount       float64        `json:"avg_replan_count"`
-	Duration             time.Duration  `json:"duration_ms"`
+	RunID                string        `json:"run_id"`
+	TotalTasks           int           `json:"total_tasks"`
+	Passed               int           `json:"passed"`
+	Failed               int           `json:"failed"`
+	Errors               int           `json:"errors"`
+	SuccessRate          float64       `json:"success_rate"`
+	AvgAssertionPassRate float64       `json:"avg_assertion_pass_rate"`
+	AvgConfidence        float64       `json:"avg_confidence"`
+	AvgReplanCount       float64       `json:"avg_replan_count"`
+	Duration             time.Duration `json:"duration_ms"`
 	// RouterDecisions counts how many tasks were routed to each model.
 	// Only populated when the Model Router is enabled and tasks have a Complexity set.
-	RouterDecisions      map[string]int `json:"router_decisions,omitempty"`
+	RouterDecisions map[string]int `json:"router_decisions,omitempty"`
 }
 
 // SaveJSON writes the suite result to a JSON file.
@@ -556,12 +556,12 @@ type IterationPoint struct {
 	TrajectoryCount int          `json:"trajectory_count"`
 
 	// Extended evolution metrics — populated from EvolutionSnapshot when available.
-	ReplanThreshold        float64            `json:"replan_threshold,omitempty"`
-	RLAvgReward            float64            `json:"rl_avg_reward,omitempty"`
-	RLSuccessRate          float64            `json:"rl_success_rate,omitempty"`
-	PreferenceAvgConfidence float64           `json:"pref_avg_confidence,omitempty"`
-	PreferenceHighConfCount int               `json:"pref_high_conf_count,omitempty"`
-	RouterDecisions        map[string]int     `json:"router_decisions,omitempty"`
+	ReplanThreshold         float64        `json:"replan_threshold,omitempty"`
+	RLAvgReward             float64        `json:"rl_avg_reward,omitempty"`
+	RLSuccessRate           float64        `json:"rl_success_rate,omitempty"`
+	PreferenceAvgConfidence float64        `json:"pref_avg_confidence,omitempty"`
+	PreferenceHighConfCount int            `json:"pref_high_conf_count,omitempty"`
+	RouterDecisions         map[string]int `json:"router_decisions,omitempty"`
 }
 
 // LongitudinalReport captures the full time series of a longitudinal evaluation
