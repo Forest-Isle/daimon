@@ -247,6 +247,11 @@ func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentR
 
 		result, err := runner.RunTask(ctx, task)
 
+		// SuccessFunc must run BEFORE cleanup so it can inspect files written by the agent.
+		if err == nil && task.SuccessFunc != nil {
+			result.Success = task.SuccessFunc(result)
+		}
+
 		runCleanup(ctx, task, runner)
 
 		if err != nil {
@@ -257,10 +262,6 @@ func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentR
 				Timestamp: time.Now(),
 			})
 			continue
-		}
-
-		if task.SuccessFunc != nil {
-			result.Success = task.SuccessFunc(result)
 		}
 
 		suite.Results = append(suite.Results, *result)
@@ -354,6 +355,11 @@ func RunSuiteWithOptions(ctx context.Context, runID string, tasks []TaskCase, ru
 
 		result, err := runner.RunTask(ctx, task)
 
+		// SuccessFunc must run BEFORE cleanup so it can inspect files written by the agent.
+		if err == nil && task.SuccessFunc != nil {
+			result.Success = task.SuccessFunc(result)
+		}
+
 		runCleanup(ctx, task, runner)
 
 		if err != nil {
@@ -368,10 +374,6 @@ func RunSuiteWithOptions(ctx context.Context, runID string, tasks []TaskCase, ru
 		}
 
 		result.Dimension = DefaultDimension(task.Dimension)
-
-		if task.SuccessFunc != nil {
-			result.Success = task.SuccessFunc(result)
-		}
 
 		agentOutput := result.AgentOutput
 

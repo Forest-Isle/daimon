@@ -2,6 +2,7 @@ package eval
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 )
@@ -359,5 +360,47 @@ func TestRunSuiteWithOptions_SetupCleanup(t *testing.T) {
 	}
 	if !cleanupCalled {
 		t.Error("CleanupFunc was not called")
+	}
+}
+
+// TestRunSuiteWithOptions_SuccessFuncBeforeCleanup verifies that SuccessFunc runs
+// before CleanupFunc so file-based checks see agent-written files.
+func TestRunSuiteWithOptions_SuccessFuncBeforeCleanup(t *testing.T) {
+	tmpFile := t.TempDir() + "/marker.txt"
+
+	runner := &mockRunner{
+		results: map[string]*EvalResult{
+			"t1": {TaskID: "t1", Success: true, Duration: 10 * time.Millisecond, Timestamp: time.Now()},
+		},
+	}
+
+	tasks := []TaskCase{
+		{
+			ID:   "t1",
+			Goal: "write file then verify before cleanup",
+			SetupFunc: func() error {
+				return os.WriteFile(tmpFile, []byte("present"), 0o644)
+			},
+			CleanupFunc: func() error {
+				return os.Remove(tmpFile)
+			},
+			// SuccessFunc checks the file exists — should see it because cleanup hasn't run yet.
+			SuccessFunc: func(r *EvalResult) bool {
+				_, err := os.Stat(tmpFile)
+				return err == nil
+			},
+		},
+	}
+
+	suite, err := RunSuiteWithOptions(context.Background(), "order-test", tasks, runner, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !suite.Results[0].Success {
+		t.Error("SuccessFunc should have seen the file (must run before CleanupFunc)")
+	}
+	// File must be gone after the suite (cleanup ran).
+	if _, err := os.Stat(tmpFile); !os.IsNotExist(err) {
+		t.Error("CleanupFunc should have removed the file")
 	}
 }
