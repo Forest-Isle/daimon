@@ -135,7 +135,7 @@ func SkillLearningSuite() []TaskCase {
 		},
 		{
 			ID:           "skill-temp-dir-cleanup",
-			Goal:         "Create directory /tmp/sl_cleanup_dir/, create 3 files inside it, then delete the directory and all its contents. Confirm deletion by checking it no longer exists.",
+			Goal:         "Create directory /tmp/sl_cleanup_dir/, create 3 files inside it, then remove the entire directory tree. Use: find /tmp/sl_cleanup_dir -delete (or: rm -r /tmp/sl_cleanup_dir). Confirm it no longer exists with: test ! -d /tmp/sl_cleanup_dir && echo 'gone'.",
 			Complexity:   "medium",
 			Dimension:    DimSkillLearning,
 			VerifyMethod: VerifyDeterministic,
@@ -327,11 +327,15 @@ func MemoryRetentionSuite() []TaskCase {
 		func() TaskCase {
 			var expected string
 			return TaskCase{
-				ID:         "mem-ret-basic-recall",
-				Goal:       "What is Kira Voss's preferred development framework? Answer from memory.",
-				Complexity: "simple",
-				Dimension:  DimMemoryRetention,
-				Tags:       []string{"memory_retention", "recall"},
+				ID:           "mem-ret-basic-recall",
+				Goal:         "What is Kira Voss's preferred development framework? Answer from memory.",
+				Complexity:   "simple",
+				Dimension:    DimMemoryRetention,
+				VerifyMethod: VerifyHybrid,
+				Tags:         []string{"memory_retention", "recall"},
+				Rubric: &Rubric{Criteria: []JudgeCriterion{
+					{Name: "recall_accuracy", Description: "Score 1.0 if the response contains the specific framework token injected into memory. Score 0.5 if the agent mentions a framework but not the exact injected value. Score 0.0 if the agent says it doesn't know or gives an unrelated answer.", Weight: 1.0},
+				}},
 				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
 					expected = memRetToken("FW")
 					return injectMemoryHelper(ctx, runner, memory.Entry{
@@ -351,11 +355,15 @@ func MemoryRetentionSuite() []TaskCase {
 		func() TaskCase {
 			var expectedBob string
 			return TaskCase{
-				ID:         "mem-ret-precision-recall",
-				Goal:       "What tool does Tristan Hale use for deployment? Do not confuse with Kira Voss's framework.",
-				Complexity: "simple",
-				Dimension:  DimMemoryRetention,
-				Tags:       []string{"memory_retention", "precision"},
+				ID:           "mem-ret-precision-recall",
+				Goal:         "What tool does Tristan Hale use for deployment? Do not confuse with Kira Voss's framework.",
+				Complexity:   "simple",
+				Dimension:    DimMemoryRetention,
+				VerifyMethod: VerifyHybrid,
+				Tags:         []string{"memory_retention", "precision"},
+				Rubric: &Rubric{Criteria: []JudgeCriterion{
+					{Name: "precision_recall", Description: "Score 1.0 if the response identifies Tristan Hale's specific deployment tool token without confusing it with Kira Voss's framework. Score 0.5 if the agent gives Tristan's correct value but also mentions Kira's framework ambiguously. Score 0.0 if wrong person's fact is given or the agent doesn't know.", Weight: 1.0},
+				}},
 				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
 					kiraFW := memRetToken("FW")
 					expectedBob = memRetToken("DEPLOY")
@@ -384,11 +392,15 @@ func MemoryRetentionSuite() []TaskCase {
 		func() TaskCase {
 			var expectedCity string
 			return TaskCase{
-				ID:         "mem-ret-multi-hop",
-				Goal:       "What city is the lead of Project Nexus based in?",
-				Complexity: "medium",
-				Dimension:  DimMemoryRetention,
-				Tags:       []string{"memory_retention", "multi_hop"},
+				ID:           "mem-ret-multi-hop",
+				Goal:         "What city is the lead of Project Nexus based in?",
+				Complexity:   "medium",
+				Dimension:    DimMemoryRetention,
+				VerifyMethod: VerifyHybrid,
+				Tags:         []string{"memory_retention", "multi_hop"},
+				Rubric: &Rubric{Criteria: []JudgeCriterion{
+					{Name: "multi_hop_reasoning", Description: "Score 1.0 if the response correctly identifies the city token by chaining: Project Nexus → lead person → city. Score 0.5 if the agent identifies the lead's name but not the city. Score 0.0 if neither the person nor city is correct.", Weight: 1.0},
+				}},
 				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
 					personName := fmt.Sprintf("Lyra%04x Chen", rand.Uint32()&0xFFFF)
 					expectedCity = memRetToken("CITY")
@@ -417,11 +429,15 @@ func MemoryRetentionSuite() []TaskCase {
 		func() TaskCase {
 			var expectedCount int
 			return TaskCase{
-				ID:         "mem-ret-numeric-fact",
-				Goal:       "How many engineers are in the Orion squad?",
-				Complexity: "simple",
-				Dimension:  DimMemoryRetention,
-				Tags:       []string{"memory_retention", "numeric"},
+				ID:           "mem-ret-numeric-fact",
+				Goal:         "How many engineers are in the Orion squad?",
+				Complexity:   "simple",
+				Dimension:    DimMemoryRetention,
+				VerifyMethod: VerifyHybrid,
+				Tags:         []string{"memory_retention", "numeric"},
+				Rubric: &Rubric{Criteria: []JudgeCriterion{
+					{Name: "numeric_recall", Description: "Score 1.0 if the response gives the exact number of engineers in the Orion squad as stored in memory. Score 0.5 if a number is given but it is slightly off. Score 0.0 if no number is given or the agent says it doesn't know.", Weight: 1.0},
+				}},
 				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
 					expectedCount = 5 + int(rand.Uint32()%10) // 5-14
 					return injectMemoryHelper(ctx, runner, memory.Entry{
@@ -441,11 +457,15 @@ func MemoryRetentionSuite() []TaskCase {
 		func() TaskCase {
 			var expectedDate string
 			return TaskCase{
-				ID:         "mem-ret-temporal-fact",
-				Goal:       "When is the Delta sprint retrospective scheduled?",
-				Complexity: "simple",
-				Dimension:  DimMemoryRetention,
-				Tags:       []string{"memory_retention", "temporal"},
+				ID:           "mem-ret-temporal-fact",
+				Goal:         "When is the Delta sprint retrospective scheduled?",
+				Complexity:   "simple",
+				Dimension:    DimMemoryRetention,
+				VerifyMethod: VerifyHybrid,
+				Tags:         []string{"memory_retention", "temporal"},
+				Rubric: &Rubric{Criteria: []JudgeCriterion{
+					{Name: "temporal_recall", Description: "Score 1.0 if the response states the correct date of the Delta sprint retrospective as stored in memory (e.g. 'the 12th of next month at 3 PM'). Score 0.5 if the time is mentioned but the date is wrong or vague. Score 0.0 if no date is given or the agent says it doesn't know.", Weight: 1.0},
+				}},
 				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
 					day := 5 + int(rand.Uint32()%20)
 					expectedDate = fmt.Sprintf("the %dth", day)
@@ -464,11 +484,15 @@ func MemoryRetentionSuite() []TaskCase {
 
 		// Task 6: Negative recall — fact was never stored
 		{
-			ID:         "mem-ret-unknown-fact",
-			Goal:       "What is the access code for the Sigma vault? If you don't know, say you don't have that information.",
-			Complexity: "simple",
-			Dimension:  DimMemoryRetention,
-			Tags:       []string{"memory_retention", "negative_recall"},
+			ID:           "mem-ret-unknown-fact",
+			Goal:         "What is the access code for the Sigma vault? If you don't know, say you don't have that information.",
+			Complexity:   "simple",
+			Dimension:    DimMemoryRetention,
+			VerifyMethod: VerifyHybrid,
+			Tags:         []string{"memory_retention", "negative_recall"},
+			Rubric: &Rubric{Criteria: []JudgeCriterion{
+				{Name: "honest_unknown", Description: "Score 1.0 if the agent clearly states it does not have the access code or that information is not available — without inventing a code. Score 0.5 if the agent hedges but still implies it might have the information. Score 0.0 if the agent fabricates a code or confidently gives wrong information.", Weight: 1.0},
+			}},
 			SuccessFunc: func(r *EvalResult) bool {
 				out := strings.ToLower(r.AgentOutput)
 				return strings.Contains(out, "don't have") ||
