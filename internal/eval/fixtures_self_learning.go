@@ -2,6 +2,8 @@ package eval
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 
@@ -273,122 +275,163 @@ func injectMemoryHelper(ctx context.Context, runner AgentRunner, entries ...memo
 	return nil
 }
 
+// memRetToken generates a unique alphanumeric token that cannot appear in source code.
+// Format: prefix + hex suffix, e.g. "ZLang_3f7a2c".
+func memRetToken(prefix string) string {
+	return fmt.Sprintf("%s_%06x", prefix, rand.Uint32()&0xFFFFFF)
+}
+
 // MemoryRetentionSuite returns tasks that test cross-session memory persistence,
-// precision recall, multi-hop reasoning, and negative recall (unknown facts).
+// precision recall, multi-hop reasoning, and negative recall.
+//
+// All fact VALUES are generated dynamically at runtime to prevent the agent from
+// finding answers by reading the fixture source file. The token is captured via
+// closure between SetupWithRunner and SuccessFunc.
 func MemoryRetentionSuite() []TaskCase {
 	return []TaskCase{
-		{
-			ID:         "mem-ret-basic-recall",
-			Goal:       "What is Alice's favorite programming language?",
-			Complexity: "simple",
-			Dimension:  DimMemoryRetention,
-			Tags:       []string{"memory_retention", "recall"},
-			SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
-				return injectMemoryHelper(ctx, runner, memory.Entry{
-					ID:      "mem-ret-alice-lang",
-					Content: "Alice's favorite programming language is Rust. She has been using it since 2019.",
-					Scope:   memory.ScopeUser,
-					UserID:  "eval_user",
-				})
-			},
-			SuccessFunc: func(r *EvalResult) bool {
-				return strings.Contains(strings.ToLower(r.AgentOutput), "rust")
-			},
-		},
-		{
-			ID:         "mem-ret-precision-recall",
-			Goal:       "What programming language does Bob prefer? (Do not confuse with Alice's preference.)",
-			Complexity: "simple",
-			Dimension:  DimMemoryRetention,
-			Tags:       []string{"memory_retention", "precision"},
-			SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
-				return injectMemoryHelper(ctx, runner,
-					memory.Entry{
-						ID:      "mem-ret-alice-lang-precision",
-						Content: "Alice's favorite programming language is Rust.",
+		// Task 1: Basic recall — single injected fact
+		func() TaskCase {
+			var expected string
+			return TaskCase{
+				ID:         "mem-ret-basic-recall",
+				Goal:       "What is Kira Voss's preferred development framework? Answer from memory.",
+				Complexity: "simple",
+				Dimension:  DimMemoryRetention,
+				Tags:       []string{"memory_retention", "recall"},
+				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
+					expected = memRetToken("FW")
+					return injectMemoryHelper(ctx, runner, memory.Entry{
+						ID:      "mem-ret-kira-fw",
+						Content: fmt.Sprintf("Kira Voss's preferred development framework is %s.", expected),
 						Scope:   memory.ScopeUser,
 						UserID:  "eval_user",
-					},
-					memory.Entry{
-						ID:      "mem-ret-bob-lang",
-						Content: "Bob's preferred programming language is Python. He uses it for data science.",
+					})
+				},
+				SuccessFunc: func(r *EvalResult) bool {
+					return expected != "" && strings.Contains(r.AgentOutput, expected)
+				},
+			}
+		}(),
+
+		// Task 2: Precision recall — two similar facts, pick the right one
+		func() TaskCase {
+			var expectedBob string
+			return TaskCase{
+				ID:         "mem-ret-precision-recall",
+				Goal:       "What tool does Tristan Hale use for deployment? Do not confuse with Kira Voss's framework.",
+				Complexity: "simple",
+				Dimension:  DimMemoryRetention,
+				Tags:       []string{"memory_retention", "precision"},
+				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
+					kiraFW := memRetToken("FW")
+					expectedBob = memRetToken("DEPLOY")
+					return injectMemoryHelper(ctx, runner,
+						memory.Entry{
+							ID:      "mem-ret-kira-fw-p",
+							Content: fmt.Sprintf("Kira Voss's preferred development framework is %s.", kiraFW),
+							Scope:   memory.ScopeUser,
+							UserID:  "eval_user",
+						},
+						memory.Entry{
+							ID:      "mem-ret-tristan-deploy",
+							Content: fmt.Sprintf("Tristan Hale uses %s for all deployment pipelines.", expectedBob),
+							Scope:   memory.ScopeUser,
+							UserID:  "eval_user",
+						},
+					)
+				},
+				SuccessFunc: func(r *EvalResult) bool {
+					return expectedBob != "" && strings.Contains(r.AgentOutput, expectedBob)
+				},
+			}
+		}(),
+
+		// Task 3: Multi-hop — combine two separate facts
+		func() TaskCase {
+			var expectedCity string
+			return TaskCase{
+				ID:         "mem-ret-multi-hop",
+				Goal:       "What city is the lead of Project Nexus based in?",
+				Complexity: "medium",
+				Dimension:  DimMemoryRetention,
+				Tags:       []string{"memory_retention", "multi_hop"},
+				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
+					personName := fmt.Sprintf("Lyra%04x Chen", rand.Uint32()&0xFFFF)
+					expectedCity = memRetToken("CITY")
+					return injectMemoryHelper(ctx, runner,
+						memory.Entry{
+							ID:      "mem-ret-nexus-lead",
+							Content: fmt.Sprintf("Project Nexus is led by %s.", personName),
+							Scope:   memory.ScopeUser,
+							UserID:  "eval_user",
+						},
+						memory.Entry{
+							ID:      "mem-ret-lyra-city",
+							Content: fmt.Sprintf("%s is based in %s and works remotely.", personName, expectedCity),
+							Scope:   memory.ScopeUser,
+							UserID:  "eval_user",
+						},
+					)
+				},
+				SuccessFunc: func(r *EvalResult) bool {
+					return expectedCity != "" && strings.Contains(r.AgentOutput, expectedCity)
+				},
+			}
+		}(),
+
+		// Task 4: Numeric fact
+		func() TaskCase {
+			var expectedCount int
+			return TaskCase{
+				ID:         "mem-ret-numeric-fact",
+				Goal:       "How many engineers are in the Orion squad?",
+				Complexity: "simple",
+				Dimension:  DimMemoryRetention,
+				Tags:       []string{"memory_retention", "numeric"},
+				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
+					expectedCount = 5 + int(rand.Uint32()%10) // 5-14
+					return injectMemoryHelper(ctx, runner, memory.Entry{
+						ID:      "mem-ret-orion-count",
+						Content: fmt.Sprintf("The Orion squad currently has %d engineers.", expectedCount),
 						Scope:   memory.ScopeUser,
 						UserID:  "eval_user",
-					},
-				)
-			},
-			SuccessFunc: func(r *EvalResult) bool {
-				out := strings.ToLower(r.AgentOutput)
-				return strings.Contains(out, "python") && !strings.Contains(out, "rust")
-			},
-		},
-		{
-			ID:         "mem-ret-multi-hop",
-			Goal:       "What city does the team lead of Project Phoenix live in?",
-			Complexity: "medium",
-			Dimension:  DimMemoryRetention,
-			Tags:       []string{"memory_retention", "multi_hop"},
-			SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
-				return injectMemoryHelper(ctx, runner,
-					memory.Entry{
-						ID:      "mem-ret-phoenix-lead",
-						Content: "Project Phoenix team lead is Carol Chen.",
+					})
+				},
+				SuccessFunc: func(r *EvalResult) bool {
+					return expectedCount > 0 && strings.Contains(r.AgentOutput, fmt.Sprintf("%d", expectedCount))
+				},
+			}
+		}(),
+
+		// Task 5: Temporal fact
+		func() TaskCase {
+			var expectedDate string
+			return TaskCase{
+				ID:         "mem-ret-temporal-fact",
+				Goal:       "When is the Delta sprint retrospective scheduled?",
+				Complexity: "simple",
+				Dimension:  DimMemoryRetention,
+				Tags:       []string{"memory_retention", "temporal"},
+				SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
+					day := 5 + int(rand.Uint32()%20)
+					expectedDate = fmt.Sprintf("the %dth", day)
+					return injectMemoryHelper(ctx, runner, memory.Entry{
+						ID:      "mem-ret-delta-retro",
+						Content: fmt.Sprintf("The Delta sprint retrospective is scheduled for %s of next month at 3 PM.", expectedDate),
 						Scope:   memory.ScopeUser,
 						UserID:  "eval_user",
-					},
-					memory.Entry{
-						ID:      "mem-ret-carol-location",
-						Content: "Carol Chen lives in Singapore. She works from home.",
-						Scope:   memory.ScopeUser,
-						UserID:  "eval_user",
-					},
-				)
-			},
-			SuccessFunc: func(r *EvalResult) bool {
-				return strings.Contains(strings.ToLower(r.AgentOutput), "singapore")
-			},
-		},
-		{
-			ID:         "mem-ret-numeric-fact",
-			Goal:       "How many team members does Project Alpha have?",
-			Complexity: "simple",
-			Dimension:  DimMemoryRetention,
-			Tags:       []string{"memory_retention", "numeric"},
-			SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
-				return injectMemoryHelper(ctx, runner, memory.Entry{
-					ID:      "mem-ret-alpha-size",
-					Content: "Project Alpha has 7 team members: 4 engineers, 2 designers, and 1 product manager.",
-					Scope:   memory.ScopeUser,
-					UserID:  "eval_user",
-				})
-			},
-			SuccessFunc: func(r *EvalResult) bool {
-				return strings.Contains(r.AgentOutput, "7")
-			},
-		},
-		{
-			ID:         "mem-ret-temporal-fact",
-			Goal:       "When does the Q2 planning session start?",
-			Complexity: "simple",
-			Dimension:  DimMemoryRetention,
-			Tags:       []string{"memory_retention", "temporal"},
-			SetupWithRunner: func(ctx context.Context, runner AgentRunner) error {
-				return injectMemoryHelper(ctx, runner, memory.Entry{
-					ID:      "mem-ret-q2-planning",
-					Content: "The Q2 planning session is scheduled for April 28, 2026 at 10:00 AM CST.",
-					Scope:   memory.ScopeUser,
-					UserID:  "eval_user",
-				})
-			},
-			SuccessFunc: func(r *EvalResult) bool {
-				out := strings.ToLower(r.AgentOutput)
-				return strings.Contains(out, "april 28") || strings.Contains(out, "apr 28") ||
-					strings.Contains(out, "28")
-			},
-		},
+					})
+				},
+				SuccessFunc: func(r *EvalResult) bool {
+					return expectedDate != "" && strings.Contains(r.AgentOutput, expectedDate)
+				},
+			}
+		}(),
+
+		// Task 6: Negative recall — fact was never stored
 		{
 			ID:         "mem-ret-unknown-fact",
-			Goal:       "What is David's phone number? If you don't know, say 'I don't have that information'.",
+			Goal:       "What is the access code for the Sigma vault? If you don't know, say you don't have that information.",
 			Complexity: "simple",
 			Dimension:  DimMemoryRetention,
 			Tags:       []string{"memory_retention", "negative_recall"},
@@ -399,7 +442,9 @@ func MemoryRetentionSuite() []TaskCase {
 					strings.Contains(out, "no information") ||
 					strings.Contains(out, "not available") ||
 					strings.Contains(out, "don't know") ||
-					strings.Contains(out, "cannot find")
+					strings.Contains(out, "cannot find") ||
+					strings.Contains(out, "no record") ||
+					strings.Contains(out, "unable to find")
 			},
 		},
 	}
