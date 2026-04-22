@@ -591,6 +591,30 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			break
 		}
 
+		// Override conservative reflect false-negatives: if assertion pass rate is high
+		// but reflect says failed, trust the assertions (they are based on actual tool output).
+		if reflection != nil && !reflection.Succeeded && obsResult != nil {
+			passed := 0
+			for _, a := range obsResult.Assertions {
+				if a.Passed {
+					passed++
+				}
+			}
+			total := len(obsResult.Assertions)
+			if total > 0 {
+				assertRate := float64(passed) / float64(total)
+				if assertRate >= 0.85 {
+					slog.Info("reflect: overriding succeeded=false via high assertion pass rate",
+						"assertion_rate", assertRate,
+						"passed", passed,
+						"total", total,
+						"llm_confidence", reflection.OverallConfidence,
+					)
+					reflection.Succeeded = true
+				}
+			}
+		}
+
 		finalAnswer = reflection.FinalAnswer
 		if finalAnswer == "" {
 			finalAnswer = "Task completed."

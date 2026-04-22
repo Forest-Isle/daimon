@@ -229,6 +229,18 @@ Before scoring completeness, you MUST:
 Common pitfall: Agent creates files but does not verify contents match requirements.
 If the agent itself says "not verified" or "could not confirm", completeness CANNOT exceed 15/25.
 
+RECOVERY CREDIT — MANDATORY RULE:
+If the agent encountered a tool failure but SUCCESSFULLY REPLANNED and achieved the goal
+through an alternative approach, this is a positive signal. Score completeness based on
+the FINAL STATE (was the goal achieved?), not on intermediate failures.
+A successful replan that achieves the goal = completeness ≥ 20/25.
+
+SUCCEEDED DETERMINATION:
+- Set "succeeded": true when the core objective (not every sub-goal detail) is achieved
+- If all assertions passed (observations show success=true entries), "succeeded" MUST be true
+- Do NOT set succeeded=false merely because intermediate steps failed before a successful replan
+- Confidence threshold for succeeded=true is 0.50 (not 0.70+) when observations show progress
+
 OUTPUT FORMAT:
 {
   "reasoning": {

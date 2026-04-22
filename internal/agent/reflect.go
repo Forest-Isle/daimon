@@ -374,7 +374,7 @@ func buildReflectUserMessage(state *CognitiveState, plan *TaskPlan, obsResult *O
 	return msg
 }
 
-// parseReflectResponse tries three fallbacks to extract JSON from LLM output.
+// parseReflectResponse tries multiple fallbacks to extract JSON from LLM output.
 func parseReflectResponse(text string) (*Reflection, error) {
 	raw := strings.TrimSpace(text)
 
@@ -392,14 +392,85 @@ func parseReflectResponse(text string) (*Reflection, error) {
 		}
 	}
 
-	// Attempt 3: extract first {...} block
+	// Attempt 3: extract first {...} block via greedy regex
 	if m := jsonObjectRe.FindString(raw); m != "" {
 		if err := json.Unmarshal([]byte(m), &rj); err == nil {
 			return reflectJSONToReflection(rj), nil
 		}
 	}
 
+	// Attempt 4: robust extraction handling markdown wrappers and prose prefixes
+	if extracted := extractJSONFromMarkdown(raw); extracted != raw {
+		if err := json.Unmarshal([]byte(extracted), &rj); err == nil {
+			return reflectJSONToReflection(rj), nil
+		}
+	}
+
 	return nil, fmt.Errorf("no valid JSON found in reflect response")
+}
+
+// extractJSONFromMarkdown tries to extract JSON from LLM responses that wrap it
+// in markdown code blocks (```json ... ```) or have prose before the JSON object.
+// It uses brace-depth tracking for correct extraction of nested objects.
+func extractJSONFromMarkdown(s string) string {
+	// Try to extract from ```json ... ``` blocks
+	if idx := strings.Index(s, "```json"); idx >= 0 {
+		start := idx + 7
+		// Skip optional newline after language tag
+		if start < len(s) && s[start] == '\n' {
+			start++
+		}
+		end := strings.Index(s[start:], "```")
+		if end >= 0 {
+			return strings.TrimSpace(s[start : start+end])
+		}
+	}
+	// Try to extract from ``` ... ``` blocks (without language tag)
+	if idx := strings.Index(s, "```"); idx >= 0 {
+		start := idx + 3
+		// Skip language tag line if present
+		if nl := strings.Index(s[start:], "\n"); nl >= 0 {
+			start += nl + 1
+		}
+		end := strings.Index(s[start:], "```")
+		if end >= 0 {
+			return strings.TrimSpace(s[start : start+end])
+		}
+	}
+	// Try to find first { ... } JSON object using brace-depth tracking
+	if start := strings.Index(s, "{"); start >= 0 {
+		depth := 0
+		inString := false
+		escaped := false
+		for i := start; i < len(s); i++ {
+			c := s[i]
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' && inString {
+				escaped = true
+				continue
+			}
+			if c == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			if c == '{' {
+				depth++
+			}
+			if c == '}' {
+				depth--
+				if depth == 0 {
+					return s[start : i+1]
+				}
+			}
+		}
+	}
+	return s
 }
 
 func reflectJSONToReflection(rj reflectJSON) *Reflection {
