@@ -63,6 +63,14 @@ IMPORTANT RULES:
     - Example: val=$(cat input.txt | tr -d '[:space:]'); echo "result: $((val * 2))" > output.txt
     - Do NOT assume what the value will be — always read it explicitly before computing
 
+20. FILE OUTPUT — WRITE PURE VALUES:
+    When writing a number or short string to a file, use printf or echo with redirection:
+    - CORRECT: printf '%d\n' 84 > /tmp/output.txt   (just the number)
+    - CORRECT: echo "84" > /tmp/output.txt            (just the number)
+    - WRONG:   wc -l file > /tmp/output.txt           (adds filename/count prefix)
+    - WRONG:   cat -n file | head -1 > /tmp/output.txt (adds line number)
+    Always verify with: cat /tmp/output.txt (should show only the expected value).
+
 MULTI-AGENT DELEGATION:
 - When agent_* tools are available, you can delegate independent research/analysis tasks to specialized agents.
 - Use "depends_on" to create pipelines: research agents run in parallel, synthesis/writing agents depend on all research tasks.

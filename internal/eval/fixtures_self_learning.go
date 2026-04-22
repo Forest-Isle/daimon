@@ -8,6 +8,16 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
 
+// extractLastToken extracts the last whitespace-separated token from file content.
+// This handles cases where commands like wc produce "  5 filename" or "1\t84".
+func extractLastToken(data []byte) string {
+	parts := strings.Fields(strings.TrimSpace(string(data)))
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[len(parts)-1]
+}
+
 // SkillLearningSuite returns tasks that test whether skill synthesis produces
 // measurable behavior improvements. Each task uses deterministic verification:
 // the correct output is checked in SuccessFunc, independent of LLM reflection.
@@ -15,7 +25,7 @@ func SkillLearningSuite() []TaskCase {
 	return []TaskCase{
 		{
 			ID:           "skill-bash-arithmetic",
-			Goal:         "Read the number stored in /tmp/sl_arith_in.txt, double it, write the result to /tmp/sl_arith_out.txt",
+			Goal:         "Read the number in /tmp/sl_arith_in.txt, compute its double, and write ONLY the result number to /tmp/sl_arith_out.txt. The file must contain just the number (e.g. '84'), no extra text or whitespace.",
 			Complexity:   "simple",
 			Dimension:    DimSkillLearning,
 			VerifyMethod: VerifyDeterministic,
@@ -33,7 +43,7 @@ func SkillLearningSuite() []TaskCase {
 				if err != nil {
 					return false
 				}
-				return strings.TrimSpace(string(data)) == "84"
+				return extractLastToken(data) == "84"
 			},
 		},
 		{
@@ -57,7 +67,7 @@ func SkillLearningSuite() []TaskCase {
 		},
 		{
 			ID:           "skill-dependency-chain",
-			Goal:         "Create /tmp/sl_chain_a.txt with content '100', then read it, multiply by 3, write result to /tmp/sl_chain_b.txt",
+			Goal:         "Create /tmp/sl_chain_a.txt with content '100', then read it, compute the value multiplied by 3, and write ONLY that result integer to /tmp/sl_chain_b.txt. The file must contain just the number (e.g. '300').",
 			Complexity:   "medium",
 			Dimension:    DimSkillLearning,
 			VerifyMethod: VerifyDeterministic,
@@ -72,12 +82,12 @@ func SkillLearningSuite() []TaskCase {
 				if err != nil {
 					return false
 				}
-				return strings.TrimSpace(string(data)) == "300"
+				return extractLastToken(data) == "300"
 			},
 		},
 		{
 			ID:           "skill-count-lines",
-			Goal:         "Count the number of lines in /tmp/sl_count_src.txt and write just the number to /tmp/sl_count_out.txt",
+			Goal:         "Count the lines in /tmp/sl_count_src.txt and write ONLY the count as a plain integer to /tmp/sl_count_out.txt. No filename, no extra text — just the number.",
 			Complexity:   "simple",
 			Dimension:    DimSkillLearning,
 			VerifyMethod: VerifyDeterministic,
@@ -95,12 +105,12 @@ func SkillLearningSuite() []TaskCase {
 				if err != nil {
 					return false
 				}
-				return strings.TrimSpace(string(data)) == "5"
+				return extractLastToken(data) == "5"
 			},
 		},
 		{
 			ID:           "skill-pipeline-sum",
-			Goal:         "Sum all numbers in /tmp/sl_sum_in.txt (one per line) and write the total to /tmp/sl_sum_out.txt",
+			Goal:         "Sum all integers in /tmp/sl_sum_in.txt (one per line) and write ONLY the total integer to /tmp/sl_sum_out.txt. The file must contain just the number, nothing else.",
 			Complexity:   "medium",
 			Dimension:    DimSkillLearning,
 			VerifyMethod: VerifyDeterministic,
@@ -118,7 +128,7 @@ func SkillLearningSuite() []TaskCase {
 				if err != nil {
 					return false
 				}
-				return strings.TrimSpace(string(data)) == "100"
+				return extractLastToken(data) == "100"
 			},
 		},
 		{
