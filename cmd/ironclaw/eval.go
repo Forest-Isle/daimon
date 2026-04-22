@@ -24,7 +24,7 @@ func newEvalCmd() *cobra.Command {
 		Use:   "eval",
 		Short: "Evaluate agent performance with reproducible task suites",
 	}
-	cmd.AddCommand(newEvalRunCmd(), newEvalCompareCmd(), newEvalListCmd(), newEvalLongitudinalCmd(), newEvalVisualizeCmd(), newEvalDiagnoseCmd(), newEvalAdaptiveCmd(), newEvalBenchmarkCmd())
+	cmd.AddCommand(newEvalRunCmd(), newEvalCompareCmd(), newEvalListCmd(), newEvalLongitudinalCmd(), newEvalVisualizeCmd(), newEvalDiagnoseCmd(), newEvalAdaptiveCmd(), newEvalBenchmarkCmd(), newEvalSelfLearningCmd())
 	return cmd
 }
 
@@ -475,6 +475,20 @@ genuine strategy/preference evolution between measurements.`,
 				fmt.Printf("\nLongitudinal report saved to %s\n", reportPath)
 			}
 
+			// Emit learning curve HTML + self-learning analysis when enough data.
+			if len(points) >= 2 {
+				htmlPath := fmt.Sprintf("%s/learning_curve.html", outputDir)
+				html := eval.GenerateLearningCurveHTML(points)
+				if htmlErr := os.WriteFile(htmlPath, []byte(html), 0o644); htmlErr != nil {
+					slog.Warn("failed to write learning curve HTML", "err", htmlErr)
+				} else {
+					fmt.Printf("Learning curve chart: %s\n", htmlPath)
+				}
+				if report.SelfLearningAnalysis != nil {
+					fmt.Print(eval.FormatLearningCurveSummary(report.SelfLearningAnalysis))
+				}
+			}
+
 			if len(results) >= 2 {
 				comparison := eval.Compare(results[0], results[len(results)-1])
 				fmt.Println("\n=== Evolution Comparison (first vs last) ===")
@@ -885,6 +899,135 @@ against known reference scores from other agents.`,
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("data")
+	return cmd
+}
+
+// newEvalSelfLearningCmd runs the three self-learning evaluation suites and
+// generates a composite self-learning report + optional learning curve chart.
+func newEvalSelfLearningCmd() *cobra.Command {
+	var (
+		live           bool
+		configPath     string
+		outputDir      string
+		longitudinalIn string
+		judge          bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "self-learning",
+		Short: "Evaluate agent self-learning capabilities (skill adoption, preference adherence, memory retention)",
+		Long: `Runs three self-learning evaluation suites and emits a composite report:
+
+  skill_learning        — deterministic bash/file tasks that improve with skill synthesis
+  preference_adherence  — tasks with explicit behavioral constraints to verify adherence
+  memory_retention      — cross-session memory recall, precision, multi-hop, and negation
+
+Output (written to --output dir):
+  self_learning_report.json   dimension scores + raw results
+  learning_curve.html         interactive chart (requires --longitudinal-in)
+
+Combine with 'eval longitudinal --with-workload workload' to produce the longitudinal
+data that feeds the learning curve analysis.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tasks := eval.SelfLearningSuite()
+
+			if outputDir == "" {
+				outputDir = fmt.Sprintf("eval_self_learning_%s", time.Now().Format("20060102_150405"))
+			}
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
+				return fmt.Errorf("create output dir: %w", err)
+			}
+
+			var runner eval.AgentRunner
+			var gw *gateway.Gateway
+			var cleanup func()
+
+			if live {
+				var gwErr error
+				gw, cleanup, gwErr = initEvalGateway(configPath)
+				if gwErr != nil {
+					return fmt.Errorf("init live eval: %w", gwErr)
+				}
+				r := gw.NewEvalRunner()
+				if r == nil {
+					cleanup()
+					return fmt.Errorf("live self-learning eval requires agent.mode = cognitive")
+				}
+				runner = r
+			} else {
+				runner = &eval.DryRunner{}
+			}
+			if cleanup != nil {
+				defer cleanup()
+			}
+
+			var runOpts *eval.RunOptions
+			if judge && live && gw != nil {
+				runOpts = &eval.RunOptions{
+					Judge: eval.NewLLMJudge(gw.LLMProvider()),
+				}
+				fmt.Println("LLM Judge: enabled")
+			}
+
+			ctx := context.Background()
+			fmt.Printf("Running self-learning eval (%d tasks)...\n\n", len(tasks))
+
+			result, err := eval.RunSuiteWithOptions(ctx, "self-learning", tasks, runner, runOpts)
+			if err != nil {
+				return fmt.Errorf("run self-learning suite: %w", err)
+			}
+
+			applyFeatureState(result, gw)
+
+			reportPath := fmt.Sprintf("%s/self_learning_report.json", outputDir)
+			if saveErr := result.SaveJSON(reportPath); saveErr != nil {
+				return fmt.Errorf("save report: %w", saveErr)
+			}
+
+			summary := result.Summary()
+			dimReport := eval.AggregateDimensions(result.Results)
+
+			fmt.Printf("=== Self-Learning Evaluation Results ===\n")
+			fmt.Printf("Overall: %.0f%% success | assertions %.0f%% | %.1fs\n\n",
+				summary.SuccessRate*100, summary.AvgAssertionPassRate*100, summary.Duration.Seconds())
+			fmt.Printf("%-26s  %8s  %7s  %5s\n", "Dimension", "Success%", "Score", "Tasks")
+			fmt.Printf("%-26s  %8s  %7s  %5s\n", strings.Repeat("-", 26), "--------", "-------", "-----")
+			for _, ds := range dimReport.Dimensions {
+				fmt.Printf("%-26s  %7.0f%%  %7.2f  %5d\n",
+					ds.Dimension, ds.SuccessRate*100, ds.AvgScore, ds.TaskCount) //nolint:govet
+			}
+			fmt.Printf("\nReport saved to %s\n", reportPath)
+
+			// Optional: load longitudinal report to render learning curve.
+			if longitudinalIn != "" {
+				longReport, ldErr := eval.LoadLongitudinalReport(longitudinalIn)
+				if ldErr != nil {
+					slog.Warn("could not load longitudinal report for learning curve", "path", longitudinalIn, "err", ldErr)
+				} else {
+					htmlPath := fmt.Sprintf("%s/learning_curve.html", outputDir)
+					html := eval.GenerateLearningCurveHTML(longReport.Iterations)
+					if writeErr := os.WriteFile(htmlPath, []byte(html), 0o644); writeErr != nil {
+						slog.Warn("could not write learning curve HTML", "err", writeErr)
+					} else {
+						fmt.Printf("Learning curve chart: %s\n", htmlPath)
+					}
+					if longReport.SelfLearningAnalysis != nil {
+						fmt.Print(eval.FormatLearningCurveSummary(longReport.SelfLearningAnalysis))
+					}
+				}
+			} else {
+				fmt.Printf("\nTip: Re-run with --longitudinal-in <path/to/longitudinal_report.json> to add a learning curve chart.\n")
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&live, "live", false, "run against a live cognitive agent")
+	cmd.Flags().BoolVar(&judge, "judge", true, "enable LLM-as-Judge for tasks with Rubric (requires --live)")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/ironclaw.yaml", "config file path (for --live)")
+	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory (auto-generated if empty)")
+	cmd.Flags().StringVar(&longitudinalIn, "longitudinal-in", "", "path to a longitudinal_report.json for learning curve generation")
 	return cmd
 }
 

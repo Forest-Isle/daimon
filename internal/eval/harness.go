@@ -565,15 +565,16 @@ type IterationPoint struct {
 // LongitudinalReport captures the full time series of a longitudinal evaluation
 // run, including per-iteration metrics and first-vs-last comparison deltas.
 type LongitudinalReport struct {
-	Iterations  []IterationPoint `json:"iterations"`
-	First       SuiteSummary     `json:"first"`
-	Last        SuiteSummary     `json:"last"`
-	Deltas      ComparisonDelta  `json:"deltas"`
-	GeneratedAt time.Time        `json:"generated_at"`
+	Iterations           []IterationPoint             `json:"iterations"`
+	First                SuiteSummary                 `json:"first"`
+	Last                 SuiteSummary                 `json:"last"`
+	Deltas               ComparisonDelta              `json:"deltas"`
+	GeneratedAt          time.Time                    `json:"generated_at"`
+	SelfLearningAnalysis *SelfLearningAnalysisSummary `json:"self_learning_analysis,omitempty"`
 }
 
 // NewLongitudinalReport creates a report from a series of iteration points.
-// Computes first-vs-last deltas automatically.
+// Computes first-vs-last deltas and self-learning analysis automatically.
 func NewLongitudinalReport(points []IterationPoint) *LongitudinalReport {
 	if len(points) == 0 {
 		return &LongitudinalReport{GeneratedAt: time.Now()}
@@ -582,7 +583,7 @@ func NewLongitudinalReport(points []IterationPoint) *LongitudinalReport {
 	first := points[0].Summary
 	last := points[len(points)-1].Summary
 
-	return &LongitudinalReport{
+	r := &LongitudinalReport{
 		Iterations: points,
 		First:      first,
 		Last:       last,
@@ -595,6 +596,11 @@ func NewLongitudinalReport(points []IterationPoint) *LongitudinalReport {
 		},
 		GeneratedAt: time.Now(),
 	}
+
+	if len(points) >= 2 {
+		r.SelfLearningAnalysis = ComputeSelfLearningAnalysis(points)
+	}
+	return r
 }
 
 // SaveJSON writes the longitudinal report to a JSON file.

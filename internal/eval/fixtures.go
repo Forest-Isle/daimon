@@ -306,22 +306,30 @@ func FullSuite() []TaskCase {
 	all = append(all, MemorySuite()...)
 	all = append(all, KnowledgeSuite()...)
 	all = append(all, MultiAgentSuite()...)
+	// Self-learning dimensions
+	all = append(all, SkillLearningSuite()...)
+	all = append(all, PreferenceAdherenceSuite()...)
+	all = append(all, MemoryRetentionSuite()...)
 	return all
 }
 
 // AllSuites returns a map of all available named suites.
 func AllSuites() map[string]func() []TaskCase {
 	return map[string]func() []TaskCase{
-		"builtin":        BuiltinSuite,
-		"evolution":      EvolutionSuite,
-		"workload":       WorkloadSuite,
-		"planning":       PlanningSuite,
-		"error_recovery": ErrorRecoverySuite,
-		"tool_selection": ToolSelectionSuite,
-		"conversation":   ConversationSuite,
-		"memory":         MemorySuite,
-		"knowledge":      KnowledgeSuite,
-		"multi_agent":    MultiAgentSuite,
-		"full":           FullSuite,
+		"builtin":              BuiltinSuite,
+		"evolution":            EvolutionSuite,
+		"workload":             WorkloadSuite,
+		"planning":             PlanningSuite,
+		"error_recovery":       ErrorRecoverySuite,
+		"tool_selection":       ToolSelectionSuite,
+		"conversation":         ConversationSuite,
+		"memory":               MemorySuite,
+		"knowledge":            KnowledgeSuite,
+		"multi_agent":          MultiAgentSuite,
+		"skill_learning":       SkillLearningSuite,
+		"preference_adherence": PreferenceAdherenceSuite,
+		"memory_retention":     MemoryRetentionSuite,
+		"self_learning":        SelfLearningSuite,
+		"full":                 FullSuite,
 	}
 }

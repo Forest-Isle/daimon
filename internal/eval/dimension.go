@@ -12,6 +12,11 @@ const (
 	DimMemory        Dimension = "memory"
 	DimKnowledge     Dimension = "knowledge"
 	DimMultiAgent    Dimension = "multi_agent"
+
+	// Self-learning dimensions — assess the agent's ability to improve over time.
+	DimSkillLearning       Dimension = "skill_learning"
+	DimPreferenceAdherence Dimension = "preference_adherence"
+	DimMemoryRetention     Dimension = "memory_retention"
 )
 
 // AllDimensions returns the full list of recognized dimensions.
@@ -19,6 +24,7 @@ func AllDimensions() []Dimension {
 	return []Dimension{
 		DimTaskExecution, DimPlanning, DimErrorRecovery, DimToolSelection,
 		DimConversation, DimMemory, DimKnowledge, DimMultiAgent,
+		DimSkillLearning, DimPreferenceAdherence, DimMemoryRetention,
 	}
 }
 
