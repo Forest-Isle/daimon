@@ -158,7 +158,7 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Goal:         "What is the current time? Reply with only the time value, nothing else. Keep your answer under 20 words total.",
 			Complexity:   "simple",
 			Dimension:    DimPreferenceAdherence,
-			VerifyMethod: VerifyDeterministic,
+			VerifyMethod: VerifyHybrid,
 			Tags:         []string{"preference_adherence", "conciseness"},
 			Rubric: &Rubric{Criteria: []JudgeCriterion{
 				{Name: "conciseness", Description: "Score 1.0 if the response contains only a time value (e.g. '14:32' or '2:32 PM') with minimal surrounding text (≤20 words total). Score 0.5 if the time is present but with verbose explanation. Score 0.0 if time is missing or response exceeds 20 words.", Weight: 1.0},
@@ -197,7 +197,7 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Goal:         `What is 2+2? Reply ONLY with valid JSON in the format: {"answer": <number>}. Do not include any prose, markdown, or explanation.`,
 			Complexity:   "simple",
 			Dimension:    DimPreferenceAdherence,
-			VerifyMethod: VerifyDeterministic,
+			VerifyMethod: VerifyHybrid,
 			Tags:         []string{"preference_adherence", "output_format"},
 			Rubric: &Rubric{Criteria: []JudgeCriterion{
 				{Name: "json_format", Description: `Score 1.0 if the response is ONLY valid JSON in the exact format {"answer": 4} with no surrounding text, markdown, or prose. Score 0.5 if the JSON is present but wrapped in markdown code fences or has extra explanation. Score 0.0 if the JSON format is wrong or missing.`, Weight: 1.0},
@@ -213,7 +213,7 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Goal:         "Explain how to make coffee in exactly 3 numbered steps. Format each step as '1. ', '2. ', '3. '.",
 			Complexity:   "simple",
 			Dimension:    DimPreferenceAdherence,
-			VerifyMethod: VerifyDeterministic,
+			VerifyMethod: VerifyHybrid,
 			Tags:         []string{"preference_adherence", "output_format"},
 			Rubric: &Rubric{Criteria: []JudgeCriterion{
 				{Name: "numbered_steps", Description: "Score 1.0 if the response contains exactly 3 numbered steps using the '1. ', '2. ', '3. ' format with no additional steps. Score 0.5 if numbered steps are present but format is slightly off or there are more/fewer steps. Score 0.0 if not numbered or no steps.", Weight: 1.0},
@@ -228,7 +228,7 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Goal:         "What is the capital of France? Answer from your knowledge only — do NOT use any tools or bash commands.",
 			Complexity:   "simple",
 			Dimension:    DimPreferenceAdherence,
-			VerifyMethod: VerifyDeterministic,
+			VerifyMethod: VerifyHybrid,
 			Tags:         []string{"preference_adherence", "knowledge_only"},
 			Rubric: &Rubric{Criteria: []JudgeCriterion{
 				{Name: "knowledge_only", Description: "Score 1.0 if the answer 'Paris' is given using only knowledge (no tool calls made). Score 0.5 if Paris is mentioned but a tool was also used. Score 0.0 if Paris is not mentioned or no answer given.", Weight: 1.0},
