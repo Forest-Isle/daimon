@@ -15,6 +15,9 @@ func TestDimension_String(t *testing.T) {
 		{DimMemory, "memory"},
 		{DimKnowledge, "knowledge"},
 		{DimMultiAgent, "multi_agent"},
+		{DimSkillLearning, "skill_learning"},
+		{DimPreferenceAdherence, "preference_adherence"},
+		{DimMemoryRetention, "memory_retention"},
 	}
 	for _, tt := range tests {
 		if string(tt.dim) != tt.want {
@@ -78,6 +81,23 @@ func TestAggregateDimensions_WeakestStrongest(t *testing.T) {
 	}
 	if report.Weakest[0].Dimension != DimPlanning {
 		t.Errorf("expected planning as weakest, got %s", report.Weakest[0].Dimension)
+	}
+}
+
+func TestAllDimensions_Count(t *testing.T) {
+	dims := AllDimensions()
+	if len(dims) != 11 {
+		t.Errorf("expected 11 dimensions (8 original + 3 self-learning), got %d: %v", len(dims), dims)
+	}
+	// Verify the three self-learning dimensions are present.
+	found := make(map[Dimension]bool)
+	for _, d := range dims {
+		found[d] = true
+	}
+	for _, want := range []Dimension{DimSkillLearning, DimPreferenceAdherence, DimMemoryRetention} {
+		if !found[want] {
+			t.Errorf("missing self-learning dimension %q in AllDimensions()", want)
+		}
 	}
 }
 

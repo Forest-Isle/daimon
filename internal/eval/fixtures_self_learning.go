@@ -2,7 +2,6 @@ package eval
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 
@@ -415,10 +414,3 @@ func SelfLearningSuite() []TaskCase {
 	return all
 }
 
-// selfLearningToolList joins a string slice for display; returns "(none)" when empty.
-func selfLearningToolList(tools []string) string {
-	if len(tools) == 0 {
-		return "(none)"
-	}
-	return fmt.Sprintf("[%s]", strings.Join(tools, ", "))
-}
