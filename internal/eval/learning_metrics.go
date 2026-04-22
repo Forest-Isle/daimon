@@ -186,11 +186,11 @@ func FormatLearningCurveSummary(s *SelfLearningAnalysisSummary) string {
 
 	if s.LearningCurve != nil {
 		c := s.LearningCurve
-		b.WriteString(fmt.Sprintf("Learning Curve (%d iterations):\n", c.IterationCount))
-		b.WriteString(fmt.Sprintf("  Reward:         %.3f → %.3f  slope=%.4f  [%s]\n",
-			c.FirstReward, c.LastReward, c.RewardSlope, c.RewardVelocity))
-		b.WriteString(fmt.Sprintf("  Success rate:   %.0f%% → %.0f%%  slope=%.4f  [%s]\n",
-			c.FirstSuccessRate*100, c.LastSuccessRate*100, c.SuccessRateSlope, c.SuccessVelocity))
+		fmt.Fprintf(&b, "Learning Curve (%d iterations):\n", c.IterationCount)
+		fmt.Fprintf(&b, "  Reward:         %.3f → %.3f  slope=%.4f  [%s]\n",
+			c.FirstReward, c.LastReward, c.RewardSlope, c.RewardVelocity)
+		fmt.Fprintf(&b, "  Success rate:   %.0f%% → %.0f%%  slope=%.4f  [%s]\n",
+			c.FirstSuccessRate*100, c.LastSuccessRate*100, c.SuccessRateSlope, c.SuccessVelocity)
 		b.WriteString(fmt.Sprintf("  Skill growth:   +%.2f/iter\n", c.SkillGrowthPerIter))
 		b.WriteString(fmt.Sprintf("  Pref growth:    +%.2f/iter\n", c.PreferenceGrowthPerIter))
 	} else {
@@ -365,14 +365,16 @@ func lmClassifyVelocity(slope, threshold float64) LearningVelocity {
 func lmCompositeScore(curve *LearningCurveAnalysis, conv *StrategyConvergenceAnalysis) float64 {
 	score := 0.5
 	if curve != nil {
-		if curve.RewardVelocity == VelocityImproving {
+		switch curve.RewardVelocity {
+		case VelocityImproving:
 			score += 0.2
-		} else if curve.RewardVelocity == VelocityDegrading {
+		case VelocityDegrading:
 			score -= 0.1
 		}
-		if curve.SuccessVelocity == VelocityImproving {
+		switch curve.SuccessVelocity {
+		case VelocityImproving:
 			score += 0.2
-		} else if curve.SuccessVelocity == VelocityDegrading {
+		case VelocityDegrading:
 			score -= 0.1
 		}
 	}

@@ -35,11 +35,11 @@ func SkillLearningSuite() []TaskCase {
 			SetupFunc: func() error {
 				return os.WriteFile("/tmp/sl_arith_in.txt", []byte("42\n"), 0o644)
 			},
-			CleanupFunc: func() error {
-				os.Remove("/tmp/sl_arith_in.txt")
-				os.Remove("/tmp/sl_arith_out.txt")
-				return nil
-			},
+		CleanupFunc: func() error {
+			_ = os.Remove("/tmp/sl_arith_in.txt")
+			_ = os.Remove("/tmp/sl_arith_out.txt")
+			return nil
+		},
 			SuccessFunc: func(r *EvalResult) bool {
 				data, err := os.ReadFile("/tmp/sl_arith_out.txt")
 				if err != nil {
@@ -55,10 +55,10 @@ func SkillLearningSuite() []TaskCase {
 			Dimension:    DimSkillLearning,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"skill_learning", "file"},
-			CleanupFunc: func() error {
-				os.Remove("/tmp/sl_append.txt")
-				return nil
-			},
+		CleanupFunc: func() error {
+			_ = os.Remove("/tmp/sl_append.txt")
+			return nil
+		},
 			SuccessFunc: func(r *EvalResult) bool {
 				data, err := os.ReadFile("/tmp/sl_append.txt")
 				if err != nil {
