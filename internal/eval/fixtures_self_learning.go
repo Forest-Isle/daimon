@@ -148,6 +148,9 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Dimension:    DimPreferenceAdherence,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"preference_adherence", "conciseness"},
+			Rubric: &Rubric{Criteria: []JudgeCriterion{
+				{Name: "conciseness", Description: "Score 1.0 if the response contains only a time value (e.g. '14:32' or '2:32 PM') with minimal surrounding text (≤20 words total). Score 0.5 if the time is present but with verbose explanation. Score 0.0 if time is missing or response exceeds 20 words.", Weight: 1.0},
+			}},
 			SuccessFunc: func(r *EvalResult) bool {
 				words := strings.Fields(r.AgentOutput)
 				return r.Success && len(words) <= 20
@@ -160,6 +163,9 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Dimension:    DimPreferenceAdherence,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"preference_adherence", "tool_selection"},
+			Rubric: &Rubric{Criteria: []JudgeCriterion{
+				{Name: "tool_selection", Description: "Score 1.0 if the agent used only the bash tool and no file_list or file_read tools. Score 0.5 if bash was used but other file tools were also used. Score 0.0 if bash was not used at all.", Weight: 1.0},
+			}},
 			SuccessFunc: func(r *EvalResult) bool {
 				for _, t := range r.ToolsUsed {
 					if t == "file_list" || t == "file_read" {
@@ -181,6 +187,9 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Dimension:    DimPreferenceAdherence,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"preference_adherence", "output_format"},
+			Rubric: &Rubric{Criteria: []JudgeCriterion{
+				{Name: "json_format", Description: `Score 1.0 if the response is ONLY valid JSON in the exact format {"answer": 4} with no surrounding text, markdown, or prose. Score 0.5 if the JSON is present but wrapped in markdown code fences or has extra explanation. Score 0.0 if the JSON format is wrong or missing.`, Weight: 1.0},
+			}},
 			SuccessFunc: func(r *EvalResult) bool {
 				out := strings.TrimSpace(r.AgentOutput)
 				return strings.HasPrefix(out, "{") && strings.HasSuffix(out, "}") &&
@@ -194,6 +203,9 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Dimension:    DimPreferenceAdherence,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"preference_adherence", "output_format"},
+			Rubric: &Rubric{Criteria: []JudgeCriterion{
+				{Name: "numbered_steps", Description: "Score 1.0 if the response contains exactly 3 numbered steps using the '1. ', '2. ', '3. ' format with no additional steps. Score 0.5 if numbered steps are present but format is slightly off or there are more/fewer steps. Score 0.0 if not numbered or no steps.", Weight: 1.0},
+			}},
 			SuccessFunc: func(r *EvalResult) bool {
 				out := r.AgentOutput
 				return strings.Contains(out, "1.") && strings.Contains(out, "2.") && strings.Contains(out, "3.")
@@ -206,6 +218,9 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Dimension:    DimPreferenceAdherence,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"preference_adherence", "knowledge_only"},
+			Rubric: &Rubric{Criteria: []JudgeCriterion{
+				{Name: "knowledge_only", Description: "Score 1.0 if the answer 'Paris' is given using only knowledge (no tool calls made). Score 0.5 if Paris is mentioned but a tool was also used. Score 0.0 if Paris is not mentioned or no answer given.", Weight: 1.0},
+			}},
 			SuccessFunc: func(r *EvalResult) bool {
 				return len(r.ToolsUsed) == 0 &&
 					strings.Contains(strings.ToLower(r.AgentOutput), "paris")
@@ -218,6 +233,9 @@ func PreferenceAdherenceSuite() []TaskCase {
 			Dimension:    DimPreferenceAdherence,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"preference_adherence", "efficiency"},
+			Rubric: &Rubric{Criteria: []JudgeCriterion{
+				{Name: "single_command", Description: "Score 1.0 if exactly one bash command was used and the hostname is shown. Score 0.5 if the hostname is shown but more than one bash command was used. Score 0.0 if no hostname is shown.", Weight: 1.0},
+			}},
 			SuccessFunc: func(r *EvalResult) bool {
 				bashCount := 0
 				for _, t := range r.ToolsUsed {
@@ -230,22 +248,28 @@ func PreferenceAdherenceSuite() []TaskCase {
 		},
 		{
 			ID:           "pref-uppercase-output",
-			Goal:         "Echo the phrase 'hello world' using bash. The output must appear in UPPERCASE in your response.",
+			Goal:         "Use bash to output the phrase 'hello world' in ALL CAPS (uppercase). Use a command like: echo 'hello world' | tr '[:lower:]' '[:upper:]' — the final output in your response must show 'HELLO WORLD'.",
 			Complexity:   "simple",
 			Dimension:    DimPreferenceAdherence,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"preference_adherence", "output_format"},
+			Rubric: &Rubric{Criteria: []JudgeCriterion{
+				{Name: "uppercase_output", Description: "Score 1.0 if 'HELLO WORLD' appears in the response in all uppercase. Score 0.5 if the phrase appears in mixed case (e.g. 'Hello World'). Score 0.0 if neither 'hello world' nor 'HELLO WORLD' is present.", Weight: 1.0},
+			}},
 			SuccessFunc: func(r *EvalResult) bool {
 				return strings.Contains(r.AgentOutput, "HELLO WORLD")
 			},
 		},
 		{
 			ID:           "pref-write-specific-file",
-			Goal:         "Write the word 'DONE' to /tmp/pref_test_done.txt. The file must exist with that exact content when you finish.",
+			Goal:         "Write the word 'DONE' to /tmp/pref_test_done.txt using bash: echo 'DONE' > /tmp/pref_test_done.txt. The file must exist and contain 'DONE' when you finish.",
 			Complexity:   "simple",
 			Dimension:    DimPreferenceAdherence,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"preference_adherence", "file_output"},
+			Rubric: &Rubric{Criteria: []JudgeCriterion{
+				{Name: "file_write", Description: "Score 1.0 if the file /tmp/pref_test_done.txt was created and contains 'DONE'. Score 0.5 if the agent attempted to write the file but the content is incorrect. Score 0.0 if no file was written.", Weight: 1.0},
+			}},
 			CleanupFunc: func() error {
 				os.Remove("/tmp/pref_test_done.txt")
 				return nil
@@ -255,7 +279,7 @@ func PreferenceAdherenceSuite() []TaskCase {
 				if err != nil {
 					return false
 				}
-				return strings.TrimSpace(string(data)) == "DONE"
+				return strings.Contains(string(data), "DONE")
 			},
 		},
 	}
