@@ -103,6 +103,6 @@ func TestHandleModeCommand(t *testing.T) {
 	assert.Contains(t, response, "cognitive")
 
 	response = gw.handleModeCommand("bad")
-	assert.Contains(t, response, "Unknown mode")
+	assert.Contains(t, response, "unknown mode")
 	assert.Equal(t, "cognitive", gw.CurrentMode())
 }
