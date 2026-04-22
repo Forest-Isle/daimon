@@ -1,18 +1,22 @@
-version: 11
-updated_at: 2026-04-21T17:28:52.562275+08:00
+version: 16
+updated_at: 2026-04-21T22:41:20.946347+08:00
 replan_threshold:
-    value: 0.33
-    previous: 0.3
-    reason: replan ineffective (28.6% success)
+    value: 0.29700000000000004
+    previous: 0.33
+    reason: replan effective (100.0% vs no-replan 75.0%)
 tool_priorities:
     bash:
-        value: 0.6655000000000002
+        value: 0.7320500000000003
         previous: 0.6655000000000002
-        reason: reverted due to success rate decline
+        reason: tool highly successful (87.5%)
+    browser_search:
+        value: 0.405
+        previous: 0.45
+        reason: tool underperforming (25.0%)
     file_edit:
-        value: 0.5336644500000003
-        previous: 0.5929605000000003
-        reason: tool underperforming (20.0%)
+        value: 0.3501372456450002
+        previous: 0.3890413840500002
+        reason: tool underperforming (25.0%)
     file_read:
         value: 0.405
         previous: 0.45
@@ -22,5 +26,5 @@ tool_priorities:
         previous: 0.5
         reason: reverted due to success rate decline
 metrics:
-    overall_success_rate: 0.6
+    overall_success_rate: 0.72
     episodes_analyzed: 50
