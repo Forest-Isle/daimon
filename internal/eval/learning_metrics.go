@@ -191,8 +191,8 @@ func FormatLearningCurveSummary(s *SelfLearningAnalysisSummary) string {
 			c.FirstReward, c.LastReward, c.RewardSlope, c.RewardVelocity)
 		fmt.Fprintf(&b, "  Success rate:   %.0f%% → %.0f%%  slope=%.4f  [%s]\n",
 			c.FirstSuccessRate*100, c.LastSuccessRate*100, c.SuccessRateSlope, c.SuccessVelocity)
-		b.WriteString(fmt.Sprintf("  Skill growth:   +%.2f/iter\n", c.SkillGrowthPerIter))
-		b.WriteString(fmt.Sprintf("  Pref growth:    +%.2f/iter\n", c.PreferenceGrowthPerIter))
+		fmt.Fprintf(&b, "  Skill growth:   +%.2f/iter\n", c.SkillGrowthPerIter)
+		fmt.Fprintf(&b, "  Pref growth:    +%.2f/iter\n", c.PreferenceGrowthPerIter)
 	} else {
 		b.WriteString("  Learning curve: insufficient data\n")
 	}
@@ -203,15 +203,15 @@ func FormatLearningCurveSummary(s *SelfLearningAnalysisSummary) string {
 		if sc.IsConverged {
 			convergedStr = "YES"
 		}
-		b.WriteString(fmt.Sprintf("Strategy Convergence: %s  oscillation=%.4f  trend=%s\n",
-			convergedStr, sc.OscillationScore, sc.ThresholdTrend))
-		b.WriteString(fmt.Sprintf("  Threshold: mean=%.3f  stddev=%.3f\n",
-			sc.ThresholdMean, sc.ThresholdStdDev))
+		fmt.Fprintf(&b, "Strategy Convergence: %s  oscillation=%.4f  trend=%s\n",
+			convergedStr, sc.OscillationScore, sc.ThresholdTrend)
+		fmt.Fprintf(&b, "  Threshold: mean=%.3f  stddev=%.3f\n",
+			sc.ThresholdMean, sc.ThresholdStdDev)
 	} else {
 		b.WriteString("  Strategy convergence: insufficient data\n")
 	}
 
-	b.WriteString(fmt.Sprintf("Composite self-learning score: %.2f / 1.00\n", s.CompositeScore))
+	fmt.Fprintf(&b, "Composite self-learning score: %.2f / 1.00\n", s.CompositeScore)
 	return b.String()
 }
 

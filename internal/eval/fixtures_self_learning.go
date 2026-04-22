@@ -74,11 +74,11 @@ func SkillLearningSuite() []TaskCase {
 			Dimension:    DimSkillLearning,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"skill_learning", "dependency_chain"},
-			CleanupFunc: func() error {
-				os.Remove("/tmp/sl_chain_a.txt")
-				os.Remove("/tmp/sl_chain_b.txt")
-				return nil
-			},
+		CleanupFunc: func() error {
+			_ = os.Remove("/tmp/sl_chain_a.txt")
+			_ = os.Remove("/tmp/sl_chain_b.txt")
+			return nil
+		},
 			SuccessFunc: func(r *EvalResult) bool {
 				data, err := os.ReadFile("/tmp/sl_chain_b.txt")
 				if err != nil {
@@ -97,11 +97,11 @@ func SkillLearningSuite() []TaskCase {
 			SetupFunc: func() error {
 				return os.WriteFile("/tmp/sl_count_src.txt", []byte("line1\nline2\nline3\nline4\nline5\n"), 0o644)
 			},
-			CleanupFunc: func() error {
-				os.Remove("/tmp/sl_count_src.txt")
-				os.Remove("/tmp/sl_count_out.txt")
-				return nil
-			},
+		CleanupFunc: func() error {
+			_ = os.Remove("/tmp/sl_count_src.txt")
+			_ = os.Remove("/tmp/sl_count_out.txt")
+			return nil
+		},
 			SuccessFunc: func(r *EvalResult) bool {
 				data, err := os.ReadFile("/tmp/sl_count_out.txt")
 				if err != nil {
@@ -121,8 +121,8 @@ func SkillLearningSuite() []TaskCase {
 				return os.WriteFile("/tmp/sl_sum_in.txt", []byte("10\n20\n30\n40\n"), 0o644)
 			},
 			CleanupFunc: func() error {
-				os.Remove("/tmp/sl_sum_in.txt")
-				os.Remove("/tmp/sl_sum_out.txt")
+				_ = os.Remove("/tmp/sl_sum_in.txt")
+				_ = os.Remove("/tmp/sl_sum_out.txt")
 				return nil
 			},
 			SuccessFunc: func(r *EvalResult) bool {
@@ -283,7 +283,7 @@ func PreferenceAdherenceSuite() []TaskCase {
 				{Name: "file_write", Description: "Score 1.0 if the file /tmp/pref_test_done.txt was created and contains 'DONE'. Score 0.5 if the agent attempted to write the file but the content is incorrect. Score 0.0 if no file was written.", Weight: 1.0},
 			}},
 			CleanupFunc: func() error {
-				os.Remove("/tmp/pref_test_done.txt")
+				_ = os.Remove("/tmp/pref_test_done.txt")
 				return nil
 			},
 			SuccessFunc: func(r *EvalResult) bool {
