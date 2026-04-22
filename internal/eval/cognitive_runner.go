@@ -3,6 +3,7 @@ package eval
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +15,13 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
+
+// indexRebuilder is satisfied by memory stores that support explicit index
+// rebuilds (e.g. FileMemoryStore). Stores that don't implement it (mocks,
+// in-memory stores) simply skip the rebuild step.
+type indexRebuilder interface {
+	RebuildIndex(ctx context.Context) error
+}
 
 // CognitiveAgentRunner implements AgentRunner by driving a real CognitiveAgent.
 // Each task gets a fresh session and an EvalChannel that auto-approves tools.
@@ -71,6 +79,8 @@ func (r *CognitiveAgentRunner) SetMemoryStore(s memory.Store) { r.memStore = s }
 
 // InjectMemory writes entries into the agent's active memory store.
 // Returns an error when no store is wired (memory disabled in eval gateway).
+// After saving all entries it rebuilds the FTS5 index (when the store supports
+// it) so that PERCEIVE-phase searches can find the injected entries immediately.
 func (r *CognitiveAgentRunner) InjectMemory(ctx context.Context, entries ...memory.Entry) error {
 	if r.memStore == nil {
 		return fmt.Errorf("eval runner: memory store not available (memory disabled?)")
@@ -78,6 +88,14 @@ func (r *CognitiveAgentRunner) InjectMemory(ctx context.Context, entries ...memo
 	for _, e := range entries {
 		if err := r.memStore.Save(ctx, e); err != nil {
 			return fmt.Errorf("eval runner: inject memory entry %q: %w", e.ID, err)
+		}
+	}
+	// Force index rebuild so PERCEIVE FTS5 search can find injected entries
+	// immediately. Stores that don't support explicit rebuilds (e.g. mocks)
+	// simply skip this step via the type assertion.
+	if rebuilder, ok := r.memStore.(indexRebuilder); ok {
+		if err := rebuilder.RebuildIndex(ctx); err != nil {
+			slog.Warn("eval: rebuild memory index after inject", "err", err)
 		}
 	}
 	return nil
