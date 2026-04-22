@@ -76,7 +76,7 @@ type StrategyConvergenceAnalysis struct {
 // SelfLearningAnalysisSummary is a compact summary of self-learning metrics
 // suitable for embedding in LongitudinalReport and serializing to JSON.
 type SelfLearningAnalysisSummary struct {
-	LearningCurve       *LearningCurveAnalysis      `json:"learning_curve,omitempty"`
+	LearningCurve       *LearningCurveAnalysis       `json:"learning_curve,omitempty"`
 	StrategyConvergence *StrategyConvergenceAnalysis `json:"strategy_convergence,omitempty"`
 	CompositeScore      float64                      `json:"composite_score"`
 	GeneratedAt         time.Time                    `json:"generated_at"`

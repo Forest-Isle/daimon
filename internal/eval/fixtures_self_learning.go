@@ -35,11 +35,11 @@ func SkillLearningSuite() []TaskCase {
 			SetupFunc: func() error {
 				return os.WriteFile("/tmp/sl_arith_in.txt", []byte("42\n"), 0o644)
 			},
-		CleanupFunc: func() error {
-			_ = os.Remove("/tmp/sl_arith_in.txt")
-			_ = os.Remove("/tmp/sl_arith_out.txt")
-			return nil
-		},
+			CleanupFunc: func() error {
+				_ = os.Remove("/tmp/sl_arith_in.txt")
+				_ = os.Remove("/tmp/sl_arith_out.txt")
+				return nil
+			},
 			SuccessFunc: func(r *EvalResult) bool {
 				data, err := os.ReadFile("/tmp/sl_arith_out.txt")
 				if err != nil {
@@ -55,10 +55,10 @@ func SkillLearningSuite() []TaskCase {
 			Dimension:    DimSkillLearning,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"skill_learning", "file"},
-		CleanupFunc: func() error {
-			_ = os.Remove("/tmp/sl_append.txt")
-			return nil
-		},
+			CleanupFunc: func() error {
+				_ = os.Remove("/tmp/sl_append.txt")
+				return nil
+			},
 			SuccessFunc: func(r *EvalResult) bool {
 				data, err := os.ReadFile("/tmp/sl_append.txt")
 				if err != nil {
@@ -74,11 +74,11 @@ func SkillLearningSuite() []TaskCase {
 			Dimension:    DimSkillLearning,
 			VerifyMethod: VerifyDeterministic,
 			Tags:         []string{"skill_learning", "dependency_chain"},
-		CleanupFunc: func() error {
-			_ = os.Remove("/tmp/sl_chain_a.txt")
-			_ = os.Remove("/tmp/sl_chain_b.txt")
-			return nil
-		},
+			CleanupFunc: func() error {
+				_ = os.Remove("/tmp/sl_chain_a.txt")
+				_ = os.Remove("/tmp/sl_chain_b.txt")
+				return nil
+			},
 			SuccessFunc: func(r *EvalResult) bool {
 				data, err := os.ReadFile("/tmp/sl_chain_b.txt")
 				if err != nil {
@@ -97,11 +97,11 @@ func SkillLearningSuite() []TaskCase {
 			SetupFunc: func() error {
 				return os.WriteFile("/tmp/sl_count_src.txt", []byte("line1\nline2\nline3\nline4\nline5\n"), 0o644)
 			},
-		CleanupFunc: func() error {
-			_ = os.Remove("/tmp/sl_count_src.txt")
-			_ = os.Remove("/tmp/sl_count_out.txt")
-			return nil
-		},
+			CleanupFunc: func() error {
+				_ = os.Remove("/tmp/sl_count_src.txt")
+				_ = os.Remove("/tmp/sl_count_out.txt")
+				return nil
+			},
 			SuccessFunc: func(r *EvalResult) bool {
 				data, err := os.ReadFile("/tmp/sl_count_out.txt")
 				if err != nil {
@@ -492,4 +492,3 @@ func SelfLearningSuite() []TaskCase {
 	all = append(all, MemoryRetentionSuite()...)
 	return all
 }
-
