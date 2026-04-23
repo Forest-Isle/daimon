@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -10,7 +11,10 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
-const dynamicContextMarker = "<!-- DYNAMIC_CONTEXT -->"
+const (
+	dynamicContextMarker = "<!-- DYNAMIC_CONTEXT -->"
+	cacheBoundaryMarker  = "<!-- CACHE_BOUNDARY -->"
+)
 
 // ContextManager abstracts context compression and utilization tracking.
 type ContextManager interface {
@@ -31,6 +35,7 @@ type PipelineContextManager struct {
 	ratio           float64
 	minThresholdPct int // pre-computed from pipeline layers
 	dashEmitter     DashboardEmitter
+	tokenizer       Tokenizer
 }
 
 // SetDashboardEmitter attaches a dashboard emitter for context compression events.
@@ -68,6 +73,7 @@ func NewPipelineContextManager(
 		model:         model,
 		contextWindow: contextWindow,
 		ratio:         ratio,
+		tokenizer:     NewTokenizer(model, ratio),
 	}
 
 	if pipeline != nil && len(pipeline.layers) > 0 {
@@ -134,6 +140,10 @@ func (cm *PipelineContextManager) ReactiveCompress(ctx context.Context, sess *se
 
 // Utilization estimates the fraction of the context window currently consumed.
 func (cm *PipelineContextManager) Utilization(sess *session.Session, systemPrompt string) float64 {
+	if cm.tokenizer != nil {
+		tokens := cm.tokenizer.CountMessages(sess.History(), systemPrompt)
+		return float64(tokens) / float64(cm.contextWindow)
+	}
 	return EstimateUtilization(countContextChars(sess, systemPrompt), cm.ratio, cm.contextWindow)
 }
 
@@ -146,15 +156,63 @@ func countContextChars(sess *session.Session, systemPrompt string) int {
 	return totalChars
 }
 
-// SplitSystemPrompt splits the prompt at the DYNAMIC_CONTEXT marker.
+// SplitSystemPrompt splits the prompt at a cache boundary marker.
+// It checks for CACHE_BOUNDARY first, then falls back to DYNAMIC_CONTEXT.
 // Everything before the marker is static (cacheable), everything after is dynamic.
-// If the marker is absent the entire prompt is static.
+// If neither marker is present the entire prompt is static.
 func (cm *PipelineContextManager) SplitSystemPrompt(full string) (static, dynamic string) {
-	idx := strings.Index(full, dynamicContextMarker)
-	if idx < 0 {
-		return full, ""
+	// Prefer CACHE_BOUNDARY — it gives explicit control over where the split happens.
+	if idx := strings.Index(full, cacheBoundaryMarker); idx >= 0 {
+		return full[:idx], full[idx+len(cacheBoundaryMarker):]
 	}
-	return full[:idx], full[idx+len(dynamicContextMarker):]
+	if idx := strings.Index(full, dynamicContextMarker); idx >= 0 {
+		return full[:idx], full[idx+len(dynamicContextMarker):]
+	}
+	return full, ""
+}
+
+// ReactiveCompressWithRetry implements a multi-level 413 recovery chain:
+//  1. RunForced — run all compression layers unconditionally, then retry.
+//  2. Reduce maxTokens — create a request with fewer output tokens.
+//  3. Final error — if still failing, return an actionable error.
+//
+// The retryFn callback should re-send the API request and return the error
+// (nil on success). The maxTokens parameter is the current request maxTokens.
+func (cm *PipelineContextManager) ReactiveCompressWithRetry(
+	ctx context.Context,
+	sess *session.Session,
+	systemPrompt string,
+	maxTokens int,
+	retryFn func(ctx context.Context, maxTokens int) error,
+) error {
+	// Level 1: forced compression → retry with original maxTokens.
+	if err := cm.ReactiveCompress(ctx, sess, systemPrompt); err != nil {
+		slog.Warn("reactive_compress_retry: forced compression failed", "err", err)
+	}
+	if err := retryFn(ctx, maxTokens); err == nil {
+		slog.Info("reactive_compress_retry: succeeded after forced compression")
+		return nil
+	}
+
+	// Level 2: halve maxTokens and retry.
+	reducedMax := maxTokens / 2
+	if reducedMax < 1024 {
+		reducedMax = 1024
+	}
+	slog.Info("reactive_compress_retry: retrying with reduced maxTokens",
+		"original", maxTokens, "reduced", reducedMax)
+	if err := retryFn(ctx, reducedMax); err == nil {
+		slog.Info("reactive_compress_retry: succeeded with reduced maxTokens", "max_tokens", reducedMax)
+		return nil
+	}
+
+	// Level 3: give up with a descriptive error.
+	util := cm.Utilization(sess, systemPrompt)
+	return fmt.Errorf(
+		"context_length_exceeded: compression and token reduction failed "+
+			"(utilization=%.0f%%, messages=%d, context_window=%d)",
+		util*100, len(sess.History()), cm.contextWindow,
+	)
 }
 
 // aboveMinThreshold returns true if utilization exceeds the lowest layer threshold.

@@ -25,6 +25,7 @@ type CompressionPipeline struct {
 	model         string
 	cfg           config.CompressionConfig
 	contextWindow int // model's context window in tokens
+	tokenizer     Tokenizer
 }
 
 type layerEntry struct {
@@ -52,6 +53,7 @@ func NewCompressionPipeline(
 		model:         model,
 		cfg:           cfg,
 		contextWindow: contextWindow,
+		tokenizer:     NewTokenizer(model, cfg.TokenEstimateRatio),
 	}
 
 	// Register layers in order with their thresholds.
@@ -118,6 +120,10 @@ func (p *CompressionPipeline) RunForced(ctx context.Context, sess *session.Sessi
 
 // estimateUtilization estimates context token usage as a fraction of the model's context window.
 func (p *CompressionPipeline) estimateUtilization(sess *session.Session, systemPrompt string) float64 {
+	if p.tokenizer != nil {
+		tokens := p.tokenizer.CountMessages(sess.History(), systemPrompt)
+		return float64(tokens) / float64(p.contextWindow)
+	}
 	return EstimateUtilization(countContextChars(sess, systemPrompt), p.cfg.TokenEstimateRatio, p.contextWindow)
 }
 
