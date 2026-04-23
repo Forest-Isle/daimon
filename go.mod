@@ -1,6 +1,6 @@
 module github.com/Forest-Isle/IronClaw
 
-go 1.24.2
+go 1.25.9
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.26.0
