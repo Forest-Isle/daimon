@@ -178,85 +178,112 @@ func (r *Reflector) RequestReplanApproval(
 	}
 }
 
+// memoryWriteTimeout is the maximum time allowed for an asynchronous memory
+// write before it is considered failed.
+const memoryWriteTimeout = 30 * time.Second
+
 // saveExperience extracts facts and uses lifecycle management if available.
-// It runs asynchronously (fire-and-forget) to avoid blocking the main cognitive loop.
-// The incoming ctx is intentionally not forwarded to the goroutine; a fresh background
-// context is used so the write is not cancelled when the request context expires.
+// It runs asynchronously with a timeout-bounded confirmation so that failures
+// are logged rather than silently dropped. The incoming ctx is intentionally
+// not forwarded; a fresh background context with a 30s timeout is used so the
+// write is not cancelled when the request context expires.
 func (r *Reflector) saveExperience(_ context.Context, ch channel.Channel, target channel.MessageTarget, state *CognitiveState, plan *TaskPlan, reflection *Reflection) {
 	if r.memStore == nil {
 		return
 	}
 
+	writeCtx, cancel := context.WithTimeout(context.Background(), memoryWriteTimeout)
+
+	done := make(chan error, 1)
 	go func() {
-		bgCtx := context.Background()
-
-		if r.factExtractor != nil && r.lifecycleMgr != nil {
-			// Extract distilled facts from the goal/outcome pair.
-			facts, err := r.factExtractor.Extract(bgCtx, state.Goal.Raw, reflection.FinalAnswer)
-			if err != nil {
-				slog.Warn("reflect: fact extraction failed", "err", err)
-			} else {
-				var summary memory.MemoryOperationSummary
-				for _, fact := range facts {
-					result, err := r.lifecycleMgr.Process(bgCtx, fact, state.SessionID, state.UserID, memory.ScopeSession)
-					if err != nil {
-						slog.Warn("reflect: lifecycle process failed", "err", err, "fact", fact.Content)
-						continue
-					}
-					if result != nil {
-						switch result.Action {
-						case memory.ActionADD:
-							summary.Added++
-						case memory.ActionUPDATE:
-							summary.Updated++
-						case memory.ActionDELETE:
-							summary.Deleted++
-						}
-					}
-				}
-				// Send notification if there were changes
-				if summary.HasChanges() && r.memoryNotify != nil {
-					r.memoryNotify(bgCtx, ch, target, summary.String())
-				}
-				if len(facts) > 0 {
-					// Facts extracted and lifecycle-managed; skip raw experience save.
-					// Still extract graph entities below.
-					r.extractGraphEntities(bgCtx, state, reflection)
-					return
-				}
-			}
-		}
-
-		// Fallback: save raw cognitive experience to the legacy memories table.
-		var sb strings.Builder
-		_, _ = fmt.Fprintf(&sb, "GOAL: %s\n", state.Goal.Raw)
-		_, _ = fmt.Fprintf(&sb, "PLAN: %s\n", plan.Summary)
-		_, _ = fmt.Fprintf(&sb, "OUTCOME: succeeded=%v, confidence=%.2f\n", reflection.Succeeded, reflection.OverallConfidence)
-		if len(reflection.LessonsLearned) > 0 {
-			sb.WriteString("LESSONS:\n")
-			for _, lesson := range reflection.LessonsLearned {
-				sb.WriteString("- " + lesson + "\n")
-			}
-		}
-
-		err := r.memStore.Save(bgCtx, memory.Entry{
-			ID:        fmt.Sprintf("exp_%d", time.Now().UnixNano()),
-			Scope:     memory.ScopeSession,
-			SessionID: state.SessionID,
-			Content:   sb.String(),
-			Metadata: map[string]string{
-				"type":       "cognitive_experience",
-				"complexity": string(state.Goal.Complexity),
-				"succeeded":  fmt.Sprintf("%v", reflection.Succeeded),
-			},
-			CreatedAt: time.Now(),
-		})
-		if err != nil {
-			slog.Warn("reflect: failed to save experience to memory.md", "err", err)
-		}
-
-		r.extractGraphEntities(bgCtx, state, reflection)
+		done <- r.doMemoryWrite(writeCtx, ch, target, state, plan, reflection)
 	}()
+
+	// Wait for completion or timeout in a separate goroutine so we don't
+	// block the main cognitive loop, but still observe the outcome.
+	go func() {
+		defer cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				slog.Warn("reflect: memory write failed", "err", err)
+			}
+		case <-writeCtx.Done():
+			slog.Warn("reflect: memory write timed out")
+		}
+	}()
+}
+
+// doMemoryWrite performs the actual memory persistence work. It returns the
+// first meaningful error encountered (or nil on success).
+func (r *Reflector) doMemoryWrite(ctx context.Context, ch channel.Channel, target channel.MessageTarget, state *CognitiveState, plan *TaskPlan, reflection *Reflection) error {
+	if r.factExtractor != nil && r.lifecycleMgr != nil {
+		// Extract distilled facts from the goal/outcome pair.
+		facts, err := r.factExtractor.Extract(ctx, state.Goal.Raw, reflection.FinalAnswer)
+		if err != nil {
+			slog.Warn("reflect: fact extraction failed", "err", err)
+		} else {
+			var summary memory.MemoryOperationSummary
+			for _, fact := range facts {
+				result, err := r.lifecycleMgr.Process(ctx, fact, state.SessionID, state.UserID, memory.ScopeSession)
+				if err != nil {
+					slog.Warn("reflect: lifecycle process failed", "err", err, "fact", fact.Content)
+					continue
+				}
+				if result != nil {
+					switch result.Action {
+					case memory.ActionADD:
+						summary.Added++
+					case memory.ActionUPDATE:
+						summary.Updated++
+					case memory.ActionDELETE:
+						summary.Deleted++
+					}
+				}
+			}
+			// Send notification if there were changes
+			if summary.HasChanges() && r.memoryNotify != nil {
+				r.memoryNotify(ctx, ch, target, summary.String())
+			}
+			if len(facts) > 0 {
+				// Facts extracted and lifecycle-managed; skip raw experience save.
+				// Still extract graph entities below.
+				r.extractGraphEntities(ctx, state, reflection)
+				return nil
+			}
+		}
+	}
+
+	// Fallback: save raw cognitive experience to the legacy memories table.
+	var sb strings.Builder
+	_, _ = fmt.Fprintf(&sb, "GOAL: %s\n", state.Goal.Raw)
+	_, _ = fmt.Fprintf(&sb, "PLAN: %s\n", plan.Summary)
+	_, _ = fmt.Fprintf(&sb, "OUTCOME: succeeded=%v, confidence=%.2f\n", reflection.Succeeded, reflection.OverallConfidence)
+	if len(reflection.LessonsLearned) > 0 {
+		sb.WriteString("LESSONS:\n")
+		for _, lesson := range reflection.LessonsLearned {
+			sb.WriteString("- " + lesson + "\n")
+		}
+	}
+
+	err := r.memStore.Save(ctx, memory.Entry{
+		ID:        fmt.Sprintf("exp_%d", time.Now().UnixNano()),
+		Scope:     memory.ScopeSession,
+		SessionID: state.SessionID,
+		Content:   sb.String(),
+		Metadata: map[string]string{
+			"type":       "cognitive_experience",
+			"complexity": string(state.Goal.Complexity),
+			"succeeded":  fmt.Sprintf("%v", reflection.Succeeded),
+		},
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		return fmt.Errorf("save experience: %w", err)
+	}
+
+	r.extractGraphEntities(ctx, state, reflection)
+	return nil
 }
 
 // extractGraphEntities populates the knowledge graph from the goal/outcome pair.

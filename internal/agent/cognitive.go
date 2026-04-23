@@ -704,6 +704,13 @@ persist:
 		ca.dispatchEvolutionEvents(state, plan, obsResult, reflection, userFeedback, cognitiveTurnStart)
 	}
 
+	// Wait for any in-flight evolution hooks to complete before persisting
+	// the session, so that hook side-effects (e.g. trajectory writes) are
+	// flushed and consistent with the persisted state.
+	if ca.evoEngine != nil {
+		ca.evoEngine.WaitPending()
+	}
+
 	// Persist session
 	if err := ca.sessions.Persist(ctx, sess); err != nil {
 		slog.Error("cognitive: failed to persist session", "err", err)
@@ -962,6 +969,10 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 			})
 		}
 	}
+
+	// Barrier: ensure all tool event hooks have finished before dispatching
+	// episode/reflection events that may read per-tool buffers.
+	ca.evoEngine.WaitPending()
 
 	// Dispatch reflection event (feeds PreferenceLearner).
 	succeeded := reflection != nil && reflection.Succeeded

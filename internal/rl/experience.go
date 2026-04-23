@@ -5,6 +5,10 @@ import (
 	"sync"
 )
 
+// MaxBufferSize is the hard upper limit for experience buffer capacity.
+// This prevents unbounded memory growth if callers specify a very large capacity.
+const MaxBufferSize = 1000
+
 // Experience represents a single (state, action, reward, next_state, done) tuple.
 type Experience struct {
 	State     *RLState
@@ -25,7 +29,14 @@ type ExperienceBuffer struct {
 }
 
 // NewExperienceBuffer creates a new experience replay buffer.
+// The capacity is clamped to MaxBufferSize to prevent unbounded memory growth.
 func NewExperienceBuffer(capacity int) *ExperienceBuffer {
+	if capacity <= 0 {
+		capacity = MaxBufferSize
+	}
+	if capacity > MaxBufferSize {
+		capacity = MaxBufferSize
+	}
 	return &ExperienceBuffer{
 		buffer:   make([]Experience, capacity),
 		capacity: capacity,
@@ -131,7 +142,14 @@ type PrioritizedExperienceBuffer struct {
 }
 
 // NewPrioritizedExperienceBuffer creates a prioritized replay buffer.
+// The capacity is clamped to MaxBufferSize to prevent unbounded memory growth.
 func NewPrioritizedExperienceBuffer(capacity int, alpha float64) *PrioritizedExperienceBuffer {
+	if capacity <= 0 {
+		capacity = MaxBufferSize
+	}
+	if capacity > MaxBufferSize {
+		capacity = MaxBufferSize
+	}
 	return &PrioritizedExperienceBuffer{
 		buffer:     make([]Experience, capacity),
 		priorities: make([]float64, capacity),
