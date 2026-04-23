@@ -22,6 +22,7 @@ type SkillSynthesizer struct {
 	tracker   *PatternTracker
 	generated map[string]bool // tracks pattern keys that already have a draft
 	proposer  SkillProposer
+	activator *SkillActivator // optional: auto-promote drafts through safety gates
 	mu        sync.Mutex
 }
 
@@ -37,6 +38,13 @@ func NewSkillSynthesizer(cfg SynthesizerConfig) *SkillSynthesizer {
 // SetSkillProposer wires an optional LLM-backed proposer (typically from the gateway).
 func (s *SkillSynthesizer) SetSkillProposer(p SkillProposer) {
 	s.proposer = p
+}
+
+// SetActivator wires an optional SkillActivator for automatic draft promotion.
+// When set, newly written drafts are immediately validated through safety gates
+// and promoted to the active directory if they pass.
+func (s *SkillSynthesizer) SetActivator(a *SkillActivator) {
+	s.activator = a
 }
 
 func (s *SkillSynthesizer) minUniqueTools() int {
@@ -136,6 +144,24 @@ func (s *SkillSynthesizer) OnEpisodeComplete(ctx context.Context, event EpisodeE
 			"avg_reward", c.AvgReward,
 			"llm", usedLLM,
 		)
+
+		// Attempt auto-promotion through safety gates if activator is set.
+		if s.activator != nil {
+			draft := SkillDraft{
+				Name:            fileKey,
+				Description:     content,
+				ToolSequence:    c.Tools,
+				OccurrenceCount: c.Count,
+				AvgReward:       c.AvgReward,
+				LastCollapsed:   strings.Join(c.LastCollapsedSequence, " → "),
+			}
+			if promoted, gate, reason := s.activator.PromoteDraft(draft); promoted {
+				slog.Info("skill_synthesizer: draft auto-promoted", "pattern", c.ID)
+			} else {
+				slog.Info("skill_synthesizer: draft not auto-promoted",
+					"pattern", c.ID, "gate", gate, "reason", reason)
+			}
+		}
 	}
 }
 
