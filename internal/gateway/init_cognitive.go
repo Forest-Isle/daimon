@@ -101,7 +101,19 @@ func (gw *Gateway) registerEvolutionHooks() {
 				"err", err)
 		} else {
 			synthCfg.DraftsDir = p
-			gw.evoEngine.RegisterHook(evolution.NewSkillSynthesizer(synthCfg))
+			ss := evolution.NewSkillSynthesizer(synthCfg)
+			if synthCfg.LLMEnabled && gw.provider != nil {
+				model := synthCfg.LLMModel
+				if model == "" {
+					model = gw.cfg.LLM.Model
+				}
+				if proposer := newSkillDraftProposer(gw.provider, model); proposer != nil {
+					ss.SetSkillProposer(proposer)
+				} else if model == "" {
+					slog.Warn("gateway: evolution: synthesizer llm_enabled but no llm.model, using heuristic-only drafts")
+				}
+			}
+			gw.evoEngine.RegisterHook(ss)
 		}
 	}
 

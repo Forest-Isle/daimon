@@ -12,6 +12,35 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
 
+func TestRunTask_SkillEvolutionDraftQuality(t *testing.T) {
+	ctx := context.Background()
+	r := &CognitiveAgentRunner{
+		agent:   &agent.CognitiveAgent{},
+		channel: &EvalChannel{},
+	}
+	res, err := r.RunTask(ctx, TaskCase{
+		ID:         TaskIDSkillEvolutionDraftQuality,
+		Goal:       "[offline] skill draft check",
+		Complexity: "simple",
+		Dimension:  DimSkillEvolution,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.SkillEvolution == nil {
+		t.Fatal("expected SkillEvolution metrics")
+	}
+	if res.SkillEvolution.Score < 0.65 {
+		t.Fatalf("expected score >= 0.65, got %f fails=%v", res.SkillEvolution.Score, res.SkillEvolution.ChecksFailed)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, err=%q score=%f", res.Error, res.FinalScore)
+	}
+	if res.Dimension != DimSkillEvolution {
+		t.Errorf("dimension = %s", res.Dimension)
+	}
+}
+
 func TestEvalChannel_AutoApproves(t *testing.T) {
 	ch := &EvalChannel{}
 	approved, err := ch.SendApprovalRequest(context.Background(), channel.MessageTarget{}, "bash", "rm -rf /")

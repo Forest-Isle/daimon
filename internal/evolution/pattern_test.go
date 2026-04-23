@@ -28,13 +28,13 @@ func TestPatternTracker_EmptyAndShort(t *testing.T) {
 
 	// Empty sequence produces nothing.
 	pt.TrackEpisode(EpisodeEvent{ToolSequence: nil, TotalReward: 1})
-	if got := pt.GetCandidates(1, 0); len(got) != 0 {
+	if got := pt.GetCandidates(1, 0, 2); len(got) != 0 {
 		t.Fatalf("nil sequence: want 0 candidates, got %d", len(got))
 	}
 
 	// Single-tool sequence also produces nothing (min window = 2).
 	pt.TrackEpisode(EpisodeEvent{ToolSequence: []string{"a"}, TotalReward: 1})
-	if got := pt.GetCandidates(1, 0); len(got) != 0 {
+	if got := pt.GetCandidates(1, 0, 2); len(got) != 0 {
 		t.Fatalf("single tool: want 0 candidates, got %d", len(got))
 	}
 }
@@ -62,7 +62,7 @@ func TestPatternTracker_WindowCounts(t *testing.T) {
 				TotalReward:  1.0,
 				Timestamp:    time.Now(),
 			})
-			got := pt.GetCandidates(1, 0)
+			got := pt.GetCandidates(1, 0, 2)
 			if len(got) != tt.count {
 				t.Errorf("seq %v: want %d patterns, got %d", tt.seq, tt.count, len(got))
 			}
@@ -82,7 +82,7 @@ func TestPatternTracker_RunningAverage(t *testing.T) {
 		})
 	}
 
-	candidates := pt.GetCandidates(1, 0)
+	candidates := pt.GetCandidates(1, 0, 2)
 	var found bool
 	for _, c := range candidates {
 		if c.ID == "a|b" {
@@ -115,7 +115,7 @@ func TestPatternTracker_OrderIndependent(t *testing.T) {
 		Timestamp:    time.Now(),
 	})
 
-	candidates := pt.GetCandidates(2, 0)
+	candidates := pt.GetCandidates(2, 0, 2)
 	if len(candidates) != 1 {
 		t.Fatalf("want 1 candidate, got %d", len(candidates))
 	}
@@ -154,12 +154,28 @@ func TestPatternTracker_GetCandidates_Filtering(t *testing.T) {
 	})
 
 	// count >= 3, reward >= 0.5 → only a|b qualifies
-	candidates := pt.GetCandidates(3, 0.5)
+	candidates := pt.GetCandidates(3, 0.5, 2)
 	if len(candidates) != 1 {
 		t.Fatalf("want 1 candidate, got %d", len(candidates))
 	}
 	if candidates[0].ID != "a|b" {
 		t.Errorf("want a|b, got %s", candidates[0].ID)
+	}
+}
+
+func TestPatternTracker_RepeatedToolRunCollapses(t *testing.T) {
+	pt := NewPatternTracker()
+	pt.TrackEpisode(EpisodeEvent{
+		ToolSequence: []string{"bash", "bash", "bash", "bash", "file_write"},
+		TotalReward:  0.8,
+		Timestamp:    time.Now(),
+	})
+	// No window should be only "bash" repeated — high-signal pattern is bash|file_write.
+	candidates := pt.GetCandidates(1, 0, 2)
+	for _, c := range candidates {
+		if c.ID == "bash" || c.ID == "bash|bash" {
+			t.Fatalf("unexpected homogeneous pattern: %q", c.ID)
+		}
 	}
 }
 
@@ -180,7 +196,7 @@ func TestPatternTracker_TimestampTracking(t *testing.T) {
 		Timestamp:    t2,
 	})
 
-	candidates := pt.GetCandidates(1, 0)
+	candidates := pt.GetCandidates(1, 0, 2)
 	for _, c := range candidates {
 		if c.ID == "a|b" {
 			if !c.FirstSeen.Equal(t1) {

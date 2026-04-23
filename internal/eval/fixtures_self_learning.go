@@ -514,5 +514,6 @@ func SelfLearningSuite() []TaskCase {
 	all = append(all, SkillLearningSuite()...)
 	all = append(all, PreferenceAdherenceSuite()...)
 	all = append(all, MemoryRetentionSuite()...)
+	all = append(all, SkillEvolutionSuite()...)
 	return all
 }

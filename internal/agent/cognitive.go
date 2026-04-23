@@ -1005,17 +1005,18 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 	}
 
 	ca.evoEngine.DispatchEpisode(evolution.EpisodeEvent{
-		SessionID:    state.SessionID,
-		EpisodeID:    fmt.Sprintf("ep_%d", now.UnixNano()),
-		Goal:         state.Goal.Raw,
-		Complexity:   string(state.Goal.Complexity),
-		Succeeded:    succeeded,
-		TotalReward:  totalReward,
-		ToolSequence: toolsUsed,
-		ReplanCount:  replanCount,
-		DurationMs:   durationMs,
-		UserFeedback: userFeedback,
-		Timestamp:    now,
+		SessionID:      state.SessionID,
+		EpisodeID:      fmt.Sprintf("ep_%d", now.UnixNano()),
+		Goal:           state.Goal.Raw,
+		Complexity:     string(state.Goal.Complexity),
+		Succeeded:      succeeded,
+		TotalReward:    totalReward,
+		ToolSequence:   toolsUsed,
+		LessonsLearned: lessons,
+		ReplanCount:    replanCount,
+		DurationMs:     durationMs,
+		UserFeedback:   userFeedback,
+		Timestamp:      now,
 	})
 }
 

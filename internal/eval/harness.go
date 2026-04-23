@@ -118,6 +118,17 @@ type EvalResult struct {
 	CompressionCount  int                `json:"compression_count,omitempty"`
 	CompressionEvents []CompressionEvent `json:"compression_events,omitempty"`
 	UserFeedback      float64            `json:"user_feedback,omitempty"`
+	// SkillEvolution is set for DimSkillEvolution / offline skill synthesizer tests.
+	SkillEvolution *SkillEvolutionEval `json:"skill_evolution,omitempty"`
+}
+
+// SkillEvolutionEval records Heuristic draft quality (ScoreSkillDraftMarkdown) for the skill_evolution dimension.
+type SkillEvolutionEval struct {
+	Score        float64  `json:"score"`
+	ChecksPassed []string `json:"checks_passed,omitempty"`
+	ChecksFailed []string `json:"checks_failed,omitempty"`
+	SamplePath   string   `json:"sample_draft_path,omitempty"`
+	MinPass      float64  `json:"min_pass,omitempty"`
 }
 
 type VerifyResult struct {
@@ -395,7 +406,10 @@ func RunSuiteWithOptions(ctx context.Context, runID string, tasks []TaskCase, ru
 			}
 		}
 
-		result.FinalScore = ComputeFinalScore(task.VerifyMethod, vr, jr, result.AssertionPassRate)
+		// Skill evolution (offline) tasks set FinalScore on the result; do not overwrite.
+		if result.SkillEvolution == nil {
+			result.FinalScore = ComputeFinalScore(task.VerifyMethod, vr, jr, result.AssertionPassRate)
+		}
 
 		suite.Results = append(suite.Results, *result)
 

@@ -310,6 +310,7 @@ func FullSuite() []TaskCase {
 	all = append(all, SkillLearningSuite()...)
 	all = append(all, PreferenceAdherenceSuite()...)
 	all = append(all, MemoryRetentionSuite()...)
+	all = append(all, SkillEvolutionSuite()...)
 	return all
 }
 
@@ -329,6 +330,7 @@ func AllSuites() map[string]func() []TaskCase {
 		"skill_learning":       SkillLearningSuite,
 		"preference_adherence": PreferenceAdherenceSuite,
 		"memory_retention":     MemoryRetentionSuite,
+		"skill_evolution":      SkillEvolutionSuite,
 		"self_learning":        SelfLearningSuite,
 		"full":                 FullSuite,
 	}

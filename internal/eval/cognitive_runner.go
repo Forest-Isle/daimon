@@ -168,6 +168,10 @@ func (a *compressionAdapter) EmitSubAgentComplete(_ string, _ string, _ bool, _ 
 
 // RunTask executes a single evaluation task against the cognitive agent.
 func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*EvalResult, error) {
+	if task.ID == TaskIDSkillEvolutionDraftQuality {
+		return RunSkillEvolutionDimensionCheck(ctx, task)
+	}
+
 	sessions := r.agent.Sessions()
 	if sessions == nil {
 		return nil, fmt.Errorf("cognitive agent has no session manager")
@@ -535,3 +539,4 @@ func populatePreferenceQuality(snap *EvolutionSnapshot, pl *evolution.Preference
 	}
 	snap.PreferenceAvgConfidence = sumConf / float64(len(all))
 }
+

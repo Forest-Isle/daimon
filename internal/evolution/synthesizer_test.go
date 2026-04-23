@@ -132,9 +132,10 @@ func TestSynthesizer_DraftContent(t *testing.T) {
 		"name: auto_bash_file_write",
 		"status: draft",
 		"auto_generated: true",
+		"source: evolution",
 		"description:",
-		"bash, file_write",
-		"2 occurrences",
+		"## Suggested procedure",
+		"## What this captures",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("draft missing %q\n---\n%s", want, content)
@@ -224,6 +225,81 @@ func TestSynthesizer_FiveEpisodesCommonSequence(t *testing.T) {
 	path := filepath.Join(dir, "SKILL_edit_grep.md")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Errorf("expected SKILL_edit_grep.md to exist")
+	}
+}
+
+// TestSynthesizer_AcceptanceHeuristic validates post-refactor drafts: run-length collapse,
+// min-unique filter, and task context (goal + lessons) — not a raw tool stack.
+func TestSynthesizer_AcceptanceHeuristic(t *testing.T) {
+	dir := t.TempDir()
+	s := NewSkillSynthesizer(SynthesizerConfig{
+		Enabled:          true,
+		PatternThreshold: 3,
+		RewardThreshold:  0.5,
+		MinUniqueTools:     2,
+		DraftsDir:        dir,
+		LLMEnabled:       false,
+	})
+	ctx := context.Background()
+	seq := []string{
+		"file_read", "file_read", "bash", "bash", "file_write", "file_write",
+	}
+	goal := "Add regression tests and fix the failing CI job"
+	lessons := []string{
+		"Run tests locally before push.",
+		"Prefer smaller commits when fixing CI.",
+	}
+	for range 3 {
+		s.OnEpisodeComplete(ctx, EpisodeEvent{
+			SessionID:      "s-acc",
+			Goal:           goal,
+			Complexity:     "complex",
+			Succeeded:      true,
+			TotalReward:    0.86,
+			ToolSequence:   append([]string(nil), seq...),
+			LessonsLearned: lessons,
+			Timestamp:      time.Now(),
+		})
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ents) == 0 {
+		t.Fatal("expected at least one draft")
+	}
+	// file_read|file_write|bash after sorting per window: expect file_read+file_write pattern etc.
+	var content string
+	for _, e := range ents {
+		b, eerr := os.ReadFile(filepath.Join(dir, e.Name()))
+		if eerr != nil {
+			t.Fatal(eerr)
+		}
+		if strings.HasPrefix(e.Name(), "SKILL_") && strings.HasSuffix(e.Name(), ".md") {
+			content = string(b)
+			t.Logf("=== sample draft %s ===\n%s", e.Name(), content)
+			break
+		}
+	}
+	if content == "" {
+		t.Fatal("no SKILL_*.md content read")
+	}
+	for _, need := range []string{
+		"## What this captures",
+		"## User goal (most recent session that matched this pattern)",
+		goal,
+		"## Task complexity (from that session)",
+		"complex",
+		"## Notes from prior reflections",
+		"Run tests locally",
+		"## Suggested procedure",
+	} {
+		if !strings.Contains(content, need) {
+			t.Errorf("draft should contain %q", need)
+		}
+	}
+	if strings.Contains(content, "bash -> bash -> bash") || strings.Contains(content, "bash → bash → bash") {
+		t.Error("draft should not advertise raw repeated bash as the core workflow")
 	}
 }
 

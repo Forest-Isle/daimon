@@ -13,7 +13,11 @@ import (
 // CognitiveAgentRunner through the gateway.
 type DryRunner struct{}
 
-func (d *DryRunner) RunTask(_ context.Context, task TaskCase) (*EvalResult, error) {
+func (d *DryRunner) RunTask(ctx context.Context, task TaskCase) (*EvalResult, error) {
+	if task.ID == TaskIDSkillEvolutionDraftQuality {
+		return RunSkillEvolutionDimensionCheck(ctx, task)
+	}
+
 	start := time.Now()
 
 	agentOutput := fmt.Sprintf("Dry-run result for task %s: all checks passed.", task.ID)

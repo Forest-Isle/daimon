@@ -312,7 +312,7 @@ func newEvalListCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&suite, "suite", "all", "suite to list: 'all' shows every named suite, or specify a name (builtin, evolution, workload, planning, error_recovery, tool_selection, conversation, memory, knowledge, multi_agent, full)")
+	cmd.Flags().StringVar(&suite, "suite", "all", "suite to list: 'all' shows every named suite, or specify a name (builtin, evolution, workload, planning, error_recovery, tool_selection, conversation, memory, knowledge, multi_agent, skill_evolution, self_learning, full, ...)")
 	return cmd
 }
 

@@ -25,17 +25,18 @@ type ReflectionEvent struct {
 
 // EpisodeEvent carries data from a completed RL episode recording.
 type EpisodeEvent struct {
-	SessionID    string
-	EpisodeID    string
-	Goal         string
-	Complexity   string
-	Succeeded    bool
-	TotalReward  float64
-	ToolSequence []string // ordered tool names used
-	ReplanCount  int
-	DurationMs   int64
-	UserFeedback float64
-	Timestamp    time.Time
+	SessionID      string
+	EpisodeID      string
+	Goal           string
+	Complexity     string
+	Succeeded      bool
+	TotalReward    float64
+	ToolSequence   []string   // ordered tool names used
+	LessonsLearned []string   // from REFLECT (cognitive), empty for simple mode
+	ReplanCount    int
+	DurationMs     int64
+	UserFeedback   float64
+	Timestamp      time.Time
 }
 
 // ToolExecEvent carries data from a single tool execution.

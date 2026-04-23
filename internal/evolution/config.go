@@ -37,8 +37,15 @@ type SynthesizerConfig struct {
 	Enabled          bool    `yaml:"enabled"`
 	PatternThreshold int     `yaml:"pattern_threshold"` // min occurrences to trigger skill draft
 	RewardThreshold  float64 `yaml:"reward_threshold"`  // min avg reward for pattern to qualify
-	DraftsDir        string  `yaml:"drafts_dir"`        // relative to ~/.IronClaw/skills/
-	AutoNotify       bool    `yaml:"auto_notify"`       // notify user on next session start
+	// MinUniqueTools drops patterns that use only a single tool name (e.g. many repeated bash
+	// calls) so drafts reflect multi-tool task workflows, not "command spam".
+	MinUniqueTools int `yaml:"min_unique_tools"`
+	// LLMEnabled uses SkillPropose (injected from gateway) to turn statistics + last goal/sequence
+	// into a real procedure-style SKILL.md, similar to Hermes skill_learner.
+	LLMEnabled bool   `yaml:"llm_enabled"`
+	LLMModel   string `yaml:"llm_model"` // empty = same as top-level llm.model
+	DraftsDir  string `yaml:"drafts_dir"`  // relative to ~/.IronClaw/skills/
+	AutoNotify bool   `yaml:"auto_notify"`  // notify user on next session start
 }
 
 // OptimizerConfig controls Loop 3: tuning cognitive agent parameters.
@@ -67,6 +74,8 @@ func DefaultConfig() Config {
 			Enabled:          true,
 			PatternThreshold: 3,
 			RewardThreshold:  0.5,
+			MinUniqueTools:   2,
+			LLMEnabled:       false, // set true + top-level LLM to use procedure extraction (see gateway skill proposer)
 			DraftsDir:        "drafts",
 			AutoNotify:       true,
 		},

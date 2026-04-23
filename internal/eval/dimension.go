@@ -17,6 +17,8 @@ const (
 	DimSkillLearning       Dimension = "skill_learning"
 	DimPreferenceAdherence Dimension = "preference_adherence"
 	DimMemoryRetention     Dimension = "memory_retention"
+	// DimSkillEvolution assesses automatic skill draft quality (evolution skill synthesizer / Loop 2).
+	DimSkillEvolution Dimension = "skill_evolution"
 )
 
 // AllDimensions returns the full list of recognized dimensions.
@@ -24,7 +26,7 @@ func AllDimensions() []Dimension {
 	return []Dimension{
 		DimTaskExecution, DimPlanning, DimErrorRecovery, DimToolSelection,
 		DimConversation, DimMemory, DimKnowledge, DimMultiAgent,
-		DimSkillLearning, DimPreferenceAdherence, DimMemoryRetention,
+		DimSkillLearning, DimPreferenceAdherence, DimMemoryRetention, DimSkillEvolution,
 	}
 }
 
