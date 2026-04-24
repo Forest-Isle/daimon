@@ -42,6 +42,7 @@ type CognitiveAgent struct {
 	skillMgr        *skill.Manager
 	agentMgr        *AgentManager
 	orchestrator    *AgentOrchestrator
+	teamManager     *TeamManager
 	entityExtractor *graph.LLMEntityExtractor
 	rlPolicy        RLPolicy  // RL policy interface (nil if disabled)
 	rlTrainer       RLTrainer // RL trainer interface (nil if disabled)
@@ -221,6 +222,11 @@ func (ca *CognitiveAgent) SetDebateConfig(cfg config.DebateSettings) {
 // SetOrchestrator injects an agent orchestrator into the cognitive agent.
 func (ca *CognitiveAgent) SetOrchestrator(o *AgentOrchestrator) {
 	ca.orchestrator = o
+}
+
+// SetTeamManager injects a team manager for multi-agent team coordination.
+func (ca *CognitiveAgent) SetTeamManager(tm *TeamManager) {
+	ca.teamManager = tm
 }
 
 // SetEvolutionEngine injects the self-evolution event dispatcher.

@@ -71,6 +71,15 @@ func (gw *Gateway) initMultiAgent() error {
 		if gw.cognitiveAgent != nil {
 			gw.cognitiveAgent.SetDebateConfig(gw.cfg.Agents.Debate)
 		}
+		// Team coordination manager
+		if gw.cfg.Agent.Team.Enabled {
+			teamMgr := agent.NewTeamManager(subAgentMgr)
+			gw.teamManager = teamMgr
+			if gw.cognitiveAgent != nil {
+				gw.cognitiveAgent.SetTeamManager(teamMgr)
+			}
+			slog.Info("agent team manager initialized", "max_workers", gw.cfg.Agent.Team.MaxWorkers)
+		}
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
 	}
 

@@ -66,6 +66,7 @@ type Gateway struct {
 	taskLedger       *taskledger.SQLiteTaskLedger
 	teamCoordinator  *taskledger.TeamCoordinator
 	subAgentMgr      *agent.SubAgentManager
+	teamManager      *agent.TeamManager
 	staleDetector    *taskledger.StaleDetector
 	dashboardBus     *dashboard.Bus
 	dashboardHub     *dashboard.Hub
