@@ -18,12 +18,13 @@ import (
 // When a SkillProposer is set and LLMEnabled, drafts are generated as
 // task-oriented procedures (Hermes-style) instead of raw tool chains.
 type SkillSynthesizer struct {
-	cfg       SynthesizerConfig
-	tracker   *PatternTracker
-	generated map[string]bool // tracks pattern keys that already have a draft
-	proposer  SkillProposer
-	activator *SkillActivator // optional: auto-promote drafts through safety gates
-	mu        sync.Mutex
+	cfg            SynthesizerConfig
+	tracker        *PatternTracker
+	generated      map[string]bool    // tracks pattern keys that already have a draft
+	proposer       SkillProposer
+	activator      *SkillActivator    // optional: auto-promote drafts through safety gates
+	toolPriorities map[string]float64 // advisory priorities from StrategyOptimizer (set by Brain)
+	mu             sync.Mutex
 }
 
 // NewSkillSynthesizer creates a synthesizer with a fresh pattern tracker.
