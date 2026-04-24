@@ -209,7 +209,7 @@ func readTrajectories(dir string, since time.Time) ([]TrajectoryRecord, error) {
 				results = append(results, rec)
 			}
 		}
-		f.Close()
+		_ = f.Close()
 	}
 	return results, nil
 }
@@ -342,12 +342,16 @@ func formatToolSequence(tools []ToolRecord) string {
 }
 
 // writeJSONL writes a slice of JSON-serializable values as newline-delimited JSON.
-func writeJSONL[T any](path string, items []T) error {
+func writeJSONL[T any](path string, items []T) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close %s: %w", path, cerr)
+		}
+	}()
 
 	w := bufio.NewWriter(f)
 	enc := json.NewEncoder(w)

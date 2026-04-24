@@ -81,8 +81,12 @@ func TestNeighborsPaginated_EdgeTypeFilter(t *testing.T) {
 	aID, _ := g.UpsertNode(ctx, Node{Type: "person", Name: "A"})
 	bID, _ := g.UpsertNode(ctx, Node{Type: "org", Name: "B"})
 
-	g.UpsertEdge(ctx, Edge{SourceID: hubID, TargetID: aID, Type: "knows"})
-	g.UpsertEdge(ctx, Edge{SourceID: hubID, TargetID: bID, Type: "works_at"})
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: hubID, TargetID: aID, Type: "knows"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: hubID, TargetID: bID, Type: "works_at"}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Filter by "knows" only
 	result, err := g.NeighborsPaginated(ctx, hubID, "knows", 0, 10)
@@ -131,9 +135,15 @@ func TestTraversePaginated(t *testing.T) {
 	cID, _ := g.UpsertNode(ctx, Node{Type: "person", Name: "C"})
 	dID, _ := g.UpsertNode(ctx, Node{Type: "person", Name: "D"})
 
-	g.UpsertEdge(ctx, Edge{SourceID: aID, TargetID: bID, Type: "knows"})
-	g.UpsertEdge(ctx, Edge{SourceID: bID, TargetID: cID, Type: "knows"})
-	g.UpsertEdge(ctx, Edge{SourceID: cID, TargetID: dID, Type: "knows"})
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: aID, TargetID: bID, Type: "knows"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: bID, TargetID: cID, Type: "knows"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.UpsertEdge(ctx, Edge{SourceID: cID, TargetID: dID, Type: "knows"}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Traverse 3 levels from A, page size 2
 	page1, err := g.TraversePaginated(ctx, aID, 3, 0, 2)

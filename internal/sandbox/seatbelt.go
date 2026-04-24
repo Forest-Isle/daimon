@@ -93,21 +93,21 @@ func (s *Seatbelt) generateProfile(workDir string, opts ExecOptions) string {
 
 	// Allow read/write to work directory
 	if workDir != "" {
-		b.WriteString(fmt.Sprintf("(allow file-read* file-write* (subpath \"%s\"))\n", escapeSBPL(workDir)))
+		fmt.Fprintf(&b, "(allow file-read* file-write* (subpath \"%s\"))\n", escapeSBPL(workDir))
 	}
 
 	// Allow read/write to additional allowed paths
 	for _, p := range opts.AllowedPaths {
-		b.WriteString(fmt.Sprintf("(allow file-read* file-write* (subpath \"%s\"))\n", escapeSBPL(p)))
+		fmt.Fprintf(&b, "(allow file-read* file-write* (subpath \"%s\"))\n", escapeSBPL(p))
 	}
 
 	// Allow read-only paths
 	for _, p := range opts.ReadOnlyPaths {
-		b.WriteString(fmt.Sprintf("(allow file-read* (subpath \"%s\"))\n", escapeSBPL(p)))
+		fmt.Fprintf(&b, "(allow file-read* (subpath \"%s\"))\n", escapeSBPL(p))
 	}
 	// Config-level read-only dirs
 	for _, p := range s.cfg.ReadonlyDirs {
-		b.WriteString(fmt.Sprintf("(allow file-read* (subpath \"%s\"))\n", escapeSBPL(p)))
+		fmt.Fprintf(&b, "(allow file-read* (subpath \"%s\"))\n", escapeSBPL(p))
 	}
 
 	// Allow temp directory access
@@ -133,7 +133,7 @@ func (s *Seatbelt) generateProfile(workDir string, opts ExecOptions) string {
 		b.WriteString("(allow network*)\n")
 	} else if opts.ProxyPort > 0 {
 		// Allow only localhost connections on the proxy port
-		b.WriteString(fmt.Sprintf("(allow network* (remote ip \"localhost:%d\"))\n", opts.ProxyPort))
+		fmt.Fprintf(&b, "(allow network* (remote ip \"localhost:%d\"))\n", opts.ProxyPort)
 	}
 	// Always allow Unix domain sockets for basic operations
 	b.WriteString("(allow network-outbound (literal \"/var/run/syslog\"))\n")

@@ -114,10 +114,12 @@ func TestSkillActivator_ScanAndPromote(t *testing.T) {
 	activeDir := t.TempDir()
 
 	// Write a promotable draft
-	os.WriteFile(
+	if err := os.WriteFile(
 		filepath.Join(draftsDir, "SKILL_promotable.md"),
 		[]byte(promotableDraft), 0o644,
-	)
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	activator := NewSkillActivator(draftsDir, activeDir)
 	promoted, rejected := activator.ScanAndPromote()
@@ -153,10 +155,12 @@ func TestSkillActivator_ScanAndPromote_Rejects(t *testing.T) {
 	activeDir := t.TempDir()
 
 	// Write a low-frequency draft (will fail frequency gate)
-	os.WriteFile(
+	if err := os.WriteFile(
 		filepath.Join(draftsDir, "SKILL_low.md"),
 		[]byte(lowFrequencyDraft), 0o644,
-	)
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	activator := NewSkillActivator(draftsDir, activeDir)
 	promoted, rejected := activator.ScanAndPromote()
@@ -179,14 +183,18 @@ func TestSkillActivator_ScanAndPromote_Mixed(t *testing.T) {
 	draftsDir := t.TempDir()
 	activeDir := t.TempDir()
 
-	os.WriteFile(
+	if err := os.WriteFile(
 		filepath.Join(draftsDir, "SKILL_good.md"),
 		[]byte(promotableDraft), 0o644,
-	)
-	os.WriteFile(
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
 		filepath.Join(draftsDir, "SKILL_bad.md"),
 		[]byte(destructiveDraft), 0o644,
-	)
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	activator := NewSkillActivator(draftsDir, activeDir)
 	promoted, rejected := activator.ScanAndPromote()
@@ -242,7 +250,9 @@ func TestSkillActivator_CustomGates(t *testing.T) {
 func TestParseDraftFromFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.md")
-	os.WriteFile(path, []byte(promotableDraft), 0o644)
+	if err := os.WriteFile(path, []byte(promotableDraft), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	draft, err := parseDraftFromFile(path)
 	if err != nil {

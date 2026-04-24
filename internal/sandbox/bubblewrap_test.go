@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"runtime"
 	"testing"
 )
@@ -70,7 +71,7 @@ func TestBubblewrap_BuildArgs_NetworkAllowed(t *testing.T) {
 
 func TestBubblewrap_Exec_Unavailable(t *testing.T) {
 	bw := &Bubblewrap{available: false}
-	_, err := bw.Exec(nil, "echo hi", "/tmp", ExecOptions{})
+	_, err := bw.Exec(context.TODO(), "echo hi", "/tmp", ExecOptions{})
 	if err == nil {
 		t.Error("expected error when bubblewrap is unavailable")
 	}

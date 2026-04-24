@@ -18,7 +18,7 @@ func TestAuditInterceptor_NewCreatesDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditInterceptor: %v", err)
 	}
-	defer ai.Close()
+	defer func() { _ = ai.Close() }()
 
 	if _, err := os.Stat(auditDir); os.IsNotExist(err) {
 		t.Error("audit directory was not created")
@@ -31,7 +31,7 @@ func TestAuditInterceptor_Name(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ai.Close()
+	defer func() { _ = ai.Close() }()
 
 	if ai.Name() != "audit" {
 		t.Errorf("expected name 'audit', got %q", ai.Name())
@@ -44,7 +44,7 @@ func TestAuditInterceptor_LogsSuccessfulCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ai.Close()
+	defer func() { _ = ai.Close() }()
 
 	call := &ToolCall{
 		ToolName:  "bash",
@@ -96,7 +96,7 @@ func TestAuditInterceptor_LogsDeniedCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ai.Close()
+	defer func() { _ = ai.Close() }()
 
 	call := &ToolCall{
 		ToolName:  "bash",

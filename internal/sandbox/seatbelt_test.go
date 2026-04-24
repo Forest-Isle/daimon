@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"runtime"
 	"strings"
 	"testing"
@@ -97,7 +98,7 @@ func TestEscapeSBPL(t *testing.T) {
 
 func TestSeatbelt_Exec_Unavailable(t *testing.T) {
 	sb := &Seatbelt{available: false}
-	_, err := sb.Exec(nil, "echo hi", "/tmp", ExecOptions{})
+	_, err := sb.Exec(context.TODO(), "echo hi", "/tmp", ExecOptions{})
 	if err == nil {
 		t.Error("expected error when seatbelt is unavailable")
 	}

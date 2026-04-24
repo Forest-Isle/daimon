@@ -92,11 +92,11 @@ func writeTestJSONL(t *testing.T, dir string, records []TrajectoryRecord) {
 		enc := json.NewEncoder(f)
 		for _, r := range recs {
 			if err := enc.Encode(r); err != nil {
-				f.Close()
+				_ = f.Close()
 				t.Fatal(err)
 			}
 		}
-		f.Close()
+		_ = f.Close()
 	}
 }
 
@@ -338,7 +338,7 @@ func readJSONLFile[T any](t *testing.T, path string) []T {
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var items []T
 	scanner := bufio.NewScanner(f)
