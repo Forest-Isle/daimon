@@ -18,10 +18,11 @@ const defaultOpenAIURL = "https://api.openai.com/v1"
 // API (OpenAI, Ollama, vLLM, LiteLLM, OpenRouter, etc.).
 // Uses only net/http — no external SDK dependency.
 type OpenAIProvider struct {
-	apiKey  string
-	model   string
-	baseURL string
-	client  *http.Client
+	apiKey       string
+	model        string
+	baseURL      string
+	client       *http.Client
+	cacheMetrics *CacheMetrics
 }
 
 // NewOpenAIProvider creates a provider targeting an OpenAI-compatible endpoint.
@@ -32,22 +33,28 @@ func NewOpenAIProvider(apiKey, model, baseURL string) *OpenAIProvider {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &OpenAIProvider{
-		apiKey:  apiKey,
-		model:   model,
-		baseURL: baseURL,
-		client:  &http.Client{},
+		apiKey:       apiKey,
+		model:        model,
+		baseURL:      baseURL,
+		client:       &http.Client{},
+		cacheMetrics: NewCacheMetrics(100),
 	}
 }
 
 // ── OpenAI request/response types ──
 
 type oaiRequest struct {
-	Model       string        `json:"model"`
-	Messages    []oaiMessage  `json:"messages"`
-	Tools       []oaiTool     `json:"tools,omitempty"`
-	MaxTokens   int           `json:"max_tokens,omitempty"`
-	Stream      bool          `json:"stream,omitempty"`
-	Temperature *float64      `json:"temperature,omitempty"`
+	Model         string            `json:"model"`
+	Messages      []oaiMessage      `json:"messages"`
+	Tools         []oaiTool         `json:"tools,omitempty"`
+	MaxTokens     int               `json:"max_tokens,omitempty"`
+	Stream        bool              `json:"stream,omitempty"`
+	StreamOptions *oaiStreamOptions `json:"stream_options,omitempty"`
+	Temperature   *float64          `json:"temperature,omitempty"`
+}
+
+type oaiStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type oaiMessage struct {
@@ -79,8 +86,20 @@ type oaiToolCallFunc struct {
 	Arguments string `json:"arguments"`
 }
 
+type oaiUsage struct {
+	PromptTokens        int                     `json:"prompt_tokens"`
+	CompletionTokens    int                     `json:"completion_tokens"`
+	TotalTokens         int                     `json:"total_tokens"`
+	PromptTokensDetails *oaiPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type oaiPromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
 type oaiResponse struct {
 	Choices []oaiChoice `json:"choices"`
+	Usage   *oaiUsage   `json:"usage,omitempty"`
 	Error   *oaiError   `json:"error,omitempty"`
 }
 
@@ -118,6 +137,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*
 		return nil, fmt.Errorf("openai: no choices in response")
 	}
 
+	p.trackUsage(&resp)
 	return p.parseChoice(resp.Choices[0]), nil
 }
 
@@ -130,8 +150,9 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req CompletionRequest) (Str
 	}
 
 	return &openaiStreamIterator{
-		reader: bufio.NewReader(body),
-		body:   body,
+		reader:   bufio.NewReader(body),
+		body:     body,
+		provider: p,
 	}, nil
 }
 
@@ -142,6 +163,9 @@ func (p *OpenAIProvider) buildRequest(req CompletionRequest, stream bool) oaiReq
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,
 		Stream:    stream,
+	}
+	if stream {
+		oai.StreamOptions = &oaiStreamOptions{IncludeUsage: true}
 	}
 	if oai.Model == "" {
 		oai.Model = p.model
@@ -269,6 +293,7 @@ type openaiStreamIterator struct {
 	textBuf    strings.Builder
 	done       bool
 	stopReason StopReason
+	provider   *OpenAIProvider // back-reference for tracking cache usage
 }
 
 func (it *openaiStreamIterator) Next() (StreamDelta, error) {
@@ -309,6 +334,10 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 			continue
 		}
 		if len(chunk.Choices) == 0 {
+			// Usage-only chunk (final streaming chunk with stream_options.include_usage)
+			if chunk.Usage != nil && it.provider != nil {
+				it.provider.trackUsage(&chunk)
+			}
 			continue
 		}
 
@@ -392,6 +421,50 @@ func (it *openaiStreamIterator) Close() {
 	if it.body != nil {
 		_ = it.body.Close()
 	}
+}
+
+// trackUsage records token and cache metrics from an OpenAI API response.
+func (p *OpenAIProvider) trackUsage(resp *oaiResponse) {
+	if resp.Usage == nil || p.cacheMetrics == nil {
+		return
+	}
+	u := resp.Usage
+	var cachedTokens int64
+	if u.PromptTokensDetails != nil {
+		cachedTokens = int64(u.PromptTokensDetails.CachedTokens)
+	}
+	p.cacheMetrics.Record(
+		int64(u.PromptTokens),
+		int64(u.CompletionTokens),
+		cachedTokens,
+		0, // OpenAI doesn't report cache creation separately
+	)
+}
+
+// GetCacheStats returns cumulative cache creation and read tokens.
+func (p *OpenAIProvider) GetCacheStats() (creation, read int64) {
+	if p.cacheMetrics == nil {
+		return 0, 0
+	}
+	snap := p.cacheMetrics.Snapshot()
+	return snap.TotalCacheCreationTokens, snap.TotalCacheReadTokens
+}
+
+// GetTokenStats returns cumulative input and output token counts.
+func (p *OpenAIProvider) GetTokenStats() (input, output int64) {
+	if p.cacheMetrics == nil {
+		return 0, 0
+	}
+	snap := p.cacheMetrics.Snapshot()
+	return snap.TotalInputTokens, snap.TotalOutputTokens
+}
+
+// CacheMetricsSnapshot returns a full snapshot of cache performance metrics.
+func (p *OpenAIProvider) CacheMetricsSnapshot() CacheMetricsSnapshot {
+	if p.cacheMetrics == nil {
+		return CacheMetricsSnapshot{}
+	}
+	return p.cacheMetrics.Snapshot()
 }
 
 // contentString extracts a string from an `any` content field which may be

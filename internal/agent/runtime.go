@@ -334,9 +334,13 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 				Model:       r.llmCfg.Model,
 				Provider:    r.llmCfg.Provider,
 			}
-			if cp, ok := r.provider.(*ClaudeProvider); ok {
-				m.CacheCreate, m.CacheRead = cp.GetCacheStats()
-				m.InputTokens, m.OutputTokens = cp.GetTokenStats()
+			switch prov := r.provider.(type) {
+			case *ClaudeProvider:
+				m.CacheCreate, m.CacheRead = prov.GetCacheStats()
+				m.InputTokens, m.OutputTokens = prov.GetTokenStats()
+			case *OpenAIProvider:
+				m.CacheCreate, m.CacheRead = prov.GetCacheStats()
+				m.InputTokens, m.OutputTokens = prov.GetTokenStats()
 			}
 			r.metricsEmitter.SendMetrics(m)
 
