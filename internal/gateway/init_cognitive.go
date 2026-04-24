@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
@@ -81,6 +82,11 @@ func (gw *Gateway) registerEvolutionHooks() {
 
 	evo := gw.cfg.Evolution
 
+	// Track loop references for Evolution Brain
+	var prefLearner *evolution.PreferenceLearner
+	var stratOptimizer *evolution.StrategyOptimizer
+	var skillSynth *evolution.SkillSynthesizer
+
 	if evo.Preference.Enabled {
 		pl := evolution.NewPreferenceLearner(evo.Preference)
 		if prefPath, err := gw.resolveEvolutionPreferencePath(evo.PreferenceFile); err == nil && prefPath != "" {
@@ -92,6 +98,7 @@ func (gw *Gateway) registerEvolutionHooks() {
 			}
 		}
 		gw.evoEngine.RegisterHook(pl)
+		prefLearner = pl
 	}
 
 	synthCfg := evo.Synthesizer
@@ -118,6 +125,7 @@ func (gw *Gateway) registerEvolutionHooks() {
 			activator := evolution.NewSkillActivator(p, activeDir)
 			ss.SetActivator(activator)
 			gw.evoEngine.RegisterHook(ss)
+			skillSynth = ss
 		}
 	}
 
@@ -147,7 +155,19 @@ func (gw *Gateway) registerEvolutionHooks() {
 				}
 			}
 			gw.evoEngine.RegisterHook(opt)
+			stratOptimizer = opt
 		}
+	}
+
+	// Evolution Brain: unified coordinator with cross-loop feedback
+	if prefLearner != nil || stratOptimizer != nil || skillSynth != nil {
+		brain := evolution.NewBrain(prefLearner, stratOptimizer, skillSynth)
+		_ = brain // Brain is available for future Engine integration
+		slog.Info("evolution brain initialized",
+			"preference", prefLearner != nil,
+			"optimizer", stratOptimizer != nil,
+			"synthesizer", skillSynth != nil,
+		)
 	}
 
 	// Schedule trajectory cleanup (retain 30 days of detailed data)
@@ -158,6 +178,16 @@ func (gw *Gateway) registerEvolutionHooks() {
 				slog.Warn("gateway: trajectory cleanup failed", "err", err)
 			} else if removed > 0 {
 				slog.Info("gateway: cleaned old trajectories", "removed", removed)
+			}
+		}()
+	}
+
+	// Schedule preference decay (run once at startup; future: periodic via ticker)
+	if prefLearner != nil {
+		go func() {
+			decayed := prefLearner.DecayPreferences(time.Now(), 7*24*time.Hour) // 7-day half-life
+			if decayed > 0 {
+				slog.Info("gateway: decayed stale preferences", "removed", decayed)
 			}
 		}()
 	}

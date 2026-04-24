@@ -439,6 +439,13 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	// Overlay project-level and local-level config if available.
+	// The explicit path acts as user-level; project (.ironclaw/) and
+	// local (.ironclaw/local.yaml) configs are discovered from cwd.
+	if wd, wdErr := os.Getwd(); wdErr == nil {
+		overlayHierarchy(&cfg, wd)
+	}
+
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}

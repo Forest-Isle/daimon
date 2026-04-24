@@ -389,3 +389,24 @@ func mergeConfig(base *Config, overlay *Config) {
 		base.Hooks.PreCompact = append(base.Hooks.PreCompact, overlay.Hooks.PreCompact...)
 	}
 }
+
+// overlayHierarchy applies project-level and local-level configs on top of an
+// already-loaded base config. Called by Load() to transparently support the
+// hierarchical config without changing call sites.
+func overlayHierarchy(base *Config, workDir string) {
+	projectPath := filepath.Join(workDir, ".ironclaw", "ironclaw.yaml")
+	localPath := filepath.Join(workDir, ".ironclaw", "local.yaml")
+
+	for _, p := range []string{projectPath, localPath} {
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		overlay, err := loadSingleYAML(p)
+		if err != nil {
+			slog.Warn("config: failed to load overlay", "path", p, "err", err)
+			continue
+		}
+		slog.Info("config: applying overlay", "path", p)
+		mergeConfig(base, overlay)
+	}
+}
