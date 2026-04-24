@@ -113,6 +113,10 @@ func (gw *Gateway) registerEvolutionHooks() {
 					slog.Warn("gateway: evolution: synthesizer llm_enabled but no llm.model, using heuristic-only drafts")
 				}
 			}
+			// Wire SkillActivator for auto-promotion through safety gates
+			activeDir := filepath.Join(p, "..", "active")
+			activator := evolution.NewSkillActivator(p, activeDir)
+			ss.SetActivator(activator)
 			gw.evoEngine.RegisterHook(ss)
 		}
 	}
@@ -144,6 +148,18 @@ func (gw *Gateway) registerEvolutionHooks() {
 			}
 			gw.evoEngine.RegisterHook(opt)
 		}
+	}
+
+	// Schedule trajectory cleanup (retain 30 days of detailed data)
+	if trajDir, err := gw.resolveEvolutionTrajDir(); err == nil {
+		go func() {
+			removed, err := evolution.CleanupTrajectories(trajDir, 30*24*60*60*1e9) // 30 days
+			if err != nil {
+				slog.Warn("gateway: trajectory cleanup failed", "err", err)
+			} else if removed > 0 {
+				slog.Info("gateway: cleaned old trajectories", "removed", removed)
+			}
+		}()
 	}
 }
 

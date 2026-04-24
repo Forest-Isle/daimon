@@ -98,11 +98,22 @@ func (gw *Gateway) initToolsAndHooks() error {
 		}
 	}
 
-	// Build interceptor chain: permission → hook → sandbox
+	// Build interceptor chain: permission → hook → sandbox → audit
+	auditInterceptor, err := tool.NewAuditInterceptor("")
+	if err != nil {
+		slog.Warn("audit interceptor init failed, continuing without audit", "err", err)
+	}
+
+	// Progressive trust tracker (resets per session)
+	gw.trustTracker = tool.NewTrustTracker()
+
 	interceptors := []tool.ToolInterceptor{
 		tool.NewPermissionInterceptor(gw.permEngine, nil, nil),
 		tool.NewHookInterceptor(gw.hookMgr),
 		tool.NewSandboxInterceptor(gw.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
+	}
+	if auditInterceptor != nil {
+		interceptors = append(interceptors, auditInterceptor)
 	}
 	gw.interceptorChain = tool.NewInterceptorChain(interceptors)
 

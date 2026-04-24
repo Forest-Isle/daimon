@@ -14,6 +14,7 @@ import (
 type Config struct {
 	LLM       LLMConfig       `yaml:"llm"`
 	Telegram  TelegramConfig  `yaml:"telegram"`
+	Discord   DiscordConfig   `yaml:"discord"`
 	TUI       TUIConfig       `yaml:"tui"`
 	Agent     AgentConfig     `yaml:"agent"`
 	Store     StoreConfig     `yaml:"store"`
@@ -150,6 +151,12 @@ type RetryConfig struct {
 type TelegramConfig struct {
 	Token          string  `yaml:"token"`
 	AllowedUserIDs []int64 `yaml:"allowed_user_ids"`
+}
+
+// DiscordConfig holds Discord bot settings.
+type DiscordConfig struct {
+	Token          string   `yaml:"token"`
+	AllowedUserIDs []string `yaml:"allowed_user_ids"`
 }
 
 type AgentConfig struct {

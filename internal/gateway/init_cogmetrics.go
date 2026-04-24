@@ -1,11 +1,14 @@
 package gateway
 
-import "github.com/Forest-Isle/IronClaw/internal/cogmetrics"
+import (
+	"log/slog"
 
-// initCogMetrics creates the cognitive-metrics collector and wires it into the
-// evolution engine. It is idempotent: if the collector was already created (e.g.
-// because setupDashboard ran first), it returns immediately without double-
-// registering the hook.
+	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
+)
+
+// initCogMetrics creates the cognitive-metrics collector, health checker, and
+// circuit breaker. It wires the collector into the evolution engine and makes
+// the health checker available for the cognitive agent to record metrics.
 //
 // Called unconditionally after the evolution engine is set up so that eval runs
 // (which disable the dashboard) still accumulate health metrics.
@@ -18,4 +21,21 @@ func (gw *Gateway) initCogMetrics() {
 	}
 	gw.cogCollector = cogmetrics.NewCollector()
 	gw.evoEngine.RegisterHook(gw.cogCollector)
+
+	// Health checker and circuit breaker
+	gw.healthChecker = cogmetrics.NewHealthChecker()
+	gw.breaker = cogmetrics.NewBreaker(gw.healthChecker)
+
+	// Register breaker action callbacks
+	gw.breaker.OnAction(cogmetrics.ActionTriggerCompression, func() {
+		slog.Warn("coghealth: breaker triggered compression")
+	})
+	gw.breaker.OnAction(cogmetrics.ActionPauseAndAskUser, func() {
+		slog.Warn("coghealth: breaker requesting user intervention")
+	})
+	gw.breaker.OnAction(cogmetrics.ActionDegradeToSimple, func() {
+		slog.Warn("coghealth: breaker degrading to simple mode")
+	})
+
+	slog.Info("cognitive health checker and circuit breaker initialized")
 }

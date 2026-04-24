@@ -62,6 +62,7 @@ type Gateway struct {
 	evoEngine        *evolution.Engine
 	dockerSessionMgr *sandbox.DockerSessionManager
 	interceptorChain *tool.InterceptorChain
+	trustTracker     *tool.TrustTracker
 	taskLedger       *taskledger.SQLiteTaskLedger
 	teamCoordinator  *taskledger.TeamCoordinator
 	subAgentMgr      *agent.SubAgentManager
@@ -75,6 +76,8 @@ type Gateway struct {
 	features         *feature.Registry
 	featureStatePath string // path to ~/.IronClaw/feature_state.json
 	cogCollector     *cogmetrics.Collector
+	healthChecker    *cogmetrics.HealthChecker
+	breaker          *cogmetrics.Breaker
 	currentMode      atomic.Value  // stores string: "simple" | "cognitive"
 	memoryDir        string        // resolved base dir for file-based memory
 	stopCh           chan struct{} // closed in Stop() to signal background goroutines
