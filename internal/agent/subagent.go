@@ -13,9 +13,14 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/observability"
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/store"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // SubAgentManager is the central manager for sub-agent lifecycle.
@@ -78,9 +83,17 @@ type SpawnRequest struct {
 // For background execution mode, it delegates to spawnBackground.
 func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgentResult, error) {
 	start := time.Now()
+	ctx, span := observability.StartSpan(ctx, "subagent.spawn",
+		trace.WithAttributes(
+			attribute.String("agent.name", req.Spec.Name),
+			attribute.String("parent.id", req.ParentID),
+		))
+	defer span.End()
 
 	if req.Spec.ExecutionMode == ExecModeBackground {
-		return m.spawnBackground(ctx, req)
+		result, err := m.spawnBackground(ctx, req)
+		recordSubAgentSpawn(ctx, span, req.Spec.Name, err)
+		return result, err
 	}
 
 	sessionID := fmt.Sprintf("subagent_%s_%s", req.Spec.Name, uuid.New().String()[:8])
@@ -147,12 +160,28 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 		retryReq.Spec = retrySpec
 		if retryResult, retryErr := m.Spawn(ctx, retryReq); retryErr == nil && strings.TrimSpace(retryResult.Output) != "" {
 			slog.Info("subagent: recovery retry succeeded", "agent", req.Spec.Name)
+			recordSubAgentSpawn(ctx, span, req.Spec.Name, nil)
 			return retryResult, nil
 		}
 		slog.Warn("subagent: recovery retry also failed", "agent", req.Spec.Name)
 	}
 
+	recordSubAgentSpawn(ctx, span, req.Spec.Name, err)
 	return result, err
+}
+
+func recordSubAgentSpawn(ctx context.Context, span trace.Span, agentName string, err error) {
+	status := "success"
+	if err != nil {
+		status = "error"
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	observability.SubAgentSpawns.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String("agent.name", agentName),
+			attribute.String("status", status),
+		))
 }
 
 // SpawnParallel runs multiple sub-agents concurrently with the given failure strategy.

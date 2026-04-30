@@ -10,6 +10,13 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/Forest-Isle/IronClaw/internal/observability"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const defaultOpenAIURL = "https://api.openai.com/v1"
@@ -58,10 +65,10 @@ type oaiStreamOptions struct {
 }
 
 type oaiMessage struct {
-	Role       string          `json:"role"`
-	Content    any             `json:"content,omitempty"`
-	ToolCalls  []oaiToolCall   `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Role       string        `json:"role"`
+	Content    any           `json:"content,omitempty"`
+	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
 }
 
 type oaiTool struct {
@@ -118,34 +125,82 @@ type oaiError struct {
 // ── Provider interface implementation ──
 
 func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
+	model := req.Model
+	if model == "" {
+		model = p.model
+	}
+	ctx, span := observability.StartSpan(ctx, "llm.complete",
+		trace.WithAttributes(
+			attribute.String("provider", "openai"),
+			attribute.String("model", model),
+		))
+	start := time.Now()
+	defer span.End()
+	defer observability.LLMRequestDuration.Record(ctx, time.Since(start).Milliseconds(),
+		metric.WithAttributes(
+			attribute.String("provider", "openai"),
+			attribute.String("model", model),
+			attribute.String("operation", "complete"),
+		))
+
 	oaiReq := p.buildRequest(req, false)
 
 	body, err := p.doRequest(ctx, oaiReq)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	defer func() { _ = body.Close() }()
 
 	var resp oaiResponse
 	if err := json.NewDecoder(body).Decode(&resp); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("openai: decode response: %w", err)
 	}
 	if resp.Error != nil {
+		apiErr := fmt.Errorf("openai: API error: %s", resp.Error.Message)
+		span.RecordError(apiErr)
+		span.SetStatus(codes.Error, apiErr.Error())
 		return nil, fmt.Errorf("openai: API error: %s", resp.Error.Message)
 	}
 	if len(resp.Choices) == 0 {
+		noChoicesErr := fmt.Errorf("openai: no choices in response")
+		span.RecordError(noChoicesErr)
+		span.SetStatus(codes.Error, noChoicesErr.Error())
 		return nil, fmt.Errorf("openai: no choices in response")
 	}
 
 	p.trackUsage(&resp)
+	recordOpenAITokenMetrics(ctx, model, resp.Usage)
 	return p.parseChoice(resp.Choices[0]), nil
 }
 
 func (p *OpenAIProvider) Stream(ctx context.Context, req CompletionRequest) (StreamIterator, error) {
+	model := req.Model
+	if model == "" {
+		model = p.model
+	}
+	ctx, span := observability.StartSpan(ctx, "llm.complete",
+		trace.WithAttributes(
+			attribute.String("provider", "openai"),
+			attribute.String("model", model),
+		))
+	start := time.Now()
 	oaiReq := p.buildRequest(req, true)
 
 	body, err := p.doRequest(ctx, oaiReq)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		observability.LLMRequestDuration.Record(ctx, time.Since(start).Milliseconds(),
+			metric.WithAttributes(
+				attribute.String("provider", "openai"),
+				attribute.String("model", model),
+				attribute.String("operation", "stream"),
+			))
+		span.End()
 		return nil, err
 	}
 
@@ -153,6 +208,10 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req CompletionRequest) (Str
 		reader:   bufio.NewReader(body),
 		body:     body,
 		provider: p,
+		ctx:      ctx,
+		span:     span,
+		start:    start,
+		model:    model,
 	}, nil
 }
 
@@ -294,6 +353,11 @@ type openaiStreamIterator struct {
 	done       bool
 	stopReason StopReason
 	provider   *OpenAIProvider // back-reference for tracking cache usage
+	ctx        context.Context
+	span       trace.Span
+	start      time.Time
+	model      string
+	finalized  bool
 }
 
 func (it *openaiStreamIterator) Next() (StreamDelta, error) {
@@ -311,8 +375,11 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 		if err != nil {
 			if err == io.EOF {
 				it.done = true
-				return it.buildFinalDelta(), nil
+				delta := it.buildFinalDelta()
+				it.finish(nil)
+				return delta, nil
 			}
+			it.finish(err)
 			return StreamDelta{}, fmt.Errorf("openai stream: %w", err)
 		}
 
@@ -337,6 +404,7 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 			// Usage-only chunk (final streaming chunk with stream_options.include_usage)
 			if chunk.Usage != nil && it.provider != nil {
 				it.provider.trackUsage(&chunk)
+				recordOpenAITokenMetrics(it.ctx, it.model, chunk.Usage)
 			}
 			continue
 		}
@@ -385,7 +453,9 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 				it.stopReason = StopEndTurn
 			}
 			it.done = true
-			return it.buildFinalDelta(), nil
+			delta := it.buildFinalDelta()
+			it.finish(nil)
+			return delta, nil
 		}
 	}
 }
@@ -421,6 +491,27 @@ func (it *openaiStreamIterator) Close() {
 	if it.body != nil {
 		_ = it.body.Close()
 	}
+	it.finish(nil)
+}
+
+func (it *openaiStreamIterator) finish(err error) {
+	if it.finalized {
+		return
+	}
+	it.finalized = true
+	if err != nil && it.span != nil {
+		it.span.RecordError(err)
+		it.span.SetStatus(codes.Error, err.Error())
+	}
+	observability.LLMRequestDuration.Record(it.ctx, time.Since(it.start).Milliseconds(),
+		metric.WithAttributes(
+			attribute.String("provider", "openai"),
+			attribute.String("model", it.model),
+			attribute.String("operation", "stream"),
+		))
+	if it.span != nil {
+		it.span.End()
+	}
 }
 
 // trackUsage records token and cache metrics from an OpenAI API response.
@@ -439,6 +530,28 @@ func (p *OpenAIProvider) trackUsage(resp *oaiResponse) {
 		cachedTokens,
 		0, // OpenAI doesn't report cache creation separately
 	)
+}
+
+func recordOpenAITokenMetrics(ctx context.Context, model string, usage *oaiUsage) {
+	if usage == nil {
+		return
+	}
+	if usage.PromptTokens > 0 {
+		observability.LLMTokensTotal.Add(ctx, int64(usage.PromptTokens),
+			metric.WithAttributes(
+				attribute.String("provider", "openai"),
+				attribute.String("model", model),
+				attribute.String("token_type", "input"),
+			))
+	}
+	if usage.CompletionTokens > 0 {
+		observability.LLMTokensTotal.Add(ctx, int64(usage.CompletionTokens),
+			metric.WithAttributes(
+				attribute.String("provider", "openai"),
+				attribute.String("model", model),
+				attribute.String("token_type", "output"),
+			))
+	}
 }
 
 // GetCacheStats returns cumulative cache creation and read tokens.
