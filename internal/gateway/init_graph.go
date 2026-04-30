@@ -10,8 +10,7 @@ import (
 
 func (gw *Gateway) initGraphEngine() error {
 	eventStore := agent.NewSQLiteExecutionEventStore(gw.db)
-	graph := agent.BuildDefaultGraph()
-	gw.graphEngine = agent.NewGraphEngine(graph, eventStore)
+	gw.graphEventStore = eventStore
 	gw.heartbeat = agent.NewHeartbeatScheduler(agent.HeartbeatConfig{
 		Interval: 5 * time.Minute,
 		Enabled:  true,
@@ -20,7 +19,7 @@ func (gw *Gateway) initGraphEngine() error {
 }
 
 func (gw *Gateway) handleGraphMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
-	if gw.graphEngine == nil {
+	if gw.graphEventStore == nil || gw.cognitiveAgent == nil {
 		return gw.runtime.HandleMessage(ctx, ch, msg)
 	}
 
@@ -29,13 +28,17 @@ func (gw *Gateway) handleGraphMessage(ctx context.Context, ch channel.Channel, m
 		return err
 	}
 
+	deps := gw.cognitiveAgent.BuildNodeDeps(ch)
+	graph := agent.BuildGraphWithDeps(deps, msg.Text, msg.UserID)
+	engine := agent.NewGraphEngine(graph, gw.graphEventStore)
+
 	initialState := agent.GraphState{
 		SessionID:     sess.ID,
 		CurrentNode:   agent.NodePerceive,
 		ExecutionPath: agent.PathDeep,
 	}
 
-	finalState, err := gw.graphEngine.Run(ctx, sess.ID, initialState)
+	finalState, err := engine.Run(ctx, sess.ID, initialState)
 	if err != nil {
 		return err
 	}
@@ -45,6 +48,10 @@ func (gw *Gateway) handleGraphMessage(ctx context.Context, ch channel.Channel, m
 	}
 
 	lastEvent := finalState.Events[len(finalState.Events)-1]
+	if lastEvent.OutputSnapshot == "" || lastEvent.OutputSnapshot == "{}" {
+		return gw.runtime.HandleMessage(ctx, ch, msg)
+	}
+
 	return ch.Send(ctx, channel.OutboundMessage{
 		Channel:   msg.Channel,
 		ChannelID: msg.ChannelID,

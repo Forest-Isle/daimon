@@ -222,6 +222,18 @@ func (ca *CognitiveAgent) SetDebateConfig(cfg config.DebateSettings) {
 	ca.debateCfg = cfg
 }
 
+func (ca *CognitiveAgent) BuildNodeDeps(ch channel.Channel) NodeDeps {
+	return NodeDeps{
+		Perceiver: ca.perceiver,
+		Planner:   ca.planner,
+		Executor:  ca.executor,
+		Observer:  ca.observer,
+		Reflector: ca.reflector,
+		Sessions:  ca.sessions,
+		Channel:   ch,
+	}
+}
+
 // SetOrchestrator injects an agent orchestrator into the cognitive agent.
 func (ca *CognitiveAgent) SetOrchestrator(o *AgentOrchestrator) {
 	ca.orchestrator = o
