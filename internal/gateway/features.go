@@ -127,6 +127,12 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 		Default:     false,
 		Phase:       feature.PhaseConstruct,
 	})
+	r.Register(feature.Feature{
+		Name:        "graph",
+		Description: "Dynamic graph execution engine (replaces cognitive 5-phase loop)",
+		Default:     false,
+		Phase:       feature.PhaseConstruct,
+	})
 
 	// MCP servers — each configured server gets its own hot-reloadable feature
 	for name, srv := range cfg.Tools.MCP.Servers {

@@ -44,6 +44,8 @@ type Gateway struct {
 	provider         agent.Provider // stored for completerAdapter use
 	runtime          *agent.Runtime
 	cognitiveAgent   *agent.CognitiveAgent
+	graphEngine      *agent.GraphEngine
+	heartbeat        *agent.HeartbeatScheduler
 	tools            *tool.Registry
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
@@ -80,7 +82,7 @@ type Gateway struct {
 	cogCollector     *cogmetrics.Collector
 	healthChecker    *cogmetrics.HealthChecker
 	breaker          *cogmetrics.Breaker
-	currentMode      atomic.Value  // stores string: "simple" | "cognitive"
+	currentMode      atomic.Value  // stores string: "simple" | "cognitive" | "graph"
 	memoryDir        string        // resolved base dir for file-based memory
 	stopCh           chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce         sync.Once     // ensures stopCh is closed exactly once
@@ -152,6 +154,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.evoEngine = evolution.NewEngine(cfg.Evolution)
 	if err := gw.initCognitiveAgent(); err != nil {
 		return nil, fmt.Errorf("cognitive: %w", err)
+	}
+	if err := gw.initGraphEngine(); err != nil {
+		return nil, fmt.Errorf("graph: %w", err)
 	}
 	if err := gw.initKnowledgeSystem(); err != nil {
 		return nil, fmt.Errorf("knowledge: %w", err)
@@ -440,16 +445,16 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	return nil
 }
 
-// CurrentMode returns the active agent mode ("simple" or "cognitive").
+// CurrentMode returns the active agent mode ("simple", "cognitive", or "graph").
 func (gw *Gateway) CurrentMode() string {
 	return gw.currentMode.Load().(string)
 }
 
 // SetMode atomically switches the active agent mode.
-// Returns an error if mode is not "simple" or "cognitive".
+// Returns an error if mode is not "simple", "cognitive", or "graph".
 func (gw *Gateway) SetMode(mode string) error {
-	if mode != "simple" && mode != "cognitive" {
-		return fmt.Errorf("unknown mode %q: valid modes are simple, cognitive", mode)
+	if mode != "simple" && mode != "cognitive" && mode != "graph" {
+		return fmt.Errorf("unknown mode %q: valid modes are simple, cognitive, graph", mode)
 	}
 	gw.currentMode.Store(mode)
 	slog.Info("gateway: mode switched", "mode", mode)
@@ -590,9 +595,20 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 
 	slog.Info("message received", "channel", msg.Channel, "user", msg.UserName, "text_len", len(msg.Text))
 
-	if gw.currentMode.Load().(string) == "cognitive" {
+	switch gw.currentMode.Load().(string) {
+	case "cognitive":
 		if err := gw.cognitiveAgent.HandleMessage(ctx, ch, msg); err != nil {
 			slog.Error("cognitive agent error", "err", err)
+			_ = ch.Send(ctx, channel.OutboundMessage{
+				Channel:   msg.Channel,
+				ChannelID: msg.ChannelID,
+				Text:      "Error: " + err.Error(),
+			})
+		}
+		return
+	case "graph":
+		if err := gw.handleGraphMessage(ctx, ch, msg); err != nil {
+			slog.Error("graph engine error", "err", err)
 			_ = ch.Send(ctx, channel.OutboundMessage{
 				Channel:   msg.Channel,
 				ChannelID: msg.ChannelID,
@@ -824,14 +840,14 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 }
 
 // handleModeCommand processes the /mode command argument.
-// arg="" means query-only; arg="simple"|"cognitive" switches mode.
+// arg="" means query-only; arg="simple"|"cognitive"|"graph" switches mode.
 func (gw *Gateway) handleModeCommand(arg string) string {
 	current := gw.CurrentMode()
 	if arg == "" {
 		return fmt.Sprintf("Mode: %s", current)
 	}
-	if arg != "simple" && arg != "cognitive" {
-		return fmt.Sprintf("Error: unknown mode %q. Valid modes: simple, cognitive", arg)
+	if arg != "simple" && arg != "cognitive" && arg != "graph" {
+		return fmt.Sprintf("Error: unknown mode %q. Valid modes: simple, cognitive, graph", arg)
 	}
 	if arg == current {
 		return fmt.Sprintf("Already in %s mode", current)
