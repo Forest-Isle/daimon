@@ -99,6 +99,15 @@ agent:
     You can execute shell commands, read/write files, and make HTTP requests.
     Always explain what you're about to do before using tools.
 
+# OpenTelemetry 可观测性：traces 发送到 OTLP collector，metrics 通过 /metrics 端点暴露给 Prometheus
+# exporter: "otlp_grpc" | "otlp_http" | "stdout"（开发调试）| "noop"（关闭）
+observability:
+  enabled: false
+  service_name: "ironclaw"
+  exporter: "stdout"        # 开发时用 stdout，生产用 otlp_grpc
+  endpoint: "localhost:4317" # OTLP gRPC endpoint（otlp_grpc 时生效）
+  sample_rate: 1.0           # 采样率 0.0-1.0
+
 # 自进化引擎（认知模式 cognitive 下生效）：偏好学习、技能草稿合成、策略统计调优
 # 草稿目录默认 ~/.IronClaw/skills/drafts/，策略文件默认 ~/.IronClaw/evolution/strategy.yaml
 evolution:
