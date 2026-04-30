@@ -15,44 +15,47 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/observability"
 	"github.com/Forest-Isle/IronClaw/internal/rl"
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/Forest-Isle/IronClaw/internal/store"
 	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const MaxReplanAttempts = 2
 
 // CognitiveAgent implements the structured PERCEIVE→PLAN→ACT→OBSERVE→REFLECT loop.
 type CognitiveAgent struct {
-	runtime            *Runtime
-	perceiver          *Perceiver
-	planner            *Planner
-	executor           *Executor
-	observer           *Observer
-	reflector          *Reflector
-	sessions           *session.Manager
-	db                 *store.DB
-	cfg                config.AgentConfig
-	llmCfg             config.LLMConfig
-	debateCfg          config.DebateSettings
-	memStore           memory.Store
-	skillMgr        *skill.Manager
-	agentMgr        *AgentManager
-	orchestrator    *AgentOrchestrator
-	teamManager     *TeamManager
-	entityExtractor *graph.LLMEntityExtractor
-	rlPolicy        RLPolicy  // RL policy interface (nil if disabled)
-	rlTrainer       RLTrainer // RL trainer interface (nil if disabled)
-	evoEngine       *evolution.Engine // self-evolution event dispatcher (nil if disabled)
-	hookMgr         *hook.Manager
-	permEngine      *tool.PermissionEngine
-	checkpointStore    CheckpointStore
-	contextManager     ContextManager
-	taskLedger         taskledger.TaskLedger
-	dashEmitter        DashboardEmitter
+	runtime             *Runtime
+	perceiver           *Perceiver
+	planner             *Planner
+	executor            *Executor
+	observer            *Observer
+	reflector           *Reflector
+	sessions            *session.Manager
+	db                  *store.DB
+	cfg                 config.AgentConfig
+	llmCfg              config.LLMConfig
+	debateCfg           config.DebateSettings
+	memStore            memory.Store
+	skillMgr            *skill.Manager
+	agentMgr            *AgentManager
+	orchestrator        *AgentOrchestrator
+	teamManager         *TeamManager
+	entityExtractor     *graph.LLMEntityExtractor
+	rlPolicy            RLPolicy          // RL policy interface (nil if disabled)
+	rlTrainer           RLTrainer         // RL trainer interface (nil if disabled)
+	evoEngine           *evolution.Engine // self-evolution event dispatcher (nil if disabled)
+	hookMgr             *hook.Manager
+	permEngine          *tool.PermissionEngine
+	checkpointStore     CheckpointStore
+	contextManager      ContextManager
+	taskLedger          taskledger.TaskLedger
+	dashEmitter         DashboardEmitter
 	observationCallback func(result *ObservationResult)
 }
 
@@ -366,6 +369,8 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if ca.dashEmitter != nil {
 		ca.dashEmitter.EmitPhaseEnd(sess.ID, "PERCEIVE", time.Since(perceiveStart).Milliseconds())
 	}
+	observability.CognitivePhasesDuration.Record(ctx, time.Since(perceiveStart).Milliseconds(),
+		metric.WithAttributes(attribute.String("phase", "perceive")))
 	if err != nil {
 		return fmt.Errorf("perceive: %w", err)
 	}
@@ -490,6 +495,8 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
 		}
+		observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
+			metric.WithAttributes(attribute.String("phase", "plan")))
 		if err != nil {
 			slog.Error("cognitive: plan failed", "err", err)
 			break
@@ -534,6 +541,8 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "ACT", time.Since(actStart).Milliseconds())
 		}
+		observability.CognitivePhasesDuration.Record(ctx, time.Since(actStart).Milliseconds(),
+			metric.WithAttributes(attribute.String("phase", "act")))
 		if actErr != nil {
 			slog.Error("cognitive: act failed", "err", actErr)
 			break
@@ -548,6 +557,8 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "OBSERVE", time.Since(observeStart).Milliseconds())
 		}
+		observability.CognitivePhasesDuration.Record(ctx, time.Since(observeStart).Milliseconds(),
+			metric.WithAttributes(attribute.String("phase", "observe")))
 		slog.Info("cognitive: observe complete",
 			"success", obsResult.SuccessCount,
 			"failure", obsResult.FailureCount,
@@ -592,6 +603,8 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "REFLECT", time.Since(reflectStart).Milliseconds())
 		}
+		observability.CognitivePhasesDuration.Record(ctx, time.Since(reflectStart).Milliseconds(),
+			metric.WithAttributes(attribute.String("phase", "reflect")))
 		if err != nil {
 			slog.Error("cognitive: reflect failed", "err", err)
 			break

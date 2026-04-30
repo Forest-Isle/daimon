@@ -10,6 +10,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type ServerDeps struct {
@@ -34,6 +35,7 @@ func NewServerMux(deps ServerDeps) http.Handler {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]string{"status": "ok"})
 	})
+	mux.Handle("/metrics", promhttp.Handler())
 
 	mux.HandleFunc("/api/agent/state", deps.authMiddleware(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, deps.Tracker.Snapshot())

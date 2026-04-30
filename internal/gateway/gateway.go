@@ -76,6 +76,7 @@ type Gateway struct {
 	contextMgr       *agent.PipelineContextManager
 	features         *feature.Registry
 	featureStatePath string // path to ~/.IronClaw/feature_state.json
+	obsShutdown      func(context.Context)
 	cogCollector     *cogmetrics.Collector
 	healthChecker    *cogmetrics.HealthChecker
 	breaker          *cogmetrics.Breaker
@@ -96,15 +97,23 @@ type GatewayOptions struct {
 
 func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw := &Gateway{
-		cfg:      cfg,
-		channels: make(map[string]channel.Channel),
-		stopCh:   make(chan struct{}),
+		cfg:         cfg,
+		channels:    make(map[string]channel.Channel),
+		stopCh:      make(chan struct{}),
+		obsShutdown: func(context.Context) {},
 	}
 	gw.currentMode.Store(cfg.Agent.Mode)
 
 	if err := gw.initDatabase(); err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
+
+	obsShutdown, err := initObservability(context.Background(), *cfg)
+	if err != nil {
+		slog.Warn("observability init failed, continuing without telemetry", "err", err)
+		obsShutdown = func(context.Context) {}
+	}
+	gw.obsShutdown = obsShutdown
 
 	opt := GatewayOptions{}
 	if len(opts) > 0 {
@@ -425,6 +434,7 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		gw.dockerSessionMgr.CleanupAll()
 	}
 
+	gw.obsShutdown(ctx)
 	_ = gw.db.Close()
 	slog.Info("gateway stopped")
 	return nil

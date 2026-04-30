@@ -69,3 +69,4 @@ configs/ironclaw_eval.yaml
 
 # Root binary (build artifact)
 /ironclaw
+.gomodcache/
