@@ -70,7 +70,7 @@ func (s *SynthesizeNode) Execute(ctx context.Context, state GraphState) (NodeRes
 	filename := fmt.Sprintf("%s_%s.md", sessionPrefix, time.Now().UTC().Format("20060102T150405Z"))
 	fullPath := filepath.Join(outputDir, filename)
 
-	draft := buildSynthesizedSkill(skill.Skill{
+	draft := buildSynthesizedSkill(&skill.Skill{
 		Name:        fmt.Sprintf("synthesized-%s", sessionPrefix),
 		Description: fmt.Sprintf("Synthesized from session %s with %d action steps.", state.SessionID, len(steps)),
 	}, steps)
@@ -125,7 +125,7 @@ func extractSynthesisSteps(events []GraphEvent) []string {
 	return steps
 }
 
-func buildSynthesizedSkill(meta skill.Skill, steps []string) string {
+func buildSynthesizedSkill(meta *skill.Skill, steps []string) string {
 	var b strings.Builder
 	b.WriteString("---\n")
 	b.WriteString("name: ")

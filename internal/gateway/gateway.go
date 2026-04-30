@@ -44,7 +44,7 @@ type Gateway struct {
 	provider         agent.Provider // stored for completerAdapter use
 	runtime          *agent.Runtime
 	cognitiveAgent   *agent.CognitiveAgent
-	graphEngine      *agent.GraphEngine
+	graphEventStore  agent.ExecutionEventStore
 	heartbeat        *agent.HeartbeatScheduler
 	tools            *tool.Registry
 	hookMgr          *hook.Manager
