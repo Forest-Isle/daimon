@@ -51,13 +51,15 @@ func NewOpenAIProvider(apiKey, model, baseURL string) *OpenAIProvider {
 // ── OpenAI request/response types ──
 
 type oaiRequest struct {
-	Model         string            `json:"model"`
-	Messages      []oaiMessage      `json:"messages"`
-	Tools         []oaiTool         `json:"tools,omitempty"`
-	MaxTokens     int               `json:"max_tokens,omitempty"`
-	Stream        bool              `json:"stream,omitempty"`
-	StreamOptions *oaiStreamOptions `json:"stream_options,omitempty"`
-	Temperature   *float64          `json:"temperature,omitempty"`
+	Model          string             `json:"model"`
+	Messages       []oaiMessage       `json:"messages"`
+	Tools          []oaiTool          `json:"tools,omitempty"`
+	ToolChoice     any                `json:"tool_choice,omitempty"`
+	ResponseFormat *oaiResponseFormat `json:"response_format,omitempty"`
+	MaxTokens      int                `json:"max_tokens,omitempty"`
+	Stream         bool               `json:"stream,omitempty"`
+	StreamOptions  *oaiStreamOptions  `json:"stream_options,omitempty"`
+	Temperature    *float64           `json:"temperature,omitempty"`
 }
 
 type oaiStreamOptions struct {
@@ -91,6 +93,17 @@ type oaiToolCall struct {
 type oaiToolCallFunc struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+}
+
+type oaiResponseFormat struct {
+	Type       string         `json:"type"`
+	JSONSchema *oaiJSONSchema `json:"json_schema,omitempty"`
+}
+
+type oaiJSONSchema struct {
+	Name   string `json:"name"`
+	Schema any    `json:"schema"`
+	Strict bool   `json:"strict,omitempty"`
 }
 
 type oaiUsage struct {
@@ -274,15 +287,51 @@ func (p *OpenAIProvider) buildRequest(req CompletionRequest, stream bool) oaiReq
 	}
 
 	// Tools → OpenAI functions
-	for _, t := range req.Tools {
-		oai.Tools = append(oai.Tools, oaiTool{
-			Type: "function",
-			Function: oaiFunction{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  t.InputSchema,
+	if req.ToolChoice != "none" {
+		for _, t := range req.Tools {
+			oai.Tools = append(oai.Tools, oaiTool{
+				Type: "function",
+				Function: oaiFunction{
+					Name:        t.Name,
+					Description: t.Description,
+					Parameters:  t.InputSchema,
+				},
+			})
+		}
+	}
+
+	switch req.ToolChoice {
+	case "any":
+		oai.ToolChoice = "required"
+	case "none":
+		oai.ToolChoice = "none"
+	case "":
+	default:
+		oai.ToolChoice = map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name": req.ToolChoice,
 			},
-		})
+		}
+	}
+
+	if req.ResponseFormat != nil {
+		switch req.ResponseFormat.Type {
+		case "json_object":
+			oai.ResponseFormat = &oaiResponseFormat{Type: "json_object"}
+		case "json_schema":
+			if req.ResponseFormat.JSONSchema == nil {
+				break
+			}
+			oai.ResponseFormat = &oaiResponseFormat{
+				Type: "json_schema",
+				JSONSchema: &oaiJSONSchema{
+					Name:   req.ResponseFormat.JSONSchema.Name,
+					Schema: req.ResponseFormat.JSONSchema.Schema,
+					Strict: req.ResponseFormat.JSONSchema.Strict,
+				},
+			}
+		}
 	}
 
 	return oai

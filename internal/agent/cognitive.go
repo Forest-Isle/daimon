@@ -56,6 +56,7 @@ type CognitiveAgent struct {
 	contextManager      ContextManager
 	taskLedger          taskledger.TaskLedger
 	dashEmitter         DashboardEmitter
+	planMode            *PlanMode
 	observationCallback func(result *ObservationResult)
 }
 
@@ -170,6 +171,15 @@ func (ca *CognitiveAgent) SetLifecycleManager(lm *memory.LifecycleManager) {
 func (ca *CognitiveAgent) SetApprovalFunc(fn ApprovalFunc) {
 	ca.executor.approvalFunc = fn
 	ca.runtime.SetApprovalFunc(fn)
+}
+
+// SetPlanMode injects a PlanMode instance into the cognitive agent.
+// When set, the executor enforces plan→approve→execute flow for write tools.
+func (ca *CognitiveAgent) SetPlanMode(pm *PlanMode) {
+	ca.planMode = pm
+	if ca.executor != nil {
+		ca.executor.SetPlanMode(pm)
+	}
 }
 
 // SetHookManager injects a hook manager into the cognitive agent, its executor, and inner runtime.

@@ -8,6 +8,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
 	"github.com/Forest-Isle/IronClaw/internal/sandbox"
+	"github.com/Forest-Isle/IronClaw/internal/worktree"
 )
 
 func registerFeatures(cfg *config.Config) *feature.Registry {
@@ -128,12 +129,31 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 		Phase:       feature.PhaseConstruct,
 	})
 	r.Register(feature.Feature{
+		Name:        "worktree",
+		Description: "Git worktree-based code isolation for safe file modifications",
+		Default:     true,
+		Phase:       feature.PhaseConstruct,
+		AutoDetect: func(ctx context.Context) feature.DetectResult {
+			if !worktree.Available() {
+				return feature.DetectResult{Available: false, Reason: "git not found in PATH"}
+			}
+			return feature.DetectResult{Available: true}
+		},
+	})
+	r.Register(feature.Feature{
 		Name:        "graph",
 		Description: "Dynamic graph execution engine (replaces cognitive 5-phase loop)",
 		Default:     false,
 		Phase:       feature.PhaseConstruct,
 	})
 
+	r.Register(feature.Feature{
+		Name:          "a2a",
+		Description:   "A2A (Agent-to-Agent) protocol server for agent interoperability",
+		Default:       false,
+		Phase:         feature.PhaseStart,
+		HotReloadable: true,
+	})
 	// MCP servers — each configured server gets its own hot-reloadable feature
 	for name, srv := range cfg.Tools.MCP.Servers {
 		name := name // capture loop variable
@@ -192,6 +212,14 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 		return nil
 	})
 
+
+		// A2A server lifecycle
+		_ = gw.features.SetOnEnable("a2a", func(ctx context.Context) error {
+			return gw.startA2AServer()
+		})
+		_ = gw.features.SetOnDisable("a2a", func(ctx context.Context) error {
+			return gw.stopA2AServer()
+		})
 	// MCP servers — bind start/stop hooks for each registered mcp_* feature
 	for _, srv := range gw.features.List() {
 		if !strings.HasPrefix(srv.Name, "mcp_") {

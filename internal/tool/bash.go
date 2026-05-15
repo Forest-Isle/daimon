@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const maxOutputSize = 64 * 1024 // 64KB
+const maxOutputSize = 64 * 1024      // 64KB
 const largeOutputThreshold = 8 * 1024 // 8KB
 
 type bashOutput struct {
@@ -44,8 +44,8 @@ func NewBashTool(timeout time.Duration, requiresApproval bool, policy *Policy) *
 	return &BashTool{timeout: timeout, approval: requiresApproval, policy: policy}
 }
 
-func (b *BashTool) Name() string        { return "bash" }
-func (b *BashTool) Description() string  { return "Execute a shell command and return its output." }
+func (b *BashTool) Name() string          { return "bash" }
+func (b *BashTool) Description() string   { return "Execute a shell command and return its output." }
 func (b *BashTool) RequiresApproval() bool { return b.approval }
 
 // Available checks whether the bash shell executable can be found on the host.
@@ -99,11 +99,42 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", in.Command)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	cmd.Stdout = &stdout
+
+	// If a StreamCallback is attached to the context, tee stdout through it
+	// for real-time output in channels that support ToolStreamWriter.
+	streamCB := StreamCallbackFromContext(ctx)
 
 	start := time.Now()
-	runErr := cmd.Run()
+	var runErr error
+
+	if streamCB != nil {
+		// Use a pipe so we can read stdout while the command runs.
+		stdoutPipe, pipeErr := cmd.StdoutPipe()
+		if pipeErr != nil {
+			return Result{Error: fmt.Sprintf("stdout pipe: %v", pipeErr)}, nil
+		}
+		if startErr := cmd.Start(); startErr != nil {
+			return Result{Error: fmt.Sprintf("command start: %v", startErr)}, nil
+		}
+		// Read chunks from stdout, tee to buffer and stream callback.
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := stdoutPipe.Read(buf)
+			if n > 0 {
+				stdout.Write(buf[:n])
+				streamCB(string(buf[:n]))
+			}
+			if readErr != nil {
+				break
+			}
+		}
+		runErr = cmd.Wait()
+	} else {
+		runErr = cmd.Run()
+	}
+
 	durationMs := time.Since(start).Milliseconds()
 
 	if runErr != nil && ctx.Err() == context.DeadlineExceeded {

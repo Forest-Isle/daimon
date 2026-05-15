@@ -201,6 +201,26 @@ func (r *Registry) All() []Tool {
 	return out
 }
 
+// StreamCallback is called by tools to emit output chunks during execution.
+// Tools call this for each line/chunk of output so channels can display
+// real-time progress. If nil, tools buffer all output and return it at completion.
+type StreamCallback func(chunk string)
+
+type streamCtxKey struct{}
+
+// WithStreamCallback attaches a StreamCallback to the context. Tools that
+// support streaming will call the callback with output chunks as they arrive.
+func WithStreamCallback(ctx context.Context, cb StreamCallback) context.Context {
+	return context.WithValue(ctx, streamCtxKey{}, cb)
+}
+
+// StreamCallbackFromContext extracts the StreamCallback from the context.
+// Returns nil if no callback was set.
+func StreamCallbackFromContext(ctx context.Context) StreamCallback {
+	cb, _ := ctx.Value(streamCtxKey{}).(StreamCallback)
+	return cb
+}
+
 // UnregisterByPrefix removes all tools whose name starts with prefix and returns the removed names.
 func (r *Registry) UnregisterByPrefix(prefix string) []string {
 	r.mu.Lock()

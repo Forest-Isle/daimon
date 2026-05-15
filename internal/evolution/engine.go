@@ -72,6 +72,7 @@ type Engine struct {
 	cfg     Config
 	hooks   []Hook
 	router  *ModelRouter
+	brain   *Brain // unified cross-loop coordinator (nil until wired by gateway)
 	trajDir string // trajectory directory for insights loop (empty = disabled)
 	mu      sync.RWMutex
 	ctx     context.Context
@@ -93,6 +94,23 @@ func NewEngine(cfg Config) *Engine {
 // Router returns the model router (never nil, even when routing is disabled).
 func (e *Engine) Router() *ModelRouter {
 	return e.router
+}
+
+// SetBrain wires the unified Brain coordinator into the engine.
+// Must be called before Start(). When set, DispatchEpisode and
+// RunInsightsCycle route through the Brain for cross-loop feedback.
+func (e *Engine) SetBrain(brain *Brain) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.brain = brain
+	slog.Info("evolution: brain wired into engine")
+}
+
+// Brain returns the unified Brain coordinator, or nil if not wired.
+func (e *Engine) Brain() *Brain {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.brain
 }
 
 // SetTrajectoryDir sets the trajectory directory for the insights feedback
@@ -156,6 +174,7 @@ func (e *Engine) insightsLoop() {
 // recommendations to the strategy optimizer and preference learner. Safe to
 // call from external code (e.g. eval longitudinal) to force an immediate
 // learning cycle without waiting for the 6-hour timer.
+// When the Brain is wired, routes insights through unified cross-loop application.
 func (e *Engine) RunInsightsCycle() {
 	so := e.StrategyOptimizerHook()
 	if so == nil {
@@ -173,6 +192,21 @@ func (e *Engine) RunInsightsCycle() {
 	}
 
 	report := GenerateInsights(records, "auto-7d")
+
+	// Route through Brain for unified cross-loop application when wired.
+	// The Brain coordinates: preferences → strategy → skills with feedback.
+	if e.brain != nil {
+		e.brain.ApplyInsights(report)
+		// Drain any pending cross-loop feedback (skill→preference, strategy→skill).
+		e.brain.DrainFeedback()
+		slog.Info("evolution: insights cycle complete (brain-coordinated)",
+			"episodes_analyzed", report.TotalEpisodes,
+			"health_score", e.brain.GetMetrics().HealthScore,
+		)
+		return
+	}
+
+	// Fallback: direct hook application when Brain is not wired.
 	applied := so.ApplyInsights(report)
 	if applied > 0 {
 		slog.Info("evolution: insights cycle complete",
@@ -247,12 +281,18 @@ func (e *Engine) DispatchReflection(event ReflectionEvent) {
 }
 
 // DispatchEpisode fires OnEpisodeComplete on all hooks asynchronously.
+// Also routes through the Brain for cross-loop feedback when wired.
 func (e *Engine) DispatchEpisode(event EpisodeEvent) {
 	if !e.cfg.Enabled {
 		return
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+
+	// Route through Brain for unified cross-loop coordination.
+	if e.brain != nil {
+		e.brain.OnEpisodeComplete(e.ctx, event)
+	}
 
 	for _, h := range e.hooks {
 		hook := h

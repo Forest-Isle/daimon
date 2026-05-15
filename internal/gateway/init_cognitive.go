@@ -39,6 +39,18 @@ func (gw *Gateway) initCognitiveAgent() error {
 	// Inject memory notification callback
 	gw.cognitiveAgent.SetMemoryNotifyFunc(gw.sendMemoryNotification)
 
+	// Plan Mode: plan→approve→execute flow for write tools.
+	// Enabled when cognitive mode is active and provider supports plan generation.
+	if gw.provider != nil {
+		gw.planMode = agent.NewPlanMode(
+			gw.provider,
+			gw.handleApproval,
+			false, // safe default: require approval for write tools
+		)
+		gw.cognitiveAgent.SetPlanMode(gw.planMode)
+		slog.Info("plan mode wired into cognitive agent")
+	}
+
 	// Checkpoint store for task resume
 	checkpointStore := agent.NewSQLiteCheckpointStore(gw.db)
 	gw.cognitiveAgent.SetCheckpointStore(checkpointStore)
@@ -162,8 +174,8 @@ func (gw *Gateway) registerEvolutionHooks() {
 	// Evolution Brain: unified coordinator with cross-loop feedback
 	if prefLearner != nil || stratOptimizer != nil || skillSynth != nil {
 		brain := evolution.NewBrain(prefLearner, stratOptimizer, skillSynth)
-		_ = brain // Brain is available for future Engine integration
-		slog.Info("evolution brain initialized",
+		gw.evoEngine.SetBrain(brain)
+		slog.Info("evolution brain wired into engine",
 			"preference", prefLearner != nil,
 			"optimizer", stratOptimizer != nil,
 			"synthesizer", skillSynth != nil,

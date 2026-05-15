@@ -13,6 +13,7 @@ import (
 
 	"net/http"
 
+	"github.com/Forest-Isle/IronClaw/internal/a2a"
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
@@ -65,6 +66,9 @@ type Gateway struct {
 	dockerSessionMgr *sandbox.DockerSessionManager
 	interceptorChain *tool.InterceptorChain
 	trustTracker     *tool.TrustTracker
+	userHookMgr      *hook.UserHookManager   // user-configurable hook scripts
+	a2aServer        *a2a.Server             // A2A protocol server
+	planMode         *agent.PlanMode         // plan→approve→execute flow
 	taskLedger       *taskledger.SQLiteTaskLedger
 	teamCoordinator  *taskledger.TeamCoordinator
 	subAgentMgr      *agent.SubAgentManager
@@ -517,6 +521,19 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 		return
 	}
 
+	// Attach stream callback for channels that support real-time tool output.
+	if streamWriter, ok := ch.(channel.ToolStreamWriter); ok {
+		target := channel.MessageTarget{
+			Channel:   msg.Channel,
+			ChannelID: msg.ChannelID,
+		}
+		ctx = tool.WithStreamCallback(ctx, func(chunk string) {
+			if err := streamWriter.WriteToolStream(ctx, target, "bash", chunk); err != nil {
+				slog.Warn("gateway: tool stream write failed", "err", err)
+			}
+		})
+	}
+
 	// Handle /tasks command — list active and recent tasks from task ledger
 	if msg.Text == "/tasks" {
 		gw.handleTasksCommand(ctx, ch, msg)
@@ -916,4 +933,73 @@ func (gw *Gateway) importTrajectoriesToRL() {
 	if len(exps) > 0 {
 		slog.Info("gateway: imported trajectories into RL buffer", "experiences", len(exps))
 	}
+}
+
+// startA2AServer creates and starts the A2A protocol server.
+func (gw *Gateway) startA2AServer() error {
+	card := a2a.AgentCard{
+		Name:        "IronClaw",
+		Description: "IronClaw — local-first self-evolving AI agent runtime",
+		URL:         "http://localhost:9191",
+		Version:     "1.0",
+		Capabilities: a2a.Capabilities{
+			Streaming:         true,
+			PushNotifications: false,
+		},
+		Skills: []a2a.AgentSkill{
+			{
+				Name:        "agent_task",
+				Description: "Execute a task using the IronClaw agent runtime",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"message": map[string]any{"type": "string"},
+					},
+				},
+			},
+		},
+	}
+
+	handler := func(ctx context.Context, task *a2a.Task) (*a2a.TaskOutput, error) {
+		ch, ok := gw.channels["tui"]
+		if !ok {
+			for _, c := range gw.channels {
+				ch = c
+				break
+			}
+		}
+		if ch != nil {
+			_ = ch.Send(ctx, channel.OutboundMessage{
+				Channel:   ch.Name(),
+				ChannelID: task.ID,
+				Text:      task.Input.Message,
+			})
+		}
+		return &a2a.TaskOutput{
+			Text: "Task dispatched to IronClaw agent runtime",
+		}, nil
+	}
+
+	gw.a2aServer = a2a.NewServer(card, handler)
+	go func() {
+		if err := gw.a2aServer.Start(":9191"); err != nil {
+			slog.Error("a2a: server failed", "err", err)
+		}
+	}()
+	slog.Info("a2a: server started", "addr", ":9191")
+	return nil
+}
+
+// stopA2AServer gracefully shuts down the A2A server.
+func (gw *Gateway) stopA2AServer() error {
+	if gw.a2aServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := gw.a2aServer.Stop(ctx); err != nil {
+			slog.Warn("a2a: server stop error", "err", err)
+			return err
+		}
+	}
+	slog.Info("a2a: server stopped")
+	return nil
 }

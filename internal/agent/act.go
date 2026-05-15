@@ -30,6 +30,7 @@ type Executor struct {
 	cache            *ToolResultCache
 	interceptorChain *tool.InterceptorChain
 	dashEmitter      DashboardEmitter
+	planMode         *PlanMode // optional plan→approve→execute flow
 }
 
 // NewExecutor creates a new Executor.
@@ -70,6 +71,12 @@ func (e *Executor) SetInterceptorChain(chain *tool.InterceptorChain) {
 // SetDashboardEmitter injects a dashboard event emitter for tool execution tracking.
 func (e *Executor) SetDashboardEmitter(em DashboardEmitter) {
 	e.dashEmitter = em
+}
+
+// SetPlanMode injects a PlanMode instance for plan→approve→execute flow.
+// When set, write tool executions must be approved through an active plan.
+func (e *Executor) SetPlanMode(pm *PlanMode) {
+	e.planMode = pm
 }
 
 // Run executes the ACT phase — topological ordering + parallel execution.

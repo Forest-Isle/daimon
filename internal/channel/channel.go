@@ -60,3 +60,14 @@ type NotificationSender interface {
 type FeedbackSender interface {
 	SendFeedbackRequest(ctx context.Context, target MessageTarget) (float64, error)
 }
+
+// ToolStreamWriter is an optional interface for channels that support
+// real-time streaming of tool execution output. When a tool produces
+// output incrementally (e.g., long-running bash commands), the runtime
+// sends lines/chunks via this writer while the tool is still running.
+// Channels that implement this interface give users live feedback;
+// channels that don't simply buffer output until completion.
+type ToolStreamWriter interface {
+	WriteToolStream(ctx context.Context, target MessageTarget, toolName string, chunk string) error
+	FlushToolStream(ctx context.Context, target MessageTarget, toolName string) error
+}

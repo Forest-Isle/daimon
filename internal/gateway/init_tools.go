@@ -3,10 +3,14 @@ package gateway
 import (
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/sandbox"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/IronClaw/internal/worktree"
 )
 
 func (gw *Gateway) initToolsAndHooks() error {
@@ -32,6 +36,11 @@ func (gw *Gateway) initToolsAndHooks() error {
 		gw.tools.Register(tool.NewBrowserExtractTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
 	}
 
+
+		// Worktree tools for isolated code changes
+		if gw.featureEnabled("worktree") {
+			worktree.RegisterTools(gw.tools, ".")
+		}
 	// Hook event system
 	hookCfg := gw.cfg.Hooks
 	preToolUseCfg := make([]hook.HandlerConfig, len(hookCfg.PreToolUse))
@@ -52,6 +61,14 @@ func (gw *Gateway) initToolsAndHooks() error {
 	}
 	gw.hookMgr = hook.BuildManager(preToolUseCfg, postToolUseCfg, onUserMsgCfg, preCompactCfg, &hook.BuildManagerOpts{DB: gw.db.DB})
 	slog.Info("hook system initialized")
+
+	// User-configurable hook scripts from ~/.IronClaw/hooks/
+	if home, err := os.UserHomeDir(); err == nil {
+		hooksDir := filepath.Join(home, ".IronClaw", "hooks")
+		gw.userHookMgr = hook.NewUserHookManager(hooksDir, 30*time.Second)
+		slog.Info("user hook system initialized", "dir", hooksDir,
+			"hooks", len(gw.userHookMgr.ListHooks()))
+	}
 
 	// Permission engine
 	permRules := make([]tool.PermissionRule, len(gw.cfg.Permissions.Rules))
@@ -110,7 +127,8 @@ func (gw *Gateway) initToolsAndHooks() error {
 	interceptors := []tool.ToolInterceptor{
 		tool.NewPermissionInterceptor(gw.permEngine, nil, nil),
 		tool.NewHookInterceptor(gw.hookMgr),
-		tool.NewSandboxInterceptor(gw.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
+		newUserHookInterceptor(gw.userHookMgr),
+			tool.NewSandboxInterceptor(gw.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
 	}
 	if auditInterceptor != nil {
 		interceptors = append(interceptors, auditInterceptor)
@@ -120,4 +138,48 @@ func (gw *Gateway) initToolsAndHooks() error {
 	slog.Info("sandbox system initialized", "enabled", sandboxEnabled)
 
 	return nil
+}
+
+// userHookInterceptor runs user-configurable hook scripts around tool execution.
+type userHookInterceptor struct {
+	mgr *hook.UserHookManager
+}
+
+func newUserHookInterceptor(mgr *hook.UserHookManager) *userHookInterceptor {
+	return &userHookInterceptor{mgr: mgr}
+}
+
+func (u *userHookInterceptor) Name() string { return "user_hooks" }
+
+func (u *userHookInterceptor) Intercept(
+	ctx context.Context, call *tool.ToolCall, next tool.InterceptorFunc,
+) (*tool.ToolResult, error) {
+	if u.mgr == nil {
+		return next(ctx, call)
+	}
+
+	// Fire pre_tool_use hooks before execution.
+	u.mgr.RunHooks(ctx, hook.HookPreToolUse, map[string]any{
+		"tool_name":  call.ToolName,
+		"tool_input": call.Input,
+	})
+
+	// Execute the actual tool.
+	result, err := next(ctx, call)
+
+	// Fire post_tool_use hooks after execution.
+	output := ""
+	toolErr := ""
+	if result != nil {
+		output = result.Output
+		toolErr = result.Error
+	}
+	u.mgr.RunHooks(ctx, hook.HookPostToolUse, map[string]any{
+		"tool_name":   call.ToolName,
+		"tool_input":  call.Input,
+		"tool_output": output,
+		"tool_error":  toolErr,
+	})
+
+	return result, err
 }

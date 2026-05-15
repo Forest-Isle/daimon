@@ -166,20 +166,22 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 	}
 
 	tools := make([]anthropic.ToolUnionParam, 0, len(req.Tools))
-	for _, t := range req.Tools {
-		schema := anthropic.ToolInputSchemaParam{
-			Properties: t.InputSchema["properties"],
+	if req.ToolChoice != "none" {
+		for _, t := range req.Tools {
+			schema := anthropic.ToolInputSchemaParam{
+				Properties: t.InputSchema["properties"],
+			}
+			if req, ok := t.InputSchema["required"].([]string); ok {
+				schema.Required = req
+			}
+			tools = append(tools, anthropic.ToolUnionParam{
+				OfTool: &anthropic.ToolParam{
+					Name:        t.Name,
+					Description: anthropic.String(t.Description),
+					InputSchema: schema,
+				},
+			})
 		}
-		if req, ok := t.InputSchema["required"].([]string); ok {
-			schema.Required = req
-		}
-		tools = append(tools, anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        t.Name,
-				Description: anthropic.String(t.Description),
-				InputSchema: schema,
-			},
-		})
 	}
 
 	maxTokens := int64(req.MaxTokens)
@@ -206,6 +208,28 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 			last := &params.Tools[len(params.Tools)-1]
 			if last.OfTool != nil {
 				last.OfTool.CacheControl = anthropic.NewCacheControlEphemeralParam()
+			}
+		}
+	}
+
+	switch req.ToolChoice {
+	case "any":
+		params.ToolChoice = anthropic.ToolChoiceUnionParam{
+			OfAny: &anthropic.ToolChoiceAnyParam{},
+		}
+	case "":
+	case "none":
+	default:
+		params.ToolChoice = anthropic.ToolChoiceParamOfTool(req.ToolChoice)
+	}
+
+	if req.ResponseFormat != nil && req.ResponseFormat.Type == "json_schema" && req.ResponseFormat.JSONSchema != nil {
+		schema, ok := req.ResponseFormat.JSONSchema.Schema.(map[string]any)
+		if ok {
+			params.OutputConfig = anthropic.OutputConfigParam{
+				Format: anthropic.JSONOutputFormatParam{
+					Schema: schema,
+				},
 			}
 		}
 	}
