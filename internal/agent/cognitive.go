@@ -61,6 +61,7 @@ type CognitiveAgent struct {
 	observationCallback func(result *ObservationResult)
 	replayRecorder      *ReplayRecorder
 	selfHealEngine      *SelfHealEngine
+	treePlanner         *StrategicTreePlanner
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -187,6 +188,10 @@ func (ca *CognitiveAgent) SetPlanMode(pm *PlanMode) {
 
 func (ca *CognitiveAgent) SetSelfHealEngine(eng *SelfHealEngine) {
 	ca.selfHealEngine = eng
+}
+
+func (ca *CognitiveAgent) SetTreePlanner(tp *StrategicTreePlanner) {
+	ca.treePlanner = tp
 }
 
 // SetHookManager injects a hook manager into the cognitive agent, its executor, and inner runtime.
@@ -540,8 +545,16 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	var reflection *Reflection
 	var ppoStrategy *rl.PlanStrategyAction
 	var dqnReplanAction rl.ReplanActionType
+	treePlanner := ca.treePlanner
 
 	cognitiveTurnStart := time.Now()
+
+	if treePlanner != nil {
+		if err := treePlanner.GenerateCandidates(ctx, state); err != nil {
+			slog.Warn("tree-planner: generate candidates failed, falling back to linear", "err", err)
+			treePlanner = nil
+		}
+	}
 
 	for attempt := 0; attempt <= maxReplans; attempt++ {
 		if attempt > 0 {
@@ -571,7 +584,28 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 		planStart := time.Now()
 		donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
-		plan, err = ca.planner.Run(ctx, state)
+		if treePlanner != nil {
+			plan = treePlanner.Select()
+			if plan == nil {
+				failureSummary := buildTreeFailureSummary(reflection, obsResult)
+				if expandErr := treePlanner.Expand(ctx, failureSummary); expandErr != nil {
+					slog.Warn("tree-planner: expand failed", "err", expandErr)
+					donePlan()
+					break
+				}
+				plan = treePlanner.Select()
+				if plan == nil {
+					donePlan()
+					break
+				}
+			}
+			slog.Info("tree-planner: selected plan",
+				"strategy", treePlanner.currentNode.Candidates[treePlanner.currentIdx].Strategy,
+				"score", treePlanner.currentNode.Candidates[treePlanner.currentIdx].LLMScore,
+				"depth", treePlanner.currentNode.Depth)
+		} else {
+			plan, err = ca.planner.Run(ctx, state)
+		}
 		donePlan()
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
@@ -600,10 +634,13 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 
 		// RL: apply PPO plan strategy adjustment
 		if rlEnabled && rlState != nil {
-			ppoStrategy = ca.rlPolicy.SelectPlanStrategy(rlState)
-			if ppoStrategy != nil {
-				plan.OverallConfidence = clampRL(
-					plan.OverallConfidence+ppoStrategy.ConfidenceAdj, 0, 1)
+			ppoStrategy = nil
+			if treePlanner == nil {
+				ppoStrategy = ca.rlPolicy.SelectPlanStrategy(rlState)
+				if ppoStrategy != nil {
+					plan.OverallConfidence = clampRL(
+						plan.OverallConfidence+ppoStrategy.ConfidenceAdj, 0, 1)
+				}
 			}
 			updateRLStateWithPlan(rlState, plan)
 		}
@@ -802,6 +839,19 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			}
 		}
 
+		if treePlanner != nil && reflection != nil {
+			reward := computeTreeReward(reflection, obsResult)
+			treePlanner.Backprop(reward)
+
+			if reflection.Succeeded {
+				break
+			}
+			if treePlanner.HasAlternatives() {
+				continue
+			}
+			continue
+		}
+
 		// Check if replan is needed
 		if reflection.OverallConfidence < confidenceThreshold && reflection.NeedsReplan {
 			decision, _ := ca.reflector.RequestReplanApproval(ctx, ch, target, reflection)
@@ -892,6 +942,28 @@ persist:
 	}
 
 	return nil
+}
+
+func buildTreeFailureSummary(reflection *Reflection, obsResult *ObservationResult) string {
+	var parts []string
+	if reflection != nil {
+		if reflection.ReplanReason != "" {
+			parts = append(parts, reflection.ReplanReason)
+		}
+		for _, lesson := range reflection.LessonsLearned {
+			if strings.TrimSpace(lesson) != "" {
+				parts = append(parts, lesson)
+			}
+		}
+	}
+	if obsResult != nil {
+		for _, failure := range obsResult.Failures {
+			if strings.TrimSpace(failure.ErrorMsg) != "" {
+				parts = append(parts, failure.ErrorMsg)
+			}
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // streamFinalAnswer sends the final answer to the user via streaming.

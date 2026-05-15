@@ -49,6 +49,7 @@ type Gateway struct {
 	runtime          *agent.Runtime
 	cognitiveAgent   *agent.CognitiveAgent
 	selfHealEngine   *agent.SelfHealEngine
+	treePlanner      *agent.StrategicTreePlanner
 	graphEventStore  agent.ExecutionEventStore
 	heartbeat        *agent.HeartbeatScheduler
 	tools            *tool.Registry
@@ -117,6 +118,13 @@ func (gw *Gateway) SetSelfHealEngine(eng *agent.SelfHealEngine) {
 	}
 	if gw.cognitiveAgent != nil {
 		gw.cognitiveAgent.SetSelfHealEngine(eng)
+	}
+}
+
+func (gw *Gateway) SetTreePlanner(tp *agent.StrategicTreePlanner) {
+	gw.treePlanner = tp
+	if gw.cognitiveAgent != nil {
+		gw.cognitiveAgent.SetTreePlanner(tp)
 	}
 }
 

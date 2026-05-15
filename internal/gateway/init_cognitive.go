@@ -86,6 +86,9 @@ func (gw *Gateway) initCognitiveAgent() error {
 	if gw.selfHealEngine != nil {
 		gw.cognitiveAgent.SetSelfHealEngine(gw.selfHealEngine)
 	}
+	if gw.treePlanner != nil {
+		gw.cognitiveAgent.SetTreePlanner(gw.treePlanner)
+	}
 
 	return nil
 }
