@@ -60,6 +60,9 @@ func (gw *Gateway) initAgentRuntime() error {
 	if gw.replayRecorder != nil {
 		gw.runtime.SetReplayRecorder(gw.replayRecorder)
 	}
+	if gw.selfHealEngine != nil {
+		gw.runtime.SetSelfHealEngine(gw.selfHealEngine)
+	}
 
 	return nil
 }

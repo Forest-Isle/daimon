@@ -64,6 +64,7 @@ type Runtime struct {
 	metricsEmitter      MetricsEmitter
 	replayRecorder      *ReplayRecorder
 	replayID            string
+	selfHealEngine      *SelfHealEngine
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -177,6 +178,9 @@ func (r *Runtime) SetMetricsEmitter(e MetricsEmitter) { r.metricsEmitter = e }
 
 // SetReplayRecorder attaches a replay recorder to the runtime.
 func (r *Runtime) SetReplayRecorder(rr *ReplayRecorder) { r.replayRecorder = rr }
+
+// SetSelfHealEngine attaches a self-heal engine to the runtime.
+func (r *Runtime) SetSelfHealEngine(eng *SelfHealEngine) { r.selfHealEngine = eng }
 
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.

@@ -83,6 +83,9 @@ func (gw *Gateway) initCognitiveAgent() error {
 	if gw.replayRecorder != nil {
 		gw.cognitiveAgent.SetReplayRecorder(gw.replayRecorder)
 	}
+	if gw.selfHealEngine != nil {
+		gw.cognitiveAgent.SetSelfHealEngine(gw.selfHealEngine)
+	}
 
 	return nil
 }

@@ -48,6 +48,7 @@ type Gateway struct {
 	provider         agent.Provider // stored for completerAdapter use
 	runtime          *agent.Runtime
 	cognitiveAgent   *agent.CognitiveAgent
+	selfHealEngine   *agent.SelfHealEngine
 	graphEventStore  agent.ExecutionEventStore
 	heartbeat        *agent.HeartbeatScheduler
 	tools            *tool.Registry
@@ -106,6 +107,16 @@ func (gw *Gateway) SetReplayRecorder(rr *agent.ReplayRecorder) {
 	}
 	if gw.cognitiveAgent != nil {
 		gw.cognitiveAgent.SetReplayRecorder(rr)
+	}
+}
+
+func (gw *Gateway) SetSelfHealEngine(eng *agent.SelfHealEngine) {
+	gw.selfHealEngine = eng
+	if gw.runtime != nil {
+		gw.runtime.SetSelfHealEngine(eng)
+	}
+	if gw.cognitiveAgent != nil {
+		gw.cognitiveAgent.SetSelfHealEngine(eng)
 	}
 }
 

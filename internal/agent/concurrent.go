@@ -298,6 +298,26 @@ func (r *Runtime) executeToolCall(
 	result, err := t.Execute(ctx, []byte(tc.Input))
 	duration := time.Since(start).Milliseconds()
 
+	// Self-heal: try to auto-fix tool errors
+	if r.selfHealEngine != nil && (err != nil || result.Error != "") {
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		} else {
+			errStr = result.Error
+		}
+		healResult := r.selfHealEngine.HealToolError(ctx, tc.Name, tc.Input, errStr)
+		if healResult.Resolved && healResult.RetryResult != nil {
+			slog.Info("self-heal: runtime tool error fixed", "tool", tc.Name, "error", errStr)
+			err = nil
+			result = tool.Result{
+				Output:   healResult.RetryResult.Output,
+				Error:    "",
+				Metadata: healResult.RetryResult.Metadata,
+			}
+		}
+	}
+
 	var output string
 	status := "success"
 	if err != nil {

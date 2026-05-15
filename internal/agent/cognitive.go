@@ -60,6 +60,7 @@ type CognitiveAgent struct {
 	planMode            *PlanMode
 	observationCallback func(result *ObservationResult)
 	replayRecorder      *ReplayRecorder
+	selfHealEngine      *SelfHealEngine
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -182,6 +183,10 @@ func (ca *CognitiveAgent) SetPlanMode(pm *PlanMode) {
 	if ca.executor != nil {
 		ca.executor.SetPlanMode(pm)
 	}
+}
+
+func (ca *CognitiveAgent) SetSelfHealEngine(eng *SelfHealEngine) {
+	ca.selfHealEngine = eng
 }
 
 // SetHookManager injects a hook manager into the cognitive agent, its executor, and inner runtime.
@@ -675,6 +680,21 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 
 		if ca.observationCallback != nil && obsResult != nil {
 			ca.observationCallback(obsResult)
+		}
+
+		// Self-heal: attempt automatic fixes for fixable failures before REFLECT
+		if ca.selfHealEngine != nil && obsResult != nil && obsResult.FailureCount > 0 {
+			healed := ca.selfHealEngine.ProcessFailures(ctx, obsResult, plan)
+			if healed > 0 {
+				slog.Info("self-heal: resolved failures",
+					"healed", healed,
+					"remaining", obsResult.FailureCount,
+					"session", sess.ID)
+				if ca.dashEmitter != nil {
+					ca.dashEmitter.EmitPhaseStart(sess.ID, "SELF_HEAL")
+					ca.dashEmitter.EmitPhaseEnd(sess.ID, "SELF_HEAL", 0)
+				}
+			}
 		}
 
 		if ca.checkpointStore != nil && obsResult != nil {
