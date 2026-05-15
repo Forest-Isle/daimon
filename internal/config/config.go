@@ -357,9 +357,14 @@ type ToolsConfig struct {
 	File                FileToolConfig            `yaml:"file"`
 	HTTP                HTTPToolConfig            `yaml:"http"`
 	Browser             BrowserToolConfig         `yaml:"browser"`
+	Verify              VerifyConfig              `yaml:"verify"`
 	MCP                 MCPConfig                 `yaml:"mcp"`
 	ConcurrentExecution ConcurrentExecutionConfig `yaml:"concurrent_execution"`
 	ResultPersistence   ResultPersistenceConfig   `yaml:"result_persistence"`
+}
+
+type VerifyConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // ConcurrentExecutionConfig controls parallel execution of read-only tools.
@@ -593,6 +598,9 @@ func defaultConfig() Config {
 			Browser: BrowserToolConfig{
 				Enabled: true,
 				Timeout: 30 * time.Second,
+			},
+			Verify: VerifyConfig{
+				Enabled: true,
 			},
 			ConcurrentExecution: ConcurrentExecutionConfig{
 				Enabled:        true,

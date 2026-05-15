@@ -82,7 +82,7 @@ func (s *SandboxInterceptor) interceptFile(ctx context.Context, call *ToolCall, 
 	if json.Unmarshal([]byte(call.Input), &parsed) != nil || parsed.Path == "" {
 		return next(ctx, call)
 	}
-	isWrite := call.ToolName == "file_write" || call.ToolName == "file_edit"
+	isWrite := call.ToolName == "file_write" || call.ToolName == "file_edit" || call.ToolName == "file_patch"
 	if err := s.fileGuard.ValidateAccess(parsed.Path, isWrite); err != nil {
 		return &ToolResult{Error: fmt.Sprintf("sandbox: %s", err)}, nil
 	}

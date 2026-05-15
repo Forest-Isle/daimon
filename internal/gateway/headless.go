@@ -45,12 +45,17 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 
 	if cfg.Tools.Bash.Enabled {
 		h.tools.Register(tool.NewBashTool(cfg.Tools.Bash.Timeout, cfg.Tools.Bash.RequiresApproval, policy))
+		h.tools.Register(tool.NewTestRunTool("."))
 	}
 	if cfg.Tools.File.Enabled {
 		h.tools.Register(tool.NewFileReadTool())
 		h.tools.Register(tool.NewFileWriteTool(cfg.Tools.File.RequiresApproval))
 		h.tools.Register(tool.NewFileEditTool(cfg.Tools.File.RequiresApproval))
+		h.tools.Register(tool.NewFilePatchTool("."))
 		h.tools.Register(tool.NewFileListTool())
+		h.tools.Register(tool.NewGrepCodeTool("."))
+		h.tools.Register(tool.NewFindSymbolTool("."))
+		h.tools.Register(tool.NewListImportsTool("."))
 	}
 	if cfg.Tools.HTTP.Enabled {
 		h.tools.Register(tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval))

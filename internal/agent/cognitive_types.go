@@ -47,14 +47,22 @@ type Goal struct {
 	AmbiguityScore float64 // 0.0 = perfectly clear, 1.0 = highly ambiguous
 }
 
+// ProjectDependency represents a parsed dependency from a project manifest (go.mod, etc.).
+type ProjectDependency struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+	Direct  bool   `json:"direct"`
+}
+
 // ProjectContext holds auto-detected information about the current working directory.
 type ProjectContext struct {
-	Name           string   `json:"name"`
-	Language       string   `json:"language"`
-	BuildCommands  []string `json:"build_commands,omitempty"`
-	KeyDirectories []string `json:"key_directories,omitempty"`
-	HasReadme      bool     `json:"has_readme"`
-	RawContent     string   `json:"-"` // formatted string for prompt injection
+	Name           string              `json:"name"`
+	Language       string              `json:"language"`
+	BuildCommands  []string            `json:"build_commands,omitempty"`
+	KeyDirectories []string            `json:"key_directories,omitempty"`
+	Dependencies   []ProjectDependency `json:"dependencies,omitempty"`
+	HasReadme      bool                `json:"has_readme"`
+	RawContent     string              `json:"-"` // formatted string for prompt injection
 }
 
 // GitState holds the current git repository state for context injection.

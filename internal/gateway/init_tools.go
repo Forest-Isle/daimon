@@ -20,12 +20,17 @@ func (gw *Gateway) initToolsAndHooks() error {
 
 	if gw.cfg.Tools.Bash.Enabled {
 		gw.tools.Register(tool.NewBashTool(gw.cfg.Tools.Bash.Timeout, gw.cfg.Tools.Bash.RequiresApproval, policy))
+		gw.tools.Register(tool.NewTestRunTool("."))
 	}
 	if gw.cfg.Tools.File.Enabled {
 		gw.tools.Register(tool.NewFileReadTool())
 		gw.tools.Register(tool.NewFileWriteTool(gw.cfg.Tools.File.RequiresApproval))
 		gw.tools.Register(tool.NewFileEditTool(gw.cfg.Tools.File.RequiresApproval))
+		gw.tools.Register(tool.NewFilePatchTool("."))
 		gw.tools.Register(tool.NewFileListTool())
+		gw.tools.Register(tool.NewGrepCodeTool("."))
+		gw.tools.Register(tool.NewFindSymbolTool("."))
+		gw.tools.Register(tool.NewListImportsTool("."))
 	}
 	if gw.cfg.Tools.HTTP.Enabled {
 		gw.tools.Register(tool.NewHTTPTool(gw.cfg.Tools.HTTP.Timeout, gw.cfg.Tools.HTTP.RequiresApproval))
@@ -36,11 +41,10 @@ func (gw *Gateway) initToolsAndHooks() error {
 		gw.tools.Register(tool.NewBrowserExtractTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
 	}
 
-
-		// Worktree tools for isolated code changes
-		if gw.featureEnabled("worktree") {
-			worktree.RegisterTools(gw.tools, ".")
-		}
+	// Worktree tools for isolated code changes
+	if gw.featureEnabled("worktree") {
+		worktree.RegisterTools(gw.tools, ".")
+	}
 	// Hook event system
 	hookCfg := gw.cfg.Hooks
 	preToolUseCfg := make([]hook.HandlerConfig, len(hookCfg.PreToolUse))
@@ -115,11 +119,12 @@ func (gw *Gateway) initToolsAndHooks() error {
 		}
 	}
 
-	// Build interceptor chain: permission → hook → sandbox → audit
+	// Build interceptor chain: permission → hook → sandbox → verify → audit
 	auditInterceptor, err := tool.NewAuditInterceptor("")
 	if err != nil {
 		slog.Warn("audit interceptor init failed, continuing without audit", "err", err)
 	}
+	verifyInterceptor := tool.NewVerifyInterceptor(".")
 
 	// Progressive trust tracker (resets per session)
 	gw.trustTracker = tool.NewTrustTracker()
@@ -128,7 +133,10 @@ func (gw *Gateway) initToolsAndHooks() error {
 		tool.NewPermissionInterceptor(gw.permEngine, nil, nil),
 		tool.NewHookInterceptor(gw.hookMgr),
 		newUserHookInterceptor(gw.userHookMgr),
-			tool.NewSandboxInterceptor(gw.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
+		tool.NewSandboxInterceptor(gw.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
+	}
+	if gw.cfg.Tools.Verify.Enabled {
+		interceptors = append(interceptors, verifyInterceptor)
 	}
 	if auditInterceptor != nil {
 		interceptors = append(interceptors, auditInterceptor)

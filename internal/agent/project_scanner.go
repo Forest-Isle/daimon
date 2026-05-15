@@ -80,7 +80,11 @@ func (s *ProjectContextScanner) scan(dir string) *ProjectContext {
 
 // --- manifest scanners ---
 
-var goModuleRe = regexp.MustCompile(`(?m)^module\s+(\S+)`)
+var (
+	goModuleRe      = regexp.MustCompile(`(?m)^module\s+(\S+)`)
+	goRequireRe     = regexp.MustCompile(`(?m)^\s+([^\s]+)\s+v([^\s]+)`)
+	goIndirectRe    = regexp.MustCompile(`(?m)^\s+([^\s]+)\s+v([^\s]+)\s+//\s*indirect`)
+)
 
 func scanGoMod(dir string, pc *ProjectContext) bool {
 	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
@@ -91,6 +95,40 @@ func scanGoMod(dir string, pc *ProjectContext) bool {
 	if m := goModuleRe.FindSubmatch(data); len(m) == 2 {
 		pc.Name = string(m[1])
 	}
+
+	// Parse direct and indirect dependencies
+	directDeps := make(map[string]string)
+	indirectDeps := make(map[string]string)
+
+	for _, m := range goRequireRe.FindAllStringSubmatch(string(data), -1) {
+		if len(m) == 3 {
+			directDeps[m[1]] = m[2]
+		}
+	}
+	// Indirect deps override any overlapping direct entries
+	for _, m := range goIndirectRe.FindAllStringSubmatch(string(data), -1) {
+		if len(m) == 3 {
+			delete(directDeps, m[1])
+			indirectDeps[m[1]] = m[2]
+		}
+	}
+
+	pc.Dependencies = make([]ProjectDependency, 0, len(directDeps)+len(indirectDeps))
+	for mod, ver := range directDeps {
+		pc.Dependencies = append(pc.Dependencies, ProjectDependency{
+			Name:     mod,
+			Version:  ver,
+			Direct:   true,
+		})
+	}
+	for mod, ver := range indirectDeps {
+		pc.Dependencies = append(pc.Dependencies, ProjectDependency{
+			Name:     mod,
+			Version:  ver,
+			Direct:   false,
+		})
+	}
+
 	pc.BuildCommands = appendUnique(pc.BuildCommands, "go build ./...", "go test ./...")
 	return true
 }
@@ -223,6 +261,20 @@ func formatProjectContext(pc *ProjectContext) string {
 		sb.WriteString("Build/Test commands:\n")
 		for _, c := range pc.BuildCommands {
 			sb.WriteString("  - " + c + "\n")
+		}
+	}
+	if len(pc.Dependencies) > 0 {
+		sb.WriteString("Dependencies:\n")
+		directCount := 0
+		for _, d := range pc.Dependencies {
+			if d.Direct {
+				directCount++
+				sb.WriteString(fmt.Sprintf("  - %s@%s\n", d.Name, d.Version))
+			}
+		}
+		indirectCount := len(pc.Dependencies) - directCount
+		if indirectCount > 0 {
+			sb.WriteString(fmt.Sprintf("  (+ %d indirect)\n", indirectCount))
 		}
 	}
 	if len(pc.KeyDirectories) > 0 {

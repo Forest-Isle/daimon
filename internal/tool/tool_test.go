@@ -117,12 +117,14 @@ type mockAvailableTool struct {
 	name      string
 }
 
-func (m *mockAvailableTool) Name() string                                        { return m.name }
-func (m *mockAvailableTool) Description() string                                 { return "mock" }
-func (m *mockAvailableTool) InputSchema() map[string]any                         { return nil }
-func (m *mockAvailableTool) Execute(_ context.Context, _ []byte) (Result, error) { return Result{}, nil }
-func (m *mockAvailableTool) RequiresApproval() bool                              { return false }
-func (m *mockAvailableTool) Available() bool                                     { return m.available }
+func (m *mockAvailableTool) Name() string                { return m.name }
+func (m *mockAvailableTool) Description() string         { return "mock" }
+func (m *mockAvailableTool) InputSchema() map[string]any { return nil }
+func (m *mockAvailableTool) Execute(_ context.Context, _ []byte) (Result, error) {
+	return Result{}, nil
+}
+func (m *mockAvailableTool) RequiresApproval() bool { return false }
+func (m *mockAvailableTool) Available() bool        { return m.available }
 
 func TestIsToolAvailable(t *testing.T) {
 	tests := []struct {
@@ -203,13 +205,15 @@ func TestBuiltinToolsReadOnly(t *testing.T) {
 }
 
 func TestPathScopedToolImplementation(t *testing.T) {
-	// file_write and file_edit should implement PathScopedTool
+	// file_write, file_edit, and file_patch should implement PathScopedTool
 	writeT := NewFileWriteTool(false)
 	editT := NewFileEditTool(false)
+	patchT := NewFilePatchTool(".")
 
 	// Verify they implement the interface
 	var _ PathScopedTool = writeT
 	var _ PathScopedTool = editT
+	var _ PathScopedTool = patchT
 
 	// Verify Capabilities return ParallelPathScoped
 	if caps := GetCapabilities(writeT); caps.ParallelSafety != ParallelPathScoped {
@@ -217,6 +221,9 @@ func TestPathScopedToolImplementation(t *testing.T) {
 	}
 	if caps := GetCapabilities(editT); caps.ParallelSafety != ParallelPathScoped {
 		t.Errorf("FileEditTool.ParallelSafety = %q, want %q", caps.ParallelSafety, ParallelPathScoped)
+	}
+	if caps := GetCapabilities(patchT); caps.ParallelSafety != ParallelPathScoped {
+		t.Errorf("FilePatchTool.ParallelSafety = %q, want %q", caps.ParallelSafety, ParallelPathScoped)
 	}
 
 	// Verify ExtractPaths works correctly
@@ -241,6 +248,15 @@ func TestPathScopedToolImplementation(t *testing.T) {
 	// Should be absolute
 	if paths[0] == "relative/file.go" {
 		t.Error("ExtractPaths should return canonical absolute path, got relative path")
+	}
+
+	patchInput := []byte(`{"path": "/tmp/test.go", "patch": "@@ -1 +1 @@\n-a\n+b"}`)
+	paths, err = patchT.ExtractPaths(patchInput)
+	if err != nil {
+		t.Fatalf("FilePatchTool.ExtractPaths error: %v", err)
+	}
+	if len(paths) != 1 || paths[0] != "/tmp/test.go" {
+		t.Errorf("FilePatchTool.ExtractPaths = %v, want [/tmp/test.go]", paths)
 	}
 
 	// Empty path should return nil

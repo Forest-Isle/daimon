@@ -72,6 +72,36 @@ func TestSandboxInterceptor_FileAllowed(t *testing.T) {
 	}
 }
 
+func TestSandboxInterceptor_FilePatchBlocked(t *testing.T) {
+	dir := t.TempDir()
+	guard, err := sandbox.NewFileGuard([]string{dir}, nil)
+	if err != nil {
+		t.Fatalf("NewFileGuard: %v", err)
+	}
+	interceptor := NewSandboxInterceptor(nil, guard, nil, true)
+
+	call := &ToolCall{
+		ToolName: "file_patch",
+		Input:    `{"path":"/etc/passwd","patch":"@@ -1 +1 @@\n-root\n+user"}`,
+	}
+	nextCalled := false
+	next := func(_ context.Context, _ *ToolCall) (*ToolResult, error) {
+		nextCalled = true
+		return &ToolResult{Output: "should not reach"}, nil
+	}
+
+	res, err := interceptor.Intercept(context.Background(), call, next)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if nextCalled {
+		t.Fatal("next() should NOT be called for blocked file path")
+	}
+	if res.Error == "" {
+		t.Fatal("expected error in result for blocked file")
+	}
+}
+
 func TestSandboxInterceptor_HTTPBlocked(t *testing.T) {
 	policy := sandbox.NewNetworkPolicy("blacklist", nil, []string{"evil.com"})
 	interceptor := NewSandboxInterceptor(nil, nil, policy, true)
