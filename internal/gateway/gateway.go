@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"fmt"
 	"log/slog"
@@ -128,7 +129,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		if home, err := os.UserHomeDir(); err == nil {
 			gw.featureStatePath = feature.DefaultStatePath(filepath.Join(home, ".IronClaw"))
 			if persisted, err := feature.LoadOverrides(gw.featureStatePath); err != nil {
-				slog.Warn("gateway: failed to load persisted feature state", "err", err)
+				slog.Warn("gateway: failed to load persisted feature state — file may be corrupted, using config defaults", "path", gw.featureStatePath, "err", err)
 			} else if len(persisted) > 0 {
 				gw.features.ApplyOverrides(persisted)
 				slog.Info("gateway: applied persisted feature overrides", "count", len(persisted))
@@ -792,7 +793,7 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 		ID:    rootID,
 		Kind:  taskledger.TaskKindTeamTask,
 		State: taskledger.TaskStateRunning,
-		Title: truncateGoal(goal, 100),
+		Title: util.TruncateStr(goal, 100),
 	}
 	if err := gw.taskLedger.Register(ctx, rootTask); err != nil {
 		return fmt.Sprintf("Failed to register root task: %v", err)
@@ -856,12 +857,6 @@ func (gw *Gateway) executeTeamTask(ctx context.Context, task taskledger.Task) (s
 	return resp.Text, nil
 }
 
-func truncateGoal(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
-}
 
 // importTrajectoriesToRL warm-starts the RL replay buffer from historical
 // trajectory data. Runs once in the background at startup.

@@ -60,18 +60,21 @@ func (m *DockerSessionManager) Available() bool {
 }
 
 // GetOrCreate returns an existing session or creates a new sandbox container.
+// The mutex is held through container creation to prevent a TOCTOU race where
+// two concurrent callers with the same sessionID both miss the cache, both create
+// containers, and one container is orphaned.
 func (m *DockerSessionManager) GetOrCreate(ctx context.Context, sessionID string) (*DockerSession, error) {
 	if !m.available {
 		return nil, fmt.Errorf("docker sandbox unavailable")
 	}
 
 	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if s, ok := m.sessions[sessionID]; ok {
 		s.lastUsedAt = time.Now()
-		m.mu.Unlock()
 		return s, nil
 	}
-	m.mu.Unlock()
 
 	containerID, err := m.createContainer(ctx, sessionID)
 	if err != nil {
@@ -90,10 +93,7 @@ func (m *DockerSessionManager) GetOrCreate(ctx context.Context, sessionID string
 		createdAt:   now,
 		lastUsedAt:  now,
 	}
-
-	m.mu.Lock()
 	m.sessions[sessionID] = s
-	m.mu.Unlock()
 
 	return s, nil
 }

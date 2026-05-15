@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -136,12 +137,14 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*
 		))
 	start := time.Now()
 	defer span.End()
-	defer observability.LLMRequestDuration.Record(ctx, time.Since(start).Milliseconds(),
-		metric.WithAttributes(
-			attribute.String("provider", "openai"),
-			attribute.String("model", model),
-			attribute.String("operation", "complete"),
-		))
+	defer func() {
+		observability.LLMRequestDuration.Record(ctx, time.Since(start).Milliseconds(),
+			metric.WithAttributes(
+				attribute.String("provider", "openai"),
+				attribute.String("model", model),
+				attribute.String("operation", "complete"),
+			))
+	}()
 
 	oaiReq := p.buildRequest(req, false)
 
@@ -398,6 +401,7 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 
 		var chunk oaiResponse
 		if jsonErr := json.Unmarshal([]byte(data), &chunk); jsonErr != nil {
+			slog.Debug("openai stream: malformed JSON chunk", "err", jsonErr, "data_len", len(data))
 			continue
 		}
 		if len(chunk.Choices) == 0 {

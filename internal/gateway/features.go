@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Forest-Isle/IronClaw/internal/config"
@@ -153,38 +154,50 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 // features. Called after all subsystems are initialized so that hooks can
 // reference Gateway fields (dashboard server, evolution engine, etc.).
 func (gw *Gateway) bindFeatureLifecycleHooks() {
-	_ = gw.features.SetOnEnable("dashboard", func(ctx context.Context) error {
+	if err := gw.features.SetOnEnable("dashboard", func(ctx context.Context) error {
 		return gw.startDashboard()
-	})
-	_ = gw.features.SetOnDisable("dashboard", func(ctx context.Context) error {
+	}); err != nil {
+		slog.Warn("gateway: SetOnEnable hook failed", "feature", "dashboard", "err", err)
+	}
+	if err := gw.features.SetOnDisable("dashboard", func(ctx context.Context) error {
 		return gw.stopDashboard()
-	})
+	}); err != nil {
+		slog.Warn("gateway: SetOnDisable hook failed", "feature", "dashboard", "err", err)
+	}
 
-	_ = gw.features.SetOnEnable("evolution", func(ctx context.Context) error {
+	if err := gw.features.SetOnEnable("evolution", func(ctx context.Context) error {
 		if gw.evoEngine != nil {
 			gw.evoEngine.Start()
 		}
 		return nil
-	})
-	_ = gw.features.SetOnDisable("evolution", func(ctx context.Context) error {
+	}); err != nil {
+		slog.Warn("gateway: SetOnEnable hook failed", "feature", "evolution", "err", err)
+	}
+	if err := gw.features.SetOnDisable("evolution", func(ctx context.Context) error {
 		if gw.evoEngine != nil {
 			gw.evoEngine.Stop()
 		}
 		return nil
-	})
+	}); err != nil {
+		slog.Warn("gateway: SetOnDisable hook failed", "feature", "evolution", "err", err)
+	}
 
-	_ = gw.features.SetOnEnable("scheduler", func(ctx context.Context) error {
+	if err := gw.features.SetOnEnable("scheduler", func(ctx context.Context) error {
 		if gw.sched != nil {
 			gw.sched.Start(ctx)
 		}
 		return nil
-	})
-	_ = gw.features.SetOnDisable("scheduler", func(ctx context.Context) error {
+	}); err != nil {
+		slog.Warn("gateway: SetOnEnable hook failed", "feature", "scheduler", "err", err)
+	}
+	if err := gw.features.SetOnDisable("scheduler", func(ctx context.Context) error {
 		if gw.sched != nil {
 			gw.sched.Stop()
 		}
 		return nil
-	})
+	}); err != nil {
+		slog.Warn("gateway: SetOnDisable hook failed", "feature", "scheduler", "err", err)
+	}
 
 	// MCP servers — bind start/stop hooks for each registered mcp_* feature
 	for _, srv := range gw.features.List() {
@@ -198,13 +211,17 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 		}
 		sName := serverName
 		sCfg := srvCfg
-		_ = gw.features.SetOnEnable("mcp_"+sName, func(ctx context.Context) error {
+		if err := gw.features.SetOnEnable("mcp_"+sName, func(ctx context.Context) error {
 			return gw.mcpManager.StartServer(ctx, sName, sCfg, gw.tools)
-		})
-		_ = gw.features.SetOnDisable("mcp_"+sName, func(ctx context.Context) error {
+		}); err != nil {
+			slog.Warn("gateway: SetOnEnable hook failed", "feature", "mcp_"+sName, "err", err)
+		}
+		if err := gw.features.SetOnDisable("mcp_"+sName, func(ctx context.Context) error {
 			gw.mcpManager.StopServer(sName, gw.tools)
 			return nil
-		})
+		}); err != nil {
+			slog.Warn("gateway: SetOnDisable hook failed", "feature", "mcp_"+sName, "err", err)
+		}
 	}
 }
 
