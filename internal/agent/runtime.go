@@ -1,9 +1,9 @@
 package agent
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"fmt"
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
 	"strings"
 	"time"
@@ -62,6 +62,8 @@ type Runtime struct {
 	interceptorChain    *tool.InterceptorChain
 	dashEmitter         DashboardEmitter
 	metricsEmitter      MetricsEmitter
+	replayRecorder      *ReplayRecorder
+	replayID            string
 }
 
 // SetMemoryStore attaches a memory.md store to the runtime.
@@ -173,6 +175,9 @@ func (r *Runtime) SetDashboardEmitter(e DashboardEmitter) { r.dashEmitter = e }
 // SetMetricsEmitter attaches a metrics emitter for TUI status reporting.
 func (r *Runtime) SetMetricsEmitter(e MetricsEmitter) { r.metricsEmitter = e }
 
+// SetReplayRecorder attaches a replay recorder to the runtime.
+func (r *Runtime) SetReplayRecorder(rr *ReplayRecorder) { r.replayRecorder = rr }
+
 // GetMessages returns a snapshot of the current session's message history.
 // Returns nil if no session is active. Used by fork agents to inherit context.
 func (r *Runtime) GetMessages(ctx context.Context, channelName, channelID string) []session.Message {
@@ -250,6 +255,17 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 	sess, err := r.sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
+	}
+
+	replaySucceeded := false
+	if r.replayRecorder != nil {
+		r.replayID = r.replayRecorder.RecordSessionStart(ctx, sess.ID, msg.Channel, "runtime", r.llmCfg.Model)
+		defer func() {
+			if r.replayRecorder != nil && r.replayID != "" {
+				r.replayRecorder.RecordSessionEnd(ctx, r.replayID, replaySucceeded, len(sess.History()))
+				r.replayID = ""
+			}
+		}()
 	}
 
 	runtimeSessionStart := time.Now()
@@ -357,7 +373,11 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		updater, err := ch.SendStreaming(ctx, target)
 		if err != nil {
 			// Fallback to non-streaming for this iteration
-			return r.handleNonStreaming(ctx, ch, sess, target, systemPrompt)
+			err = r.handleNonStreaming(ctx, ch, sess, target, systemPrompt)
+			if err == nil {
+				replaySucceeded = true
+			}
+			return err
 		}
 
 		req := CompletionRequest{
@@ -366,6 +386,13 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 			Messages:  BuildMessages(sess),
 			Tools:     r.buildToolDefs(),
 			MaxTokens: r.llmCfg.MaxTokens,
+		}
+		if r.replayRecorder != nil && r.replayID != "" {
+			toolNames := make([]string, len(req.Tools))
+			for i, td := range req.Tools {
+				toolNames[i] = td.Name
+			}
+			r.replayRecorder.RecordLLMRequest(ctx, r.replayID, req.Model, len(req.Messages), len(req.System), toolNames)
 		}
 
 		stream, streamErr := r.provider.Stream(ctx, req)
@@ -436,6 +463,18 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 			}
 			fullText = resp.Text
 			toolCalls = resp.ToolCalls
+			stopReason = resp.StopReason
+		}
+
+		if r.replayRecorder != nil && r.replayID != "" {
+			var inTok, outTok int64
+			switch p := r.provider.(type) {
+			case *ClaudeProvider:
+				inTok, outTok = p.GetTokenStats()
+			case *OpenAIProvider:
+				inTok, outTok = p.GetTokenStats()
+			}
+			r.replayRecorder.RecordLLMResponse(ctx, r.replayID, string(stopReason), inTok, outTok, len(fullText), len(toolCalls))
 		}
 
 		// Save assistant text message
@@ -554,6 +593,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		r.dashEmitter.EmitSessionEnd(sess.ID, true, time.Since(runtimeSessionStart).Milliseconds())
 	}
 
+	replaySucceeded = true
 	return nil
 }
 
@@ -578,6 +618,13 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 			Tools:     r.buildToolDefs(),
 			MaxTokens: r.llmCfg.MaxTokens,
 		}
+		if r.replayRecorder != nil && r.replayID != "" {
+			toolNames := make([]string, len(req.Tools))
+			for i, td := range req.Tools {
+				toolNames[i] = td.Name
+			}
+			r.replayRecorder.RecordLLMRequest(ctx, r.replayID, req.Model, len(req.Messages), len(req.System), toolNames)
+		}
 
 		resp, err := r.provider.Complete(ctx, req)
 		if err != nil && isContextLengthError(err) && r.contextManager != nil {
@@ -590,6 +637,16 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 		}
 		if err != nil {
 			return err
+		}
+		if r.replayRecorder != nil && r.replayID != "" {
+			var inTok, outTok int64
+			switch p := r.provider.(type) {
+			case *ClaudeProvider:
+				inTok, outTok = p.GetTokenStats()
+			case *OpenAIProvider:
+				inTok, outTok = p.GetTokenStats()
+			}
+			r.replayRecorder.RecordLLMResponse(ctx, r.replayID, string(resp.StopReason), inTok, outTok, len(resp.Text), len(resp.ToolCalls))
 		}
 
 		if resp.Text != "" {
@@ -817,4 +874,3 @@ func isContextLengthError(err error) bool {
 		strings.Contains(msg, "context_length_exceeded") ||
 		strings.Contains(msg, "maximum context length")
 }
-

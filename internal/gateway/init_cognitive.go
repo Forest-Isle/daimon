@@ -80,6 +80,9 @@ func (gw *Gateway) initCognitiveAgent() error {
 		gw.cognitiveAgent.SetEvolutionEngine(gw.evoEngine)
 		gw.registerEvolutionHooks()
 	}
+	if gw.replayRecorder != nil {
+		gw.cognitiveAgent.SetReplayRecorder(gw.replayRecorder)
+	}
 
 	return nil
 }

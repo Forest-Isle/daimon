@@ -63,6 +63,35 @@ func (m *Manager) Get(ctx context.Context, channel, channelID string) (*Session,
 	return sess, nil
 }
 
+// GetByID returns a session by its ID from memory or the database.
+func (m *Manager) GetByID(ctx context.Context, id string) (*Session, error) {
+	if id == "" {
+		return nil, nil
+	}
+
+	var cached *Session
+	m.sessions.Range(func(_, value any) bool {
+		sess, ok := value.(*Session)
+		if ok && sess.ID == id {
+			cached = sess
+			return false
+		}
+		return true
+	})
+	if cached != nil {
+		return cached, nil
+	}
+
+	sess, err := m.loadByIDFromDB(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if sess != nil {
+		m.sessions.Store(sessionKey(sess.Channel, sess.ChannelID), sess)
+	}
+	return sess, nil
+}
+
 // Persist saves the session's messages to the database.
 func (m *Manager) Persist(ctx context.Context, sess *Session) error {
 	tx, err := m.db.BeginTx(ctx, nil)
@@ -116,6 +145,49 @@ func (m *Manager) loadFromDB(ctx context.Context, channel, channelID string) (*S
 	sess.SetPreviousSummary(previousSummary)
 
 	// Load messages
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT id, role, content, COALESCE(tool_name,''), COALESCE(tool_input,''), created_at
+		 FROM messages WHERE session_id = ? ORDER BY created_at`, sess.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var msg Message
+		if err := rows.Scan(&msg.ID, &msg.Role, &msg.Content, &msg.ToolName, &msg.ToolInput, &msg.CreatedAt); err != nil {
+			return nil, err
+		}
+		sess.Messages = append(sess.Messages, msg)
+	}
+
+	return &sess, rows.Err()
+}
+
+func (m *Manager) loadByIDFromDB(ctx context.Context, id string) (*Session, error) {
+	row := m.db.QueryRowContext(ctx,
+		`SELECT id, channel, channel_id, COALESCE(parent_session_id,''), created_at, updated_at, COALESCE(previous_summary,'')
+		 FROM sessions WHERE id = ?`, id)
+
+	var sess Session
+	var previousSummary string
+	sess.Metadata = make(map[string]string)
+	if err := row.Scan(
+		&sess.ID,
+		&sess.Channel,
+		&sess.ChannelID,
+		&sess.ParentSessionID,
+		&sess.CreatedAt,
+		&sess.UpdatedAt,
+		&previousSummary,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	sess.SetPreviousSummary(previousSummary)
+
 	rows, err := m.db.QueryContext(ctx,
 		`SELECT id, role, content, COALESCE(tool_name,''), COALESCE(tool_input,''), created_at
 		 FROM messages WHERE session_id = ? ORDER BY created_at`, sess.ID)

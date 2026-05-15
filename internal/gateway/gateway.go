@@ -1,9 +1,9 @@
 package gateway
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"fmt"
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -69,9 +69,9 @@ type Gateway struct {
 	dockerSessionMgr *sandbox.DockerSessionManager
 	interceptorChain *tool.InterceptorChain
 	trustTracker     *tool.TrustTracker
-	userHookMgr      *hook.UserHookManager   // user-configurable hook scripts
-	a2aServer        *a2a.Server             // A2A protocol server
-	planMode         *agent.PlanMode         // plan→approve→execute flow
+	userHookMgr      *hook.UserHookManager // user-configurable hook scripts
+	a2aServer        *a2a.Server           // A2A protocol server
+	planMode         *agent.PlanMode       // plan→approve→execute flow
 	taskLedger       *taskledger.SQLiteTaskLedger
 	teamCoordinator  *taskledger.TeamCoordinator
 	subAgentMgr      *agent.SubAgentManager
@@ -82,6 +82,7 @@ type Gateway struct {
 	dashboardSrv     *http.Server
 	stateTracker     *dashboard.AgentStateTracker
 	dashEmitter      agent.DashboardEmitter
+	replayRecorder   *agent.ReplayRecorder
 	contextMgr       *agent.PipelineContextManager
 	features         *feature.Registry
 	featureStatePath string // path to ~/.IronClaw/feature_state.json
@@ -89,13 +90,23 @@ type Gateway struct {
 	cogCollector     *cogmetrics.Collector
 	healthChecker    *cogmetrics.HealthChecker
 	breaker          *cogmetrics.Breaker
-		rateLimiter      ratelimit.Limiter
-		healthRegistry   *health.Registry
-		healthSrv        *http.Server
-		currentMode      atomic.Value  // stores string: "simple" | "cognitive" | "graph"
+	rateLimiter      ratelimit.Limiter
+	healthRegistry   *health.Registry
+	healthSrv        *http.Server
+	currentMode      atomic.Value  // stores string: "simple" | "cognitive" | "graph"
 	memoryDir        string        // resolved base dir for file-based memory
 	stopCh           chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce         sync.Once     // ensures stopCh is closed exactly once
+}
+
+func (gw *Gateway) SetReplayRecorder(rr *agent.ReplayRecorder) {
+	gw.replayRecorder = rr
+	if gw.runtime != nil {
+		gw.runtime.SetReplayRecorder(rr)
+	}
+	if gw.cognitiveAgent != nil {
+		gw.cognitiveAgent.SetReplayRecorder(rr)
+	}
 }
 
 // GatewayOptions configures optional behaviour for Gateway.New.
@@ -941,7 +952,6 @@ func (gw *Gateway) executeTeamTask(ctx context.Context, task taskledger.Task) (s
 	return resp.Text, nil
 }
 
-
 // importTrajectoriesToRL warm-starts the RL replay buffer from historical
 // trajectory data. Runs once in the background at startup.
 func (gw *Gateway) importTrajectoriesToRL() {
@@ -980,7 +990,6 @@ func (gw *Gateway) importTrajectoriesToRL() {
 		slog.Info("gateway: imported trajectories into RL buffer", "experiences", len(exps))
 	}
 }
-
 
 // initRateLimiter creates the rate limiter based on config.
 func (gw *Gateway) initRateLimiter() {

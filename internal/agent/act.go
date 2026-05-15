@@ -20,17 +20,19 @@ import (
 
 // Executor implements the ACT phase: topological scheduling + parallel execution.
 type Executor struct {
-	tools        *tool.Registry
-	db           *store.DB
-	approvalFunc ApprovalFunc
-	cfg          config.CognitiveConfig
-	rlPolicy     RLPolicy // optional RL policy
-	hookMgr      *hook.Manager
+	tools            *tool.Registry
+	db               *store.DB
+	approvalFunc     ApprovalFunc
+	cfg              config.CognitiveConfig
+	rlPolicy         RLPolicy // optional RL policy
+	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
 	cache            *ToolResultCache
 	interceptorChain *tool.InterceptorChain
 	dashEmitter      DashboardEmitter
 	planMode         *PlanMode // optional plan→approve→execute flow
+	replayRecorder   *ReplayRecorder
+	replayID         string
 }
 
 // NewExecutor creates a new Executor.
@@ -72,6 +74,9 @@ func (e *Executor) SetInterceptorChain(chain *tool.InterceptorChain) {
 func (e *Executor) SetDashboardEmitter(em DashboardEmitter) {
 	e.dashEmitter = em
 }
+
+// SetReplayRecorder injects a replay recorder for ACT tool execution events.
+func (e *Executor) SetReplayRecorder(rr *ReplayRecorder) { e.replayRecorder = rr }
 
 // SetPlanMode injects a PlanMode instance for plan→approve→execute flow.
 // When set, write tool executions must be approved through an active plan.
@@ -322,12 +327,24 @@ func (e *Executor) executeSubTask(
 	if e.dashEmitter != nil {
 		e.dashEmitter.EmitToolStart(sess.ID, subtask.ToolName, toolInput)
 	}
+	if e.replayRecorder != nil && e.replayID != "" {
+		e.replayRecorder.RecordToolStart(ctx, e.replayID, subtask.ToolName, toolInput)
+	}
 	start := time.Now()
 	result, execErr := t.Execute(ctx, []byte(toolInput))
 	durationMs := time.Since(start).Milliseconds()
 	obs.DurationMs = durationMs
 	if e.dashEmitter != nil {
 		e.dashEmitter.EmitToolEnd(sess.ID, subtask.ToolName, execErr == nil && result.Error == "", durationMs)
+	}
+	if e.replayRecorder != nil && e.replayID != "" {
+		errStr := ""
+		if execErr != nil {
+			errStr = execErr.Error()
+		} else if result.Error != "" {
+			errStr = result.Error
+		}
+		e.replayRecorder.RecordToolEnd(ctx, e.replayID, subtask.ToolName, execErr == nil && result.Error == "", false, errStr, durationMs)
 	}
 	obs.Metadata = result.Metadata
 
@@ -475,6 +492,9 @@ func (e *Executor) executeSubTaskViaChain(
 	if e.dashEmitter != nil {
 		e.dashEmitter.EmitToolStart(sess.ID, subtask.ToolName, toolInput)
 	}
+	if e.replayRecorder != nil && e.replayID != "" {
+		e.replayRecorder.RecordToolStart(ctx, e.replayID, subtask.ToolName, toolInput)
+	}
 	start := time.Now()
 	res, err := e.interceptorChain.Execute(ctx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
 		result, execErr := t.Execute(ctx, []byte(call.Input))
@@ -497,6 +517,9 @@ func (e *Executor) executeSubTaskViaChain(
 		if e.dashEmitter != nil {
 			e.dashEmitter.EmitToolEnd(sess.ID, subtask.ToolName, false, durationMs)
 		}
+		if e.replayRecorder != nil && e.replayID != "" {
+			e.replayRecorder.RecordToolEnd(ctx, e.replayID, subtask.ToolName, false, false, err.Error(), durationMs)
+		}
 		subtask.Status = SubTaskFailed
 		obs.Error = err.Error()
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
@@ -507,6 +530,9 @@ func (e *Executor) executeSubTaskViaChain(
 	if res.Error != "" {
 		if e.dashEmitter != nil {
 			e.dashEmitter.EmitToolEnd(sess.ID, subtask.ToolName, false, durationMs)
+		}
+		if e.replayRecorder != nil && e.replayID != "" {
+			e.replayRecorder.RecordToolEnd(ctx, e.replayID, subtask.ToolName, false, true, res.Error, durationMs)
 		}
 		subtask.Status = SubTaskFailed
 		obs.Denied = true
@@ -582,6 +608,9 @@ func (e *Executor) executeSubTaskViaChain(
 
 	if e.dashEmitter != nil {
 		e.dashEmitter.EmitToolEnd(sess.ID, subtask.ToolName, true, durationMs)
+	}
+	if e.replayRecorder != nil && e.replayID != "" {
+		e.replayRecorder.RecordToolEnd(ctx, e.replayID, subtask.ToolName, true, false, "", durationMs)
 	}
 
 	session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, res.Output, "success", durationMs)

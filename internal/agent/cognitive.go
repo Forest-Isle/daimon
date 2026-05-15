@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
 	"strings"
 	"time"
@@ -59,6 +59,7 @@ type CognitiveAgent struct {
 	dashEmitter         DashboardEmitter
 	planMode            *PlanMode
 	observationCallback func(result *ObservationResult)
+	replayRecorder      *ReplayRecorder
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -314,6 +315,15 @@ func (ca *CognitiveAgent) SetDashboardEmitter(e DashboardEmitter) {
 	ca.runtime.SetDashboardEmitter(e)
 }
 
+// SetReplayRecorder injects a replay recorder into the cognitive agent and delegates.
+func (ca *CognitiveAgent) SetReplayRecorder(rr *ReplayRecorder) {
+	ca.replayRecorder = rr
+	ca.runtime.SetReplayRecorder(rr)
+	if ca.executor != nil {
+		ca.executor.SetReplayRecorder(rr)
+	}
+}
+
 // SetObservationCallback registers a function that is called after each OBSERVE
 // phase completes. Used by the eval harness to capture assertion statistics.
 func (ca *CognitiveAgent) SetObservationCallback(fn func(result *ObservationResult)) {
@@ -325,6 +335,23 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	sess, err := ca.sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
+	}
+
+	var replayID string
+	replaySucceeded := false
+	if ca.replayRecorder != nil {
+		replayID = ca.replayRecorder.RecordSessionStart(ctx, sess.ID, msg.Channel, "cognitive", ca.llmCfg.Model)
+		if ca.executor != nil {
+			ca.executor.replayID = replayID
+		}
+		defer func() {
+			if ca.executor != nil {
+				ca.executor.replayID = ""
+			}
+			if ca.replayRecorder != nil && replayID != "" {
+				ca.replayRecorder.RecordSessionEnd(ctx, replayID, replaySucceeded, len(sess.History()))
+			}
+		}()
 	}
 
 	cogSessionStart := time.Now()
@@ -385,6 +412,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if ca.dashEmitter != nil {
 		ca.dashEmitter.EmitPhaseStart(sess.ID, "PERCEIVE")
 	}
+	if ca.replayRecorder != nil && replayID != "" {
+		ca.replayRecorder.RecordPhaseStart(ctx, replayID, "PERCEIVE")
+	}
 	perceiveStart := time.Now()
 	donePerceive := ca.registerSubtask(ctx, parentTaskID, "PERCEIVE phase")
 	state, err := ca.perceiver.Run(ctx, sess, msg.Text, msg.UserID)
@@ -392,9 +422,15 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if ca.dashEmitter != nil {
 		ca.dashEmitter.EmitPhaseEnd(sess.ID, "PERCEIVE", time.Since(perceiveStart).Milliseconds())
 	}
+	if ca.replayRecorder != nil && replayID != "" {
+		ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "PERCEIVE", time.Since(perceiveStart).Milliseconds())
+	}
 	observability.CognitivePhasesDuration.Record(ctx, time.Since(perceiveStart).Milliseconds(),
 		metric.WithAttributes(attribute.String("phase", "perceive")))
 	if err != nil {
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordError(ctx, replayID, err.Error(), "PERCEIVE")
+		}
 		return fmt.Errorf("perceive: %w", err)
 	}
 
@@ -430,7 +466,13 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if state.Goal.Complexity == ComplexitySimple {
 		slog.Info("cognitive: simple task, delegating to runtime", "session", sess.ID)
 		simpleStart := time.Now()
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "DELEGATE")
+		}
 		err := ca.runtime.HandleMessage(ctx, ch, msg)
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "DELEGATE", time.Since(simpleStart).Milliseconds())
+		}
 
 		if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
 			durationMs := time.Since(simpleStart).Milliseconds()
@@ -445,6 +487,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			})
 		}
 
+		replaySucceeded = err == nil
 		return err
 	}
 
@@ -505,11 +548,21 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 				}
 				ca.dashEmitter.EmitReplanStart(sess.ID, attempt, reason)
 			}
+			if ca.replayRecorder != nil && replayID != "" {
+				reason := "low_confidence"
+				if reflection != nil && reflection.SuggestedAdjustment != "" {
+					reason = reflection.SuggestedAdjustment
+				}
+				ca.replayRecorder.RecordReplanStart(ctx, replayID, attempt, reason)
+			}
 		}
 
 		// ── PLAN ──────────────────────────────────────────────────────────────
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
+		}
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "PLAN")
 		}
 		planStart := time.Now()
 		donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
@@ -518,10 +571,16 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
 		}
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "PLAN", time.Since(planStart).Milliseconds())
+		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "plan")))
 		if err != nil {
 			slog.Error("cognitive: plan failed", "err", err)
+			if ca.replayRecorder != nil && replayID != "" {
+				ca.replayRecorder.RecordError(ctx, replayID, err.Error(), "PLAN")
+			}
 			break
 		}
 		plan.ReplanCount = attempt
@@ -529,6 +588,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			complexity := string(state.Goal.Complexity)
 			ca.dashEmitter.EmitPlanGenerated(sess.ID, len(plan.SubTasks), complexity, plan.DirectReply != "")
+		}
+		if ca.replayRecorder != nil && replayID != "" && plan != nil {
+			ca.replayRecorder.RecordPlanGenerated(ctx, replayID, plan.Summary, len(plan.SubTasks), plan.OverallConfidence, plan.DirectReply != "")
 		}
 
 		// RL: apply PPO plan strategy adjustment
@@ -555,6 +617,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "ACT")
 		}
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "ACT")
+		}
 		actStart := time.Now()
 		doneAct := ca.registerSubtask(ctx, parentTaskID, "ACT phase")
 		// Create TaskContext for multi-agent collaboration
@@ -564,10 +629,16 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "ACT", time.Since(actStart).Milliseconds())
 		}
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "ACT", time.Since(actStart).Milliseconds())
+		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(actStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "act")))
 		if actErr != nil {
 			slog.Error("cognitive: act failed", "err", actErr)
+			if ca.replayRecorder != nil && replayID != "" {
+				ca.replayRecorder.RecordError(ctx, replayID, actErr.Error(), "ACT")
+			}
 			break
 		}
 
@@ -575,10 +646,16 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "OBSERVE")
 		}
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "OBSERVE")
+		}
 		observeStart := time.Now()
 		obsResult = ca.observer.Run(observations, plan)
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "OBSERVE", time.Since(observeStart).Milliseconds())
+		}
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "OBSERVE", time.Since(observeStart).Milliseconds())
 		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(observeStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "observe")))
@@ -591,6 +668,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitObservationResult(sess.ID, obsResult.SuccessCount, obsResult.FailureCount,
 				obsResult.SuccessCount+obsResult.FailureCount, obsResult.OverallProgress)
+		}
+		if ca.replayRecorder != nil && replayID != "" && obsResult != nil {
+			ca.replayRecorder.RecordObservationResult(ctx, replayID, obsResult.SuccessCount, obsResult.FailureCount, obsResult.DeniedCount, obsResult.OverallProgress)
 		}
 
 		if ca.observationCallback != nil && obsResult != nil {
@@ -619,6 +699,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "REFLECT")
 		}
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "REFLECT")
+		}
 		reflectStart := time.Now()
 		doneReflect := ca.registerSubtask(ctx, parentTaskID, "REFLECT phase")
 		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult, attempt)
@@ -626,11 +709,20 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "REFLECT", time.Since(reflectStart).Milliseconds())
 		}
+		if ca.replayRecorder != nil && replayID != "" {
+			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "REFLECT", time.Since(reflectStart).Milliseconds())
+		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(reflectStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "reflect")))
 		if err != nil {
 			slog.Error("cognitive: reflect failed", "err", err)
+			if ca.replayRecorder != nil && replayID != "" {
+				ca.replayRecorder.RecordError(ctx, replayID, err.Error(), "REFLECT")
+			}
 			break
+		}
+		if ca.replayRecorder != nil && replayID != "" && reflection != nil {
+			ca.replayRecorder.RecordReflection(ctx, replayID, reflection.OverallConfidence, reflection.Succeeded, reflection.NeedsReplan, len(reflection.LessonsLearned), len(reflection.FinalAnswer))
 		}
 
 		// Override conservative reflect false-negatives: if assertion pass rate is high
@@ -757,6 +849,8 @@ persist:
 	if err := ca.sessions.Persist(ctx, sess); err != nil {
 		slog.Error("cognitive: failed to persist session", "err", err)
 	}
+
+	replaySucceeded = reflection != nil && reflection.Succeeded
 
 	// Save user message to memory.md
 	if ca.memStore != nil {

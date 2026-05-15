@@ -57,6 +57,9 @@ func (gw *Gateway) initAgentRuntime() error {
 	if gw.cfg.Tools.ConcurrentExecution.Enabled {
 		slog.Info("concurrent tool execution enabled", "max_concurrency", gw.cfg.Tools.ConcurrentExecution.MaxConcurrency)
 	}
+	if gw.replayRecorder != nil {
+		gw.runtime.SetReplayRecorder(gw.replayRecorder)
+	}
 
 	return nil
 }

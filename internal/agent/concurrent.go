@@ -238,15 +238,15 @@ func (r *Runtime) executeToolCall(
 			ToolName: tc.Name,
 			Input:    tc.Input,
 			Capabilities: map[string]bool{
-				"is_read_only":  caps.IsReadOnly,
+				"is_read_only":   caps.IsReadOnly,
 				"is_destructive": caps.IsDestructive,
 			},
 		})
 		if hookErr == nil {
 			switch hookResult.Action {
-		case "deny":
-			return toolResult{toolUseID: tc.ID, output: buildDeniedOutput(tc.Name, "denied by hook: "+hookResult.Reason), status: "denied", toolName: tc.Name, toolInput: tc.Input,
-				permissionAction: "deny", permissionReason: "hook_deny", permissionRule: hookResult.Reason}
+			case "deny":
+				return toolResult{toolUseID: tc.ID, output: buildDeniedOutput(tc.Name, "denied by hook: "+hookResult.Reason), status: "denied", toolName: tc.Name, toolInput: tc.Input,
+					permissionAction: "deny", permissionReason: "hook_deny", permissionRule: hookResult.Reason}
 			case "allow":
 				skipApproval = true
 				permAction = "allow"
@@ -290,6 +290,9 @@ func (r *Runtime) executeToolCall(
 
 	if r.dashEmitter != nil {
 		r.dashEmitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
+	}
+	if r.replayRecorder != nil && r.replayID != "" {
+		r.replayRecorder.RecordToolStart(ctx, r.replayID, tc.Name, tc.Input)
 	}
 	start := time.Now()
 	result, err := t.Execute(ctx, []byte(tc.Input))
@@ -348,6 +351,16 @@ func (r *Runtime) executeToolCall(
 	if r.dashEmitter != nil {
 		r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, status == "success", duration)
 	}
+	if r.replayRecorder != nil && r.replayID != "" {
+		errStr := ""
+		denied := status == "denied"
+		if err != nil {
+			errStr = err.Error()
+		} else if result.Error != "" {
+			errStr = result.Error
+		}
+		r.replayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, status == "success" && !denied, denied, errStr, duration)
+	}
 	return toolResult{toolUseID: tc.ID, output: output, status: status, duration: duration, toolName: tc.Name, toolInput: tc.Input,
 		permissionAction: permAction, permissionReason: permReason, permissionRule: permRule}
 }
@@ -371,6 +384,9 @@ func (r *Runtime) executeToolCallViaChain(
 	if r.dashEmitter != nil {
 		r.dashEmitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
 	}
+	if r.replayRecorder != nil && r.replayID != "" {
+		r.replayRecorder.RecordToolStart(ctx, r.replayID, tc.Name, tc.Input)
+	}
 	start := time.Now()
 	res, err := r.interceptorChain.Execute(ctx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
 		result, execErr := t.Execute(ctx, []byte(call.Input))
@@ -392,11 +408,17 @@ func (r *Runtime) executeToolCallViaChain(
 		if r.dashEmitter != nil {
 			r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, false, duration)
 		}
+		if r.replayRecorder != nil && r.replayID != "" {
+			r.replayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, false, false, err.Error(), duration)
+		}
 		return toolResult{toolUseID: tc.ID, output: "error: " + err.Error(), status: "error", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 	}
 	if res.Error != "" {
 		if r.dashEmitter != nil {
 			r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, false, duration)
+		}
+		if r.replayRecorder != nil && r.replayID != "" {
+			r.replayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, false, true, res.Error, duration)
 		}
 		return toolResult{toolUseID: tc.ID, output: buildDeniedOutput(tc.Name, res.Error), status: "denied", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 	}
@@ -427,6 +449,9 @@ func (r *Runtime) executeToolCallViaChain(
 
 	if r.dashEmitter != nil {
 		r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, true, duration)
+	}
+	if r.replayRecorder != nil && r.replayID != "" {
+		r.replayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, true, false, "", duration)
 	}
 	return toolResult{toolUseID: tc.ID, output: output, status: "success", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 }
