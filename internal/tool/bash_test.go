@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"encoding/json"
 	"os"
@@ -208,15 +209,15 @@ func TestTruncateStr(t *testing.T) {
 	}{
 		{"short string unchanged", "hello", 10, "hello"},
 		{"exact length unchanged", "hello", 5, "hello"},
-		{"long string truncated", "hello world", 5, "hello"},
+		{"long string truncated", "hello world", 5, "hello..."},
 		{"empty string", "", 5, ""},
-		{"zero maxLen", "hello", 0, ""},
+		{"zero maxLen", "hello", 0, "..."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := truncateStr(tt.input, tt.maxLen)
+			got := util.TruncateStr(tt.input, tt.maxLen)
 			if got != tt.want {
-				t.Errorf("truncateStr(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+				t.Errorf("util.TruncateStr(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 			}
 		})
 	}

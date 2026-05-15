@@ -90,12 +90,14 @@ func (c *ClaudeProvider) Complete(ctx context.Context, req CompletionRequest) (*
 		))
 	start := time.Now()
 	defer span.End()
-	defer observability.LLMRequestDuration.Record(ctx, time.Since(start).Milliseconds(),
-		metric.WithAttributes(
-			attribute.String("provider", "claude"),
-			attribute.String("model", model),
-			attribute.String("operation", "complete"),
-		))
+	defer func() {
+		observability.LLMRequestDuration.Record(ctx, time.Since(start).Milliseconds(),
+			metric.WithAttributes(
+				attribute.String("provider", "claude"),
+				attribute.String("model", model),
+				attribute.String("operation", "complete"),
+			))
+	}()
 
 	params := c.buildParams(req)
 	resp, err := c.client.Messages.New(ctx, params)
@@ -357,8 +359,9 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 	}
 
 	if err := it.stream.Err(); err != nil {
+		it.done = true
 		it.finish(err)
-		return StreamDelta{}, err
+		return StreamDelta{}, fmt.Errorf("claude stream: %w", err)
 	}
 
 	// Stream ended — parse accumulated message for tool calls

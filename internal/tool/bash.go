@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -23,12 +24,6 @@ type bashOutput struct {
 	FilePath   string `json:"file_path,omitempty"`
 }
 
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
-}
 
 type BashTool struct {
 	timeout  time.Duration
@@ -155,8 +150,8 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 		status = "failed"
 	}
 
-	stdoutStr := truncateStr(stdout.String(), maxOutputSize)
-	stderrStr := truncateStr(stderr.String(), maxOutputSize)
+	stdoutStr := util.TruncateStr(stdout.String(), maxOutputSize)
+	stderrStr := util.TruncateStr(stderr.String(), maxOutputSize)
 
 	out := bashOutput{
 		Stdout:     stdoutStr,
@@ -191,8 +186,8 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 			return Result{Error: fmt.Sprintf("failed to close temp file: %v", cErr)}, nil
 		}
 
-		out.Stdout = truncateStr(stdoutStr, largeOutputThreshold/2)
-		out.Stderr = truncateStr(stderrStr, largeOutputThreshold/2)
+		out.Stdout = util.TruncateStr(stdoutStr, largeOutputThreshold/2)
+		out.Stderr = util.TruncateStr(stderrStr, largeOutputThreshold/2)
 		out.Truncated = true
 		out.FilePath = tmpFile.Name()
 		result.IsPartial = true

@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
 	"github.com/Forest-Isle/IronClaw/internal/observability"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -149,12 +151,14 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*
 		))
 	start := time.Now()
 	defer span.End()
-	defer observability.LLMRequestDuration.Record(ctx, time.Since(start).Milliseconds(),
-		metric.WithAttributes(
-			attribute.String("provider", "openai"),
-			attribute.String("model", model),
-			attribute.String("operation", "complete"),
-		))
+	defer func() {
+		observability.LLMRequestDuration.Record(ctx, time.Since(start).Milliseconds(),
+			metric.WithAttributes(
+				attribute.String("provider", "openai"),
+				attribute.String("model", model),
+				attribute.String("operation", "complete"),
+			))
+	}()
 
 	oaiReq := p.buildRequest(req, false)
 
@@ -173,10 +177,10 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*
 		return nil, fmt.Errorf("openai: decode response: %w", err)
 	}
 	if resp.Error != nil {
-		apiErr := fmt.Errorf("openai: API error: %s", resp.Error.Message)
+		apiErr := ierrors.Wrap(fmt.Errorf("%s", resp.Error.Message), ierrors.KindUnavailable, "openai: API error")
 		span.RecordError(apiErr)
 		span.SetStatus(codes.Error, apiErr.Error())
-		return nil, fmt.Errorf("openai: API error: %s", resp.Error.Message)
+		return nil, apiErr
 	}
 	if len(resp.Choices) == 0 {
 		noChoicesErr := fmt.Errorf("openai: no choices in response")
@@ -360,7 +364,15 @@ func (p *OpenAIProvider) doRequest(ctx context.Context, oaiReq oaiRequest) (io.R
 	if resp.StatusCode >= 400 {
 		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("openai: HTTP %d: %s", resp.StatusCode, string(body))
+		err := fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+		switch resp.StatusCode {
+		case 429:
+			return nil, ierrors.Wrap(err, ierrors.KindUnavailable, "openai: rate limited")
+		case 400:
+			return nil, ierrors.Wrap(err, ierrors.KindInvalidInput, "openai: bad request")
+		default:
+			return nil, ierrors.Wrap(err, ierrors.KindUnavailable, "openai: API error")
+		}
 	}
 
 	return resp.Body, nil
@@ -447,6 +459,7 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 
 		var chunk oaiResponse
 		if jsonErr := json.Unmarshal([]byte(data), &chunk); jsonErr != nil {
+			slog.Debug("openai stream: malformed JSON chunk", "err", jsonErr, "data_len", len(data))
 			continue
 		}
 		if len(chunk.Choices) == 0 {

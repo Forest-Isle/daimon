@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/dashboard"
+	"github.com/Forest-Isle/IronClaw/internal/ratelimit"
 )
 
 func (gw *Gateway) initDashboard() error {
@@ -59,6 +60,13 @@ func (gw *Gateway) setupDashboard() error {
 		Collector: gw.cogCollector,
 		StaticFS:  dashboard.WebDistFS(),
 	})
+
+	// Apply rate limit middleware if the limiter is configured
+	if gw.rateLimiter != nil {
+		wrapped := ratelimit.RateLimitMiddleware(gw.rateLimiter, nil)(gw.dashboardSrv.Handler)
+		gw.dashboardSrv.Handler = wrapped
+	}
+
 	go func() {
 		slog.Info("dashboard server starting", "addr", gw.cfg.Dashboard.Addr)
 		if err := gw.dashboardSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

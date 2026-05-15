@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"database/sql"
 	"fmt"
@@ -404,7 +405,7 @@ func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, i
 				LIMIT 100
 			`, ftsQuery)
 			if err != nil {
-				slog.Debug("memory: FTS5 search error", "err", err, "query_preview", truncateStr(ftsQuery, 60))
+				slog.Debug("memory: FTS5 search error", "err", err, "query_preview", util.TruncateRunes(ftsQuery, 60))
 			} else {
 				defer func() { _ = rows.Close() }()
 				for rows.Next() {
@@ -881,14 +882,6 @@ func (s *FileMemoryStore) RebuildIndex(ctx context.Context) error {
 	return idx.Rebuild()
 }
 
-// truncateStr returns the first n runes of s (or all of s if shorter).
-func truncateStr(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n])
-}
 
 func serializeEmbedding(vec []float32) []byte {
 	buf := make([]byte, len(vec)*4)

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"fmt"
 	"log/slog"
@@ -52,7 +53,7 @@ func CompactHistory(ctx context.Context, provider Provider, sess *session.Sessio
 		sb.WriteString("Please summarize the following conversation turns:\n")
 	}
 	for _, m := range oldMessages {
-		_, _ = fmt.Fprintf(&sb, "[%s]: %s\n", m.Role, truncate(m.Content, 500))
+		_, _ = fmt.Fprintf(&sb, "[%s]: %s\n", m.Role, util.TruncateStr(m.Content, 500))
 	}
 
 	req := CompletionRequest{
@@ -94,9 +95,3 @@ func CompactHistory(ctx context.Context, provider Provider, sess *session.Sessio
 	return nil
 }
 
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}

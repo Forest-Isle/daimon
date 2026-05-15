@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"fmt"
 	"log/slog"
@@ -22,10 +23,12 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
+	"github.com/Forest-Isle/IronClaw/internal/health"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/ratelimit"
 	"github.com/Forest-Isle/IronClaw/internal/rl"
 	"github.com/Forest-Isle/IronClaw/internal/sandbox"
 	"github.com/Forest-Isle/IronClaw/internal/scheduler"
@@ -86,7 +89,10 @@ type Gateway struct {
 	cogCollector     *cogmetrics.Collector
 	healthChecker    *cogmetrics.HealthChecker
 	breaker          *cogmetrics.Breaker
-	currentMode      atomic.Value  // stores string: "simple" | "cognitive" | "graph"
+		rateLimiter      ratelimit.Limiter
+		healthRegistry   *health.Registry
+		healthSrv        *http.Server
+		currentMode      atomic.Value  // stores string: "simple" | "cognitive" | "graph"
 	memoryDir        string        // resolved base dir for file-based memory
 	stopCh           chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce         sync.Once     // ensures stopCh is closed exactly once
@@ -114,6 +120,12 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		return nil, fmt.Errorf("database: %w", err)
 	}
 
+	// Health check registry — always available regardless of dashboard
+	gw.healthRegistry = health.NewRegistry()
+	gw.healthRegistry.Register("database", health.CheckerFunc(func(ctx context.Context) error {
+		return gw.db.PingContext(ctx)
+	}))
+
 	obsShutdown, err := initObservability(context.Background(), *cfg)
 	if err != nil {
 		slog.Warn("observability init failed, continuing without telemetry", "err", err)
@@ -134,7 +146,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		if home, err := os.UserHomeDir(); err == nil {
 			gw.featureStatePath = feature.DefaultStatePath(filepath.Join(home, ".IronClaw"))
 			if persisted, err := feature.LoadOverrides(gw.featureStatePath); err != nil {
-				slog.Warn("gateway: failed to load persisted feature state", "err", err)
+				slog.Warn("gateway: failed to load persisted feature state — file may be corrupted, using config defaults", "path", gw.featureStatePath, "err", err)
 			} else if len(persisted) > 0 {
 				gw.features.ApplyOverrides(persisted)
 				slog.Info("gateway: applied persisted feature overrides", "count", len(persisted))
@@ -148,6 +160,17 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	if err := gw.initToolsAndHooks(); err != nil {
 		return nil, fmt.Errorf("tools: %w", err)
 	}
+
+	// Register Docker health check if Docker sandbox is available
+	if gw.dockerSessionMgr != nil {
+		gw.healthRegistry.Register("docker", health.CheckerFunc(func(ctx context.Context) error {
+			if !sandbox.ProbeDocker(ctx) {
+				return fmt.Errorf("docker daemon not reachable")
+			}
+			return nil
+		}))
+	}
+
 	if err := gw.initAgentRuntime(); err != nil {
 		return nil, fmt.Errorf("agent: %w", err)
 	}
@@ -241,6 +264,8 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// still populate cogCollector.
 	gw.initCogMetrics()
 
+	gw.initRateLimiter()
+
 	if err := gw.initDashboard(); err != nil {
 		return nil, fmt.Errorf("dashboard: %w", err)
 	}
@@ -257,6 +282,9 @@ func (gw *Gateway) AddChannel(ch channel.Channel) {
 
 // Start initializes all channels and begins processing.
 func (gw *Gateway) Start(ctx context.Context) error {
+	// Start health check HTTP server — always available independent of dashboard
+	gw.startHealthServer()
+
 	// Start MCP servers asynchronously — npx/uvx process startup can take
 	// several seconds and should not block the TUI from appearing.
 	if len(gw.cfg.Tools.MCP.Servers) > 0 {
@@ -420,6 +448,11 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 		defer cancel()
 		_ = gw.dashboardSrv.Shutdown(shutCtx)
 	}
+	if gw.healthSrv != nil {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = gw.healthSrv.Shutdown(shutCtx)
+	}
 	if gw.dashboardHub != nil {
 		gw.dashboardHub.Stop()
 	}
@@ -513,6 +546,25 @@ func (gw *Gateway) Features() *feature.Registry {
 func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage) {
 	if msg.Text == "" {
 		return
+	}
+
+	// Rate limiting for agent message handling
+	if gw.rateLimiter != nil {
+		allowed, waitTime, err := gw.rateLimiter.Allow(ctx, msg.UserID)
+		if err != nil {
+			slog.Warn("gateway: rate limiter error, allowing message", "err", err, "user", msg.UserID)
+		} else if !allowed {
+			slog.Warn("gateway: rate limited", "user", msg.UserID, "wait", waitTime)
+			ch, ok := gw.channels[msg.Channel]
+			if ok {
+				_ = ch.Send(ctx, channel.OutboundMessage{
+					Channel:   msg.Channel,
+					ChannelID: msg.ChannelID,
+					Text:      "You are sending messages too quickly. Please wait a moment before trying again.",
+				})
+			}
+			return
+		}
 	}
 
 	ch, ok := gw.channels[msg.Channel]
@@ -825,7 +877,7 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 		ID:    rootID,
 		Kind:  taskledger.TaskKindTeamTask,
 		State: taskledger.TaskStateRunning,
-		Title: truncateGoal(goal, 100),
+		Title: util.TruncateStr(goal, 100),
 	}
 	if err := gw.taskLedger.Register(ctx, rootTask); err != nil {
 		return fmt.Sprintf("Failed to register root task: %v", err)
@@ -889,12 +941,6 @@ func (gw *Gateway) executeTeamTask(ctx context.Context, task taskledger.Task) (s
 	return resp.Text, nil
 }
 
-func truncateGoal(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
-}
 
 // importTrajectoriesToRL warm-starts the RL replay buffer from historical
 // trajectory data. Runs once in the background at startup.
@@ -933,6 +979,38 @@ func (gw *Gateway) importTrajectoriesToRL() {
 	if len(exps) > 0 {
 		slog.Info("gateway: imported trajectories into RL buffer", "experiences", len(exps))
 	}
+}
+
+
+// initRateLimiter creates the rate limiter based on config.
+func (gw *Gateway) initRateLimiter() {
+	if !gw.cfg.RateLimit.Enabled {
+		gw.rateLimiter = ratelimit.NoopLimiter{}
+		slog.Info("rate limiting disabled")
+		return
+	}
+
+	rate := gw.cfg.RateLimit.RequestsPerSec
+	if rate <= 0 {
+		rate = 10
+	}
+	burst := gw.cfg.RateLimit.Burst
+	if burst <= 0 {
+		burst = 20
+	}
+
+	gw.rateLimiter = ratelimit.NewPerKeyLimiter(rate, burst, 5*time.Minute)
+	slog.Info("rate limiting enabled", "requests_per_sec", rate, "burst", burst)
+}
+
+// SetRateLimiter replaces the rate limiter. Used for testing.
+func (gw *Gateway) SetRateLimiter(l ratelimit.Limiter) {
+	gw.rateLimiter = l
+}
+
+// RateLimiter returns the current rate limiter.
+func (gw *Gateway) RateLimiter() ratelimit.Limiter {
+	return gw.rateLimiter
 }
 
 // startA2AServer creates and starts the A2A protocol server.

@@ -25,9 +25,13 @@ build: web
 run: build
 	./$(BUILD_DIR)/$(BINARY) start
 
-## test: Run tests
+## test: Run tests (with race detector)
 test:
-	CGO_ENABLED=1 go test -tags "$(TAGS)" ./... -v
+	CGO_ENABLED=1 go test -tags "$(TAGS)" ./... -v -race -count=1
+
+## test-short: Run tests without race detector (faster, for dev loops)
+test-short:
+	CGO_ENABLED=1 go test -tags "$(TAGS)" ./... -v -count=1
 
 ## lint: Run linter (requires golangci-lint)
 lint:

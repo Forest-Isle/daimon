@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -54,7 +55,7 @@ func bashAssertions(obs Observation) []AssertionResult {
 		return []AssertionResult{{
 			Check:  "output is valid JSON",
 			Passed: false,
-			Actual: truncate(obs.Output, 200),
+			Actual: util.TruncateStr(obs.Output, 200),
 		}}
 	}
 
@@ -110,7 +111,7 @@ func bashOutputContentAssertions(out bashOutput) []AssertionResult {
 				results = append(results, AssertionResult{
 					Check:  "bash stdout does not contain error patterns",
 					Passed: false,
-					Actual: fmt.Sprintf("stdout contains '%s' despite exit_code=0: %s", pat, truncate(out.Stdout, 100)),
+					Actual: fmt.Sprintf("stdout contains '%s' despite exit_code=0: %s", pat, util.TruncateStr(out.Stdout, 100)),
 				})
 				break
 			}
@@ -125,7 +126,7 @@ func stderrActual(stderr string, matched []string) string {
 		return "stderr clean"
 	}
 	return fmt.Sprintf("found [%s] in stderr: %s",
-		strings.Join(matched, ", "), truncate(stderr, 120))
+		strings.Join(matched, ", "), util.TruncateStr(stderr, 120))
 }
 
 func httpAssertions(obs Observation) []AssertionResult {
@@ -174,7 +175,7 @@ func fileWriteAssertions(obs Observation) []AssertionResult {
 	return []AssertionResult{{
 		Check:  "file operation succeeded",
 		Passed: false,
-		Actual: truncate(obs.Error, 200),
+		Actual: util.TruncateStr(obs.Error, 200),
 	}}
 }
 
@@ -295,7 +296,7 @@ func mcpAssertions(obs Observation) []AssertionResult {
 				results = append(results, AssertionResult{
 					Check:  "MCP response has no error field",
 					Passed: false,
-					Actual: truncate(envelope.Error, 200),
+					Actual: util.TruncateStr(envelope.Error, 200),
 				})
 			}
 		}
@@ -348,7 +349,7 @@ func genericAssertions(obs Observation) []AssertionResult {
 	return []AssertionResult{{
 		Check:  "tool execution succeeded",
 		Passed: false,
-		Actual: truncate(obs.Error, 200),
+		Actual: util.TruncateStr(obs.Error, 200),
 	}}
 }
 
@@ -398,6 +399,6 @@ func errorOrOK(errMsg string) string {
 	if errMsg == "" {
 		return "no error"
 	}
-	return truncate(errMsg, 200)
+	return util.TruncateStr(errMsg, 200)
 }
 

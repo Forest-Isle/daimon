@@ -1,11 +1,14 @@
 package agent
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+
+	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
@@ -228,7 +231,7 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 			ID:    fmt.Sprintf("req_%d", time.Now().UnixNano()),
 			Kind:  taskledger.TaskKindUserRequest,
 			State: taskledger.TaskStateRunning,
-			Title: truncateStr(msg.Text, 100),
+			Title: util.TruncateStr(msg.Text, 100),
 		}
 		if err := r.taskLedger.Register(ctx, task); err != nil {
 			slog.Warn("runtime: failed to register task", "err", err)
@@ -505,6 +508,11 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 		history := sess.History()
 
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("runtime: panic in fact extraction goroutine", "panic", r)
+				}
+			}()
 			bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
@@ -799,15 +807,14 @@ func isContextLengthError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// Use structured error kind whenever available.
+	if ierrors.IsKind(err, ierrors.KindContextLength) {
+		return true
+	}
+	// Fallback: check raw error string for API-level indicators.
 	msg := err.Error()
 	return strings.Contains(msg, "413") ||
 		strings.Contains(msg, "context_length_exceeded") ||
 		strings.Contains(msg, "maximum context length")
 }
 
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
-}

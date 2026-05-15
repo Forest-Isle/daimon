@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -342,7 +343,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			ID:    parentTaskID,
 			Kind:  taskledger.TaskKindUserRequest,
 			State: taskledger.TaskStateRunning,
-			Title: truncateStr(msg.Text, 100),
+			Title: util.TruncateStr(msg.Text, 100),
 		}
 		if err := ca.taskLedger.Register(ctx, task); err != nil {
 			slog.Warn("cognitive: failed to register task", "err", err)
@@ -500,7 +501,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			if ca.dashEmitter != nil {
 				reason := "low_confidence"
 				if reflection != nil && reflection.SuggestedAdjustment != "" {
-					reason = "adjustment: " + truncateStr(reflection.SuggestedAdjustment, 100)
+					reason = "adjustment: " + util.TruncateStr(reflection.SuggestedAdjustment, 100)
 				}
 				ca.dashEmitter.EmitReplanStart(sess.ID, attempt, reason)
 			}

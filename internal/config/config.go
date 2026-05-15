@@ -25,6 +25,7 @@ type Config struct {
 	Tools         ToolsConfig         `yaml:"tools"`
 	Server        ServerConfig        `yaml:"server"`
 	Dashboard     DashboardConfig     `yaml:"dashboard"`
+	Health        HealthConfig        `yaml:"health"`
 	Log           LogConfig           `yaml:"log"`
 	Observability ObservabilityConfig `yaml:"observability"`
 	Skills        SkillsConfig        `yaml:"skills"`
@@ -32,6 +33,7 @@ type Config struct {
 	Permissions   PermissionsConfig   `yaml:"permissions"`
 	Sandbox       SandboxConfig       `yaml:"sandbox"`
 	Hooks         HooksConfig         `yaml:"hooks"`
+	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
 	Evolution     evolution.Config    `yaml:"evolution"`
 }
 
@@ -92,6 +94,13 @@ type NetworkConfig struct {
 	Mode      string   `yaml:"mode"` // "none" | "blacklist" | "whitelist"
 	Blacklist []string `yaml:"blacklist"`
 	Whitelist []string `yaml:"whitelist"`
+}
+
+// RateLimitConfig configures the rate limiting and backpressure system.
+type RateLimitConfig struct {
+	Enabled        bool    `yaml:"enabled"`
+	RequestsPerSec float64 `yaml:"requests_per_sec"` // default: 10
+	Burst          int     `yaml:"burst"`            // default: 20
 }
 
 // TUIConfig configures the TUI (terminal UI) channel.
@@ -415,6 +424,11 @@ type DashboardConfig struct {
 	Token   string `yaml:"token"`
 }
 
+// HealthConfig configures the health check HTTP endpoint.
+type HealthConfig struct {
+	Port int `yaml:"port"` // default: 9090
+}
+
 type LogConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
@@ -549,6 +563,9 @@ func defaultConfig() Config {
 		Store: StoreConfig{
 			Path: "./data/ironclaw.db",
 		},
+		Health: HealthConfig{
+			Port: 9090,
+		},
 		Server: ServerConfig{
 			Addr: ":8080",
 		},
@@ -619,6 +636,11 @@ func defaultConfig() Config {
 			Network: NetworkConfig{
 				Mode: "blacklist",
 			},
+		},
+		RateLimit: RateLimitConfig{
+			Enabled:        false,
+			RequestsPerSec: 10,
+			Burst:          20,
 		},
 		Evolution: evolution.DefaultConfig(),
 	}

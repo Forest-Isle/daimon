@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -109,7 +110,7 @@ func BuildDebatePlan(topic string, proposerAgent, criticAgent string, cfg Debate
 	}
 
 	return &TaskPlan{
-		Summary:           fmt.Sprintf("Debate: %s vs %s on %q (%d rounds)", proposerAgent, criticAgent, truncateDebate(topic, 50), cfg.MaxRounds),
+		Summary:           fmt.Sprintf("Debate: %s vs %s on %q (%d rounds)", proposerAgent, criticAgent, util.TruncateStr(topic, 50), cfg.MaxRounds),
 		SubTasks:          subtasks,
 		OverallConfidence: 0.7,
 	}
@@ -128,13 +129,13 @@ func SynthesizeDebate(observations []Observation, proposerAgent, criticAgent str
 		// Proposal
 		if i < len(observations) {
 			obs := observations[i]
-			_, _ = fmt.Fprintf(&sb, "**%s (Proposal):**\n%s\n\n", proposerAgent, truncateDebateOutput(obs.Output))
+			_, _ = fmt.Fprintf(&sb, "**%s (Proposal):**\n%s\n\n", proposerAgent, util.TruncateStr(obs.Output, 500))
 		}
 
 		// Critique
 		if i+1 < len(observations) {
 			obs := observations[i+1]
-			_, _ = fmt.Fprintf(&sb, "**%s (Critique):**\n%s\n\n", criticAgent, truncateDebateOutput(obs.Output))
+			_, _ = fmt.Fprintf(&sb, "**%s (Critique):**\n%s\n\n", criticAgent, util.TruncateStr(obs.Output, 500))
 		}
 
 		round++
@@ -151,21 +152,6 @@ func contextRef(prevID string, round int) string {
 		return ""
 	}
 	return fmt.Sprintf("Previous critique output will be provided from task %s", prevID)
-}
-
-func truncateDebate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
-}
-
-func truncateDebateOutput(s string) string {
-	const maxLen = 500
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "\n... (truncated)"
 }
 
 // SelectDebateAgents selects two agents for debate based on tags or defaults to first two.
