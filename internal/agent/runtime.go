@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
+
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
@@ -805,6 +807,11 @@ func isContextLengthError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// Use structured error kind whenever available.
+	if ierrors.IsKind(err, ierrors.KindContextLength) {
+		return true
+	}
+	// Fallback: check raw error string for API-level indicators.
 	msg := err.Error()
 	return strings.Contains(msg, "413") ||
 		strings.Contains(msg, "context_length_exceeded") ||

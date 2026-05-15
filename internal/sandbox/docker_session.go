@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
 )
 
 // DockerSessionConfig holds settings for sandboxed Docker containers.
@@ -65,7 +67,7 @@ func (m *DockerSessionManager) Available() bool {
 // containers, and one container is orphaned.
 func (m *DockerSessionManager) GetOrCreate(ctx context.Context, sessionID string) (*DockerSession, error) {
 	if !m.available {
-		return nil, fmt.Errorf("docker sandbox unavailable")
+		return nil, ierrors.New(ierrors.KindUnavailable, "docker sandbox unavailable")
 	}
 
 	m.mu.Lock()

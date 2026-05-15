@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
@@ -208,10 +209,14 @@ func (cm *PipelineContextManager) ReactiveCompressWithRetry(
 
 	// Level 3: give up with a descriptive error.
 	util := cm.Utilization(sess, systemPrompt)
-	return fmt.Errorf(
-		"context_length_exceeded: compression and token reduction failed "+
-			"(utilization=%.0f%%, messages=%d, context_window=%d)",
-		util*100, len(sess.History()), cm.contextWindow,
+	return ierrors.Wrap(
+		fmt.Errorf(
+			"compression and token reduction failed "+
+				"(utilization=%.0f%%, messages=%d, context_window=%d)",
+			util*100, len(sess.History()), cm.contextWindow,
+		),
+		ierrors.KindContextLength,
+		"context_length_exceeded",
 	)
 }
 

@@ -296,6 +296,14 @@ sandbox:
     blacklist: []                    # appended to built-in SSRF blocklist
     whitelist: []                    # only used in whitelist mode
 
+# Rate limiting and backpressure — protects against excessive message/API traffic
+# When enabled, applies token-bucket rate limiting to agent message handling and
+# dashboard HTTP endpoints. Uses per-user (per-IP for HTTP) token buckets.
+rate_limit:
+  enabled: false
+  requests_per_sec: 10    # tokens refilled per second
+  burst: 20               # max token bucket capacity
+
 # Hook event system — pluggable handlers at lifecycle points
 hooks:
   pre_tool_use:
