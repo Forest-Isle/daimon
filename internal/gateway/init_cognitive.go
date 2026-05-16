@@ -14,33 +14,33 @@ import (
 )
 
 func (gw *Gateway) initCognitiveAgent() error {
-	gw.cognitiveAgent = agent.NewCognitiveAgent(gw.provider, gw.tools, gw.sessions, gw.db, gw.cfg.Agent, gw.cfg.LLM)
+	opts := &agent.CognitiveAgentOptions{}
 	if gw.memStore != nil {
-		gw.cognitiveAgent.SetMemoryStore(gw.memStore)
+		opts.MemoryStore = gw.memStore
 	}
 	if gw.factExtractor != nil {
-		gw.cognitiveAgent.SetFactExtractor(gw.factExtractor)
+		opts.FactExtractor = gw.factExtractor
 	}
 	if gw.lifecycleMgr != nil {
-		gw.cognitiveAgent.SetLifecycleManager(gw.lifecycleMgr)
+		opts.LifecycleManager = gw.lifecycleMgr
 	}
 	if gw.codebaseIndex != nil {
-		gw.cognitiveAgent.SetCodebaseIndex(gw.codebaseIndex)
+		opts.CodebaseIndex = gw.codebaseIndex
 	}
 
 	// Wire hook manager and permission engine (security: parity with simple runtime)
 	if gw.hookMgr != nil {
-		gw.cognitiveAgent.SetHookManager(gw.hookMgr)
+		opts.HookManager = gw.hookMgr
 	}
 	if gw.permEngine != nil {
-		gw.cognitiveAgent.SetPermissionEngine(gw.permEngine)
+		opts.PermissionEngine = gw.permEngine
 	}
 	if gw.interceptorChain != nil {
-		gw.cognitiveAgent.SetInterceptorChain(gw.interceptorChain)
+		opts.InterceptorChain = gw.interceptorChain
 	}
 
 	// Inject memory notification callback
-	gw.cognitiveAgent.SetMemoryNotifyFunc(gw.sendMemoryNotification)
+	opts.MemoryNotifyFunc = gw.sendMemoryNotification
 
 	// Plan Mode: plan→approve→execute flow for write tools.
 	// Enabled when cognitive mode is active and provider supports plan generation.
@@ -50,13 +50,13 @@ func (gw *Gateway) initCognitiveAgent() error {
 			gw.handleApproval,
 			false, // safe default: require approval for write tools
 		)
-		gw.cognitiveAgent.SetPlanMode(gw.planMode)
+		opts.PlanMode = gw.planMode
 		slog.Info("plan mode wired into cognitive agent")
 	}
 
 	// Checkpoint store for task resume
 	checkpointStore := agent.NewSQLiteCheckpointStore(gw.db)
-	gw.cognitiveAgent.SetCheckpointStore(checkpointStore)
+	opts.CheckpointStore = checkpointStore
 
 	// RL System (requires cognitive agent)
 	if gw.featureEnabled("rl") {
@@ -66,8 +66,8 @@ func (gw *Gateway) initCognitiveAgent() error {
 			slog.Warn("gateway: failed to load RL checkpoint", "err", err)
 		}
 		gw.rlTrainer = rl.NewTrainer(rlPolicy, gw.cfg.Agent.RL)
-		gw.cognitiveAgent.SetRLPolicy(rlPolicy)
-		gw.cognitiveAgent.SetRLTrainer(gw.rlTrainer)
+		opts.RLPolicy = rlPolicy
+		opts.RLTrainer = gw.rlTrainer
 		slog.Info("RL system initialized")
 
 		// Bridge memory lifecycle events to RL system
@@ -79,18 +79,30 @@ func (gw *Gateway) initCognitiveAgent() error {
 		}
 	}
 
-	if gw.cognitiveAgent != nil && gw.evoEngine != nil {
-		gw.cognitiveAgent.SetEvolutionEngine(gw.evoEngine)
-		gw.registerEvolutionHooks()
+	if gw.evoEngine != nil {
+		opts.EvolutionEngine = gw.evoEngine
 	}
 	if gw.replayRecorder != nil {
-		gw.cognitiveAgent.SetReplayRecorder(gw.replayRecorder)
+		opts.ReplayRecorder = gw.replayRecorder
 	}
 	if gw.selfHealEngine != nil {
-		gw.cognitiveAgent.SetSelfHealEngine(gw.selfHealEngine)
+		opts.SelfHealEngine = gw.selfHealEngine
 	}
 	if gw.treePlanner != nil {
-		gw.cognitiveAgent.SetTreePlanner(gw.treePlanner)
+		opts.TreePlanner = gw.treePlanner
+	}
+
+	gw.cognitiveAgent = agent.NewCognitiveAgent(
+		gw.provider,
+		gw.tools,
+		gw.sessions,
+		gw.db,
+		gw.cfg.Agent,
+		gw.cfg.LLM,
+		opts,
+	)
+	if gw.cognitiveAgent != nil && gw.evoEngine != nil {
+		gw.registerEvolutionHooks()
 	}
 
 	return nil

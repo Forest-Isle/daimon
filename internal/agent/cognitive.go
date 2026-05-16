@@ -68,6 +68,41 @@ type CognitiveAgent struct {
 	codebaseIndex       *CodebaseIndex
 }
 
+// CognitiveAgentOptions bundles all optional dependencies for the cognitive agent.
+// Fields left nil are silently skipped (feature not enabled).
+type CognitiveAgentOptions struct {
+	MemoryStore         memory.Store
+	FactExtractor       *memory.LLMFactExtractor
+	LifecycleManager    *memory.LifecycleManager
+	CodebaseIndex       *CodebaseIndex
+	KnowledgeSearcher   knowledge.Searcher
+	KnowledgeGraph      graph.Graph
+	EntityExtractor     *graph.LLMEntityExtractor
+	SelfHealEngine      *SelfHealEngine
+	TreePlanner         *StrategicTreePlanner
+	MCTSPlanner         *MCTSPlanner
+	HookManager         *hook.Manager
+	PermissionEngine    *tool.PermissionEngine
+	InterceptorChain    *tool.InterceptorChain
+	SkillManager        *skill.Manager
+	AgentManager        *AgentManager
+	Orchestrator        *AgentOrchestrator
+	TeamManager         *TeamManager
+	EvolutionEngine     *evolution.Engine
+	RLPolicy            RLPolicy
+	RLTrainer           RLTrainer
+	MemoryNotifyFunc    MemoryNotifyFunc
+	CheckpointStore     CheckpointStore
+	ContextManager      ContextManager
+	TaskLedger          taskledger.TaskLedger
+	DashboardEmitter    DashboardEmitter
+	ReplayRecorder      *ReplayRecorder
+	ObservationCallback func(result *ObservationResult)
+	ApprovalFunc        ApprovalFunc
+	PlanMode            *PlanMode
+	DebateConfig        config.DebateSettings
+}
+
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
 func NewCognitiveAgent(
 	provider Provider,
@@ -76,6 +111,7 @@ func NewCognitiveAgent(
 	db *store.DB,
 	cfg config.AgentConfig,
 	llmCfg config.LLMConfig,
+	opts *CognitiveAgentOptions,
 ) *CognitiveAgent {
 	ca := &CognitiveAgent{
 		sessions: sessions,
@@ -102,8 +138,103 @@ func NewCognitiveAgent(
 	ca.executor.SetToolCache(NewToolResultCache())
 	ca.observer = NewObserver()
 	ca.reflector = NewReflector(provider, nil, cogCfg, llmCfg.Model)
+	ca.applyOptions(opts)
 
 	return ca
+}
+
+func (ca *CognitiveAgent) applyOptions(opts *CognitiveAgentOptions) {
+	if opts == nil {
+		return
+	}
+	if opts.MemoryStore != nil {
+		ca.SetMemoryStore(opts.MemoryStore)
+	}
+	if opts.FactExtractor != nil {
+		ca.SetFactExtractor(opts.FactExtractor)
+	}
+	if opts.LifecycleManager != nil {
+		ca.SetLifecycleManager(opts.LifecycleManager)
+	}
+	if opts.CodebaseIndex != nil {
+		ca.SetCodebaseIndex(opts.CodebaseIndex)
+	}
+	if opts.KnowledgeSearcher != nil {
+		ca.SetKnowledgeSearcher(opts.KnowledgeSearcher)
+	}
+	if opts.KnowledgeGraph != nil {
+		ca.SetKnowledgeGraph(opts.KnowledgeGraph)
+	}
+	if opts.EntityExtractor != nil {
+		ca.SetEntityExtractor(opts.EntityExtractor)
+	}
+	if opts.SelfHealEngine != nil {
+		ca.SetSelfHealEngine(opts.SelfHealEngine)
+	}
+	if opts.TreePlanner != nil {
+		ca.SetTreePlanner(opts.TreePlanner)
+	}
+	if opts.MCTSPlanner != nil {
+		ca.SetMCTSPlanner(opts.MCTSPlanner)
+	}
+	if opts.HookManager != nil {
+		ca.SetHookManager(opts.HookManager)
+	}
+	if opts.PermissionEngine != nil {
+		ca.SetPermissionEngine(opts.PermissionEngine)
+	}
+	if opts.InterceptorChain != nil {
+		ca.SetInterceptorChain(opts.InterceptorChain)
+	}
+	if opts.SkillManager != nil {
+		ca.SetSkillManager(opts.SkillManager)
+	}
+	if opts.AgentManager != nil {
+		ca.SetAgentManager(opts.AgentManager)
+	}
+	if opts.Orchestrator != nil {
+		ca.SetOrchestrator(opts.Orchestrator)
+	}
+	if opts.TeamManager != nil {
+		ca.SetTeamManager(opts.TeamManager)
+	}
+	if opts.EvolutionEngine != nil {
+		ca.SetEvolutionEngine(opts.EvolutionEngine)
+	}
+	if opts.RLPolicy != nil {
+		ca.SetRLPolicy(opts.RLPolicy)
+	}
+	if opts.RLTrainer != nil {
+		ca.SetRLTrainer(opts.RLTrainer)
+	}
+	if opts.MemoryNotifyFunc != nil {
+		ca.SetMemoryNotifyFunc(opts.MemoryNotifyFunc)
+	}
+	if opts.CheckpointStore != nil {
+		ca.SetCheckpointStore(opts.CheckpointStore)
+	}
+	if opts.ContextManager != nil {
+		ca.SetContextManager(opts.ContextManager)
+	}
+	if opts.TaskLedger != nil {
+		ca.SetTaskLedger(opts.TaskLedger)
+	}
+	if opts.DashboardEmitter != nil {
+		ca.SetDashboardEmitter(opts.DashboardEmitter)
+	}
+	if opts.ReplayRecorder != nil {
+		ca.SetReplayRecorder(opts.ReplayRecorder)
+	}
+	if opts.ObservationCallback != nil {
+		ca.SetObservationCallback(opts.ObservationCallback)
+	}
+	if opts.ApprovalFunc != nil {
+		ca.SetApprovalFunc(opts.ApprovalFunc)
+	}
+	if opts.PlanMode != nil {
+		ca.SetPlanMode(opts.PlanMode)
+	}
+	ca.SetDebateConfig(opts.DebateConfig)
 }
 
 // MemoryStore returns the active memory store, or nil when memory is disabled.
