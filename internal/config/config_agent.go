@@ -44,7 +44,6 @@ type CompressionLayers struct {
 
 // CognitiveConfig holds configuration for the five-step cognitive agent loop.
 type CognitiveConfig struct {
-	StreamingEnabled       bool    `yaml:"streaming_enabled"`
 	PlanModel              string  `yaml:"plan_model"`
 	ReflectModel           string  `yaml:"reflect_model"`
 	ConfidenceThreshold    float64 `yaml:"confidence_threshold"`     // default 0.6
@@ -53,6 +52,7 @@ type CognitiveConfig struct {
 	PlanMaxTokens          int     `yaml:"plan_max_tokens"`          // default 2048
 	ReflectMaxTokens       int     `yaml:"reflect_max_tokens"`       // default 1024
 	ApprovalTimeoutSeconds int     `yaml:"approval_timeout_seconds"` // default 120
+	StreamingEnabled       bool    `yaml:"streaming_enabled"`        // enable channel-based streaming pipeline (default false)
 }
 
 // RLConfig holds configuration for the reinforcement learning system.
