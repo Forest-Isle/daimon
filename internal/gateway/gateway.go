@@ -94,9 +94,13 @@ type Gateway struct {
 	healthSrv        *http.Server
 	currentMode      atomic.Value // stores string: "simple" | "cognitive" | "graph"
 	memoryDir        string       // resolved base dir for file-based memory
-	codebaseIndex    *agent.CodebaseIndex
-	stopCh           chan struct{} // closed in Stop() to signal background goroutines
-	stopOnce         sync.Once     // ensures stopCh is closed exactly once
+	replayRecorder  *agent.ReplayRecorder
+	selfHealEngine  *agent.SelfHealEngine
+	treePlanner     *agent.StrategicTreePlanner
+	mctsPlanner     *agent.MCTSPlanner
+	codebaseIndex   *agent.CodebaseIndex
+	stopCh          chan struct{} // closed in Stop() to signal background goroutines
+	stopOnce        sync.Once     // ensures stopCh is closed exactly once
 }
 
 // GatewayOptions configures optional behaviour for Gateway.New.
