@@ -407,7 +407,7 @@ func (p *MCTSPlanner) evaluateToolAvailability(plan *TaskPlan) float64 {
 			continue
 		}
 		toolCount++
-		if _, ok := p.planner.tools.Get(step.ToolName); ok {
+		if _, err := p.planner.tools.Get(step.ToolName); err == nil {
 			score += 1.0
 		}
 	}
