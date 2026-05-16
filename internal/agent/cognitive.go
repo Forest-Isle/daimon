@@ -585,18 +585,56 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── PLAN ──────────────────────────────────────────────────────────────
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
+		if mctsActive {
+			// MCTS already explored the plan space — use the selected plan directly.
+			if attempt > 0 && len(mctsCandidates) > 1 {
+				nextIdx := attempt - 1
+				if nextIdx < len(mctsCandidates) {
+					plan = mctsCandidates[nextIdx].Plan
+					slog.Info("mcts: replan from candidate tree",
+						"attempt", attempt,
+						"candidate_idx", nextIdx,
+						"strategy", mctsCandidates[nextIdx].Strategy,
+						"score", mctsCandidates[nextIdx].LLMScore,
+					)
+				}
+			}
+			slog.Info("cognitive: using MCTS plan", "attempt", attempt, "plan_steps", len(plan.SubTasks))
+		} else {
+			if ca.dashEmitter != nil {
+				ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
+			}
+			planStart := time.Now()
+			donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
+			if treePlanner != nil {
+				plan = treePlanner.Select()
+				if plan == nil {
+					failureSummary := buildTreeFailureSummary(reflection, obsResult)
+					if expandErr := treePlanner.Expand(ctx, failureSummary); expandErr != nil {
+						slog.Warn("tree-planner: expand failed", "err", expandErr)
+						donePlan()
+						break
+					}
+					plan = treePlanner.Select()
+					if plan == nil {
+						donePlan()
+						break
+					}
+				}
+				slog.Info("tree-planner: selected plan",
+					"strategy", treePlanner.currentNode.Candidates[treePlanner.currentIdx].Strategy,
+					"score", treePlanner.currentNode.Candidates[treePlanner.currentIdx].LLMScore,
+					"depth", treePlanner.currentNode.Depth)
+			} else {
+				plan, err = ca.planner.Run(ctx, state)
+			}
+			donePlan()
+			if ca.dashEmitter != nil {
+				ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
+			}
+			observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
+				metric.WithAttributes(attribute.String("phase", "plan")))
 		}
-		planStart := time.Now()
-		donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
-		plan, err = ca.planner.Run(ctx, state)
-		donePlan()
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
-		}
-		observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
-			metric.WithAttributes(attribute.String("phase", "plan")))
 		if err != nil {
 			slog.Error("cognitive: plan failed", "err", err)
 			break
