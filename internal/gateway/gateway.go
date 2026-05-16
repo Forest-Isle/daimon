@@ -3,6 +3,8 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
 	"os"
@@ -19,13 +21,13 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/cortex"
 	"github.com/Forest-Isle/IronClaw/internal/dashboard"
 	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
 	"github.com/Forest-Isle/IronClaw/internal/health"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
-	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/ratelimit"
@@ -54,6 +56,10 @@ type Gateway struct {
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
 	memStore         memory.Store
+	embedder         memory.EmbeddingProvider
+	kbSearcher       knowledge.Searcher
+	graphStore       graph.Graph
+	cortex           *cortex.UnifiedRetriever
 	factExtractor    *memory.LLMFactExtractor
 	lifecycleMgr     *memory.LifecycleManager
 	skillMgr         *skill.Manager
@@ -192,6 +198,13 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	}
 	if err := gw.initKnowledgeSystem(); err != nil {
 		return nil, fmt.Errorf("knowledge: %w", err)
+	}
+	if gw.memStore != nil {
+		procedural := cortex.NewProceduralStore(gw.memStore, gw.embedder)
+		gw.cortex = cortex.NewUnifiedRetriever(gw.memStore, gw.kbSearcher, gw.graphStore, procedural)
+		if gw.cognitiveAgent != nil {
+			gw.cognitiveAgent.SetCortexRetriever(gw.cortex)
+		}
 	}
 	if err := gw.initSkillManager(); err != nil {
 		return nil, fmt.Errorf("skills: %w", err)

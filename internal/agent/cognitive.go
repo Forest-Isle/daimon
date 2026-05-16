@@ -11,6 +11,7 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/cortex"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
@@ -66,6 +67,7 @@ type CognitiveAgent struct {
 	treePlanner         *StrategicTreePlanner
 	mctsPlanner         *MCTSPlanner
 	codebaseIndex       *CodebaseIndex
+	cortex              *cortex.UnifiedRetriever
 }
 
 // CognitiveAgentOptions bundles all optional dependencies for the cognitive agent.
@@ -101,6 +103,7 @@ type CognitiveAgentOptions struct {
 	ApprovalFunc        ApprovalFunc
 	PlanMode            *PlanMode
 	DebateConfig        config.DebateSettings
+	CortexRetriever     *cortex.UnifiedRetriever
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -234,6 +237,9 @@ func (ca *CognitiveAgent) applyOptions(opts *CognitiveAgentOptions) {
 	if opts.PlanMode != nil {
 		ca.SetPlanMode(opts.PlanMode)
 	}
+	if opts.CortexRetriever != nil {
+		ca.SetCortexRetriever(opts.CortexRetriever)
+	}
 	ca.SetDebateConfig(opts.DebateConfig)
 }
 
@@ -249,6 +255,7 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	// Preserve existing searcher, graph, scanner, git provider, budget, and RL policy when rebuilding the perceiver.
 	oldSearcher := ca.perceiver.searcher
 	oldGraph := ca.perceiver.graph
+	oldCortex := ca.perceiver.cortex
 	oldScanner := ca.perceiver.scanner
 	oldGitProvider := ca.perceiver.gitProvider
 	oldBudgetAlloc := ca.perceiver.budgetAlloc
@@ -259,6 +266,9 @@ func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
 	}
 	if oldGraph != nil {
 		ca.perceiver.SetKnowledgeGraph(oldGraph)
+	}
+	if oldCortex != nil {
+		ca.perceiver.SetCortexRetriever(oldCortex)
 	}
 	if oldScanner != nil {
 		ca.perceiver.SetProjectScanner(oldScanner)
@@ -288,6 +298,12 @@ func (ca *CognitiveAgent) SetKnowledgeSearcher(s knowledge.Searcher) {
 // SetKnowledgeGraph injects a knowledge graph into the perceiver.
 func (ca *CognitiveAgent) SetKnowledgeGraph(g graph.Graph) {
 	ca.perceiver.SetKnowledgeGraph(g)
+}
+
+// SetCortexRetriever injects the unified cortex retriever into the perceiver and agent.
+func (ca *CognitiveAgent) SetCortexRetriever(ur *cortex.UnifiedRetriever) {
+	ca.cortex = ur
+	ca.perceiver.SetCortexRetriever(ur)
 }
 
 // SetCodebaseIndex injects a semantic codebase index into the cognitive agent.
@@ -1378,6 +1394,23 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 		FinalAnswer:    finalAnswer,
 		Timestamp:      now,
 	})
+
+	if ca.cortex != nil && reflection != nil && reflection.Succeeded {
+		taskPattern := state.Goal.Raw
+		var toolsUsed []string
+		if obsResult != nil {
+			for _, obs := range obsResult.Observations {
+				toolsUsed = append(toolsUsed, obs.ToolName)
+			}
+		}
+		if proc := ca.cortex.GetProcedural(); proc != nil {
+			go func() {
+				if err := proc.RecordStrategy(context.Background(), taskPattern, toolsUsed, nil, true, state.SessionID, state.UserID); err != nil {
+					slog.Warn("cognitive: procedural record failed", "err", err)
+				}
+			}()
+		}
+	}
 
 	// Dispatch episode event (feeds SkillSynthesizer and StrategyOptimizer).
 	// Runs after DispatchToolExec so that per-tool buffers are already populated.

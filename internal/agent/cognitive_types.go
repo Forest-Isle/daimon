@@ -23,11 +23,11 @@ const (
 type SubTaskStatus string
 
 const (
-	SubTaskPending  SubTaskStatus = "pending"
-	SubTaskRunning  SubTaskStatus = "running"
-	SubTaskDone     SubTaskStatus = "done"
-	SubTaskFailed   SubTaskStatus = "failed"
-	SubTaskSkipped  SubTaskStatus = "skipped"
+	SubTaskPending SubTaskStatus = "pending"
+	SubTaskRunning SubTaskStatus = "running"
+	SubTaskDone    SubTaskStatus = "done"
+	SubTaskFailed  SubTaskStatus = "failed"
+	SubTaskSkipped SubTaskStatus = "skipped"
 )
 
 // ReplanDecision is the user's choice when confidence is low.
@@ -75,21 +75,22 @@ type GitState struct {
 
 // CognitiveState is the output of the PERCEIVE phase.
 type CognitiveState struct {
-	SessionID        string
-	UserID           string // identifies the user across sessions
-	UserMessage      string
-	Goal             Goal
-	RelevantMemories []memory.SearchResult
-	RecentHistory    []CompletionMessage
-	Skills           string   // injected skill prompt section (may be empty)
-	Agents           string   // injected agent prompt section (may be empty)
-	KnowledgeContext []string // relevant knowledge base snippets
-	GraphContext     []string // relevant knowledge graph relations
-	Personality      string   // from Soul.md — persona/style for final_answer tone
-	PersistentRules  string   // from Memory.md — rules all phases must follow
-	Preferences      string   // learned user preferences from evolution PreferenceLearner
-	StrategyHints    string   // tuned cognitive strategy hints from evolution StrategyOptimizer
-	UserProfile       string   // structured user profile sections for prompt injection
+	SessionID         string
+	UserID            string // identifies the user across sessions
+	UserMessage       string
+	Goal              Goal
+	RelevantMemories  []memory.SearchResult
+	RecentHistory     []CompletionMessage
+	Skills            string          // injected skill prompt section (may be empty)
+	Agents            string          // injected agent prompt section (may be empty)
+	KnowledgeContext  []string        // relevant knowledge base snippets
+	GraphContext      []string        // relevant knowledge graph relations
+	ProceduralHints   []string        // relevant procedural strategies
+	Personality       string          // from Soul.md — persona/style for final_answer tone
+	PersistentRules   string          // from Memory.md — rules all phases must follow
+	Preferences       string          // learned user preferences from evolution PreferenceLearner
+	StrategyHints     string          // tuned cognitive strategy hints from evolution StrategyOptimizer
+	UserProfile       string          // structured user profile sections for prompt injection
 	ModelOverride     string          // dynamic model override from evolution ModelRouter (empty = use default)
 	MaxTokensOverride int             // dynamic max_tokens override (0 = use default)
 	ProjectCtx        *ProjectContext // auto-detected project context (nil if not scanned or no project found)
@@ -168,7 +169,7 @@ type ObservationResult struct {
 
 // DimensionScore represents a single evaluation dimension in reflection scoring.
 type DimensionScore struct {
-	Score       int    `json:"score"`                // 0–25
+	Score       int    `json:"score"`                 // 0–25
 	Explanation string `json:"explanation,omitempty"` // justification for the score
 }
 

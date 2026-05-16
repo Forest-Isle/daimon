@@ -32,6 +32,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 		kbEmbedder = &noopKBEmbedder{}
 	}
 	kb := knowledge.New(gw.db, kbEmbedder, kbCfg)
+	gw.kbSearcher = nil
 
 	// Build reranker + hybrid retriever (used as the searcher for perceiver)
 	var reranker knowledge.Reranker = &knowledge.NoopReranker{}
@@ -40,6 +41,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 		reranker = knowledge.NewLLMReranker(llmCompleter)
 	}
 	retriever := knowledge.NewHybridRetriever(kb, reranker)
+	gw.kbSearcher = retriever
 
 	// Ingest configured directories at startup
 	for _, dir := range gw.cfg.Knowledge.IngestDirs {
@@ -55,6 +57,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 	// Knowledge graph (Phase 3)
 	if gw.featureEnabled("knowledge_graph") {
 		kg := graph.NewSQLiteGraph(gw.db)
+		gw.graphStore = kg
 		llmCompleter := &completerAdapter{provider: gw.provider, model: gw.cfg.LLM.Model}
 		extractor := graph.NewLLMEntityExtractor(kg, llmCompleter)
 
