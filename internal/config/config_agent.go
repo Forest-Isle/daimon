@@ -44,6 +44,7 @@ type CompressionLayers struct {
 
 // CognitiveConfig holds configuration for the five-step cognitive agent loop.
 type CognitiveConfig struct {
+	StreamingEnabled       bool    `yaml:"streaming_enabled"`
 	PlanModel              string  `yaml:"plan_model"`
 	ReflectModel           string  `yaml:"reflect_model"`
 	ConfidenceThreshold    float64 `yaml:"confidence_threshold"`     // default 0.6

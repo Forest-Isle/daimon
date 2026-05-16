@@ -1091,6 +1091,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if ca.shouldDebate(state) {
 		return ca.handleDebate(ctx, ch, msg, sess, state, target)
 	}
+	if ca.cfg.Cognitive.StreamingEnabled {
+		return ca.handleStreaming(ctx, ch, msg, sess, target, state, parentTaskID)
+	}
 
 	cognitiveTurnStart := time.Now()
 	plan, mctsCandidates, mctsActive, treePlanner := ca.runPrePlanSearch(ctx, sess, state)

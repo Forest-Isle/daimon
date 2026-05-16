@@ -95,6 +95,7 @@ func defaultConfig() Config {
 			MaxIterations: 20,
 			Mode:          "simple",
 			Cognitive: CognitiveConfig{
+				StreamingEnabled:       false,
 				ConfidenceThreshold:    0.6,
 				MaxParallelTools:       3,
 				MaxReplanAttempts:      2,
