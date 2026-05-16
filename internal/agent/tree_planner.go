@@ -425,3 +425,25 @@ func computeTreeReward(reflection *Reflection, obsResult *ObservationResult) flo
 	}
 	return clampTreeScore(reflection.OverallConfidence * 0.5)
 }
+
+// buildTreeFailureSummary constructs a failure summary for tree-planner expansion.
+func buildTreeFailureSummary(reflection *Reflection, obsResult *ObservationResult) string {
+	var parts []string
+	if reflection != nil && !reflection.Succeeded {
+		if reflection.SuggestedAdjustment != "" {
+			parts = append(parts, reflection.SuggestedAdjustment)
+		}
+		for _, lesson := range reflection.LessonsLearned {
+			parts = append(parts, lesson)
+		}
+	}
+	if obsResult != nil {
+		for _, f := range obsResult.Failures {
+			parts = append(parts, fmt.Sprintf("%s failed: %s", f.ToolName, f.ErrorMsg))
+		}
+	}
+	if len(parts) == 0 {
+		return "Previous approach was unsuccessful."
+	}
+	return strings.Join(parts, ". ")
+}
