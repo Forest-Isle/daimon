@@ -29,6 +29,8 @@ import (
 
 const MaxReplanAttempts = 2
 
+var errResumeHandled = fmt.Errorf("resume handled")
+
 // CognitiveAgent implements the structured PERCEIVE→PLAN→ACT→OBSERVE→REFLECT loop.
 type CognitiveAgent struct {
 	runtime             *Runtime
@@ -59,10 +61,10 @@ type CognitiveAgent struct {
 	dashEmitter         DashboardEmitter
 	planMode            *PlanMode
 	observationCallback func(result *ObservationResult)
-		replayRecorder      *ReplayRecorder
-		selfHealEngine      *SelfHealEngine
-		treePlanner         *StrategicTreePlanner
-		mctsPlanner         *MCTSPlanner
+	replayRecorder      *ReplayRecorder
+	selfHealEngine      *SelfHealEngine
+	treePlanner         *StrategicTreePlanner
+	mctsPlanner         *MCTSPlanner
 	codebaseIndex       *CodebaseIndex
 }
 
@@ -353,23 +355,29 @@ func (ca *CognitiveAgent) SetObservationCallback(fn func(result *ObservationResu
 	ca.observationCallback = fn
 }
 
-// HandleMessage processes an inbound message through the cognitive loop.
-func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
+func (ca *CognitiveAgent) setupCognitiveSession(
+	ctx context.Context,
+	ch channel.Channel,
+	msg channel.InboundMessage,
+) (*session.Session, channel.MessageTarget, string, func(), error) {
 	sess, err := ca.sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
-		return fmt.Errorf("get session: %w", err)
+		return nil, channel.MessageTarget{}, "", func() {}, fmt.Errorf("get session: %w", err)
 	}
-
-	cogSessionStart := time.Now()
 	if ca.dashEmitter != nil {
 		ca.dashEmitter.EmitSessionStart(sess.ID, msg.Channel)
 	}
 
+	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
 	if ca.checkpointStore != nil && strings.HasPrefix(strings.TrimSpace(msg.Text), "/resume") {
-		return ca.handleResume(ctx, ch, msg, sess)
+		if err := ca.handleResume(ctx, ch, msg, sess); err != nil {
+			return nil, target, "", func() {}, err
+		}
+		return nil, target, "", func() {}, errResumeHandled
 	}
 
 	var parentTaskID string
+	cleanup := func() {}
 	if ca.taskLedger != nil {
 		parentTaskID = fmt.Sprintf("cog_%d", time.Now().UnixNano())
 		task := taskledger.Task{
@@ -382,18 +390,17 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			slog.Warn("cognitive: failed to register task", "err", err)
 			parentTaskID = ""
 		} else {
-			defer func() {
+			cleanup = func() {
 				task.State = taskledger.TaskStateCompleted
 				now := time.Now()
 				task.CompletedAt = &now
 				if err := ca.taskLedger.Update(ctx, task); err != nil {
 					slog.Warn("cognitive: failed to complete task", "err", err)
 				}
-			}()
+			}
 		}
 	}
 
-	// Add user message to session
 	sess.AddMessage(session.Message{
 		ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
 		Role:      "user",
@@ -401,7 +408,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		CreatedAt: time.Now(),
 	})
 
-	// Compress context before perceive
 	if ca.contextManager != nil {
 		if _, err := ca.contextManager.Compress(ctx, sess, ""); err != nil {
 			slog.Warn("cognitive: context compression failed", "session", sess.ID, "err", err)
@@ -412,9 +418,15 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 	}
 
-	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
+	return sess, target, parentTaskID, cleanup, nil
+}
 
-	// ── PERCEIVE ──────────────────────────────────────────────────────────────
+func (ca *CognitiveAgent) runPerceivePhase(
+	ctx context.Context,
+	sess *session.Session,
+	msg channel.InboundMessage,
+	parentTaskID string,
+) (*CognitiveState, error) {
 	if ca.dashEmitter != nil {
 		ca.dashEmitter.EmitPhaseStart(sess.ID, "PERCEIVE")
 	}
@@ -428,7 +440,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	observability.CognitivePhasesDuration.Record(ctx, time.Since(perceiveStart).Milliseconds(),
 		metric.WithAttributes(attribute.String("phase", "perceive")))
 	if err != nil {
-		return fmt.Errorf("perceive: %w", err)
+		return nil, fmt.Errorf("perceive: %w", err)
 	}
 
 	if ca.codebaseIndex != nil && ca.codebaseIndex.IsAvailable() {
@@ -443,21 +455,15 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 	}
 
-	// Inject skills into cognitive state for use in PLAN phase
 	if ca.skillMgr != nil {
 		state.Skills = ca.skillMgr.BuildPromptSection(msg.Text)
 	}
-
-	// Inject agents into cognitive state for use in PLAN phase
 	if ca.agentMgr != nil {
 		state.Agents = ca.agentMgr.BuildPromptSection()
 	}
-
-	// Inject personality and persistent rules from config (Soul.md / Memory.md)
 	state.Personality = ca.cfg.Personality
 	state.PersistentRules = ca.cfg.PersistentRules
 
-	// Inject self-evolution context: learned preferences, strategy hints, and model routing
 	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
 		if pl := ca.evoEngine.PreferenceLearnerHook(); pl != nil {
 			state.Preferences = pl.BuildPromptSection()
@@ -471,88 +477,53 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 	}
 
-	// Delegate simple tasks to the plain Runtime
-	if state.Goal.Complexity == ComplexitySimple {
-		slog.Info("cognitive: simple task, delegating to runtime", "session", sess.ID)
-		simpleStart := time.Now()
-		err := ca.runtime.HandleMessage(ctx, ch, msg)
+	return state, nil
+}
 
-		if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
-			durationMs := time.Since(simpleStart).Milliseconds()
-			succeeded := err == nil
-			ca.evoEngine.DispatchEpisode(evolution.EpisodeEvent{
-				SessionID:  sess.ID,
-				Goal:       msg.Text,
-				Complexity: string(ComplexitySimple),
-				Succeeded:  succeeded,
-				DurationMs: durationMs,
-				Timestamp:  time.Now(),
-			})
-		}
+func (ca *CognitiveAgent) delegateToRuntime(
+	ctx context.Context,
+	ch channel.Channel,
+	msg channel.InboundMessage,
+	sess *session.Session,
+) error {
+	slog.Info("cognitive: simple task, delegating to runtime", "session", sess.ID)
+	simpleStart := time.Now()
+	err := ca.runtime.HandleMessage(ctx, ch, msg)
 
-		return err
-	}
-
-	// Check if debate mode should be triggered
-	if ca.shouldDebate(state) {
-		slog.Info("cognitive: debate mode triggered", "session", sess.ID)
-		return ca.handleDebate(ctx, ch, msg, sess, state, target)
-	}
-
-	cogCfg := ca.cfg.Cognitive
-	confidenceThreshold := cogCfg.ConfidenceThreshold
-	if confidenceThreshold <= 0 {
-		confidenceThreshold = 0.6
-	}
 	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
-		if so := ca.evoEngine.StrategyOptimizerHook(); so != nil && so.IsHardControlEnabled() {
-			if evoThreshold := so.GetReplanThreshold(); evoThreshold > 0 {
-				confidenceThreshold = evoThreshold
-				slog.Debug("cognitive: using evolution replan threshold",
-					"threshold", evoThreshold, "session", sess.ID)
-			}
-		}
-	}
-	maxReplans := cogCfg.MaxReplanAttempts
-	if maxReplans <= 0 {
-		maxReplans = MaxReplanAttempts
-	}
-
-	// ── RL: build initial state after PERCEIVE ──────────────────────────────
-	var rlState *rl.RLState
-	var episodeCollector *EpisodeCollector
-	rlEnabled := ca.rlPolicy != nil && ca.rlPolicy.IsEnabled()
-	if rlEnabled {
-		rlState = buildInitialRLState(state, len(ca.executor.tools.All()))
-		episodeCollector = &EpisodeCollector{
-			State:     rlState,
-			StartTime: time.Now(),
-		}
+		durationMs := time.Since(simpleStart).Milliseconds()
+		succeeded := err == nil
+		ca.evoEngine.DispatchEpisode(evolution.EpisodeEvent{
+			SessionID:  sess.ID,
+			Goal:       msg.Text,
+			Complexity: string(ComplexitySimple),
+			Succeeded:  succeeded,
+			DurationMs: durationMs,
+			Timestamp:  time.Now(),
+		})
 	}
 
-	// Hoist loop-scoped variables for goto compatibility
-	var finalAnswer string
-	var plan *TaskPlan
-	var obsResult *ObservationResult
-	var reflection *Reflection
-	var ppoStrategy *rl.PlanStrategyAction
-	var dqnReplanAction rl.ReplanActionType
+	return err
+}
 
+func (ca *CognitiveAgent) runPrePlanSearch(
+	ctx context.Context,
+	sess *session.Session,
+	state *CognitiveState,
+) (*TaskPlan, []PlanCandidate, bool, *StrategicTreePlanner) {
+	var (
+		plan           *TaskPlan
+		mctsCandidates []PlanCandidate
+		mctsActive     bool
+	)
 	treePlanner := ca.treePlanner
 	mctsPlanner := ca.mctsPlanner
-	var mctsCandidates []PlanCandidate
 
-	cognitiveTurnStart := time.Now()
-
-	// MCTS takes priority — it internally handles selection→expansion→simulation→backpropagation.
-	// When MCTS succeeds, we skip the per-attempt PLAN phase and use its candidate list for replanning.
-	mctsActive := false
 	if mctsPlanner != nil {
 		slog.Info("cognitive: running MCTS search", "session", sess.ID)
 		mctsPlan, candidates, err := mctsPlanner.Search(ctx, state)
 		if err != nil {
 			slog.Warn("mcts: search failed, falling back", "err", err)
-			mctsPlanner = nil
 		} else {
 			plan = mctsPlan
 			mctsCandidates = candidates
@@ -572,6 +543,55 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 	}
 
+	return plan, mctsCandidates, mctsActive, treePlanner
+}
+
+func (ca *CognitiveAgent) runCognitiveLoop(
+	ctx context.Context,
+	ch channel.Channel,
+	sess *session.Session,
+	target channel.MessageTarget,
+	state *CognitiveState,
+	plan *TaskPlan,
+	mctsCandidates []PlanCandidate,
+	mctsActive bool,
+	treePlanner *StrategicTreePlanner,
+	parentTaskID string,
+) (string, *TaskPlan, *ObservationResult, *Reflection, *rl.PlanStrategyAction, *EpisodeCollector, rl.ReplanActionType, *rl.RLState, error) {
+	cogCfg := ca.cfg.Cognitive
+	confidenceThreshold := cogCfg.ConfidenceThreshold
+	if confidenceThreshold <= 0 {
+		confidenceThreshold = 0.6
+	}
+	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
+		if so := ca.evoEngine.StrategyOptimizerHook(); so != nil && so.IsHardControlEnabled() {
+			if evoThreshold := so.GetReplanThreshold(); evoThreshold > 0 {
+				confidenceThreshold = evoThreshold
+				slog.Debug("cognitive: using evolution replan threshold",
+					"threshold", evoThreshold, "session", sess.ID)
+			}
+		}
+	}
+	maxReplans := cogCfg.MaxReplanAttempts
+	if maxReplans <= 0 {
+		maxReplans = MaxReplanAttempts
+	}
+
+	var (
+		finalAnswer      string
+		obsResult        *ObservationResult
+		reflection       *Reflection
+		ppoStrategy      *rl.PlanStrategyAction
+		dqnReplanAction  rl.ReplanActionType
+		episodeCollector *EpisodeCollector
+		rlState          *rl.RLState
+	)
+	rlEnabled := ca.rlPolicy != nil && ca.rlPolicy.IsEnabled()
+	if rlEnabled {
+		rlState = buildInitialRLState(state, len(ca.executor.tools.All()))
+		episodeCollector = &EpisodeCollector{State: rlState, StartTime: time.Now()}
+	}
+
 	for attempt := 0; attempt <= maxReplans; attempt++ {
 		if attempt > 0 {
 			slog.Info("cognitive: replanning", "attempt", attempt, "max", maxReplans, "session", sess.ID)
@@ -584,9 +604,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			}
 		}
 
-		// ── PLAN ──────────────────────────────────────────────────────────────
 		if mctsActive {
-			// MCTS already explored the plan space — use the selected plan directly.
 			if attempt > 0 && len(mctsCandidates) > 1 {
 				nextIdx := attempt - 1
 				if nextIdx < len(mctsCandidates) {
@@ -601,6 +619,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			}
 			slog.Info("cognitive: using MCTS plan", "attempt", attempt, "plan_steps", len(plan.SubTasks))
 		} else {
+			var err error
 			if ca.dashEmitter != nil {
 				ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
 			}
@@ -611,14 +630,25 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 				if plan == nil {
 					failureSummary := buildTreeFailureSummary(reflection, obsResult)
 					if expandErr := treePlanner.Expand(ctx, failureSummary); expandErr != nil {
-						slog.Warn("tree-planner: expand failed", "err", expandErr)
 						donePlan()
-						break
+						if ca.dashEmitter != nil {
+							ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
+						}
+						observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
+							metric.WithAttributes(attribute.String("phase", "plan")))
+						return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState,
+							fmt.Errorf("tree-planner expand: %w", expandErr)
 					}
 					plan = treePlanner.Select()
 					if plan == nil {
 						donePlan()
-						break
+						if ca.dashEmitter != nil {
+							ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
+						}
+						observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
+							metric.WithAttributes(attribute.String("phase", "plan")))
+						return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState,
+							fmt.Errorf("tree-planner select: no plan available after expand")
 					}
 				}
 				slog.Info("tree-planner: selected plan",
@@ -634,45 +664,41 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			}
 			observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
 				metric.WithAttributes(attribute.String("phase", "plan")))
+			if err != nil {
+				slog.Error("cognitive: plan failed", "err", err)
+				return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState,
+					fmt.Errorf("plan: %w", err)
+			}
 		}
-		if err != nil {
-			slog.Error("cognitive: plan failed", "err", err)
-			break
-		}
-		plan.ReplanCount = attempt
 
+		plan.ReplanCount = attempt
 		if ca.dashEmitter != nil {
 			complexity := string(state.Goal.Complexity)
 			ca.dashEmitter.EmitPlanGenerated(sess.ID, len(plan.SubTasks), complexity, plan.DirectReply != "")
 		}
 
-		// RL: apply PPO plan strategy adjustment
 		if rlEnabled && rlState != nil {
 			ppoStrategy = ca.rlPolicy.SelectPlanStrategy(rlState)
 			if ppoStrategy != nil {
-				plan.OverallConfidence = clampRL(
-					plan.OverallConfidence+ppoStrategy.ConfidenceAdj, 0, 1)
+				plan.OverallConfidence = clampRL(plan.OverallConfidence+ppoStrategy.ConfidenceAdj, 0, 1)
 			}
 			updateRLStateWithPlan(rlState, plan)
 		}
 
-		// Direct reply — skip ACT/OBSERVE
 		if plan.DirectReply != "" {
 			finalAnswer = plan.DirectReply
 			slog.Info("cognitive: direct reply from plan phase", "session", sess.ID)
 			if err := ca.streamFinalAnswer(ctx, ch, target, sess, finalAnswer); err != nil {
 				slog.Warn("cognitive: stream direct reply failed", "err", err)
 			}
-			break
+			return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState, nil
 		}
 
-		// ── ACT ───────────────────────────────────────────────────────────────
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "ACT")
 		}
 		actStart := time.Now()
 		doneAct := ca.registerSubtask(ctx, parentTaskID, "ACT phase")
-		// Create TaskContext for multi-agent collaboration
 		taskCtx := NewTaskContext(fmt.Sprintf("task_%d", time.Now().UnixNano()), state.UserMessage)
 		observations, actErr := ca.executor.RunWithContext(ctx, ch, sess, target, plan, taskCtx, rlState, episodeCollector)
 		doneAct()
@@ -683,10 +709,10 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			metric.WithAttributes(attribute.String("phase", "act")))
 		if actErr != nil {
 			slog.Error("cognitive: act failed", "err", actErr)
-			break
+			return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState,
+				fmt.Errorf("act: %w", actErr)
 		}
 
-		// ── OBSERVE ───────────────────────────────────────────────────────────
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "OBSERVE")
 		}
@@ -702,16 +728,13 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			"failure", obsResult.FailureCount,
 			"progress", fmt.Sprintf("%.0f%%", obsResult.OverallProgress*100),
 		)
-
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitObservationResult(sess.ID, obsResult.SuccessCount, obsResult.FailureCount,
 				obsResult.SuccessCount+obsResult.FailureCount, obsResult.OverallProgress)
 		}
-
 		if ca.observationCallback != nil && obsResult != nil {
 			ca.observationCallback(obsResult)
 		}
-
 		if ca.checkpointStore != nil && obsResult != nil {
 			obsJSON, _ := json.Marshal(obsResult)
 			planJSON, _ := json.Marshal(plan)
@@ -722,20 +745,21 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 				ObservationsJSON: string(obsJSON),
 				PlanJSON:         string(planJSON),
 			}
-			_ = ca.checkpointStore.Save(ctx, cp)
+			if err := ca.checkpointStore.Save(ctx, cp); err != nil {
+				slog.Warn("cognitive: save checkpoint failed", "session", sess.ID, "err", err)
+			}
 		}
 
-		// RL: update state with observation results
 		if rlEnabled && rlState != nil {
 			updateRLStateWithObservation(rlState, obsResult)
 		}
 
-		// ── REFLECT ───────────────────────────────────────────────────────────
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "REFLECT")
 		}
 		reflectStart := time.Now()
 		doneReflect := ca.registerSubtask(ctx, parentTaskID, "REFLECT phase")
+		var err error
 		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult, attempt)
 		doneReflect()
 		if ca.dashEmitter != nil {
@@ -745,11 +769,10 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			metric.WithAttributes(attribute.String("phase", "reflect")))
 		if err != nil {
 			slog.Error("cognitive: reflect failed", "err", err)
-			break
+			return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState,
+				fmt.Errorf("reflect: %w", err)
 		}
 
-		// Override conservative reflect false-negatives: if assertion pass rate is high
-		// but reflect says failed, trust the assertions (they are based on actual tool output).
 		if reflection != nil && !reflection.Succeeded && obsResult != nil {
 			passed := 0
 			for _, a := range obsResult.Assertions {
@@ -776,21 +799,16 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if finalAnswer == "" {
 			finalAnswer = "Task completed."
 		}
-
-		// Stream final answer to user
 		if err := ca.streamFinalAnswer(ctx, ch, target, sess, finalAnswer); err != nil {
 			slog.Warn("cognitive: stream final answer failed", "err", err)
 		}
 
-		// RL: update reflection confidence and apply DQN replan adjustment
 		if rlEnabled && rlState != nil && reflection != nil {
 			rlState.ReflectionConfidence = clampRL(reflection.OverallConfidence, 0, 1)
 			if reflection.NeedsReplan {
 				dqnReplanAction = ca.rlPolicy.SelectReplanAction(rlState)
 				dqnWeight := ca.cfg.RL.DQN.ReplanWeight
-				adjConfidence, shouldAbort := applyDQNReplanAdjustment(
-					reflection.OverallConfidence, dqnReplanAction, dqnWeight,
-				)
+				adjConfidence, shouldAbort := applyDQNReplanAdjustment(reflection.OverallConfidence, dqnReplanAction, dqnWeight)
 				slog.Info("cognitive: DQN replan adjustment",
 					"action", dqnReplanAction.String(),
 					"original_confidence", reflection.OverallConfidence,
@@ -799,41 +817,64 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 				)
 				if shouldAbort {
 					slog.Info("cognitive: DQN recommends abort", "session", sess.ID)
-					goto persist
+					return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState, nil
 				}
 				reflection.OverallConfidence = adjConfidence
 			}
 		}
 
-		// Check if replan is needed
 		if reflection.OverallConfidence < confidenceThreshold && reflection.NeedsReplan {
 			decision, _ := ca.reflector.RequestReplanApproval(ctx, ch, target, reflection)
 			switch decision {
 			case ReplanAbort:
 				slog.Info("cognitive: replan aborted by user", "session", sess.ID)
-				goto persist
+				return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState, nil
 			case ReplanContinue:
 				slog.Info("cognitive: replan skipped (continue)", "session", sess.ID)
-				goto persist
+				return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState, nil
 			case ReplanAdjust:
 				slog.Info("cognitive: adjusting and replanning", "session", sess.ID)
 				if reflection.SuggestedAdjustment != "" {
 					state.UserMessage = reflection.SuggestedAdjustment + "\nOriginal: " + state.UserMessage
 				}
-				continue // next attempt
+				continue
 			}
 		}
 
-		break // done, no replan needed
+		return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState, nil
 	}
 
-persist:
+	return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState, nil
+}
+
+func (ca *CognitiveAgent) finalizeCognitiveSession(
+	ctx context.Context,
+	ch channel.Channel,
+	sess *session.Session,
+	target channel.MessageTarget,
+	msg channel.InboundMessage,
+	state *CognitiveState,
+	plan *TaskPlan,
+	obsResult *ObservationResult,
+	reflection *Reflection,
+	ppoStrategy *rl.PlanStrategyAction,
+	episodeCollector *EpisodeCollector,
+	dqnReplanAction rl.ReplanActionType,
+	rlState *rl.RLState,
+	sessionStart time.Time,
+	cognitiveTurnStart time.Time,
+) error {
+	var finalizeErr error
 	if ca.checkpointStore != nil {
-		_ = ca.checkpointStore.Delete(ctx, sess.ID)
+		if err := ca.checkpointStore.Delete(ctx, sess.ID); err != nil {
+			slog.Warn("cognitive: delete checkpoint failed", "session", sess.ID, "err", err)
+			finalizeErr = fmt.Errorf("delete checkpoint: %w", err)
+		}
 	}
 
-	// Optional user feedback (thumbs up/down) for RL and/or self-evolution.
 	var userFeedback float64
+	rlEnabled := ca.rlPolicy != nil && ca.rlPolicy.IsEnabled()
+	_ = rlState
 	needFeedback := (rlEnabled && episodeCollector != nil && ca.rlTrainer != nil) ||
 		(ca.evoEngine != nil && ca.evoEngine.IsEnabled())
 	if needFeedback {
@@ -852,7 +893,6 @@ persist:
 		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector, userFeedback, dqnReplanAction)
 	}
 
-	// Evolution: record model routing outcome and dispatch events.
 	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
 		if state.ModelOverride != "" {
 			succeeded := reflection != nil && reflection.Succeeded
@@ -860,20 +900,18 @@ persist:
 		}
 		ca.dispatchEvolutionEvents(state, plan, obsResult, reflection, userFeedback, cognitiveTurnStart)
 	}
-
-	// Wait for any in-flight evolution hooks to complete before persisting
-	// the session, so that hook side-effects (e.g. trajectory writes) are
-	// flushed and consistent with the persisted state.
 	if ca.evoEngine != nil {
 		ca.evoEngine.WaitPending()
 	}
 
-	// Persist session
 	if err := ca.sessions.Persist(ctx, sess); err != nil {
 		slog.Error("cognitive: failed to persist session", "err", err)
+		if finalizeErr == nil {
+			finalizeErr = fmt.Errorf("persist session: %w", err)
+		} else {
+			finalizeErr = fmt.Errorf("%v; persist session: %w", finalizeErr, err)
+		}
 	}
-
-	// Save user message to memory.md
 	if ca.memStore != nil {
 		if err := ca.memStore.Save(ctx, memory.Entry{
 			ID:        fmt.Sprintf("conv_%d", time.Now().UnixNano()),
@@ -884,15 +922,58 @@ persist:
 			CreatedAt: time.Now(),
 		}); err != nil {
 			slog.Warn("cognitive: failed to save memory.md", "err", err)
+			if finalizeErr == nil {
+				finalizeErr = fmt.Errorf("save memory: %w", err)
+			} else {
+				finalizeErr = fmt.Errorf("%v; save memory: %w", finalizeErr, err)
+			}
 		}
 	}
 
 	if ca.dashEmitter != nil {
 		succeeded := reflection != nil && reflection.Succeeded
-		ca.dashEmitter.EmitSessionEnd(sess.ID, succeeded, time.Since(cogSessionStart).Milliseconds())
+		ca.dashEmitter.EmitSessionEnd(sess.ID, succeeded, time.Since(sessionStart).Milliseconds())
 	}
 
-	return nil
+	return finalizeErr
+}
+
+// HandleMessage processes an inbound message through the cognitive loop.
+func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
+	sessionStart := time.Now()
+	sess, target, parentTaskID, cleanup, err := ca.setupCognitiveSession(ctx, ch, msg)
+	if err != nil {
+		if err == errResumeHandled {
+			return nil
+		}
+		return err
+	}
+	defer cleanup()
+
+	state, err := ca.runPerceivePhase(ctx, sess, msg, parentTaskID)
+	if err != nil {
+		return err
+	}
+	if state.Goal.Complexity == ComplexitySimple {
+		return ca.delegateToRuntime(ctx, ch, msg, sess)
+	}
+	if ca.shouldDebate(state) {
+		return ca.handleDebate(ctx, ch, msg, sess, state, target)
+	}
+
+	cognitiveTurnStart := time.Now()
+	plan, mctsCandidates, mctsActive, treePlanner := ca.runPrePlanSearch(ctx, sess, state)
+	_, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState, loopErr := ca.runCognitiveLoop(
+		ctx, ch, sess, target, state, plan, mctsCandidates, mctsActive, treePlanner, parentTaskID,
+	)
+	finalizeErr := ca.finalizeCognitiveSession(
+		ctx, ch, sess, target, msg, state, plan, obsResult, reflection,
+		ppoStrategy, episodeCollector, dqnReplanAction, rlState, sessionStart, cognitiveTurnStart,
+	)
+	if loopErr != nil {
+		return loopErr
+	}
+	return finalizeErr
 }
 
 // streamFinalAnswer sends the final answer to the user via streaming.
@@ -956,14 +1037,16 @@ func (ca *CognitiveAgent) handleResume(ctx context.Context, ch channel.Channel, 
 		return fmt.Errorf("unmarshal checkpoint observations: %w", err)
 	}
 
-	_ = ch.Send(ctx, channel.OutboundMessage{
+	if err := ch.Send(ctx, channel.OutboundMessage{
 		Channel:   target.Channel,
 		ChannelID: target.ChannelID,
 		Text: fmt.Sprintf(
 			"Resuming from checkpoint: %d/%d subtasks completed (progress: %.0f%%).",
 			obsResult.SuccessCount, len(plan.SubTasks), obsResult.OverallProgress*100,
 		),
-	})
+	}); err != nil {
+		slog.Warn("cognitive: resume progress send failed", "err", err)
+	}
 
 	for _, st := range plan.SubTasks {
 		completed := false
@@ -1000,10 +1083,14 @@ func (ca *CognitiveAgent) handleResume(ctx context.Context, ch channel.Channel, 
 	}
 
 	if reflection != nil && reflection.FinalAnswer != "" {
-		_ = ca.streamFinalAnswer(ctx, ch, target, sess, reflection.FinalAnswer)
+		if err := ca.streamFinalAnswer(ctx, ch, target, sess, reflection.FinalAnswer); err != nil {
+			slog.Warn("cognitive: resume stream final answer failed", "err", err)
+		}
 	}
 
-	_ = ca.checkpointStore.Delete(ctx, resumeSessionID)
+	if err := ca.checkpointStore.Delete(ctx, resumeSessionID); err != nil {
+		slog.Warn("cognitive: resume delete checkpoint failed", "session", resumeSessionID, "err", err)
+	}
 
 	if err := ca.sessions.Persist(ctx, sess); err != nil {
 		slog.Error("cognitive: persist failed after resume", "err", err)
