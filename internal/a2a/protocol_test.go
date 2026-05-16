@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,16 @@ func TestAgentCardJSONRoundTrip(t *testing.T) {
 		Description: "A2A agent",
 		URL:         "http://localhost:8080",
 		Version:     "1.0",
+		Tools: []AgentTool{
+			{
+				Name:        "search",
+				Description: "Search knowledge",
+				InputSchema: map[string]any{"type": "object"},
+			},
+		},
+		Memory:        true,
+		KnowledgeBase: true,
+		CodeIntel:     true,
 		Capabilities: Capabilities{
 			Streaming:         true,
 			PushNotifications: false,
@@ -51,6 +62,12 @@ func TestAgentCardJSONRoundTrip(t *testing.T) {
 	}
 	if len(decoded.Skills) != 1 || decoded.Skills[0].Name != "chat" {
 		t.Fatalf("unexpected skills after round-trip: %#v", decoded.Skills)
+	}
+	if len(decoded.Tools) != 1 || decoded.Tools[0].Name != "search" {
+		t.Fatalf("unexpected tools after round-trip: %#v", decoded.Tools)
+	}
+	if !decoded.Memory || !decoded.KnowledgeBase || !decoded.CodeIntel {
+		t.Fatalf("expected capability flags to round-trip: %#v", decoded)
 	}
 }
 
@@ -143,6 +160,50 @@ func TestClientSendTaskFlow(t *testing.T) {
 	if final.Output.Text != "processed: hello" {
 		t.Fatalf("unexpected output: %#v", final.Output)
 	}
+	if final.Priority != PriorityNormal {
+		t.Fatalf("expected default priority, got %s", final.Priority)
+	}
+	if final.CreatedAt.IsZero() || final.UpdatedAt.IsZero() {
+		t.Fatalf("expected timestamps to be set: %#v", final)
+	}
+}
+
+func TestClientStreamTask(t *testing.T) {
+	t.Parallel()
+
+	server := NewServer(AgentCard{
+		Name:    "ironclaw",
+		URL:     "http://127.0.0.1",
+		Version: "2.0",
+	}, func(ctx context.Context, task *Task) (*TaskOutput, error) {
+		return &TaskOutput{Text: "streamed: " + task.Input.Message}, nil
+	})
+
+	client := newInMemoryClient("http://a2a.test", server)
+	events, errs, err := client.StreamTask(context.Background(), TaskInput{Message: "hello"})
+	if err != nil {
+		t.Fatalf("stream task: %v", err)
+	}
+
+	var got []TaskEvent
+	for event := range events {
+		got = append(got, event)
+	}
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("stream error: %v", err)
+		}
+	}
+
+	if len(got) < 3 {
+		t.Fatalf("expected multiple task events, got %#v", got)
+	}
+	if got[0].Type != "status" || got[len(got)-1].Type != "output" {
+		t.Fatalf("unexpected event sequence: %#v", got)
+	}
+	if got[len(got)-1].Data != "streamed: hello" {
+		t.Fatalf("unexpected final event: %#v", got[len(got)-1])
+	}
 }
 
 func TestServerHandlerIntegrationAndCancel(t *testing.T) {
@@ -180,6 +241,134 @@ func TestServerHandlerIntegrationAndCancel(t *testing.T) {
 	}
 	if canceled.Output.Text != "task canceled" {
 		t.Fatalf("unexpected cancel output: %#v", canceled.Output)
+	}
+}
+
+func TestClientListTasksAndStatusFilter(t *testing.T) {
+	t.Parallel()
+
+	server := NewServer(AgentCard{Name: "ironclaw", Version: "2.0"}, func(ctx context.Context, task *Task) (*TaskOutput, error) {
+		if task.Input.Message == "slow" {
+			time.Sleep(150 * time.Millisecond)
+		}
+		return &TaskOutput{Text: task.Input.Message}, nil
+	})
+
+	client := newInMemoryClient("http://a2a.test", server)
+	if _, err := client.SendTask(context.Background(), TaskInput{Message: "slow"}); err != nil {
+		t.Fatalf("send slow task: %v", err)
+	}
+	if _, err := client.SendTask(context.Background(), TaskInput{Message: "fast"}); err != nil {
+		t.Fatalf("send fast task: %v", err)
+	}
+
+	pending, err := client.ListTasks(context.Background(), TaskStateProcessing)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	if len(pending) == 0 {
+		t.Fatalf("expected processing tasks, got %#v", pending)
+	}
+
+	all, err := client.ListTasks(context.Background(), "")
+	if err != nil {
+		t.Fatalf("list all tasks: %v", err)
+	}
+	if len(all) < 2 {
+		t.Fatalf("expected all tasks, got %#v", all)
+	}
+}
+
+func TestClientPushSubscriptionLifecycle(t *testing.T) {
+	t.Parallel()
+
+	server := NewServer(AgentCard{Name: "ironclaw", Version: "2.0"}, func(ctx context.Context, task *Task) (*TaskOutput, error) {
+		return &TaskOutput{Text: "ok"}, nil
+	})
+	client := newInMemoryClient("http://a2a.test", server)
+
+	sub, err := client.SubscribePush(context.Background(), PushSubscription{
+		CallbackURL: "http://callback.test/hook",
+		Events:      []string{"task.complete"},
+	})
+	if err != nil {
+		t.Fatalf("subscribe push: %v", err)
+	}
+	if sub.ID == "" {
+		t.Fatalf("expected subscription ID: %#v", sub)
+	}
+
+	if err := client.UnsubscribePush(context.Background(), sub.ID); err != nil {
+		t.Fatalf("unsubscribe push: %v", err)
+	}
+}
+
+func TestServerSSEFormat(t *testing.T) {
+	t.Parallel()
+
+	server := NewServer(AgentCard{Name: "ironclaw", Version: "2.0"}, func(ctx context.Context, task *Task) (*TaskOutput, error) {
+		return &TaskOutput{Text: "ok"}, nil
+	})
+
+	body := strings.NewReader(`{"message":"hello"}`)
+	req := httptest.NewRequest(http.MethodPost, "/tasks/stream", body)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, req)
+	resp := recorder.Result()
+	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("unexpected content type: %s", got)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	if !scanner.Scan() {
+		t.Fatal("expected SSE payload")
+	}
+	line := scanner.Text()
+	if !strings.HasPrefix(line, "data: ") {
+		t.Fatalf("unexpected SSE line: %q", line)
+	}
+}
+
+func TestServerWebhookPush(t *testing.T) {
+	t.Parallel()
+
+	received := make(chan TaskEvent, 4)
+	server := NewServer(AgentCard{Name: "ironclaw", Version: "2.0"}, func(ctx context.Context, task *Task) (*TaskOutput, error) {
+		return &TaskOutput{Text: "done"}, nil
+	})
+	server.httpClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			var event TaskEvent
+			if err := json.NewDecoder(req.Body).Decode(&event); err != nil {
+				t.Fatalf("decode webhook event: %v", err)
+			}
+			received <- event
+			recorder := httptest.NewRecorder()
+			recorder.WriteHeader(http.StatusOK)
+			return recorder.Result(), nil
+		}),
+	}
+	client := newInMemoryClient("http://a2a.test", server)
+
+	_, err := client.SubscribePush(context.Background(), PushSubscription{
+		CallbackURL: "http://callback.test/hook",
+		Events:      []string{"task.complete"},
+	})
+	if err != nil {
+		t.Fatalf("subscribe push: %v", err)
+	}
+	if _, err := client.SendTask(context.Background(), TaskInput{Message: "hello"}); err != nil {
+		t.Fatalf("send task: %v", err)
+	}
+
+	select {
+	case event := <-received:
+		if event.Type != "output" {
+			t.Fatalf("unexpected webhook event: %#v", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected webhook event")
 	}
 }
 

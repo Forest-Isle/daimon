@@ -48,8 +48,6 @@ type Gateway struct {
 	provider         agent.Provider // stored for completerAdapter use
 	runtime          *agent.Runtime
 	cognitiveAgent   *agent.CognitiveAgent
-	selfHealEngine   *agent.SelfHealEngine
-	treePlanner      *agent.StrategicTreePlanner
 	graphEventStore  agent.ExecutionEventStore
 	heartbeat        *agent.HeartbeatScheduler
 	tools            *tool.Registry
@@ -84,7 +82,6 @@ type Gateway struct {
 	dashboardSrv     *http.Server
 	stateTracker     *dashboard.AgentStateTracker
 	dashEmitter      agent.DashboardEmitter
-	replayRecorder   *agent.ReplayRecorder
 	contextMgr       *agent.PipelineContextManager
 	features         *feature.Registry
 	featureStatePath string // path to ~/.IronClaw/feature_state.json
@@ -95,37 +92,11 @@ type Gateway struct {
 	rateLimiter      ratelimit.Limiter
 	healthRegistry   *health.Registry
 	healthSrv        *http.Server
-	currentMode      atomic.Value  // stores string: "simple" | "cognitive" | "graph"
-	memoryDir        string        // resolved base dir for file-based memory
+	currentMode      atomic.Value // stores string: "simple" | "cognitive" | "graph"
+	memoryDir        string       // resolved base dir for file-based memory
+	codebaseIndex    *agent.CodebaseIndex
 	stopCh           chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce         sync.Once     // ensures stopCh is closed exactly once
-}
-
-func (gw *Gateway) SetReplayRecorder(rr *agent.ReplayRecorder) {
-	gw.replayRecorder = rr
-	if gw.runtime != nil {
-		gw.runtime.SetReplayRecorder(rr)
-	}
-	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetReplayRecorder(rr)
-	}
-}
-
-func (gw *Gateway) SetSelfHealEngine(eng *agent.SelfHealEngine) {
-	gw.selfHealEngine = eng
-	if gw.runtime != nil {
-		gw.runtime.SetSelfHealEngine(eng)
-	}
-	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetSelfHealEngine(eng)
-	}
-}
-
-func (gw *Gateway) SetTreePlanner(tp *agent.StrategicTreePlanner) {
-	gw.treePlanner = tp
-	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetTreePlanner(tp)
-	}
 }
 
 // GatewayOptions configures optional behaviour for Gateway.New.

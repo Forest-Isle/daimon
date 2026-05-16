@@ -59,10 +59,11 @@ type CognitiveAgent struct {
 	dashEmitter         DashboardEmitter
 	planMode            *PlanMode
 	observationCallback func(result *ObservationResult)
-	replayRecorder      *ReplayRecorder
-	selfHealEngine      *SelfHealEngine
-	treePlanner         *StrategicTreePlanner
-	mctsPlanner         *MCTSPlanner
+		replayRecorder      *ReplayRecorder
+		selfHealEngine      *SelfHealEngine
+		treePlanner         *StrategicTreePlanner
+		mctsPlanner         *MCTSPlanner
+	codebaseIndex       *CodebaseIndex
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -156,6 +157,25 @@ func (ca *CognitiveAgent) SetKnowledgeGraph(g graph.Graph) {
 	ca.perceiver.SetKnowledgeGraph(g)
 }
 
+// SetCodebaseIndex injects a semantic codebase index into the cognitive agent.
+func (ca *CognitiveAgent) SetCodebaseIndex(index *CodebaseIndex) {
+	ca.codebaseIndex = index
+}
+
+func (ca *CognitiveAgent) SetSelfHealEngine(eng *SelfHealEngine) {
+	ca.selfHealEngine = eng
+}
+
+func (ca *CognitiveAgent) SetTreePlanner(tp *StrategicTreePlanner) {
+	ca.treePlanner = tp
+}
+
+// SetMCTSPlanner injects a Monte Carlo Tree Search planner.
+// When set, MCTS takes priority over the simpler tree planner during PLAN.
+func (ca *CognitiveAgent) SetMCTSPlanner(mp *MCTSPlanner) {
+	ca.mctsPlanner = mp
+}
+
 // SetEntityExtractor injects an entity extractor for graph population during reflection.
 func (ca *CognitiveAgent) SetEntityExtractor(e *graph.LLMEntityExtractor) {
 	ca.entityExtractor = e
@@ -185,20 +205,6 @@ func (ca *CognitiveAgent) SetPlanMode(pm *PlanMode) {
 	if ca.executor != nil {
 		ca.executor.SetPlanMode(pm)
 	}
-}
-
-func (ca *CognitiveAgent) SetSelfHealEngine(eng *SelfHealEngine) {
-	ca.selfHealEngine = eng
-}
-
-func (ca *CognitiveAgent) SetTreePlanner(tp *StrategicTreePlanner) {
-	ca.treePlanner = tp
-}
-
-// SetMCTSPlanner injects a Monte Carlo Tree Search planner.
-// When set, MCTS takes priority over the simpler tree planner during PLAN.
-func (ca *CognitiveAgent) SetMCTSPlanner(mp *MCTSPlanner) {
-	ca.mctsPlanner = mp
 }
 
 // SetHookManager injects a hook manager into the cognitive agent, its executor, and inner runtime.
@@ -354,23 +360,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		return fmt.Errorf("get session: %w", err)
 	}
 
-	var replayID string
-	replaySucceeded := false
-	if ca.replayRecorder != nil {
-		replayID = ca.replayRecorder.RecordSessionStart(ctx, sess.ID, msg.Channel, "cognitive", ca.llmCfg.Model)
-		if ca.executor != nil {
-			ca.executor.replayID = replayID
-		}
-		defer func() {
-			if ca.executor != nil {
-				ca.executor.replayID = ""
-			}
-			if ca.replayRecorder != nil && replayID != "" {
-				ca.replayRecorder.RecordSessionEnd(ctx, replayID, replaySucceeded, len(sess.History()))
-			}
-		}()
-	}
-
 	cogSessionStart := time.Now()
 	if ca.dashEmitter != nil {
 		ca.dashEmitter.EmitSessionStart(sess.ID, msg.Channel)
@@ -429,9 +418,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if ca.dashEmitter != nil {
 		ca.dashEmitter.EmitPhaseStart(sess.ID, "PERCEIVE")
 	}
-	if ca.replayRecorder != nil && replayID != "" {
-		ca.replayRecorder.RecordPhaseStart(ctx, replayID, "PERCEIVE")
-	}
 	perceiveStart := time.Now()
 	donePerceive := ca.registerSubtask(ctx, parentTaskID, "PERCEIVE phase")
 	state, err := ca.perceiver.Run(ctx, sess, msg.Text, msg.UserID)
@@ -439,16 +425,22 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if ca.dashEmitter != nil {
 		ca.dashEmitter.EmitPhaseEnd(sess.ID, "PERCEIVE", time.Since(perceiveStart).Milliseconds())
 	}
-	if ca.replayRecorder != nil && replayID != "" {
-		ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "PERCEIVE", time.Since(perceiveStart).Milliseconds())
-	}
 	observability.CognitivePhasesDuration.Record(ctx, time.Since(perceiveStart).Milliseconds(),
 		metric.WithAttributes(attribute.String("phase", "perceive")))
 	if err != nil {
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordError(ctx, replayID, err.Error(), "PERCEIVE")
-		}
 		return fmt.Errorf("perceive: %w", err)
+	}
+
+	if ca.codebaseIndex != nil && ca.codebaseIndex.IsAvailable() {
+		if results, searchErr := ca.codebaseIndex.Search(msg.Text, 3); searchErr != nil {
+			slog.Warn("cognitive: semantic code search failed", "session", sess.ID, "err", searchErr)
+		} else if len(results) > 0 {
+			for _, chunk := range results {
+				state.KnowledgeContext = append(state.KnowledgeContext,
+					fmt.Sprintf("Code match %s:%d-%d (score %.3f)\n%s",
+						chunk.FilePath, chunk.StartLine, chunk.EndLine, chunk.Score, chunk.Content))
+			}
+		}
 	}
 
 	// Inject skills into cognitive state for use in PLAN phase
@@ -483,13 +475,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if state.Goal.Complexity == ComplexitySimple {
 		slog.Info("cognitive: simple task, delegating to runtime", "session", sess.ID)
 		simpleStart := time.Now()
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "DELEGATE")
-		}
 		err := ca.runtime.HandleMessage(ctx, ch, msg)
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "DELEGATE", time.Since(simpleStart).Milliseconds())
-		}
 
 		if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
 			durationMs := time.Since(simpleStart).Milliseconds()
@@ -504,7 +490,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			})
 		}
 
-		replaySucceeded = err == nil
 		return err
 	}
 
@@ -552,16 +537,15 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	var reflection *Reflection
 	var ppoStrategy *rl.PlanStrategyAction
 	var dqnReplanAction rl.ReplanActionType
+
 	treePlanner := ca.treePlanner
 	mctsPlanner := ca.mctsPlanner
 	var mctsCandidates []PlanCandidate
 
 	cognitiveTurnStart := time.Now()
 
-	// MCTS takes priority over simple tree planner — it internally handles
-	// the full selection → expansion → simulation → backpropagation loop.
-	// When MCTS succeeds, we skip the per-attempt PLAN phase and use its
-	// candidate list for replanning fallback.
+	// MCTS takes priority — it internally handles selection→expansion→simulation→backpropagation.
+	// When MCTS succeeds, we skip the per-attempt PLAN phase and use its candidate list for replanning.
 	mctsActive := false
 	if mctsPlanner != nil {
 		slog.Info("cognitive: running MCTS search", "session", sess.ID)
@@ -589,19 +573,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	}
 
 	for attempt := 0; attempt <= maxReplans; attempt++ {
-		if attempt > 0 && mctsActive && len(mctsCandidates) > 1 {
-			// MCTS replan: pick next best candidate from the explored tree
-			nextIdx := attempt - 1
-			if nextIdx < len(mctsCandidates) {
-				plan = mctsCandidates[nextIdx].Plan
-				slog.Info("mcts: replan from candidate tree",
-					"attempt", attempt,
-					"candidate_idx", nextIdx,
-					"strategy", mctsCandidates[nextIdx].Strategy,
-					"score", mctsCandidates[nextIdx].LLMScore,
-				)
-			}
-		}
 		if attempt > 0 {
 			slog.Info("cognitive: replanning", "attempt", attempt, "max", maxReplans, "session", sess.ID)
 			if ca.dashEmitter != nil {
@@ -611,74 +582,23 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 				}
 				ca.dashEmitter.EmitReplanStart(sess.ID, attempt, reason)
 			}
-			if ca.replayRecorder != nil && replayID != "" {
-				reason := "low_confidence"
-				if reflection != nil && reflection.SuggestedAdjustment != "" {
-					reason = reflection.SuggestedAdjustment
-				}
-				ca.replayRecorder.RecordReplanStart(ctx, replayID, attempt, reason)
-			}
 		}
 
 		// ── PLAN ──────────────────────────────────────────────────────────────
-		if mctsActive {
-			// MCTS already explored the plan space — use the selected plan directly.
-			// The plan was set either before the loop (initial search) or at the
-			// top of this iteration (replan from candidate tree).
-			if plan == nil {
-				slog.Warn("mcts: plan is nil despite mctsActive, falling back")
-				plan, err = ca.planner.Run(ctx, state)
-			}
-			slog.Info("cognitive: using MCTS plan",
-				"attempt", attempt,
-				"plan_steps", len(plan.SubTasks),
-			)
-		} else {
-			if ca.dashEmitter != nil {
-				ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
-			}
-			if ca.replayRecorder != nil && replayID != "" {
-				ca.replayRecorder.RecordPhaseStart(ctx, replayID, "PLAN")
-			}
-			planStart := time.Now()
-			donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
-			if treePlanner != nil {
-				plan = treePlanner.Select()
-				if plan == nil {
-					failureSummary := buildTreeFailureSummary(reflection, obsResult)
-					if expandErr := treePlanner.Expand(ctx, failureSummary); expandErr != nil {
-						slog.Warn("tree-planner: expand failed", "err", expandErr)
-						donePlan()
-						break
-					}
-					plan = treePlanner.Select()
-					if plan == nil {
-						donePlan()
-						break
-					}
-				}
-				slog.Info("tree-planner: selected plan",
-					"strategy", treePlanner.currentNode.Candidates[treePlanner.currentIdx].Strategy,
-					"score", treePlanner.currentNode.Candidates[treePlanner.currentIdx].LLMScore,
-					"depth", treePlanner.currentNode.Depth)
-			} else {
-				plan, err = ca.planner.Run(ctx, state)
-			}
-			donePlan()
-			if ca.dashEmitter != nil {
-				ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
-			}
-			if ca.replayRecorder != nil && replayID != "" {
-				ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "PLAN", time.Since(planStart).Milliseconds())
-			}
-			observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
-				metric.WithAttributes(attribute.String("phase", "plan")))
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
 		}
+		planStart := time.Now()
+		donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
+		plan, err = ca.planner.Run(ctx, state)
+		donePlan()
+		if ca.dashEmitter != nil {
+			ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
+		}
+		observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
+			metric.WithAttributes(attribute.String("phase", "plan")))
 		if err != nil {
 			slog.Error("cognitive: plan failed", "err", err)
-			if ca.replayRecorder != nil && replayID != "" {
-				ca.replayRecorder.RecordError(ctx, replayID, err.Error(), "PLAN")
-			}
 			break
 		}
 		plan.ReplanCount = attempt
@@ -687,19 +607,13 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			complexity := string(state.Goal.Complexity)
 			ca.dashEmitter.EmitPlanGenerated(sess.ID, len(plan.SubTasks), complexity, plan.DirectReply != "")
 		}
-		if ca.replayRecorder != nil && replayID != "" && plan != nil {
-			ca.replayRecorder.RecordPlanGenerated(ctx, replayID, plan.Summary, len(plan.SubTasks), plan.OverallConfidence, plan.DirectReply != "")
-		}
 
 		// RL: apply PPO plan strategy adjustment
 		if rlEnabled && rlState != nil {
-			ppoStrategy = nil
-			if treePlanner == nil {
-				ppoStrategy = ca.rlPolicy.SelectPlanStrategy(rlState)
-				if ppoStrategy != nil {
-					plan.OverallConfidence = clampRL(
-						plan.OverallConfidence+ppoStrategy.ConfidenceAdj, 0, 1)
-				}
+			ppoStrategy = ca.rlPolicy.SelectPlanStrategy(rlState)
+			if ppoStrategy != nil {
+				plan.OverallConfidence = clampRL(
+					plan.OverallConfidence+ppoStrategy.ConfidenceAdj, 0, 1)
 			}
 			updateRLStateWithPlan(rlState, plan)
 		}
@@ -718,9 +632,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "ACT")
 		}
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "ACT")
-		}
 		actStart := time.Now()
 		doneAct := ca.registerSubtask(ctx, parentTaskID, "ACT phase")
 		// Create TaskContext for multi-agent collaboration
@@ -730,16 +641,10 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "ACT", time.Since(actStart).Milliseconds())
 		}
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "ACT", time.Since(actStart).Milliseconds())
-		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(actStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "act")))
 		if actErr != nil {
 			slog.Error("cognitive: act failed", "err", actErr)
-			if ca.replayRecorder != nil && replayID != "" {
-				ca.replayRecorder.RecordError(ctx, replayID, actErr.Error(), "ACT")
-			}
 			break
 		}
 
@@ -747,16 +652,10 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "OBSERVE")
 		}
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "OBSERVE")
-		}
 		observeStart := time.Now()
 		obsResult = ca.observer.Run(observations, plan)
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "OBSERVE", time.Since(observeStart).Milliseconds())
-		}
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "OBSERVE", time.Since(observeStart).Milliseconds())
 		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(observeStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "observe")))
@@ -770,27 +669,9 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 			ca.dashEmitter.EmitObservationResult(sess.ID, obsResult.SuccessCount, obsResult.FailureCount,
 				obsResult.SuccessCount+obsResult.FailureCount, obsResult.OverallProgress)
 		}
-		if ca.replayRecorder != nil && replayID != "" && obsResult != nil {
-			ca.replayRecorder.RecordObservationResult(ctx, replayID, obsResult.SuccessCount, obsResult.FailureCount, obsResult.DeniedCount, obsResult.OverallProgress)
-		}
 
 		if ca.observationCallback != nil && obsResult != nil {
 			ca.observationCallback(obsResult)
-		}
-
-		// Self-heal: attempt automatic fixes for fixable failures before REFLECT
-		if ca.selfHealEngine != nil && obsResult != nil && obsResult.FailureCount > 0 {
-			healed := ca.selfHealEngine.ProcessFailures(ctx, obsResult, plan)
-			if healed > 0 {
-				slog.Info("self-heal: resolved failures",
-					"healed", healed,
-					"remaining", obsResult.FailureCount,
-					"session", sess.ID)
-				if ca.dashEmitter != nil {
-					ca.dashEmitter.EmitPhaseStart(sess.ID, "SELF_HEAL")
-					ca.dashEmitter.EmitPhaseEnd(sess.ID, "SELF_HEAL", 0)
-				}
-			}
 		}
 
 		if ca.checkpointStore != nil && obsResult != nil {
@@ -815,9 +696,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseStart(sess.ID, "REFLECT")
 		}
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "REFLECT")
-		}
 		reflectStart := time.Now()
 		doneReflect := ca.registerSubtask(ctx, parentTaskID, "REFLECT phase")
 		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult, attempt)
@@ -825,20 +703,11 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		if ca.dashEmitter != nil {
 			ca.dashEmitter.EmitPhaseEnd(sess.ID, "REFLECT", time.Since(reflectStart).Milliseconds())
 		}
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "REFLECT", time.Since(reflectStart).Milliseconds())
-		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(reflectStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "reflect")))
 		if err != nil {
 			slog.Error("cognitive: reflect failed", "err", err)
-			if ca.replayRecorder != nil && replayID != "" {
-				ca.replayRecorder.RecordError(ctx, replayID, err.Error(), "REFLECT")
-			}
 			break
-		}
-		if ca.replayRecorder != nil && replayID != "" && reflection != nil {
-			ca.replayRecorder.RecordReflection(ctx, replayID, reflection.OverallConfidence, reflection.Succeeded, reflection.NeedsReplan, len(reflection.LessonsLearned), len(reflection.FinalAnswer))
 		}
 
 		// Override conservative reflect false-negatives: if assertion pass rate is high
@@ -896,19 +765,6 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 				}
 				reflection.OverallConfidence = adjConfidence
 			}
-		}
-
-		if treePlanner != nil && reflection != nil {
-			reward := computeTreeReward(reflection, obsResult)
-			treePlanner.Backprop(reward)
-
-			if reflection.Succeeded {
-				break
-			}
-			if treePlanner.HasAlternatives() {
-				continue
-			}
-			continue
 		}
 
 		// Check if replan is needed
@@ -979,8 +835,6 @@ persist:
 		slog.Error("cognitive: failed to persist session", "err", err)
 	}
 
-	replaySucceeded = reflection != nil && reflection.Succeeded
-
 	// Save user message to memory.md
 	if ca.memStore != nil {
 		if err := ca.memStore.Save(ctx, memory.Entry{
@@ -1001,28 +855,6 @@ persist:
 	}
 
 	return nil
-}
-
-func buildTreeFailureSummary(reflection *Reflection, obsResult *ObservationResult) string {
-	var parts []string
-	if reflection != nil {
-		if reflection.ReplanReason != "" {
-			parts = append(parts, reflection.ReplanReason)
-		}
-		for _, lesson := range reflection.LessonsLearned {
-			if strings.TrimSpace(lesson) != "" {
-				parts = append(parts, lesson)
-			}
-		}
-	}
-	if obsResult != nil {
-		for _, failure := range obsResult.Failures {
-			if strings.TrimSpace(failure.ErrorMsg) != "" {
-				parts = append(parts, failure.ErrorMsg)
-			}
-		}
-	}
-	return strings.Join(parts, "; ")
 }
 
 // streamFinalAnswer sends the final answer to the user via streaming.

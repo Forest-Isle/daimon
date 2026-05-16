@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/sandbox"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"github.com/Forest-Isle/IronClaw/internal/worktree"
@@ -39,6 +41,38 @@ func (gw *Gateway) initToolsAndHooks() error {
 		gw.tools.Register(tool.NewBrowserTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
 		gw.tools.Register(tool.NewBrowserSearchTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
 		gw.tools.Register(tool.NewBrowserExtractTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
+	}
+	if gw.codebaseIndex == nil {
+		gw.codebaseIndex = newCodebaseIndexFromConfig(gw)
+		if gw.codebaseIndex != nil && gw.codebaseIndex.IsAvailable() {
+			if err := gw.codebaseIndex.IndexDirectoryContext(context.Background(), "."); err != nil {
+				slog.Warn("codebase index: initial indexing failed", "err", err)
+			} else {
+				slog.Info("codebase index initialized")
+			}
+		}
+	}
+	if gw.codebaseIndex != nil && gw.codebaseIndex.IsAvailable() {
+		gw.tools.Register(tool.NewSemanticSearchTool(
+			gw.codebaseIndex.IsAvailable,
+			func(query string, topK int) ([]tool.CodeSearchResult, error) {
+				results, err := gw.codebaseIndex.Search(query, topK)
+				if err != nil {
+					return nil, err
+				}
+				out := make([]tool.CodeSearchResult, 0, len(results))
+				for _, chunk := range results {
+					out = append(out, tool.CodeSearchResult{
+						FilePath:  chunk.FilePath,
+						StartLine: chunk.StartLine,
+						EndLine:   chunk.EndLine,
+						Content:   chunk.Content,
+						Score:     chunk.Score,
+					})
+				}
+				return out, nil
+			},
+		))
 	}
 
 	// Worktree tools for isolated code changes
@@ -146,6 +180,45 @@ func (gw *Gateway) initToolsAndHooks() error {
 	slog.Info("sandbox system initialized", "enabled", sandboxEnabled)
 
 	return nil
+}
+
+type memoryEmbeddingAdapter struct {
+	provider memory.EmbeddingProvider
+}
+
+func (a memoryEmbeddingAdapter) Embed(ctx context.Context, text string) ([]float64, error) {
+	embedding, err := a.provider.Embed(ctx, text)
+	if err != nil {
+		return nil, err
+	}
+	if len(embedding) == 0 {
+		return nil, nil
+	}
+	out := make([]float64, len(embedding))
+	for i := range embedding {
+		out[i] = float64(embedding[i])
+	}
+	return out, nil
+}
+
+func newCodebaseIndexFromConfig(gw *Gateway) *agent.CodebaseIndex {
+	if gw.cfg.Memory.OpenAIAPIKey == "" {
+		return agent.NewCodebaseIndex(nil, agent.IndexConfig{
+			ChunkSize:      50,
+			Overlap:        10,
+			EmbeddingModel: gw.cfg.Memory.EmbeddingModel,
+		})
+	}
+	provider := memory.NewCachedEmbedder(memory.NewOpenAIEmbeddingWithURL(
+		gw.cfg.Memory.OpenAIAPIKey,
+		gw.cfg.Memory.EmbeddingModel,
+		gw.cfg.Memory.EmbeddingBaseURL,
+	))
+	return agent.NewCodebaseIndex(memoryEmbeddingAdapter{provider: provider}, agent.IndexConfig{
+		ChunkSize:      50,
+		Overlap:        10,
+		EmbeddingModel: gw.cfg.Memory.EmbeddingModel,
+	})
 }
 
 // userHookInterceptor runs user-configurable hook scripts around tool execution.

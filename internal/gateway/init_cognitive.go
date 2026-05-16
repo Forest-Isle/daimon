@@ -24,6 +24,9 @@ func (gw *Gateway) initCognitiveAgent() error {
 	if gw.lifecycleMgr != nil {
 		gw.cognitiveAgent.SetLifecycleManager(gw.lifecycleMgr)
 	}
+	if gw.codebaseIndex != nil {
+		gw.cognitiveAgent.SetCodebaseIndex(gw.codebaseIndex)
+	}
 
 	// Wire hook manager and permission engine (security: parity with simple runtime)
 	if gw.hookMgr != nil {
