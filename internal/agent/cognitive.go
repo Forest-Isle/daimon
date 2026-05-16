@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
 	"strings"
 	"time"
@@ -59,6 +59,7 @@ type CognitiveAgent struct {
 	dashEmitter         DashboardEmitter
 	planMode            *PlanMode
 	observationCallback func(result *ObservationResult)
+	codebaseIndex       *CodebaseIndex
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -150,6 +151,11 @@ func (ca *CognitiveAgent) SetKnowledgeSearcher(s knowledge.Searcher) {
 // SetKnowledgeGraph injects a knowledge graph into the perceiver.
 func (ca *CognitiveAgent) SetKnowledgeGraph(g graph.Graph) {
 	ca.perceiver.SetKnowledgeGraph(g)
+}
+
+// SetCodebaseIndex injects a semantic codebase index into the cognitive agent.
+func (ca *CognitiveAgent) SetCodebaseIndex(index *CodebaseIndex) {
+	ca.codebaseIndex = index
 }
 
 // SetEntityExtractor injects an entity extractor for graph population during reflection.
@@ -396,6 +402,18 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		metric.WithAttributes(attribute.String("phase", "perceive")))
 	if err != nil {
 		return fmt.Errorf("perceive: %w", err)
+	}
+
+	if ca.codebaseIndex != nil && ca.codebaseIndex.IsAvailable() {
+		if results, searchErr := ca.codebaseIndex.Search(msg.Text, 3); searchErr != nil {
+			slog.Warn("cognitive: semantic code search failed", "session", sess.ID, "err", searchErr)
+		} else if len(results) > 0 {
+			for _, chunk := range results {
+				state.KnowledgeContext = append(state.KnowledgeContext,
+					fmt.Sprintf("Code match %s:%d-%d (score %.3f)\n%s",
+						chunk.FilePath, chunk.StartLine, chunk.EndLine, chunk.Score, chunk.Content))
+			}
+		}
 	}
 
 	// Inject skills into cognitive state for use in PLAN phase
