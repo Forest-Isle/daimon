@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -24,8 +25,10 @@ func (al *AuditLogger) Log(ctx context.Context, memoryID, action, actor, details
 		return
 	}
 	id := fmt.Sprintf("audit_%d", time.Now().UnixNano())
-	_, _ = al.db.ExecContext(ctx, `
+	if _, err := al.db.ExecContext(ctx, `
 		INSERT INTO memory_audit_log (id, memory_id, action, actor, timestamp, details)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`, id, memoryID, action, actor, time.Now(), details)
+	`, id, memoryID, action, actor, time.Now(), details); err != nil {
+		slog.Warn("memory: audit log write failed", "err", err)
+	}
 }

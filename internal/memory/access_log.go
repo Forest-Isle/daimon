@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/store"
@@ -43,7 +44,7 @@ func (al *AccessLog) updateStats(factID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	_, _ = al.db.ExecContext(ctx, `
+	if _, err := al.db.ExecContext(ctx, `
 		INSERT INTO memory_access_stats (fact_id, access_count, last_access, first_access)
 		SELECT ?, COUNT(*), MAX(accessed_at), MIN(accessed_at)
 		FROM memory_access_log
@@ -51,5 +52,7 @@ func (al *AccessLog) updateStats(factID string) {
 		ON CONFLICT(fact_id) DO UPDATE SET
 			access_count = excluded.access_count,
 			last_access = excluded.last_access
-	`, factID, factID)
+	`, factID, factID); err != nil {
+		slog.Warn("memory: access log write failed", "err", err)
+	}
 }

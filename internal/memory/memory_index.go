@@ -117,10 +117,13 @@ func (mi *MemoryIndex) writeIndex(entries map[string][]IndexEntry) error {
 	defer func() { _ = f.Close() }()
 
 	w := bufio.NewWriter(f)
-	defer func() { _ = w.Flush() }()
 
-	_, _ = fmt.Fprintf(w, "# Memory Index\n\n")
-	_, _ = fmt.Fprintf(w, "Last updated: %s\n\n", time.Now().Format(time.RFC3339))
+	if _, err := fmt.Fprintf(w, "# Memory Index\n\n"); err != nil {
+		return fmt.Errorf("write index: %w", err)
+	}
+	if _, err := fmt.Fprintf(w, "Last updated: %s\n\n", time.Now().Format(time.RFC3339)); err != nil {
+		return fmt.Errorf("write index: %w", err)
+	}
 
 	scopeTitles := map[string]string{
 		"user":     "User Memories",
@@ -134,16 +137,26 @@ func (mi *MemoryIndex) writeIndex(entries map[string][]IndexEntry) error {
 			continue
 		}
 
-		_, _ = fmt.Fprintf(w, "## %s\n\n", scopeTitles[scope])
+		if _, err := fmt.Fprintf(w, "## %s\n\n", scopeTitles[scope]); err != nil {
+			return fmt.Errorf("write index: %w", err)
+		}
 
 		sort.Slice(entries[scope], func(i, j int) bool {
 			return entries[scope][i].FilePath < entries[scope][j].FilePath
 		})
 
 		for _, entry := range entries[scope] {
-			_, _ = fmt.Fprintf(w, "- [%s](%s) — %s\n", entry.Title, entry.FilePath, entry.Summary)
+			if _, err := fmt.Fprintf(w, "- [%s](%s) — %s\n", entry.Title, entry.FilePath, entry.Summary); err != nil {
+				return fmt.Errorf("write index: %w", err)
+			}
 		}
-		_, _ = fmt.Fprintf(w, "\n")
+		if _, err := fmt.Fprintf(w, "\n"); err != nil {
+			return fmt.Errorf("write index: %w", err)
+		}
+	}
+
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("write index: %w", err)
 	}
 
 	return nil

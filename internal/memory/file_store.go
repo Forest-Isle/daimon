@@ -1,10 +1,10 @@
 package memory
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
 	"math"
 	"os"
@@ -633,9 +633,12 @@ func (s *FileMemoryStore) Update(ctx context.Context, id string, content string,
 	}
 
 	// Refresh the FTS index (FTS5 has no UPSERT, so delete + insert).
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, id)
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, id); err != nil {
+		slog.Warn("memory: FTS index update failed", "err", err)
+	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)`, id, content)
 	if err != nil {
+		slog.Warn("memory: FTS index update failed", "err", err)
 		return fmt.Errorf("update memory_fts: %w", err)
 	}
 
@@ -799,11 +802,14 @@ func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath s
 	}
 
 	// Update memory_fts table (FTS5 doesn't support UPSERT, use DELETE+INSERT)
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, entry.ID)
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, entry.ID); err != nil {
+		slog.Warn("memory: FTS index update failed", "err", err)
+	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)
 	`, entry.ID, entry.Content)
 	if err != nil {
+		slog.Warn("memory: FTS index update failed", "err", err)
 		return fmt.Errorf("update memory_fts: %w", err)
 	}
 
@@ -881,7 +887,6 @@ func (s *FileMemoryStore) RebuildIndex(ctx context.Context) error {
 	idx := NewMemoryIndex(s.baseDir)
 	return idx.Rebuild()
 }
-
 
 func serializeEmbedding(vec []float32) []byte {
 	buf := make([]byte, len(vec)*4)

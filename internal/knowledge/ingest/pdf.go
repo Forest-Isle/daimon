@@ -9,9 +9,9 @@ import (
 // Full implementation requires pdfcpu or similar; add in a future phase.
 type PDFIngester struct{}
 
-// CanHandle returns true for pdf source type.
-func (p *PDFIngester) CanHandle(sourceType string) bool {
-	return sourceType == "pdf"
+// CanHandle returns false until PDF ingestion is implemented.
+func (p *PDFIngester) CanHandle(_ string) bool {
+	return false
 }
 
 // Extract returns an error indicating PDF is not yet supported.
