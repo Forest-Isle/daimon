@@ -24,6 +24,7 @@ func (gw *Gateway) initMemorySystem() error {
 		embedder = memory.NewCachedEmbedder(baseEmbedder)
 		slog.Info("memory: cached embedder enabled")
 	}
+	gw.embedder = embedder
 	memCfg := memory.MemoryConfig{
 		FactExtraction:           gw.cfg.Memory.FactExtraction,
 		SimilarityThreshold:      gw.cfg.Memory.SimilarityThreshold,

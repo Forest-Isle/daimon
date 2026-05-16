@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Forest-Isle/IronClaw/internal/cortex"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
@@ -17,13 +18,14 @@ import (
 // Perceiver implements the PERCEIVE phase: parse goal, retrieve memories, assess complexity.
 type Perceiver struct {
 	memStore    memory.Store
-	memBaseDir  string                 // base directory for memory files (profile loading)
-	searcher    knowledge.Searcher     // optional knowledge searcher (KB or HybridRetriever)
-	graph       graph.Graph            // optional knowledge graph
-	rlPolicy    RLPolicy               // optional RL policy
-	scanner     *ProjectContextScanner    // optional project context scanner
-	gitProvider *GitContextProvider        // optional git state provider
-	budgetAlloc *ContextBudgetAllocator   // optional context budget allocator
+	memBaseDir  string             // base directory for memory files (profile loading)
+	searcher    knowledge.Searcher // optional knowledge searcher (KB or HybridRetriever)
+	graph       graph.Graph        // optional knowledge graph
+	cortex      *cortex.UnifiedRetriever
+	rlPolicy    RLPolicy                // optional RL policy
+	scanner     *ProjectContextScanner  // optional project context scanner
+	gitProvider *GitContextProvider     // optional git state provider
+	budgetAlloc *ContextBudgetAllocator // optional context budget allocator
 }
 
 // NewPerceiver creates a new Perceiver.
@@ -39,6 +41,11 @@ func (p *Perceiver) SetKnowledgeSearcher(s knowledge.Searcher) {
 // SetKnowledgeGraph injects an optional knowledge graph for entity-based retrieval.
 func (p *Perceiver) SetKnowledgeGraph(g graph.Graph) {
 	p.graph = g
+}
+
+// SetCortexRetriever injects the unified cortex retriever.
+func (p *Perceiver) SetCortexRetriever(ur *cortex.UnifiedRetriever) {
+	p.cortex = ur
 }
 
 // SetRLPolicy injects an optional RL policy.
@@ -81,10 +88,42 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 
 	complexity := assessComplexity(lower, words)
 	ambiguity := assessAmbiguity(lower, words)
+	var knowledgeContext []string
+	var graphContext []string
+	var proceduralHints []string
+	var queryEntities []string
 
 	// Memory retrieval — include user and session scopes for richer context.
 	var memories []memory.SearchResult
-	if p.memStore != nil {
+	if p.cortex != nil {
+		results, err := p.cortex.Search(ctx, userMsg, cortex.SearchOptions{
+			UserID:    userID,
+			SessionID: sess.ID,
+			Limit:     5,
+		})
+		if err != nil {
+			slog.Warn("perceive: cortex search failed", "err", err)
+		} else {
+			for _, r := range results {
+				switch r.Source {
+				case "memory":
+					memories = append(memories, memory.SearchResult{
+						Entry: memory.Entry{ID: r.ID, Content: r.Content},
+						Score: r.Score,
+					})
+				case "knowledge":
+					knowledgeContext = append(knowledgeContext, r.Content)
+				case "graph":
+					graphContext = append(graphContext, r.Content)
+				case "procedural":
+					proceduralHints = append(proceduralHints, r.Content)
+				}
+			}
+			if len(knowledgeContext) == 0 {
+				knowledgeContext = []string{"[KNOWLEDGE BASE SEARCHED: no relevant information found for this query]"}
+			}
+		}
+	} else if p.memStore != nil {
 		var err error
 		memories, err = p.memStore.Search(ctx, memory.SearchQuery{
 			Text:         userMsg,
@@ -99,8 +138,7 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 	}
 
 	// Knowledge base retrieval — fetch relevant document chunks.
-	var knowledgeContext []string
-	if p.searcher != nil {
+	if p.cortex == nil && p.searcher != nil {
 		kResults, err := p.searcher.Search(ctx, knowledge.KnowledgeQuery{
 			Text:  userMsg,
 			Limit: 5,
@@ -121,9 +159,7 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 	}
 
 	// Knowledge graph retrieval — find related entities.
-	var graphContext []string
-	var queryEntities []string
-	if p.graph != nil {
+	if p.cortex == nil && p.graph != nil {
 		graphContext, queryEntities = p.queryGraphWithEntities(ctx, userMsg)
 	}
 
@@ -161,6 +197,9 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 		KnowledgeContext: knowledgeContext,
 		GraphContext:     graphContext,
 		UserProfile:      userProfile,
+	}
+	if len(proceduralHints) > 0 {
+		state.StrategyHints = strings.Join(proceduralHints, "\n")
 	}
 
 	if p.scanner != nil {

@@ -1,0 +1,376 @@
+package cortex
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sort"
+	"strings"
+	"sync"
+
+	"github.com/Forest-Isle/IronClaw/internal/knowledge"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+)
+
+// UnifiedRetriever wraps memory, knowledge, graph, and procedural stores.
+type UnifiedRetriever struct {
+	memStore      memory.Store
+	kbSearcher    knowledge.Searcher
+	graphStore    graph.Graph
+	procedural    *ProceduralStore
+	fusionWeights *FusionWeights
+}
+
+func NewUnifiedRetriever(
+	memStore memory.Store,
+	kbSearcher knowledge.Searcher,
+	graphStore graph.Graph,
+	procedural *ProceduralStore,
+) *UnifiedRetriever {
+	return &UnifiedRetriever{
+		memStore:      memStore,
+		kbSearcher:    kbSearcher,
+		graphStore:    graphStore,
+		procedural:    procedural,
+		fusionWeights: DefaultFusionWeights(),
+	}
+}
+
+// SetFusionWeights updates the fusion weights. If nil, uses defaults.
+func (ur *UnifiedRetriever) SetFusionWeights(w *FusionWeights) {
+	if w == nil {
+		ur.fusionWeights = DefaultFusionWeights()
+		return
+	}
+	ur.fusionWeights = w
+}
+
+// GetProcedural returns the procedural store backing this retriever.
+func (ur *UnifiedRetriever) GetProcedural() *ProceduralStore {
+	if ur == nil {
+		return nil
+	}
+	return ur.procedural
+}
+
+// Search performs a unified search across all four sources.
+func (ur *UnifiedRetriever) Search(
+	ctx context.Context,
+	query string,
+	opts SearchOptions,
+) ([]*UnifiedMemory, error) {
+	if opts.Limit == 0 {
+		opts.Limit = 5
+	}
+
+	var (
+		wg               sync.WaitGroup
+		memories         []*UnifiedMemory
+		knowledgeResults []*UnifiedMemory
+		graphResults     []*UnifiedMemory
+		proceduralResult []*UnifiedMemory
+		graphEntities    []string
+		firstErr         error
+		errMu            sync.Mutex
+	)
+
+	recordErr := func(source string, err error) {
+		if err == nil {
+			return
+		}
+		slog.Warn("cortex: source search failed", "source", source, "err", err)
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
+
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		if ur.memStore == nil {
+			return
+		}
+		results, err := ur.memStore.Search(ctx, memory.SearchQuery{
+			Text:         query,
+			Limit:        opts.Limit,
+			SessionID:    opts.SessionID,
+			UserID:       opts.UserID,
+			Scopes:       []memory.MemoryScope{memory.ScopeSession, memory.ScopeUser},
+			ExcludeTypes: []string{"profile", "procedural"},
+		})
+		if err != nil {
+			recordErr("memory", err)
+			return
+		}
+		memories = make([]*UnifiedMemory, 0, len(results))
+		for _, result := range results {
+			memories = append(memories, &UnifiedMemory{
+				ID:      result.Entry.ID,
+				Type:    Episodic,
+				Content: result.Entry.Content,
+				Score:   result.Score,
+				Source:  "memory",
+			})
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if ur.kbSearcher == nil {
+			return
+		}
+		results, err := ur.kbSearcher.Search(ctx, knowledge.KnowledgeQuery{
+			Text:  query,
+			Limit: opts.Limit,
+		})
+		if err != nil {
+			recordErr("knowledge", err)
+			return
+		}
+		knowledgeResults = make([]*UnifiedMemory, 0, len(results))
+		for _, result := range results {
+			knowledgeResults = append(knowledgeResults, &UnifiedMemory{
+				ID:      result.Chunk.ID,
+				Type:    Semantic,
+				Content: result.Chunk.Content,
+				Score:   result.Score,
+				Source:  "knowledge",
+			})
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if ur.graphStore == nil {
+			return
+		}
+		candidates := extractEntityCandidates(query)
+		graphEntities = append(graphEntities, candidates...)
+		if len(candidates) == 0 {
+			return
+		}
+		triples, err := graph.SearchRelated(ctx, ur.graphStore, candidates, 2)
+		if err != nil {
+			recordErr("graph", err)
+			return
+		}
+		graphResults = make([]*UnifiedMemory, 0, len(triples))
+		for i, triple := range triples {
+			graphEntities = append(graphEntities, strings.ToLower(triple.Subject.Name), strings.ToLower(triple.Object.Name))
+			graphResults = append(graphResults, &UnifiedMemory{
+				ID:      fmt.Sprintf("graph_%d", i),
+				Type:    Semantic,
+				Content: fmt.Sprintf("%s -[%s]-> %s (%s)", triple.Subject.Name, triple.Predicate, triple.Object.Name, triple.Object.Type),
+				Score:   triple.Weight,
+				Source:  "graph",
+			})
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if ur.procedural == nil {
+			return
+		}
+		records, err := ur.procedural.FindSimilar(ctx, query, 3)
+		if err != nil {
+			recordErr("procedural", err)
+			return
+		}
+		proceduralResult = make([]*UnifiedMemory, 0, len(records))
+		for i, record := range records {
+			if record == nil {
+				continue
+			}
+			proceduralResult = append(proceduralResult, &UnifiedMemory{
+				ID:       fmt.Sprintf("procedural_%d", i),
+				Type:     Procedural,
+				Content:  fmt.Sprintf("Strategy: %s using tools: %s", record.TaskPattern, strings.Join(record.ToolSequence, ", ")),
+				Score:    record.SuccessRate,
+				Source:   "procedural",
+				Strategy: record,
+			})
+		}
+	}()
+
+	wg.Wait()
+
+	if len(graphEntities) > 0 && len(memories) > 0 {
+		boostMemoriesByGraphConnectivity(memories, graphEntities)
+	}
+
+	all := make([]*UnifiedMemory, 0, len(memories)+len(knowledgeResults)+len(graphResults)+len(proceduralResult))
+	all = append(all, applySourceWeight(memories, ur.fusionWeights.MemoryWeight)...)
+	all = append(all, applySourceWeight(knowledgeResults, ur.fusionWeights.KnowledgeWeight)...)
+	all = append(all, applySourceWeight(graphResults, ur.fusionWeights.GraphWeight)...)
+	all = append(all, applySourceWeight(proceduralResult, ur.fusionWeights.ProceduralWeight)...)
+
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].Score == all[j].Score {
+			return all[i].Content < all[j].Content
+		}
+		return all[i].Score > all[j].Score
+	})
+
+	all = dedupeByContentSimilarity(all)
+
+	maxResults := opts.Limit * 2
+	if maxResults < 20 {
+		maxResults = 20
+	}
+	if len(all) > maxResults {
+		all = all[:maxResults]
+	}
+
+	if len(all) == 0 {
+		return nil, firstErr
+	}
+	return all, nil
+}
+
+func applySourceWeight(items []*UnifiedMemory, weight float64) []*UnifiedMemory {
+	if len(items) == 0 {
+		return nil
+	}
+
+	minScore := items[0].Score
+	maxScore := items[0].Score
+	for _, item := range items[1:] {
+		if item.Score < minScore {
+			minScore = item.Score
+		}
+		if item.Score > maxScore {
+			maxScore = item.Score
+		}
+	}
+
+	result := make([]*UnifiedMemory, 0, len(items))
+	for rank, item := range items {
+		cloned := *item
+		rrf := 1.0 / float64(rank+1+60)
+		if maxScore == minScore {
+			cloned.Score = (1.0 + rrf) * weight
+		} else {
+			normalized := (item.Score - minScore) / (maxScore - minScore)
+			cloned.Score = (normalized + rrf) * weight
+		}
+		result = append(result, &cloned)
+	}
+
+	return result
+}
+
+func boostMemoriesByGraphConnectivity(memories []*UnifiedMemory, graphEntities []string) {
+	if len(memories) == 0 || len(graphEntities) == 0 {
+		return
+	}
+
+	entitySet := make(map[string]struct{}, len(graphEntities))
+	for _, entity := range graphEntities {
+		entity = strings.TrimSpace(strings.ToLower(entity))
+		if entity == "" {
+			continue
+		}
+		entitySet[entity] = struct{}{}
+	}
+
+	limit := 3
+	if len(memories) < limit {
+		limit = len(memories)
+	}
+
+	for i := 0; i < limit; i++ {
+		matches := 0
+		for _, candidate := range extractEntityCandidates(memories[i].Content) {
+			if _, ok := entitySet[candidate]; ok {
+				matches++
+			}
+		}
+		if matches == 0 {
+			continue
+		}
+		memories[i].Score *= 1 + 0.2*float64(matches)
+	}
+}
+
+func dedupeByContentSimilarity(items []*UnifiedMemory) []*UnifiedMemory {
+	if len(items) == 0 {
+		return nil
+	}
+
+	result := make([]*UnifiedMemory, 0, len(items))
+	for _, item := range items {
+		duplicate := false
+		for _, existing := range result {
+			if contentSimilarity(existing.Content, item.Content) > 0.8 {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func contentSimilarity(a, b string) float64 {
+	a = strings.TrimSpace(strings.ToLower(a))
+	b = strings.TrimSpace(strings.ToLower(b))
+	if a == "" || b == "" {
+		return 0
+	}
+	if a == b {
+		return 1
+	}
+
+	shorter := a
+	longer := b
+	if len(shorter) > len(longer) {
+		shorter, longer = longer, shorter
+	}
+
+	matches := 0
+	for _, r := range shorter {
+		if strings.ContainsRune(longer, r) {
+			matches++
+		}
+	}
+
+	return float64(matches) / float64(len([]rune(shorter)))
+}
+
+func extractEntityCandidates(text string) []string {
+	words := strings.Fields(text)
+	candidates := make([]string, 0, len(words))
+	seen := make(map[string]bool)
+	for _, word := range words {
+		clean := strings.Trim(strings.ToLower(word), ".,!?;:\"'()[]{}。，！？")
+		if len(clean) <= 3 || isStopWord(clean) || seen[clean] {
+			continue
+		}
+		seen[clean] = true
+		candidates = append(candidates, clean)
+	}
+	return candidates
+}
+
+var stopWords = map[string]bool{
+	"the": true, "and": true, "for": true, "are": true, "but": true,
+	"not": true, "you": true, "all": true, "can": true, "had": true,
+	"her": true, "was": true, "one": true, "our": true, "out": true,
+	"has": true, "have": true, "from": true, "this": true, "that": true,
+	"with": true, "what": true, "when": true, "where": true, "which": true,
+	"will": true, "would": true, "there": true, "their": true, "about": true,
+	"them": true, "then": true, "than": true, "been": true, "some": true,
+	"could": true, "other": true, "into": true, "more": true, "very": true,
+	"just": true, "also": true, "know": true, "how": true, "please": true,
+}
+
+func isStopWord(word string) bool {
+	return stopWords[word]
+}
