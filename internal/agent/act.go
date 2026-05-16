@@ -671,11 +671,13 @@ func sendProgress(ctx context.Context, ch channel.Channel, target channel.Messag
 	if ch == nil {
 		return
 	}
-	_ = ch.Send(ctx, channel.OutboundMessage{
+	if err := ch.Send(ctx, channel.OutboundMessage{
 		Channel:   target.Channel,
 		ChannelID: target.ChannelID,
 		Text:      msg,
-	})
+	}); err != nil {
+		slog.Warn("failed to send message", "err", err)
+	}
 }
 
 func statusEmoji(s SubTaskStatus) string {

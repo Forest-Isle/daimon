@@ -673,11 +673,13 @@ func (r *Runtime) handleNonStreaming(ctx context.Context, ch channel.Channel, se
 		}
 
 		if len(resp.ToolCalls) == 0 {
-			_ = ch.Send(ctx, channel.OutboundMessage{
+			if err := ch.Send(ctx, channel.OutboundMessage{
 				Channel:   target.Channel,
 				ChannelID: target.ChannelID,
 				Text:      resp.Text,
-			})
+			}); err != nil {
+				slog.Warn("failed to send message", "err", err)
+			}
 			break
 		}
 

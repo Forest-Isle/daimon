@@ -235,9 +235,11 @@ func (gw *Gateway) persistFeatureState() {
 
 // sendReply is a convenience helper to send a text reply.
 func (gw *Gateway) sendReply(ctx context.Context, ch channel.Channel, msg channel.InboundMessage, text string) {
-	_ = ch.Send(ctx, channel.OutboundMessage{
+	if err := ch.Send(ctx, channel.OutboundMessage{
 		Channel:   msg.Channel,
 		ChannelID: msg.ChannelID,
 		Text:      text,
-	})
+	}); err != nil {
+		slog.Warn("failed to send message", "err", err)
+	}
 }

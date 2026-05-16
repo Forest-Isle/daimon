@@ -94,13 +94,13 @@ type Gateway struct {
 	healthSrv        *http.Server
 	currentMode      atomic.Value // stores string: "simple" | "cognitive" | "graph"
 	memoryDir        string       // resolved base dir for file-based memory
-	replayRecorder  *agent.ReplayRecorder
-	selfHealEngine  *agent.SelfHealEngine
-	treePlanner     *agent.StrategicTreePlanner
-	mctsPlanner     *agent.MCTSPlanner
-	codebaseIndex   *agent.CodebaseIndex
-	stopCh          chan struct{} // closed in Stop() to signal background goroutines
-	stopOnce        sync.Once     // ensures stopCh is closed exactly once
+	replayRecorder   *agent.ReplayRecorder
+	selfHealEngine   *agent.SelfHealEngine
+	treePlanner      *agent.StrategicTreePlanner
+	mctsPlanner      *agent.MCTSPlanner
+	codebaseIndex    *agent.CodebaseIndex
+	stopCh           chan struct{} // closed in Stop() to signal background goroutines
+	stopOnce         sync.Once     // ensures stopCh is closed exactly once
 }
 
 // GatewayOptions configures optional behaviour for Gateway.New.
@@ -562,11 +562,13 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 			slog.Warn("gateway: rate limited", "user", msg.UserID, "wait", waitTime)
 			ch, ok := gw.channels[msg.Channel]
 			if ok {
-				_ = ch.Send(ctx, channel.OutboundMessage{
+				if err := ch.Send(ctx, channel.OutboundMessage{
 					Channel:   msg.Channel,
 					ChannelID: msg.ChannelID,
 					Text:      "You are sending messages too quickly. Please wait a moment before trying again.",
-				})
+				}); err != nil {
+					slog.Warn("failed to send message", "err", err)
+				}
 			}
 			return
 		}
@@ -601,11 +603,13 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	if strings.HasPrefix(msg.Text, "/team ") {
 		goal := strings.TrimPrefix(msg.Text, "/team ")
 		result := gw.handleTeamCommand(ctx, strings.TrimSpace(goal))
-		_ = ch.Send(ctx, channel.OutboundMessage{
+		if err := ch.Send(ctx, channel.OutboundMessage{
 			Channel:   msg.Channel,
 			ChannelID: msg.ChannelID,
 			Text:      result,
-		})
+		}); err != nil {
+			slog.Warn("failed to send message", "err", err)
+		}
 		return
 	}
 
@@ -614,11 +618,13 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 		arg := strings.TrimPrefix(msg.Text, "/mode")
 		arg = strings.TrimSpace(arg)
 		response := gw.handleModeCommand(arg)
-		_ = ch.Send(ctx, channel.OutboundMessage{
+		if err := ch.Send(ctx, channel.OutboundMessage{
 			Channel:   msg.Channel,
 			ChannelID: msg.ChannelID,
 			Text:      response,
-		})
+		}); err != nil {
+			slog.Warn("failed to send message", "err", err)
+		}
 		return
 	}
 
@@ -652,18 +658,22 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	if msg.Text == "/new" || msg.Text == "/start" {
 		if err := gw.sessions.Reset(ctx, msg.Channel, msg.ChannelID); err != nil {
 			slog.Error("session reset failed", "err", err)
-			_ = ch.Send(ctx, channel.OutboundMessage{
+			if err := ch.Send(ctx, channel.OutboundMessage{
 				Channel:   msg.Channel,
 				ChannelID: msg.ChannelID,
 				Text:      "Error: failed to reset session: " + err.Error(),
-			})
+			}); err != nil {
+				slog.Warn("failed to send message", "err", err)
+			}
 			return
 		}
-		_ = ch.Send(ctx, channel.OutboundMessage{
+		if err := ch.Send(ctx, channel.OutboundMessage{
 			Channel:   msg.Channel,
 			ChannelID: msg.ChannelID,
 			Text:      "New conversation started.",
-		})
+		}); err != nil {
+			slog.Warn("failed to send message", "err", err)
+		}
 		return
 	}
 
@@ -673,32 +683,38 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	case "cognitive":
 		if err := gw.cognitiveAgent.HandleMessage(ctx, ch, msg); err != nil {
 			slog.Error("cognitive agent error", "err", err)
-			_ = ch.Send(ctx, channel.OutboundMessage{
+			if err := ch.Send(ctx, channel.OutboundMessage{
 				Channel:   msg.Channel,
 				ChannelID: msg.ChannelID,
 				Text:      "Error: " + err.Error(),
-			})
+			}); err != nil {
+				slog.Warn("failed to send message", "err", err)
+			}
 		}
 		return
 	case "graph":
 		if err := gw.handleGraphMessage(ctx, ch, msg); err != nil {
 			slog.Error("graph engine error", "err", err)
-			_ = ch.Send(ctx, channel.OutboundMessage{
+			if err := ch.Send(ctx, channel.OutboundMessage{
 				Channel:   msg.Channel,
 				ChannelID: msg.ChannelID,
 				Text:      "Error: " + err.Error(),
-			})
+			}); err != nil {
+				slog.Warn("failed to send message", "err", err)
+			}
 		}
 		return
 	}
 
 	if err := gw.runtime.HandleMessage(ctx, ch, msg); err != nil {
 		slog.Error("agent error", "err", err)
-		_ = ch.Send(ctx, channel.OutboundMessage{
+		if err := ch.Send(ctx, channel.OutboundMessage{
 			Channel:   msg.Channel,
 			ChannelID: msg.ChannelID,
 			Text:      "Error: " + err.Error(),
-		})
+		}); err != nil {
+			slog.Warn("failed to send message", "err", err)
+		}
 	}
 }
 
@@ -811,7 +827,9 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 
 	if gw.taskLedger == nil {
 		target.Text = "Task ledger not available."
-		_ = ch.Send(ctx, target)
+		if err := ch.Send(ctx, target); err != nil {
+			slog.Warn("failed to send message", "err", err)
+		}
 		return
 	}
 
@@ -819,7 +837,9 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 	runningTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &running})
 	if err != nil {
 		target.Text = "Error: failed to list tasks: " + err.Error()
-		_ = ch.Send(ctx, target)
+		if err := ch.Send(ctx, target); err != nil {
+			slog.Warn("failed to send message", "err", err)
+		}
 		return
 	}
 
@@ -827,7 +847,9 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 	pendingTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &pending})
 	if err != nil {
 		target.Text = "Error: failed to list tasks: " + err.Error()
-		_ = ch.Send(ctx, target)
+		if err := ch.Send(ctx, target); err != nil {
+			slog.Warn("failed to send message", "err", err)
+		}
 		return
 	}
 
@@ -856,7 +878,9 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 	}
 
 	target.Text = b.String()
-	_ = ch.Send(ctx, target)
+	if err := ch.Send(ctx, target); err != nil {
+		slog.Warn("failed to send message", "err", err)
+	}
 }
 
 // handleTeamCommand breaks a goal into parallel tasks using the LLM and executes them.
@@ -1050,11 +1074,13 @@ func (gw *Gateway) startA2AServer() error {
 			}
 		}
 		if ch != nil {
-			_ = ch.Send(ctx, channel.OutboundMessage{
+			if err := ch.Send(ctx, channel.OutboundMessage{
 				Channel:   ch.Name(),
 				ChannelID: task.ID,
 				Text:      task.Input.Message,
-			})
+			}); err != nil {
+				slog.Warn("failed to send message", "err", err)
+			}
 		}
 		return &a2a.TaskOutput{
 			Text: "Task dispatched to IronClaw agent runtime",
