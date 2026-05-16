@@ -40,6 +40,23 @@ func (p *Planner) SetRLPolicy(policy RLPolicy) {
 	p.rlPolicy = policy
 }
 
+// strategyHint carries a named planning strategy.
+type strategyHint struct {
+	Name string
+	Hint string
+}
+
+// generateWithHint runs the planner with a specific strategy hint injected into the state.
+// Used by MCTS and tree-search planners for candidate generation.
+func (p *Planner) generateWithHint(ctx context.Context, state *CognitiveState, hint strategyHint) (*TaskPlan, error) {
+	if p == nil || state == nil {
+		return nil, fmt.Errorf("planner unavailable")
+	}
+	hintedState := *state
+	hintedState.StrategyHints = strings.TrimSpace(hint.Hint)
+	return p.Run(ctx, &hintedState)
+}
+
 // Run executes the PLAN phase. Makes one LLM call (no Tools parameter — planning only).
 func (p *Planner) Run(ctx context.Context, state *CognitiveState) (*TaskPlan, error) {
 	userMsg := buildPlanUserMessage(state, p.tools)

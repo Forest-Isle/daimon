@@ -62,6 +62,7 @@ type CognitiveAgent struct {
 	replayRecorder      *ReplayRecorder
 	selfHealEngine      *SelfHealEngine
 	treePlanner         *StrategicTreePlanner
+	mctsPlanner         *MCTSPlanner
 }
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
@@ -192,6 +193,12 @@ func (ca *CognitiveAgent) SetSelfHealEngine(eng *SelfHealEngine) {
 
 func (ca *CognitiveAgent) SetTreePlanner(tp *StrategicTreePlanner) {
 	ca.treePlanner = tp
+}
+
+// SetMCTSPlanner injects a Monte Carlo Tree Search planner.
+// When set, MCTS takes priority over the simpler tree planner during PLAN.
+func (ca *CognitiveAgent) SetMCTSPlanner(mp *MCTSPlanner) {
+	ca.mctsPlanner = mp
 }
 
 // SetHookManager injects a hook manager into the cognitive agent, its executor, and inner runtime.
@@ -546,10 +553,35 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	var ppoStrategy *rl.PlanStrategyAction
 	var dqnReplanAction rl.ReplanActionType
 	treePlanner := ca.treePlanner
+	mctsPlanner := ca.mctsPlanner
+	var mctsCandidates []PlanCandidate
 
 	cognitiveTurnStart := time.Now()
 
-	if treePlanner != nil {
+	// MCTS takes priority over simple tree planner — it internally handles
+	// the full selection → expansion → simulation → backpropagation loop.
+	// When MCTS succeeds, we skip the per-attempt PLAN phase and use its
+	// candidate list for replanning fallback.
+	mctsActive := false
+	if mctsPlanner != nil {
+		slog.Info("cognitive: running MCTS search", "session", sess.ID)
+		mctsPlan, candidates, err := mctsPlanner.Search(ctx, state)
+		if err != nil {
+			slog.Warn("mcts: search failed, falling back", "err", err)
+			mctsPlanner = nil
+		} else {
+			plan = mctsPlan
+			mctsCandidates = candidates
+			mctsActive = true
+			slog.Info("mcts: search complete",
+				"plan_steps", len(plan.SubTasks),
+				"candidates", len(candidates),
+				"tree_stats", mctsPlanner.TreeStats(),
+			)
+		}
+	}
+
+	if !mctsActive && treePlanner != nil {
 		if err := treePlanner.GenerateCandidates(ctx, state); err != nil {
 			slog.Warn("tree-planner: generate candidates failed, falling back to linear", "err", err)
 			treePlanner = nil
@@ -557,6 +589,19 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	}
 
 	for attempt := 0; attempt <= maxReplans; attempt++ {
+		if attempt > 0 && mctsActive && len(mctsCandidates) > 1 {
+			// MCTS replan: pick next best candidate from the explored tree
+			nextIdx := attempt - 1
+			if nextIdx < len(mctsCandidates) {
+				plan = mctsCandidates[nextIdx].Plan
+				slog.Info("mcts: replan from candidate tree",
+					"attempt", attempt,
+					"candidate_idx", nextIdx,
+					"strategy", mctsCandidates[nextIdx].Strategy,
+					"score", mctsCandidates[nextIdx].LLMScore,
+				)
+			}
+		}
 		if attempt > 0 {
 			slog.Info("cognitive: replanning", "attempt", attempt, "max", maxReplans, "session", sess.ID)
 			if ca.dashEmitter != nil {
@@ -576,45 +621,59 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 		}
 
 		// ── PLAN ──────────────────────────────────────────────────────────────
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
-		}
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseStart(ctx, replayID, "PLAN")
-		}
-		planStart := time.Now()
-		donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
-		if treePlanner != nil {
-			plan = treePlanner.Select()
+		if mctsActive {
+			// MCTS already explored the plan space — use the selected plan directly.
+			// The plan was set either before the loop (initial search) or at the
+			// top of this iteration (replan from candidate tree).
 			if plan == nil {
-				failureSummary := buildTreeFailureSummary(reflection, obsResult)
-				if expandErr := treePlanner.Expand(ctx, failureSummary); expandErr != nil {
-					slog.Warn("tree-planner: expand failed", "err", expandErr)
-					donePlan()
-					break
-				}
+				slog.Warn("mcts: plan is nil despite mctsActive, falling back")
+				plan, err = ca.planner.Run(ctx, state)
+			}
+			slog.Info("cognitive: using MCTS plan",
+				"attempt", attempt,
+				"plan_steps", len(plan.SubTasks),
+			)
+		} else {
+			if ca.dashEmitter != nil {
+				ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
+			}
+			if ca.replayRecorder != nil && replayID != "" {
+				ca.replayRecorder.RecordPhaseStart(ctx, replayID, "PLAN")
+			}
+			planStart := time.Now()
+			donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
+			if treePlanner != nil {
 				plan = treePlanner.Select()
 				if plan == nil {
-					donePlan()
-					break
+					failureSummary := buildTreeFailureSummary(reflection, obsResult)
+					if expandErr := treePlanner.Expand(ctx, failureSummary); expandErr != nil {
+						slog.Warn("tree-planner: expand failed", "err", expandErr)
+						donePlan()
+						break
+					}
+					plan = treePlanner.Select()
+					if plan == nil {
+						donePlan()
+						break
+					}
 				}
+				slog.Info("tree-planner: selected plan",
+					"strategy", treePlanner.currentNode.Candidates[treePlanner.currentIdx].Strategy,
+					"score", treePlanner.currentNode.Candidates[treePlanner.currentIdx].LLMScore,
+					"depth", treePlanner.currentNode.Depth)
+			} else {
+				plan, err = ca.planner.Run(ctx, state)
 			}
-			slog.Info("tree-planner: selected plan",
-				"strategy", treePlanner.currentNode.Candidates[treePlanner.currentIdx].Strategy,
-				"score", treePlanner.currentNode.Candidates[treePlanner.currentIdx].LLMScore,
-				"depth", treePlanner.currentNode.Depth)
-		} else {
-			plan, err = ca.planner.Run(ctx, state)
+			donePlan()
+			if ca.dashEmitter != nil {
+				ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
+			}
+			if ca.replayRecorder != nil && replayID != "" {
+				ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "PLAN", time.Since(planStart).Milliseconds())
+			}
+			observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
+				metric.WithAttributes(attribute.String("phase", "plan")))
 		}
-		donePlan()
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
-		}
-		if ca.replayRecorder != nil && replayID != "" {
-			ca.replayRecorder.RecordPhaseEnd(ctx, replayID, "PLAN", time.Since(planStart).Milliseconds())
-		}
-		observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
-			metric.WithAttributes(attribute.String("phase", "plan")))
 		if err != nil {
 			slog.Error("cognitive: plan failed", "err", err)
 			if ca.replayRecorder != nil && replayID != "" {

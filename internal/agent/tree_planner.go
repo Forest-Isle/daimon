@@ -318,11 +318,6 @@ func (p *StrategicTreePlanner) evaluateCandidates(ctx context.Context, state *Co
 	return nil
 }
 
-type strategyHint struct {
-	Name string
-	Hint string
-}
-
 func (p *StrategicTreePlanner) generateCandidatesForHints(ctx context.Context, state *CognitiveState, hints []strategyHint) ([]*PlanCandidate, error) {
 	candidates := make([]*PlanCandidate, 0, len(hints))
 	for _, strategy := range hints {
