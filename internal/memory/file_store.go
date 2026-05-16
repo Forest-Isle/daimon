@@ -646,11 +646,13 @@ func (s *FileMemoryStore) Update(ctx context.Context, id string, content string,
 	if s.embedder != nil {
 		if embedding, embErr := s.embedder.Embed(ctx, content); embErr == nil {
 			embBytes := serializeEmbedding(embedding)
-			_, _ = s.db.ExecContext(ctx, `
+			if _, execErr := s.db.ExecContext(ctx, `
 				INSERT INTO memory_embeddings (memory_id, embedding, dimension)
 				VALUES (?, ?, ?)
 				ON CONFLICT(memory_id) DO UPDATE SET embedding = excluded.embedding
-			`, id, embBytes, len(embedding))
+			`, id, embBytes, len(embedding)); execErr != nil {
+				slog.Warn("memory: embedding index update failed", "err", execErr)
+			}
 		}
 	}
 
