@@ -28,6 +28,12 @@ const typeColors: Record<string, string> = {
   procedural: '#22c55e',
   profile: '#f59e0b',
 }
+
+const positions: Record<string, {x:number,y:number}> = {
+  m1: {x:200,y:100}, m2: {x:400,y:150}, m3: {x:300,y:250},
+  m4: {x:150,y:300}, m5: {x:450,y:300},
+}
+function pos(id: string) { return positions[id] || {x:300, y:200} }
 </script>
 
 <template>
@@ -45,9 +51,11 @@ const typeColors: Record<string, string> = {
     <div class="memory-layout">
       <div class="memory-graph">
         <svg viewBox="0 0 600 400" class="graph-svg">
-          <line v-for="m in filtered" v-for="c in m.connections"
-            :key="`${m.id}-${c}`" :x1="pos(m.id).x" :y1="pos(m.id).y"
-            :x2="pos(c).x" :y2="pos(c).y" stroke="#333" stroke-width="1" />
+          <template v-for="m in filtered" :key="m.id">
+            <line v-for="c in m.connections"
+              :key="`${m.id}-${c}`" :x1="pos(m.id).x" :y1="pos(m.id).y"
+              :x2="pos(c).x" :y2="pos(c).y" stroke="#333" stroke-width="1" />
+          </template>
           <g v-for="(m, i) in filtered" :key="m.id" @click="selected = m">
             <circle :cx="pos(m.id).x" :cy="pos(m.id).y" :r="12 + m.strength * 10"
               :fill="typeColors[m.type] + '44'" :stroke="typeColors[m.type]" stroke-width="2" />
@@ -80,13 +88,6 @@ const typeColors: Record<string, string> = {
   </div>
 </template>
 
-<script lang="ts">
-const positions: Record<string, {x:number,y:number}> = {
-  m1: {x:200,y:100}, m2: {x:400,y:150}, m3: {x:300,y:250},
-  m4: {x:150,y:300}, m5: {x:450,y:300},
-}
-function pos(id: string) { return positions[id] || {x:300, y:200} }
-</script>
 
 <style scoped>
 .memory-explorer { display: flex; flex-direction: column; height: calc(100vh - 48px); }

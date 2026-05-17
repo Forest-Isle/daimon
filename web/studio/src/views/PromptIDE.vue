@@ -72,7 +72,7 @@ const versions = ref([
       <div class="editor-pane">
         <div class="editor-header">
           <span>Editor</span>
-          <span class="vars">Variables: <code v-for="v in variables" :key="v">{{ '{{' }}{{ v }}{{ '}}' }}</code></span>
+          <span class="vars">Variables: <code v-for="v in variables" :key="v">{{ v }}</code></span>
         </div>
         <textarea v-model="promptText" class="prompt-editor" spellcheck="false"></textarea>
       </div>
