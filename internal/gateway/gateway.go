@@ -40,6 +40,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"github.com/Forest-Isle/IronClaw/internal/userdir"
+	"github.com/Forest-Isle/IronClaw/internal/wasm"
 )
 
 // Gateway is the central coordinator that wires all modules together.
@@ -60,6 +61,7 @@ type Gateway struct {
 	kbSearcher       knowledge.Searcher
 	graphStore       graph.Graph
 	cortex           *cortex.UnifiedRetriever
+	wasmHost         *wasm.PluginHost
 	factExtractor    *memory.LLMFactExtractor
 	lifecycleMgr     *memory.LifecycleManager
 	skillMgr         *skill.Manager
@@ -205,6 +207,11 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		if gw.cognitiveAgent != nil {
 			gw.cognitiveAgent.SetCortexRetriever(gw.cortex)
 		}
+	}
+
+	// WASM plugin host — load .wasm tools from ~/.IronClaw/plugins/
+	if gw.features.IsEnabled("wasm_plugins") {
+		gw.loadWasmPlugins(context.Background())
 	}
 	if err := gw.initSkillManager(); err != nil {
 		return nil, fmt.Errorf("skills: %w", err)
@@ -378,6 +385,10 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	}
 
 	// Start RL trainer
+
+	if gw.wasmHost != nil {
+		_ = gw.wasmHost.Close(ctx)
+	}
 	if gw.rlTrainer != nil {
 		gw.rlTrainer.Start(ctx)
 		slog.Info("RL trainer started")
@@ -387,6 +398,10 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
 		gw.evoEngine.Start()
 
+
+	if gw.wasmHost != nil {
+		_ = gw.wasmHost.Close(ctx)
+	}
 		if gw.rlTrainer != nil {
 			go gw.importTrajectoriesToRL()
 		}
@@ -443,6 +458,10 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 
 	_ = gw.mcpManager.Close()
 
+
+	if gw.wasmHost != nil {
+		_ = gw.wasmHost.Close(ctx)
+	}
 	if gw.rlTrainer != nil {
 		gw.rlTrainer.Stop()
 	}
@@ -1122,4 +1141,53 @@ func (gw *Gateway) stopA2AServer() error {
 	}
 	slog.Info("a2a: server stopped")
 	return nil
+}
+
+// loadWasmPlugins scans ~/.IronClaw/plugins/ and loads all .wasm tools.
+func (gw *Gateway) loadWasmPlugins(ctx context.Context) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		slog.Warn("wasm: cannot find home dir", "err", err)
+		return
+	}
+	pluginsDir := filepath.Join(home, ".IronClaw", "plugins")
+	entries, err := os.ReadDir(pluginsDir)
+	if err != nil {
+		slog.Debug("wasm: plugins dir not found, skipping", "path", pluginsDir)
+		return
+	}
+
+	gw.wasmHost = wasm.NewPluginHost(ctx)
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		manifestPath := filepath.Join(pluginsDir, entry.Name(), "plugin.yaml")
+		if _, err := os.Stat(manifestPath); err != nil {
+			continue
+		}
+		plugin, err := gw.wasmHost.LoadPlugin(ctx, manifestPath)
+		if err != nil {
+			slog.Warn("wasm: failed to load plugin", "name", entry.Name(), "err", err)
+			continue
+		}
+		wasmTool := wasm.NewWasmTool(plugin)
+		gw.tools.Register(wasmTool)
+		slog.Info("wasm: plugin loaded as tool", "name", plugin.Manifest.Name, "version", plugin.Manifest.Version)
+	}
+}
+
+// unloadWasmPlugins shuts down all WASM plugins and the host runtime.
+func (gw *Gateway) unloadWasmPlugins(ctx context.Context) {
+	if gw.wasmHost == nil {
+		return
+	}
+	// Unregister WASM tools
+	for _ = range gw.wasmHost.ListPlugins() {
+	}
+	if err := gw.wasmHost.Close(ctx); err != nil {
+		slog.Warn("wasm: host close error", "err", err)
+	}
+	gw.wasmHost = nil
 }

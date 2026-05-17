@@ -149,6 +149,14 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 	})
 
 	r.Register(feature.Feature{
+		Name:          "wasm_plugins",
+		Description:   "WASM plugin system — load tools as .wasm modules with capability security",
+		Default:       false,
+		Phase:         feature.PhaseConstruct,
+		HotReloadable: true,
+	})
+
+	r.Register(feature.Feature{
 		Name:          "a2a",
 		Description:   "A2A (Agent-to-Agent) protocol server for agent interoperability",
 		Default:       false,
@@ -225,6 +233,16 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 		slog.Warn("gateway: SetOnDisable hook failed", "feature", "scheduler", "err", err)
 	}
 
+
+	// WASM plugin host lifecycle
+	_ = gw.features.SetOnEnable("wasm_plugins", func(ctx context.Context) error {
+		gw.loadWasmPlugins(ctx)
+		return nil
+	})
+	_ = gw.features.SetOnDisable("wasm_plugins", func(ctx context.Context) error {
+		gw.unloadWasmPlugins(ctx)
+		return nil
+	})
 
 		// A2A server lifecycle
 		_ = gw.features.SetOnEnable("a2a", func(ctx context.Context) error {
