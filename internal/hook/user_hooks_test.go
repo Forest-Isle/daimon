@@ -39,7 +39,7 @@ func TestUserHookManagerRunHooksJSONInput(t *testing.T) {
 	dir := t.TempDir()
 	writeHookScript(t, dir, "10_pre_tool_use_echo.sh", "#!/bin/sh\ncat\n")
 
-	m := NewUserHookManager(dir, time.Second)
+	m := NewUserHookManager(dir, 10*time.Second)
 	results := m.RunHooks(context.Background(), HookPreToolUse, map[string]any{
 		"tool_name":  "bash",
 		"tool_input": "git status",
@@ -90,7 +90,7 @@ func TestUserHookManagerPriorityOrdering(t *testing.T) {
 	writeHookScript(t, dir, "20_post_tool_use_second.sh", "#!/bin/sh\nprintf second\n")
 	writeHookScript(t, dir, "10_post_tool_use_first.sh", "#!/bin/sh\nprintf first\n")
 
-	m := NewUserHookManager(dir, time.Second)
+	m := NewUserHookManager(dir, 10*time.Second)
 	results := m.RunHooks(context.Background(), HookPostToolUse, map[string]any{
 		"tool_name":   "bash",
 		"tool_input":  "echo hi",

@@ -385,10 +385,6 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	}
 
 	// Start RL trainer
-
-	if gw.wasmHost != nil {
-		_ = gw.wasmHost.Close(ctx)
-	}
 	if gw.rlTrainer != nil {
 		gw.rlTrainer.Start(ctx)
 		slog.Info("RL trainer started")
@@ -397,11 +393,6 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	// Start evolution engine only when feature is enabled
 	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
 		gw.evoEngine.Start()
-
-
-	if gw.wasmHost != nil {
-		_ = gw.wasmHost.Close(ctx)
-	}
 		if gw.rlTrainer != nil {
 			go gw.importTrajectoriesToRL()
 		}
@@ -457,7 +448,6 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	}
 
 	_ = gw.mcpManager.Close()
-
 
 	if gw.wasmHost != nil {
 		_ = gw.wasmHost.Close(ctx)

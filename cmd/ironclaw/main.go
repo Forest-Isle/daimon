@@ -48,7 +48,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(startCmd, versionCmd, newTUICmd(), newSkillCmd(), newMemoryCmd(), newAgentCmd(), newInsightsCmd(), newEvalCmd(), newMCPCmd(), newTrainingCmd())
+	root.AddCommand(startCmd, versionCmd, newTUICmd(), newSkillCmd(), newMemoryCmd(), newAgentCmd(), newInsightsCmd(), newEvalCmd(), newMCPCmd(), newTrainingCmd(), newCoreCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
