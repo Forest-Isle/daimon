@@ -129,7 +129,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		obsShutdown: func(context.Context) {},
 	}
 	gw.currentMode.Store(cfg.Agent.Mode)
-	gw.initCtx, _ = context.WithTimeout(context.Background(), 30*time.Second)
+	initCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	gw.initCtx = initCtx
+	defer cancel()
 
 	if err := gw.initDatabase(); err != nil {
 		return nil, fmt.Errorf("database: %w", err)
