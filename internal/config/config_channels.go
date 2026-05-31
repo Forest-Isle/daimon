@@ -27,8 +27,9 @@ type RetryConfig struct {
 }
 
 type TelegramConfig struct {
-	Token          string  `yaml:"token"`
-	AllowedUserIDs []int64 `yaml:"allowed_user_ids"`
+	Token          string        `yaml:"token"`
+	AllowedUserIDs []int64       `yaml:"allowed_user_ids"`
+	Timeout        time.Duration `yaml:"timeout"` // long-polling timeout for update retrieval; default: 30s
 }
 
 // DiscordConfig holds Discord bot settings.

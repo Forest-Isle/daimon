@@ -733,7 +733,9 @@ func (s *FileMemoryStore) writeFileAtomic(path string, mf MemoryFile) error {
 	if err := f.Sync(); err != nil {
 		return err
 	}
-	_ = f.Close()
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
 
 	return os.Rename(tmpPath, path)
 }

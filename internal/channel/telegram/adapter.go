@@ -22,6 +22,7 @@ type Adapter struct {
 	allowedUserIDs map[int64]bool
 	handler        channel.InboundHandler
 	stopCh         chan struct{}
+	pollTimeout    int // seconds
 
 	// Approval tracking — moved from Gateway so the adapter fully owns the flow.
 	pendingApprovals    sync.Map // key: toolName → chan bool
@@ -33,7 +34,7 @@ type Adapter struct {
 	autoApprove bool
 }
 
-func New(token string, allowedUserIDs []int64) (*Adapter, error) {
+func New(token string, allowedUserIDs []int64, timeoutSecs ...int) (*Adapter, error) {
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("telegram bot init: %w", err)
@@ -44,11 +45,17 @@ func New(token string, allowedUserIDs []int64) (*Adapter, error) {
 		allowed[id] = true
 	}
 
-	slog.Info("telegram bot authorized", "username", bot.Self.UserName)
+	pollTimeout := 30
+	if len(timeoutSecs) > 0 && timeoutSecs[0] > 0 {
+		pollTimeout = timeoutSecs[0]
+	}
+
+	slog.Info("telegram bot authorized", "poll_timeout", pollTimeout, "username", bot.Self.UserName)
 	return &Adapter{
 		bot:                 bot,
 		allowedUserIDs:      allowed,
 		stopCh:              make(chan struct{}),
+		pollTimeout:         pollTimeout,
 		approvalTimeoutSecs: 120,
 	}, nil
 }
@@ -66,7 +73,7 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 	a.handler = handler
 
 	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 30
+	u.Timeout = a.pollTimeout
 	updates := a.bot.GetUpdatesChan(u)
 
 	go func() {

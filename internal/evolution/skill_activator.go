@@ -32,6 +32,25 @@ func (a *SkillActivator) SetGates(gates []SafetyGate) {
 	a.gates = gates
 }
 
+// SetSandboxValidator configures the SandboxTestGate in the gate list with the
+// given validator and enabled flag. If no SandboxTestGate is found, it is
+// appended. This allows the caller (e.g. gateway) to inject sandbox validation
+// without coupling the evolution package to the sandbox package.
+func (a *SkillActivator) SetSandboxValidator(enabled bool, validator SandboxValidator) {
+	for _, g := range a.gates {
+		if sg, ok := g.(*SandboxTestGate); ok {
+			sg.Enabled = enabled
+			sg.Validator = validator
+			return
+		}
+	}
+	// No SandboxTestGate found; append one.
+	a.gates = append(a.gates, &SandboxTestGate{
+		Enabled:   enabled,
+		Validator: validator,
+	})
+}
+
 // PromoteDraft validates a draft through all safety gates. If all pass, returns
 // promoted=true. The caller is responsible for moving the file.
 func (a *SkillActivator) PromoteDraft(draft SkillDraft) (promoted bool, failedGate string, reason string) {

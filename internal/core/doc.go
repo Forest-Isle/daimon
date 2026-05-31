@@ -8,19 +8,18 @@
 //     internal/tool.Registry via thin adapters so existing LLM/tool
 //     implementations are reused without modification.
 //
-// Sub-packages:
+// The package is organized as flat files within this package rather than
+// sub-packages:
 //
-//	core/llm      Clean LLM Provider interface + legacy adapter.
-//	core/tools    Clean Tool interface + Registry + legacy adapter.
-//	core/events   Typed event bus.
-//	core/memory   Minimal pluggable memory store.
-//	core/policy   Tool-call permission decisions.
-//	core/middleware Middleware contracts for tool execution and LLM calls.
-//	core/builtin  Stock middleware: permissions, tracing, result cache.
-//	core/runner   Wires an Agent, Provider, Tools, Memory, and Middleware
-//	              into a single Run(ctx, prompt) → <-chan Event entry point.
+//	agent.go         Core Agent type, Config, Memory interface, tool dispatch.
+//	stream_agent.go  StreamAgent wrapping Agent with streaming LLM support.
+//	provider.go      Provider, Stream, LLMRequest, LLMResponse, LLMChunk.
+//	tool.go          Tool interface, ToolRegistry, ToolSchema, ToolResult.
+//	event.go         Event types and EventSink interface.
+//	middleware.go    ToolMiddleware chain, GateMiddleware, TraceMiddleware.
+//	adapter/         Legacy adapters bridging agent.Provider and tool.Tool.
 //
-// The top-level Agent.Step() function is the entire core loop:
+// The top-level Agent.Run() function is the entire core loop:
 //
 //	for !done {
 //	    response := provider.Complete(messages)

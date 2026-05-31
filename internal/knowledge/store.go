@@ -114,7 +114,11 @@ func (kb *SQLiteKnowledgeBase) Search(ctx context.Context, query KnowledgeQuery)
 	if kb.fts5Available && query.Text != "" {
 		textResults = kb.fts5Search(ctx, query)
 	} else if query.Text != "" {
-		textResults = kb.likeSearch(ctx, query)
+		var likeErr error
+		textResults, likeErr = kb.likeSearch(ctx, query)
+		if likeErr != nil {
+			slog.Warn("knowledge: like search failed, falling back to empty text results", "err", likeErr)
+		}
 	}
 
 	if len(vectorResults) == 0 && len(textResults) == 0 {
@@ -251,14 +255,19 @@ func (kb *SQLiteKnowledgeBase) fts5Search(ctx context.Context, query KnowledgeQu
 		query.Text, limit,
 	)
 	if err != nil {
-		slog.Warn("knowledge: FTS5 search failed", "err", err)
-		return kb.likeSearch(ctx, query)
+		slog.Warn("knowledge: FTS5 search failed, falling back to LIKE search", "err", err)
+		results, likeErr := kb.likeSearch(ctx, query)
+		if likeErr != nil {
+			slog.Warn("knowledge: LIKE fallback also failed", "err", likeErr)
+			return nil
+		}
+		return results
 	}
 	defer func() { _ = rows.Close() }()
 	return scanChunkResults(rows)
 }
 
-func (kb *SQLiteKnowledgeBase) likeSearch(ctx context.Context, query KnowledgeQuery) []KnowledgeResult {
+func (kb *SQLiteKnowledgeBase) likeSearch(ctx context.Context, query KnowledgeQuery) ([]KnowledgeResult, error) {
 	limit := query.Limit * 3
 	sqlQuery := `SELECT id, source_id, source_uri, source_type, content,
                         NULL AS embedding, chunk_index, metadata, created_at
@@ -268,10 +277,10 @@ func (kb *SQLiteKnowledgeBase) likeSearch(ctx context.Context, query KnowledgeQu
                   LIMIT ?`
 	rows, err := kb.db.QueryContext(ctx, sqlQuery, "%"+query.Text+"%", limit)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("like search query: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	return scanChunkResults(rows)
+	return scanChunkResults(rows), nil
 }
 
 // Ingest delegates to the pipeline.
@@ -297,7 +306,9 @@ func (kb *SQLiteKnowledgeBase) Sources(ctx context.Context) ([]Source, error) {
 			continue
 		}
 		s.Title = title.String
-		json.Unmarshal([]byte(metadata), &s.Metadata) //nolint:errcheck
+		if err := json.Unmarshal([]byte(metadata), &s.Metadata); err != nil {
+			slog.Warn("knowledge: failed to unmarshal source metadata", "source_id", s.ID, "err", err)
+		}
 		sources = append(sources, s)
 	}
 	return sources, rows.Err()
@@ -386,10 +397,12 @@ func (kb *SQLiteKnowledgeBase) InvalidateCache() {
 
 // updateChunkCount updates the chunk_count on a source.
 func (kb *SQLiteKnowledgeBase) updateChunkCount(ctx context.Context, sourceID string) {
-	kb.db.ExecContext(ctx, //nolint:errcheck
+	if _, err := kb.db.ExecContext(ctx,
 		`UPDATE kb_sources SET chunk_count = (SELECT COUNT(*) FROM kb_chunks WHERE source_id = ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		sourceID, sourceID,
-	)
+	); err != nil {
+		slog.Warn("knowledge: update chunk count failed", "source_id", sourceID, "err", err)
+	}
 }
 
 func scanChunk(rows *sql.Rows) (Chunk, []byte, bool) {

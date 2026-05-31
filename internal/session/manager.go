@@ -235,8 +235,12 @@ func (m *Manager) Delete(ctx context.Context, channel, channelID string) error {
 
 	if v, ok := m.sessions.Load(key); ok {
 		sess := v.(*Session)
-		_, _ = m.db.ExecContext(ctx, `DELETE FROM messages WHERE session_id = ?`, sess.ID)
-		_, _ = m.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, sess.ID)
+		if _, err := m.db.ExecContext(ctx, `DELETE FROM messages WHERE session_id = ?`, sess.ID); err != nil {
+			slog.Warn("session: failed to delete messages", "session_id", sess.ID, "err", err)
+		}
+		if _, err := m.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, sess.ID); err != nil {
+			slog.Warn("session: failed to delete session", "session_id", sess.ID, "err", err)
+		}
 	}
 
 	m.sessions.Delete(key)
