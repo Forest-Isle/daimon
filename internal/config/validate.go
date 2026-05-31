@@ -2,9 +2,19 @@ package config
 
 import "fmt"
 
+// knownProviders lists the supported LLM provider values.
+var knownProviders = map[string]bool{
+	"claude":             true,
+	"openai":             true,
+	"openai-compatible":  true,
+}
+
 func validate(cfg *Config) error {
 	if cfg.LLM.APIKey == "" {
 		return fmt.Errorf("llm.api_key is required")
+	}
+	if !knownProviders[cfg.LLM.Provider] {
+		return fmt.Errorf("llm.provider must be one of: claude, openai, openai-compatible (got %q)", cfg.LLM.Provider)
 	}
 	if cfg.Telegram.Token == "" {
 		return fmt.Errorf("telegram.token is required")
