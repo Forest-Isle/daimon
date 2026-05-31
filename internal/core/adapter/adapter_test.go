@@ -64,7 +64,10 @@ func TestLegacyAdapter(t *testing.T) {
 	prov := adapter.NewLegacyProvider(legacyProv)
 	tools := adapter.ImportToolRegistry(legacyTools)
 
-	ag := core.New(prov, tools, nil, core.Config{Model: "test"})
+	ag, err := core.New(prov, tools, nil, core.Config{Model: "test"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	out, stop, err := ag.Run(context.Background(), "say hi")
 	if err != nil {
 		t.Fatalf("Run: %v", err)

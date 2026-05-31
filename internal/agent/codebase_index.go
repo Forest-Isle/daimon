@@ -93,8 +93,8 @@ func (idx *CodebaseIndex) IsAvailable() bool {
 }
 
 // IndexFile indexes a single file if its contents changed since the last run.
-func (idx *CodebaseIndex) IndexFile(path string) error {
-	return idx.IndexFileContext(context.Background(), path)
+func (idx *CodebaseIndex) IndexFile(ctx context.Context, path string) error {
+	return idx.IndexFileContext(ctx, path)
 }
 
 // IndexFileContext indexes a single file using the provided context.
@@ -127,8 +127,8 @@ func (idx *CodebaseIndex) IndexFileContext(ctx context.Context, path string) err
 }
 
 // IndexDirectory recursively indexes source files under dir.
-func (idx *CodebaseIndex) IndexDirectory(dir string) error {
-	return idx.IndexDirectoryContext(context.Background(), dir)
+func (idx *CodebaseIndex) IndexDirectory(ctx context.Context, dir string) error {
+	return idx.IndexDirectoryContext(ctx, dir)
 }
 
 // IndexDirectoryContext recursively indexes source files under dir with context.
@@ -151,12 +151,12 @@ func (idx *CodebaseIndex) IndexDirectoryContext(ctx context.Context, dir string)
 }
 
 // Search runs a semantic search and returns the top ranked chunks.
-func (idx *CodebaseIndex) Search(query string, topK int) ([]CodeChunk, error) {
+func (idx *CodebaseIndex) Search(ctx context.Context, query string, topK int) ([]CodeChunk, error) {
 	if topK <= 0 {
 		topK = 5
 	}
 
-	queryEmbedding, err := idx.provider.Embed(context.Background(), query)
+	queryEmbedding, err := idx.provider.Embed(ctx, query)
 	if err != nil {
 		return nil, err
 	}

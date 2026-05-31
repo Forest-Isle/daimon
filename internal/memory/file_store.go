@@ -70,7 +70,7 @@ func NewFileMemoryStore(baseDir string, db *sql.DB, embedder EmbeddingProvider, 
 }
 
 func (s *FileMemoryStore) checkIndexStaleness() error {
-	ctx := context.Background()
+	ctx := context.Background() // deliberate: staleness check runs at startup before any caller context exists
 
 	// Get newest file mtime
 	var newestMtime time.Time
@@ -332,7 +332,7 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 		results[i].Entry.UpdatedAt = mf.UpdatedAt
 
 		go func(id, fp string, mf *MemoryFile) {
-			if err := s.trackAccess(context.Background(), id, fp, mf); err != nil {
+			if err := s.trackAccess(ctx, id, fp, mf); err != nil {
 				slog.Warn("memory: track access", "id", id, "err", err)
 			}
 		}(results[i].Entry.ID, filePath, mf)
@@ -349,6 +349,9 @@ func (s *FileMemoryStore) trackAccess(ctx context.Context, id, filePath string, 
 	if err := s.writeFileAtomic(filePath, *mf); err != nil {
 		return err
 	}
+
+	// Invalidate in-memory index cache so concurrent searches see fresh data.
+	s.invalidateIndexCache()
 
 	// Update memory_index strength cache
 	_, err := s.db.ExecContext(ctx, `UPDATE memory_index SET strength = ? WHERE memory_id = ?`, mf.Strength, id)

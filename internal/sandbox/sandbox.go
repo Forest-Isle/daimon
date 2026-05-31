@@ -62,7 +62,7 @@ func NewAutoSandbox(cfg Config) Sandbox {
 			return bw
 		}
 	}
-	// Fallback to Docker if available
+	// Fallback to Docker — independent of any caller context.
 	if ProbeDocker(context.Background()) {
 		dockerCfg := DockerSessionConfig{
 			Image:        cfg.Image,

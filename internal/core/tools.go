@@ -64,11 +64,20 @@ func (r *ToolRegistry) Lookup(name string) (Tool, bool) {
 	return t, ok
 }
 
-// MustGet panics if the tool is absent. Useful in tests.
-func (r *ToolRegistry) MustGet(name string) Tool {
+// Get returns the tool with the given name, or an error if absent.
+func (r *ToolRegistry) Get(name string) (Tool, error) {
 	t, ok := r.Lookup(name)
 	if !ok {
-		panic(fmt.Sprintf("core: tool %q not registered", name))
+		return nil, fmt.Errorf("core: tool %q not registered", name)
+	}
+	return t, nil
+}
+
+// MustGet panics if the tool is absent. Useful in tests.
+func (r *ToolRegistry) MustGet(name string) Tool {
+	t, err := r.Get(name)
+	if err != nil {
+		panic(err.Error())
 	}
 	return t
 }

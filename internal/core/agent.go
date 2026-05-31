@@ -95,9 +95,9 @@ type Agent struct {
 
 // New constructs an Agent. Memory may be nil — in that case an InMemory is
 // allocated on first use.
-func New(provider Provider, tools *ToolRegistry, mem Memory, cfg Config) *Agent {
+func New(provider Provider, tools *ToolRegistry, mem Memory, cfg Config) (*Agent, error) {
 	if provider == nil {
-		panic("core.New: nil provider")
+		return nil, fmt.Errorf("core.New: nil provider")
 	}
 	if tools == nil {
 		tools = NewToolRegistry()
@@ -120,7 +120,7 @@ func New(provider Provider, tools *ToolRegistry, mem Memory, cfg Config) *Agent 
 		tools:    tools,
 		memory:   mem,
 		handler:  chainTool(baseToolHandler(tools), mws...),
-	}
+	}, nil
 }
 
 // Run drives one user prompt to completion, persisting all messages

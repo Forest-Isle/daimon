@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -94,7 +93,7 @@ func (gw *Gateway) initMemorySystem() error {
 		// Start compactor background task
 		compactor := memory.NewCompactor(gw.memStore, completer, gw.db.DB, storageDir, memCfg)
 		gw.compactor = compactor
-		compactor.Start(context.Background())
+		compactor.Start(gw.initCtx)
 		slog.Info("memory: compactor enabled")
 
 		// Create profiler and wire it to the reflection tracker
@@ -103,7 +102,7 @@ func (gw *Gateway) initMemorySystem() error {
 		gw.runtime.SetProfiler(profiler)
 		slog.Info("memory: profiler created and wired to reflection tracker")
 
-		if err := profiler.MigrateLegacyProfile(context.Background(), "default"); err != nil {
+		if err := profiler.MigrateLegacyProfile(gw.initCtx, "default"); err != nil {
 			slog.Warn("memory: legacy profile migration failed", "err", err)
 		}
 	}
@@ -124,7 +123,7 @@ func (gw *Gateway) initMemorySystem() error {
 
 	// Start consolidator background task (promotes session facts to user scope)
 	gw.consolidator = memory.NewConsolidator(gw.memStore, gw.db.DB, storageDir, gw.cfg.Memory.ConsolidationInterval)
-	gw.consolidator.Start(context.Background())
+	gw.consolidator.Start(gw.initCtx)
 	slog.Info("memory: consolidator enabled")
 
 	// Schedule daily retention policy enforcement alongside fade task
@@ -134,10 +133,10 @@ func (gw *Gateway) initMemorySystem() error {
 		for {
 			select {
 			case <-ticker.C:
-				if err := forgettingCurve.FadeWeakMemoriesFromFiles(context.Background(), storageDir); err != nil {
+				if err := forgettingCurve.FadeWeakMemoriesFromFiles(gw.initCtx, storageDir); err != nil {
 					slog.Warn("memory: fade weak memory files failed", "err", err)
 				}
-				if err := forgettingCurve.FadeByRetentionPolicy(context.Background(), storageDir, memCfg); err != nil {
+				if err := forgettingCurve.FadeByRetentionPolicy(gw.initCtx, storageDir, memCfg); err != nil {
 					slog.Warn("memory: retention policy enforcement failed", "err", err)
 				}
 			case <-gw.stopCh:

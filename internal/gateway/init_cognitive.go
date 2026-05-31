@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"os"
@@ -62,7 +61,7 @@ func (gw *Gateway) initCognitiveAgent() error {
 	if gw.featureEnabled("rl") {
 		rlStorage := rl.NewStorage(gw.db)
 		rlPolicy := rl.NewPolicy(rlStorage, gw.cfg.Agent.RL)
-		if err := rlPolicy.LoadCheckpoint(context.Background()); err != nil {
+		if err := rlPolicy.LoadCheckpoint(gw.initCtx); err != nil {
 			slog.Warn("gateway: failed to load RL checkpoint", "err", err)
 		}
 		gw.rlTrainer = rl.NewTrainer(rlPolicy, gw.cfg.Agent.RL)

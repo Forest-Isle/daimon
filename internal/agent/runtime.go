@@ -556,7 +556,9 @@ func (r *Runtime) HandleMessage(ctx context.Context, ch channel.Channel, msg cha
 					slog.Error("runtime: panic in fact extraction goroutine", "panic", r)
 				}
 			}()
-			bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			// Detach from caller ctx to prevent cancellation from killing
+			// the write after the request completes, then impose our own timeout.
+			bgCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			defer cancel()
 
 			// Find the last user message and assistant response from session history.

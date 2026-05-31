@@ -22,10 +22,13 @@ func TestVerifierMiddlewareBashExitCode(t *testing.T) {
 	})
 
 	mw := core.VerifierMiddleware(core.BashVerifier{})
-	ag := core.New(&fakeProvider{turns: []core.LLMResponse{
+	ag, err := core.New(&fakeProvider{turns: []core.LLMResponse{
 		{ToolCalls: []core.ToolCall{{ID: "u1", Name: "bash", Input: json.RawMessage(`{"cmd":"false"}`)}}, StopReason: core.StopToolUse},
 		{Text: "the command failed", StopReason: core.StopEndTurn},
 	}}, reg, nil, core.Config{ToolMiddleware: []core.ToolMiddleware{mw}})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	out, _, err := ag.Run(context.Background(), "run false")
 	if err != nil {
@@ -37,10 +40,13 @@ func TestVerifierMiddlewareBashExitCode(t *testing.T) {
 
 	// Re-run with injected memory for post-mortem verification.
 	mem2 := core.NewInMemory()
-	ag2 := core.New(&fakeProvider{turns: []core.LLMResponse{
+	ag2, err := core.New(&fakeProvider{turns: []core.LLMResponse{
 		{ToolCalls: []core.ToolCall{{ID: "u1", Name: "bash", Input: json.RawMessage(`{"cmd":"false"}`)}}, StopReason: core.StopToolUse},
 		{Text: "fixed", StopReason: core.StopEndTurn},
 	}}, reg, mem2, core.Config{ToolMiddleware: []core.ToolMiddleware{mw}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ag2.Run(context.Background(), "run false")
 	snap, _ := mem2.Snapshot(context.Background())
 	for _, m := range snap {
@@ -57,10 +63,13 @@ func TestVerifierMiddlewarePassThrough(t *testing.T) {
 
 	mw := core.VerifierMiddleware(core.BashVerifier{}) // bash verifier, but we call echo
 	mem := core.NewInMemory()
-	ag := core.New(&fakeProvider{turns: []core.LLMResponse{
+	ag, err := core.New(&fakeProvider{turns: []core.LLMResponse{
 		{ToolCalls: []core.ToolCall{{ID: "u1", Name: "echo", Input: json.RawMessage(`{"message":"hi"}`)}}, StopReason: core.StopToolUse},
 		{Text: "ok", StopReason: core.StopEndTurn},
 	}}, reg, mem, core.Config{ToolMiddleware: []core.ToolMiddleware{mw}})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if _, _, err := ag.Run(context.Background(), "echo"); err != nil {
 		t.Fatalf("Run: %v", err)

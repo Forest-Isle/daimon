@@ -27,7 +27,7 @@ func (al *AccessLog) RecordAccess(ctx context.Context, factID, sessionID string)
 	}
 
 	// Update stats synchronously for tests
-	al.updateStats(factID)
+	al.updateStats(ctx, factID)
 	return nil
 }
 
@@ -40,11 +40,11 @@ func (al *AccessLog) GetStats(ctx context.Context, factID string) (count int, la
 	return
 }
 
-func (al *AccessLog) updateStats(factID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+func (al *AccessLog) updateStats(ctx context.Context, factID string) {
+	childCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	if _, err := al.db.ExecContext(ctx, `
+	if _, err := al.db.ExecContext(childCtx, `
 		INSERT INTO memory_access_stats (fact_id, access_count, last_access, first_access)
 		SELECT ?, COUNT(*), MAX(accessed_at), MIN(accessed_at)
 		FROM memory_access_log

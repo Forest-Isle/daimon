@@ -341,7 +341,7 @@ func (kb *SQLiteKnowledgeBase) saveChunk(ctx context.Context, chunk Chunk) error
 	if len(chunk.Embedding) > 0 {
 		embBytes = float32ToBytes(chunk.Embedding)
 	} else if chunk.Content != "" && kb.embedder != nil {
-		emb, err := kb.embedder.Embed(context.Background(), chunk.Content)
+		emb, err := kb.embedder.Embed(ctx, chunk.Content)
 		if err != nil {
 			slog.Warn("knowledge: failed to embed chunk", "err", err)
 		} else {

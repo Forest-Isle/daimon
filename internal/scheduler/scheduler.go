@@ -22,6 +22,7 @@ type Scheduler struct {
 	pollInterval time.Duration
 	mu           sync.Mutex
 	entries      map[string]cron.EntryID // taskID -> cronEntryID
+	ctx          context.Context         // parent context for task handlers; set in Start
 	cancel       context.CancelFunc
 }
 
@@ -43,6 +44,7 @@ func (s *Scheduler) SetHandler(h TaskHandler) {
 // Start performs an initial sync, starts the cron runner,
 // and launches a background goroutine that polls for DB changes.
 func (s *Scheduler) Start(ctx context.Context) {
+	s.ctx = ctx
 	pollCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 
@@ -124,7 +126,7 @@ func (s *Scheduler) registerTask(ctx context.Context, task Task) {
 	entryID, err := s.cron.AddFunc(t.CronExpr, func() {
 		slog.Info("scheduled task triggered", "name", t.Name, "id", t.ID)
 		if s.handler != nil {
-			s.handler(context.Background(), t)
+			s.handler(s.ctx, t)
 		}
 		// Update last_run
 		if _, err := s.db.Exec(

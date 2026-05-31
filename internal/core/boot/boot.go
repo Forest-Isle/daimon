@@ -88,7 +88,7 @@ func New(opts Options) (*core.Agent, error) {
 		ToolMiddleware: append([]core.ToolMiddleware{core.CacheToolMiddleware(tools)}, opts.ExtraMW...),
 	}
 
-	return core.New(adapter.NewLegacyProvider(provider), tools, mem, corecfg), nil
+	return core.New(adapter.NewLegacyProvider(provider), tools, mem, corecfg)
 }
 
 // Run is a one-shot convenience: build an agent, run a prompt, return the

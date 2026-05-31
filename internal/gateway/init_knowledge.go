@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"log/slog"
 	"time"
 
@@ -45,7 +44,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 
 	// Ingest configured directories at startup
 	for _, dir := range gw.cfg.Knowledge.IngestDirs {
-		if err := kb.GetPipeline().IngestDir(context.Background(), dir); err != nil {
+		if err := kb.GetPipeline().IngestDir(gw.initCtx, dir); err != nil {
 			slog.Warn("gateway: failed to ingest dir", "dir", dir, "err", err)
 		}
 	}
@@ -63,13 +62,13 @@ func (gw *Gateway) initKnowledgeSystem() error {
 
 		// Extract entities from already-ingested chunks in background
 		go func() {
-			sources, err := kb.Sources(context.Background())
+			sources, err := kb.Sources(gw.initCtx)
 			if err != nil {
 				slog.Warn("gateway: failed to list KB sources for graph extraction", "err", err)
 				return
 			}
 			for _, src := range sources {
-				results, err := kb.Search(context.Background(), knowledge.KnowledgeQuery{
+				results, err := kb.Search(gw.initCtx, knowledge.KnowledgeQuery{
 					Text:       "",
 					SourceType: src.SourceType,
 					Limit:      50,
@@ -78,7 +77,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 					continue
 				}
 				for _, r := range results {
-					extractor.Extract(context.Background(), r.Chunk.Content, "kb_chunk", r.Chunk.ID) //nolint:errcheck
+					extractor.Extract(gw.initCtx, r.Chunk.Content, "kb_chunk", r.Chunk.ID) //nolint:errcheck
 				}
 			}
 			slog.Info("gateway: initial graph entity extraction complete")
@@ -99,7 +98,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 		// Start graph decay background task
 		graphDecay := graph.NewGraphDecayTask(kg, 24*time.Hour)
 		gw.graphDecay = graphDecay
-		go graphDecay.Start(context.Background())
+		go graphDecay.Start(gw.initCtx)
 		slog.Info("knowledge graph: decay task started")
 
 		slog.Info("knowledge graph initialized")

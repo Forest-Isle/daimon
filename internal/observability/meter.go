@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -77,7 +78,7 @@ func mustInitInstruments(m metric.Meter) {
 		metric.WithUnit("ms"),
 	)
 	if err != nil {
-		panic(fmt.Errorf("create llm.request.duration: %w", err))
+		slog.Warn("observability: create llm.request.duration failed", "err", err)
 	}
 
 	LLMTokensTotal, err = m.Int64Counter(
@@ -85,7 +86,7 @@ func mustInitInstruments(m metric.Meter) {
 		metric.WithDescription("Total LLM tokens by type."),
 	)
 	if err != nil {
-		panic(fmt.Errorf("create llm.tokens.total: %w", err))
+		slog.Warn("observability: create llm.tokens.total failed", "err", err)
 	}
 
 	ToolExecutionDuration, err = m.Int64Histogram(
@@ -94,7 +95,7 @@ func mustInitInstruments(m metric.Meter) {
 		metric.WithUnit("ms"),
 	)
 	if err != nil {
-		panic(fmt.Errorf("create tool.execution.duration: %w", err))
+		slog.Warn("observability: create tool.execution.duration failed", "err", err)
 	}
 
 	CognitivePhasesDuration, err = m.Int64Histogram(
@@ -103,7 +104,7 @@ func mustInitInstruments(m metric.Meter) {
 		metric.WithUnit("ms"),
 	)
 	if err != nil {
-		panic(fmt.Errorf("create cognitive.phases.duration: %w", err))
+		slog.Warn("observability: create cognitive.phases.duration failed", "err", err)
 	}
 
 	SubAgentSpawns, err = m.Int64Counter(
@@ -111,7 +112,7 @@ func mustInitInstruments(m metric.Meter) {
 		metric.WithDescription("Sub-agent spawn attempts."),
 	)
 	if err != nil {
-		panic(fmt.Errorf("create subagent.spawns: %w", err))
+		slog.Warn("observability: create subagent.spawns failed", "err", err)
 	}
 
 	ActiveSessions, err = m.Int64UpDownCounter(
@@ -119,6 +120,6 @@ func mustInitInstruments(m metric.Meter) {
 		metric.WithDescription("Currently active sessions."),
 	)
 	if err != nil {
-		panic(fmt.Errorf("create active.sessions: %w", err))
+		slog.Warn("observability: create active.sessions failed", "err", err)
 	}
 }

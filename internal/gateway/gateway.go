@@ -109,6 +109,7 @@ type Gateway struct {
 	codebaseIndex    *agent.CodebaseIndex
 	stopCh           chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce         sync.Once     // ensures stopCh is closed exactly once
+	initCtx          context.Context
 }
 
 // GatewayOptions configures optional behaviour for Gateway.New.
@@ -128,6 +129,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		obsShutdown: func(context.Context) {},
 	}
 	gw.currentMode.Store(cfg.Agent.Mode)
+	gw.initCtx, _ = context.WithTimeout(context.Background(), 30*time.Second)
 
 	if err := gw.initDatabase(); err != nil {
 		return nil, fmt.Errorf("database: %w", err)
@@ -139,7 +141,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		return gw.db.PingContext(ctx)
 	}))
 
-	obsShutdown, err := initObservability(context.Background(), *cfg)
+	obsShutdown, err := initObservability(gw.initCtx, *cfg)
 	if err != nil {
 		slog.Warn("observability init failed, continuing without telemetry", "err", err)
 		obsShutdown = func(context.Context) {}
@@ -166,7 +168,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 			}
 		}
 	}
-	if err := gw.features.ResolveAndInit(context.Background()); err != nil {
+	if err := gw.features.ResolveAndInit(gw.initCtx); err != nil {
 		return nil, fmt.Errorf("feature registry: %w", err)
 	}
 

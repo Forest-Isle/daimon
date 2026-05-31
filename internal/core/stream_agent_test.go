@@ -85,7 +85,10 @@ func TestStreamAgentHappyPath(t *testing.T) {
 		mu.Unlock()
 	})
 
-	ag := core.New(prov, reg, nil, core.Config{Sink: sink})
+	ag, err := core.New(prov, reg, nil, core.Config{Sink: sink})
+	if err != nil {
+		t.Fatal(err)
+	}
 	sa := core.NewStreamAgent(ag)
 	res, err := sa.Run(context.Background(), "go")
 	if err != nil {
@@ -114,7 +117,10 @@ func TestStreamAgentFallback(t *testing.T) {
 		streamErr: errors.New("streaming not supported"),
 		fallback:  &core.LLMResponse{Text: "I completed", StopReason: core.StopEndTurn},
 	}
-	ag := core.New(prov, nil, nil, core.Config{})
+	ag, err := core.New(prov, nil, nil, core.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	sa := core.NewStreamAgent(ag)
 	res, err := sa.Run(context.Background(), "go")
 	if err != nil {

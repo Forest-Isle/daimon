@@ -27,7 +27,7 @@ type Session struct {
 	Metadata        map[string]string
 
 	previousSummary string // cached summary for incremental compression updates
-	mu              sync.Mutex
+	mu              sync.RWMutex
 }
 
 // AddMessage appends a message to the session history.
@@ -40,8 +40,8 @@ func (s *Session) AddMessage(msg Message) {
 
 // History returns a copy of the message history.
 func (s *Session) History() []Message {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make([]Message, len(s.Messages))
 	copy(out, s.Messages)
 	return out

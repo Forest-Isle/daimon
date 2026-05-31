@@ -77,7 +77,10 @@ func TestSingleTurn(t *testing.T) {
 	prov := &fakeProvider{turns: []core.LLMResponse{
 		{Text: "hello back", StopReason: core.StopEndTurn},
 	}}
-	ag := core.New(prov, nil, nil, core.Config{})
+	ag, err := core.New(prov, nil, nil, core.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	out, stop, err := ag.Run(context.Background(), "hi")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -99,7 +102,10 @@ func TestToolRoundtrip(t *testing.T) {
 		{ToolCalls: []core.ToolCall{{ID: "u1", Name: "echo", Input: json.RawMessage(`{"message":"42"}`)}}, StopReason: core.StopToolUse},
 		{Text: "result was 42", StopReason: core.StopEndTurn},
 	}}
-	ag := core.New(prov, reg, nil, core.Config{})
+	ag, err := core.New(prov, reg, nil, core.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	out, stop, err := ag.Run(context.Background(), "what is the answer")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -130,7 +136,10 @@ func TestParallelReadOnlyTools(t *testing.T) {
 		{ToolCalls: calls, StopReason: core.StopToolUse},
 		{Text: "done", StopReason: core.StopEndTurn},
 	}}
-	ag := core.New(prov, reg, nil, core.Config{ParallelTools: 4})
+	ag, err := core.New(prov, reg, nil, core.Config{ParallelTools: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	start := time.Now()
 	if _, _, err := ag.Run(context.Background(), "go"); err != nil {
@@ -160,7 +169,10 @@ func TestGateDeny(t *testing.T) {
 		{ToolCalls: []core.ToolCall{{ID: "u1", Name: "echo", Input: json.RawMessage(`{"message":"x"}`)}}, StopReason: core.StopToolUse},
 		{Text: "ok, sorry", StopReason: core.StopEndTurn},
 	}}
-	ag := core.New(prov, reg, mem, core.Config{Gate: deny})
+	ag, err := core.New(prov, reg, mem, core.Config{Gate: deny})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := ag.Run(context.Background(), "echo"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -189,7 +201,10 @@ func TestMaxTurns(t *testing.T) {
 		StopReason: core.StopToolUse,
 	}
 	prov := &fakeProvider{turns: []core.LLMResponse{loop, loop, loop, loop, loop, loop, loop, loop, loop, loop}}
-	ag := core.New(prov, reg, nil, core.Config{MaxTurns: 3})
+	ag, err := core.New(prov, reg, nil, core.Config{MaxTurns: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, stop, err := ag.Run(context.Background(), "spin")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -218,10 +233,13 @@ func TestCacheMiddleware(t *testing.T) {
 		}, StopReason: core.StopToolUse},
 		{Text: "ok", StopReason: core.StopEndTurn},
 	}}
-	ag := core.New(prov, reg, nil, core.Config{
+	ag, err := core.New(prov, reg, nil, core.Config{
 		ParallelTools:  1,
 		ToolMiddleware: []core.ToolMiddleware{core.CacheToolMiddleware(reg)},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := ag.Run(context.Background(), "go"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -246,7 +264,10 @@ func TestEventStream(t *testing.T) {
 		{ToolCalls: []core.ToolCall{{ID: "u1", Name: "echo", Input: json.RawMessage(`{"message":"hi"}`)}}, StopReason: core.StopToolUse},
 		{Text: "done", StopReason: core.StopEndTurn},
 	}}
-	ag := core.New(prov, reg, nil, core.Config{Sink: sink})
+	ag, err := core.New(prov, reg, nil, core.Config{Sink: sink})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := ag.Run(context.Background(), "go"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}

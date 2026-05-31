@@ -45,7 +45,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 	if gw.codebaseIndex == nil {
 		gw.codebaseIndex = newCodebaseIndexFromConfig(gw)
 		if gw.codebaseIndex != nil && gw.codebaseIndex.IsAvailable() {
-			if err := gw.codebaseIndex.IndexDirectoryContext(context.Background(), "."); err != nil {
+			if err := gw.codebaseIndex.IndexDirectoryContext(gw.initCtx, "."); err != nil {
 				slog.Warn("codebase index: initial indexing failed", "err", err)
 			} else {
 				slog.Info("codebase index initialized")
@@ -56,7 +56,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 		gw.tools.Register(tool.NewSemanticSearchTool(
 			gw.codebaseIndex.IsAvailable,
 			func(query string, topK int) ([]tool.CodeSearchResult, error) {
-				results, err := gw.codebaseIndex.Search(query, topK)
+				results, err := gw.codebaseIndex.Search(gw.initCtx, query, topK)
 				if err != nil {
 					return nil, err
 				}
@@ -136,8 +136,8 @@ func (gw *Gateway) initToolsAndHooks() error {
 			gw.cfg.Sandbox.Network.Blacklist,
 		)
 		if gw.cfg.Sandbox.Bash.Backend == "docker" {
-			sandbox.CleanupOrphans(context.Background())
-			available := sandbox.ProbeDocker(context.Background())
+			sandbox.CleanupOrphans(gw.initCtx)
+			available := sandbox.ProbeDocker(gw.initCtx)
 			if !available {
 				slog.Warn("sandbox: Docker not available, bash will run on host")
 			}

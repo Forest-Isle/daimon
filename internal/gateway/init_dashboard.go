@@ -87,7 +87,7 @@ func (gw *Gateway) startDashboard() error {
 
 func (gw *Gateway) stopDashboard() error {
 	if gw.dashboardSrv != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(gw.initCtx, 5*time.Second)
 		defer cancel()
 		if err := gw.dashboardSrv.Shutdown(ctx); err != nil {
 			slog.Warn("dashboard shutdown error", "err", err)

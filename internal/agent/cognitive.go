@@ -591,7 +591,7 @@ func (ca *CognitiveAgent) runPerceivePhase(
 	}
 
 	if ca.codebaseIndex != nil && ca.codebaseIndex.IsAvailable() {
-		if results, searchErr := ca.codebaseIndex.Search(msg.Text, 3); searchErr != nil {
+		if results, searchErr := ca.codebaseIndex.Search(ctx, msg.Text, 3); searchErr != nil {
 			slog.Warn("cognitive: semantic code search failed", "session", sess.ID, "err", searchErr)
 		} else if len(results) > 0 {
 			for _, chunk := range results {
@@ -1037,7 +1037,7 @@ func (ca *CognitiveAgent) finalizeCognitiveSession(
 		}
 	}
 	if rlEnabled && episodeCollector != nil && ca.rlTrainer != nil {
-		ca.recordRLEpisode(state, plan, obsResult, reflection, ppoStrategy, episodeCollector, userFeedback, dqnReplanAction)
+		ca.recordRLEpisode(ctx, state, plan, obsResult, reflection, ppoStrategy, episodeCollector, userFeedback, dqnReplanAction)
 	}
 
 	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
@@ -1045,7 +1045,7 @@ func (ca *CognitiveAgent) finalizeCognitiveSession(
 			succeeded := reflection != nil && reflection.Succeeded
 			ca.evoEngine.Router().RecordOutcome(string(state.Goal.Complexity), succeeded)
 		}
-		ca.dispatchEvolutionEvents(state, plan, obsResult, reflection, userFeedback, cognitiveTurnStart)
+		ca.dispatchEvolutionEvents(ctx, state, plan, obsResult, reflection, userFeedback, cognitiveTurnStart)
 	}
 	if ca.evoEngine != nil {
 		ca.evoEngine.WaitPending()
@@ -1332,6 +1332,7 @@ func (ca *CognitiveAgent) handleDebate(
 // cognitive cycle. This enables the preference learner, skill synthesizer,
 // and strategy optimizer to observe and learn from each interaction.
 func (ca *CognitiveAgent) dispatchEvolutionEvents(
+	ctx context.Context,
 	state *CognitiveState,
 	plan *TaskPlan,
 	obsResult *ObservationResult,
@@ -1408,7 +1409,7 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 		}
 		if proc := ca.cortex.GetProcedural(); proc != nil {
 			go func() {
-				if err := proc.RecordStrategy(context.Background(), taskPattern, toolsUsed, nil, true, state.SessionID, state.UserID); err != nil {
+				if err := proc.RecordStrategy(context.WithoutCancel(ctx), taskPattern, toolsUsed, nil, true, state.SessionID, state.UserID); err != nil {
 					slog.Warn("cognitive: procedural record failed", "err", err)
 				}
 			}()
@@ -1473,6 +1474,7 @@ func (ca *CognitiveAgent) registerSubtask(ctx context.Context, parentID, title s
 // recordRLEpisode records PPO/DQN experiences and the full episode to the trainer.
 // Runs asynchronously to avoid blocking the main cognitive loop.
 func (ca *CognitiveAgent) recordRLEpisode(
+	ctx context.Context,
 	state *CognitiveState,
 	plan *TaskPlan,
 	obsResult *ObservationResult,
@@ -1518,7 +1520,7 @@ func (ca *CognitiveAgent) recordRLEpisode(
 	// Fire-and-forget: record episode + add experiences to trainer buffer
 	experiences := collector.GetExperiences()
 	go func() {
-		bgCtx := context.Background()
+		bgCtx := context.WithoutCancel(ctx)
 
 		subtaskCount := 0
 		if plan != nil {

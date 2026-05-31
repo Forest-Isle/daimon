@@ -16,6 +16,7 @@ import (
 // channel.ReflectionSender, channel.FeedbackSender, and
 // channel.NotificationSender for Discord.
 type Adapter struct {
+	ctx            context.Context
 	token          string
 	allowedUserIDs map[string]bool
 	session        *discordgo.Session
@@ -63,6 +64,7 @@ func (a *Adapter) SetApprovalTimeout(seconds int) {
 func (a *Adapter) Name() string { return "discord" }
 
 func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) error {
+	a.ctx = ctx
 	a.handler = handler
 
 	sess, err := discordgo.New("Bot " + a.token)
@@ -148,7 +150,7 @@ func (a *Adapter) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCrea
 	// Process asynchronously so the event loop stays unblocked.
 	// This is critical: if the handler waits for tool approval, a synchronous
 	// call would deadlock because the interaction callback could never be received.
-	go a.handler(context.Background(), channel.InboundMessage{
+	go a.handler(a.ctx, channel.InboundMessage{
 		Channel:   "discord",
 		ChannelID: m.ChannelID,
 		UserID:    m.Author.ID,
