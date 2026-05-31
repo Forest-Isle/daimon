@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -31,6 +32,16 @@ import (
 const MaxReplanAttempts = 2
 
 var errResumeHandled = fmt.Errorf("resume handled")
+
+// RunResult is the output of a cognitive agent execution via Run().
+// Deprecated: Use CognitiveAgentV2 which returns LoopResult directly.
+type RunResult struct {
+	Output     string
+	ToolCalls  []ToolResult
+	TurnCount  int
+	Assertions []AssertionResult
+	Learnings  []string
+}
 
 // CognitiveAgent implements the structured PERCEIVE→PLAN→ACT→OBSERVE→REFLECT loop.
 type CognitiveAgent struct {
@@ -1559,4 +1570,143 @@ func (ca *CognitiveAgent) recordRLEpisode(
 			ca.rlTrainer.AddExperience(exp)
 		}
 	}()
+}
+
+// --- Deprecation wrapper: CognitiveAgent delegates to CognitiveAgentV2 ---
+
+// projectContextScannerAdapter wraps ProjectContextScanner as a ContextScanner.
+type projectContextScannerAdapter struct {
+	scanner *ProjectContextScanner
+}
+
+func (a *projectContextScannerAdapter) Name() string { return "project" }
+
+func (a *projectContextScannerAdapter) Scan(ctx context.Context) (*ContextFragment, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, nil
+	}
+	result := a.scanner.Scan(cwd)
+	if result == nil {
+		return nil, nil
+	}
+	return &ContextFragment{Source: "project", Content: result.RawContent, Priority: 1}, nil
+}
+
+// gitContextProviderAdapter wraps GitContextProvider as a ContextScanner.
+type gitContextProviderAdapter struct {
+	provider *GitContextProvider
+}
+
+func (a *gitContextProviderAdapter) Name() string { return "git" }
+
+func (a *gitContextProviderAdapter) Scan(ctx context.Context) (*ContextFragment, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, nil
+	}
+	result := a.provider.Collect(cwd)
+	if result == nil {
+		return nil, nil
+	}
+	return &ContextFragment{Source: "git", Content: result.RawContent, Priority: 2}, nil
+}
+
+// toV2 creates a CognitiveAgentV2 from the deprecated CognitiveAgent, wiring all
+// available optional subsystems into the new single-loop architecture.
+func (ca *CognitiveAgent) toV2() *CognitiveAgentV2 {
+	v2 := NewCognitiveAgentV2(
+		ca.runtime.provider,
+		ca.executor.tools,
+		ca.sessions,
+		ca.db,
+		ca.cfg,
+		ca.llmCfg,
+	)
+
+	// Build ContextBuilder from old perceiver's scanners.
+	cb := NewContextBuilder()
+	if ca.perceiver != nil {
+		if ca.perceiver.scanner != nil {
+			cb.AddScanner(&projectContextScannerAdapter{scanner: ca.perceiver.scanner})
+		}
+		if ca.perceiver.gitProvider != nil {
+			cb.AddScanner(&gitContextProviderAdapter{provider: ca.perceiver.gitProvider})
+		}
+	}
+	v2.SetContextBuilder(cb)
+
+	// Build ToolMiddlewareChain with available security/filtering subsystems.
+	var mws []ToolMiddleware
+	if ca.hookMgr != nil {
+		mws = append(mws, NewHookMiddleware(ca.hookMgr))
+	}
+	if ca.permEngine != nil {
+		mws = append(mws, NewPermissionMiddleware(ca.permEngine, ca.executor.approvalFunc))
+	}
+	if ca.executor != nil && ca.executor.interceptorChain != nil {
+		mws = append(mws, NewSandboxMiddleware(ca.executor.interceptorChain))
+	}
+	if len(mws) > 0 {
+		tm := NewToolMiddlewareChain(mws...)
+		tm.SetCoreExecutor(defaultToolExecutor(ca.executor.tools))
+		v2.SetToolMiddleware(tm)
+	}
+
+	// Build LoopHookChain with available lifecycle subsystems.
+	var hooks []LoopHook
+	if ca.checkpointStore != nil {
+		hooks = append(hooks, NewCheckpointHook(ca.checkpointStore, ca.db))
+	}
+	if ca.contextManager != nil {
+		hooks = append(hooks, NewCompressionHook(ca.contextManager, 0.85))
+	}
+	if ca.planMode != nil {
+		hooks = append(hooks, NewPlanModeHook(ca.planMode, ca.executor.approvalFunc))
+	}
+	if ca.evoEngine != nil {
+		hooks = append(hooks, NewEvolutionHook(ca.evoEngine, ca.dashEmitter))
+	}
+	if len(hooks) > 0 {
+		v2.SetLoopHooks(NewLoopHookChain(hooks...))
+	}
+
+	// Set dashboard emitter.
+	if ca.dashEmitter != nil {
+		v2.SetDashboardEmitter(ca.dashEmitter)
+	}
+
+	return v2
+}
+
+// Run executes the cognitive loop.
+//
+// Deprecated: CognitiveAgent is replaced by CognitiveAgentV2 (single-loop
+// architecture). Run() now delegates to CognitiveAgentV2 internally.
+func (ca *CognitiveAgent) Run(
+	ctx context.Context,
+	sessionID string,
+	userMessage string,
+	extraContext string,
+) (*RunResult, error) {
+	v2 := ca.toV2()
+	result, err := v2.Run(ctx, sessionID, userMessage, extraContext)
+	if err != nil {
+		return nil, err
+	}
+	return &RunResult{
+		Output:     result.Output,
+		ToolCalls:  convertToolResults(result.ToolResults),
+		TurnCount:  result.TurnCount,
+		Assertions: result.Assertions,
+		Learnings:  result.Learnings,
+	}, nil
+}
+
+// convertToolResults converts v2 ToolResult slices to the RunResult format.
+// Maintained as a named function for backward-compatibility when types diverge.
+func convertToolResults(results []ToolResult) []ToolResult {
+	out := make([]ToolResult, len(results))
+	copy(out, results)
+	return out
 }
