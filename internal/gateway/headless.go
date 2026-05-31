@@ -100,13 +100,26 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 	h.provider = provider
 
 	// 5. Agent runtime
-	h.runtime = agent.NewRuntime(provider, h.tools, h.sessions, h.db, cfg.Agent, cfg.LLM)
-	h.runtime.SetHookManager(h.hookMgr)
-	h.runtime.SetPermissionEngine(h.permEngine)
+	deps := agent.AgentDeps{
+		Core: agent.CoreDeps{
+			Provider: provider,
+			Tools:    h.tools,
+			Sessions: h.sessions,
+			DB:       h.db,
+			Cfg:      cfg.Agent,
+			LLMCfg:   cfg.LLM,
+			AgentID:  "headless",
+			ToolsCfg: cfg.Tools,
+		},
+		Security: agent.SecurityDeps{
+			Interceptor: tool.NewInterceptorChain(nil),
+			HookMgr:     h.hookMgr,
+			PermEngine:  h.permEngine,
+		}.WithDefaults(),
+		Observability: agent.ObservabilityDeps{}.WithDefaults(),
+		MultiAgent:    agent.MultiAgentDeps{}.WithDefaults(),
+	}.WithDefaults()
 
-	if cfg.Tools.ConcurrentExecution.Enabled {
-		h.runtime.SetConcurrentConfig(cfg.Tools.ConcurrentExecution)
-	}
 	if cfg.Tools.ResultPersistence.Enabled {
 		rs := tool.NewResultStore(
 			cfg.Tools.ResultPersistence.CacheDir,
@@ -114,8 +127,10 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 			cfg.Tools.ResultPersistence.PreviewChars,
 			cfg.Tools.ResultPersistence.TTLHours,
 		)
-		h.runtime.SetResultStore(rs)
+		deps.MultiAgent.ResultStore = rs
 	}
+
+	h.runtime = agent.NewRuntime(deps)
 
 	slog.Info("headless gateway initialized")
 	return h, nil

@@ -25,10 +25,7 @@ func (gw *Gateway) initSkillManager() error {
 			slog.Warn("gateway: failed to load extra skills dir", "dir", dir, "err", err)
 		}
 	}
-	gw.runtime.SetSkillManager(gw.skillMgr)
-	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetSkillManager(gw.skillMgr)
-	}
+	gw.agentDeps.MultiAgent.SkillMgr = gw.skillMgr
 	// Register the read_skill tool for progressive disclosure —
 	// agent sees metadata in prompt, loads full content via this tool.
 	gw.tools.Register(tool.NewSkillTool(gw.skillMgr))

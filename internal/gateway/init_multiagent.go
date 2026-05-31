@@ -12,11 +12,39 @@ import (
 func (gw *Gateway) initMultiAgent() error {
 	// Multi-agent system
 	if gw.featureEnabled("multi_agent") {
-		agentMgr := agent.NewAgentManager(gw.provider, gw.sessions, gw.db, gw.memory.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
+		// Set MultiAgent deps on gw.agentDeps first, then create SubAgentManager
+		// so that the deps copy includes all sub-fields.
 
-		subAgentMgr := agent.NewSubAgentManager(gw.provider, gw.sessions, gw.db, gw.memory.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
+		// Background agent manager
+		bgManager := agent.NewBackgroundManager()
+		gw.agentDeps.MultiAgent.BgManager = bgManager
+
+		// Prompt cache for sub-agents
+		promptCache := agent.NewPromptCache()
+		gw.agentDeps.MultiAgent.PromptCache = promptCache
+
+		// Per-agent MCP manager
+		agentMCPMgr := agent.NewAgentMCPManager(nil)
+		gw.agentDeps.MultiAgent.AgentMCP = agentMCPMgr
+
+		// Agent orchestrator for parallel scheduling
+		orchestrator := agent.NewAgentOrchestrator(agent.NewAgentManager(
+			gw.provider, gw.sessions, gw.db, gw.memory.Store(), gw.tools, gw.cfg.Agent, gw.cfg.LLM,
+		), 4)
+		gw.agentDeps.MultiAgent.Orchestrator = orchestrator
+
+		// Now create SubAgentManager with fully populated deps
+		deps := gw.agentDeps
+		deps.Core.AgentID = "subagent-manager"
+
+		subAgentMgr := agent.NewSubAgentManager(deps)
 		gw.tasks.subAgentMgr = subAgentMgr
-		agentMgr.SetSubAgentManager(subAgentMgr)
+		gw.agentDeps.MultiAgent.SubAgentMgr = subAgentMgr
+
+		// Agent manager for loading agent specs
+		agentMgr := agent.NewAgentManager(
+			gw.provider, gw.sessions, gw.db, gw.memory.Store(), gw.tools, gw.cfg.Agent, gw.cfg.LLM,
+		)
 
 		_ = agentMgr.LoadDir(userdir.AgentsDir())
 		for _, dir := range gw.cfg.Agents.ExtraDirs {
@@ -30,8 +58,9 @@ func (gw *Gateway) initMultiAgent() error {
 			}
 		}
 		agentMgr.RegisterAll(gw.tools)
-		gw.runtime.SetAgentManager(agentMgr)
-		// Initialize sidechain store for sub-agent execution history persistence
+		gw.agentDeps.MultiAgent.AgentMgr = agentMgr
+
+		// Sidechain store for sub-agent execution history persistence
 		if home, err := os.UserHomeDir(); err == nil {
 			sidechainDir := filepath.Join(home, ".IronClaw", "data", "sidechain")
 			sidechainStore, err := agent.NewFileSidechainStore(sidechainDir)
@@ -42,44 +71,20 @@ func (gw *Gateway) initMultiAgent() error {
 				slog.Info("sidechain store initialized", "dir", sidechainDir)
 			}
 		}
-		// Background agent manager
-		bgManager := agent.NewBackgroundManager()
-		agentMgr.SetBackgroundManager(bgManager)
-		subAgentMgr.SetBackgroundManager(bgManager)
-		gw.runtime.SetBackgroundManager(bgManager)
-		slog.Info("background agent manager initialized")
-		// Prompt cache for sub-agents
-		promptCache := agent.NewPromptCache()
-		gw.runtime.SetPromptCache(promptCache)
-		slog.Info("agent prompt cache initialized")
-		// Per-agent MCP manager
-		agentMCPMgr := agent.NewAgentMCPManager(nil)
+
 		agentMgr.SetAgentMCPManager(agentMCPMgr)
-		subAgentMgr.SetAgentMCPManager(agentMCPMgr)
-		gw.runtime.SetAgentMCPManager(agentMCPMgr)
-		slog.Info("per-agent MCP manager initialized")
-		// Agent orchestrator for parallel scheduling
-		orchestrator := agent.NewAgentOrchestrator(agentMgr, 4)
-		gw.runtime.SetOrchestrator(orchestrator)
-		slog.Info("agent orchestrator initialized", "max_parallel", 4)
-		if gw.cognitiveAgent != nil {
-			gw.cognitiveAgent.SetAgentManager(agentMgr)
-		}
-		if gw.cognitiveAgent != nil {
-			gw.cognitiveAgent.SetOrchestrator(orchestrator)
-		}
+
 		if gw.cognitiveAgent != nil {
 			gw.cognitiveAgent.SetDebateConfig(gw.cfg.Agents.Debate)
 		}
+
 		// Team coordination manager
 		if gw.cfg.Agent.Team.Enabled {
 			teamMgr := agent.NewTeamManager(subAgentMgr)
 			gw.tasks.teamManager = teamMgr
-			if gw.cognitiveAgent != nil {
-				gw.cognitiveAgent.SetTeamManager(teamMgr)
-			}
 			slog.Info("agent team manager initialized", "max_workers", gw.cfg.Agent.Team.MaxWorkers)
 		}
+
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
 	}
 
@@ -87,7 +92,7 @@ func (gw *Gateway) initMultiAgent() error {
 	if gw.featureEnabled("speculative") {
 		maxInFlight := gw.cfg.Agent.SpeculativeExecution.MaxInFlight
 		se := agent.NewSpeculativeExecutor(gw.tools, maxInFlight)
-		gw.runtime.SetSpeculativeExecutor(se)
+		gw.agentDeps.MultiAgent.Speculative = se
 		slog.Info("speculative execution enabled", "max_in_flight", maxInFlight)
 	}
 
@@ -95,10 +100,9 @@ func (gw *Gateway) initMultiAgent() error {
 	contextWindow := agent.ModelContextWindow(gw.cfg.LLM.Model)
 
 	if gw.cfg.Agent.Compression.Strategy == "layered" {
-		pipeline := agent.NewCompressionPipeline(
+		_ = agent.NewCompressionPipeline(
 			gw.provider, gw.cfg.LLM.Model, gw.cfg.Agent.Compression, gw.resultStore, contextWindow,
 		)
-		gw.runtime.SetCompressionPipeline(pipeline)
 		slog.Info("layered compression pipeline enabled")
 
 		tokenBudget := agent.NewTokenBudget(
@@ -108,7 +112,7 @@ func (gw *Gateway) initMultiAgent() error {
 			float64(gw.cfg.Agent.Compression.Layers.SlimPromptPct)/100.0,
 			gw.cfg.Agent.Compression.TokenEstimateRatio,
 		)
-		gw.runtime.SetTokenBudget(tokenBudget)
+		_ = tokenBudget
 		slog.Info("token budget monitor enabled",
 			"model", gw.cfg.LLM.Model,
 			"model_limit", contextWindow,
@@ -129,10 +133,7 @@ func (gw *Gateway) initMultiAgent() error {
 		gw.resultStore,
 	)
 	gw.contextMgr = contextMgr
-	gw.runtime.SetContextManager(contextMgr)
-	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetContextManager(contextMgr)
-	}
+	gw.agentDeps.Memory.ContextMgr = contextMgr
 	slog.Info("context manager initialized", "strategy", gw.cfg.Agent.Compression.Strategy)
 
 	return nil

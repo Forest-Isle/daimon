@@ -85,6 +85,9 @@ type Gateway struct {
 	observability *ObservabilitySubsystem
 	a2a           *A2ASubsystem
 
+	agentDeps agent.AgentDeps // shared dependency bundle
+	cmdTable  commandTable    // slash command routing table
+
 	subsystems Subsystems // ordered list for lifecycle management
 }
 
@@ -102,6 +105,10 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		cfg:         cfg,
 		stopCh:      make(chan struct{}),
 	}
+	var rb rollbackStack
+	var err error
+	defer func() { if err != nil { rb.run() } }()
+
 	// Initialize subsystems with their zero values — fields will be populated
 	// by the init* methods below.
 	gw.memory = &MemorySubsystem{}
@@ -118,9 +125,10 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.currentMode.Store(cfg.Agent.Mode)
 	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
 
-	if err := gw.initDatabase(); err != nil {
+	if err = gw.initDatabase(); err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
+	rb.push(func() { gw.db.Close() })
 
 	// Health check registry — always available regardless of dashboard
 	gw.healthRegistry = health.NewRegistry()
@@ -155,11 +163,11 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 			}
 		}
 	}
-	if err := gw.features.ResolveAndInit(gw.initCtx); err != nil {
+	if err = gw.features.ResolveAndInit(gw.initCtx); err != nil {
 		return nil, fmt.Errorf("feature registry: %w", err)
 	}
 
-	if err := gw.initToolsAndHooks(); err != nil {
+	if err = gw.initToolsAndHooks(); err != nil {
 		return nil, fmt.Errorf("tools: %w", err)
 	}
 
@@ -173,21 +181,29 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		}))
 	}
 
-	if err := gw.initAgentRuntime(); err != nil {
+	if err = gw.initAgentRuntime(); err != nil {
 		return nil, fmt.Errorf("agent: %w", err)
 	}
-	if err := gw.initMemorySystem(); err != nil {
+	if err = gw.initMemorySystem(); err != nil {
 		return nil, fmt.Errorf("memory: %w", err)
 	}
+	// Update agentDeps with real memory store (initAgentRuntime used defaults)
+	if gw.memory.Store() != nil {
+		gw.agentDeps.Memory.Store = gw.memory.Store()
+		gw.agentDeps.Memory.LifecycleMgr = gw.memory.LifecycleManager()
+		gw.agentDeps.Memory.FactExtractor = gw.memory.FactExtractor()
+		gw.agentDeps.Memory.BaseDir = gw.memory.MemoryDir()
+	}
+
 	// Evolution engine must exist before cognitive agent registers hooks.
 	gw.evolution.engine = evolution.NewEngine(cfg.Evolution)
-	if err := gw.initCognitiveAgent(); err != nil {
+	if err = gw.initCognitiveAgent(); err != nil {
 		return nil, fmt.Errorf("cognitive: %w", err)
 	}
-	if err := gw.initGraphEngine(); err != nil {
+	if err = gw.initGraphEngine(); err != nil {
 		return nil, fmt.Errorf("graph: %w", err)
 	}
-	if err := gw.initKnowledgeSystem(); err != nil {
+	if err = gw.initKnowledgeSystem(); err != nil {
 		return nil, fmt.Errorf("knowledge: %w", err)
 	}
 	if gw.memory.Store() != nil {
@@ -203,19 +219,16 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		wasm.DefaultPluginTimeout = gw.cfg.Tools.WASM.DefaultTimeout
 		gw.loadWasmPlugins(context.Background())
 	}
-	if err := gw.initSkillManager(); err != nil {
+	if err = gw.initSkillManager(); err != nil {
 		return nil, fmt.Errorf("skills: %w", err)
 	}
-	if err := gw.initMultiAgent(); err != nil {
+	if err = gw.initMultiAgent(); err != nil {
 		return nil, fmt.Errorf("multi-agent: %w", err)
 	}
 
 	// Task ledger
 	gw.tasks.taskLedger = taskledger.NewSQLiteTaskLedger(gw.db)
-	gw.runtime.SetTaskLedger(gw.tasks.TaskLedger())
-	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetTaskLedger(gw.tasks.TaskLedger())
-	}
+	gw.agentDeps.MultiAgent.TaskLedger = gw.tasks.TaskLedger()
 
 	// Team coordinator
 	if gw.features.IsEnabled("team") {
@@ -283,8 +296,22 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// Rate limiter must be initialized before dashboard (which may wrap it).
 	gw.initRateLimiter()
 
-	if err := gw.initDashboard(); err != nil {
+	if err = gw.initDashboard(); err != nil {
 		return nil, fmt.Errorf("dashboard: %w", err)
+	}
+	rb.push(func() { _ = gw.dashboard.Stop(gw.initCtx) })
+
+	// Populate command table
+	gw.cmdTable = commandTable{
+		"/tasks":   {gw.handleTasks, true},
+		"/team":    {gw.handleTeam, false},
+		"/mode":    {gw.handleMode, false},
+		"/feature": {gw.handleFeature, false},
+		"/config":  {gw.handleConfig, true},
+		"/compact": {gw.handleCompact, true},
+		"/model":   {gw.handleModel, false},
+		"/new":     {gw.handleReset, true},
+		"/start":   {gw.handleReset, true},
 	}
 
 	// Build subsystems list in dependency order
@@ -301,6 +328,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	gw.bindFeatureLifecycleHooks()
 
+	rb.cleanups = nil // success — Stop() handles cleanup
 	return gw, nil
 }
 
@@ -401,20 +429,12 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	return nil
 }
 
-// SetDashboardEmitter replaces the current DashboardEmitter on the runtime and
-// cognitive agent. Prefer AddDashboardEmitter when multiple consumers must
+// SetDashboardEmitter replaces the current DashboardEmitter on the agent deps
+// and context manager. Prefer AddDashboardEmitter when multiple consumers must
 // coexist (e.g. web dashboard + TUI).
 func (gw *Gateway) SetDashboardEmitter(e agent.DashboardEmitter) {
 	gw.dashboard.emitter = e
-	if gw.runtime != nil {
-		gw.runtime.SetDashboardEmitter(e)
-	}
-	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetDashboardEmitter(e)
-	}
-	if gw.tasks.SubAgentManager() != nil {
-		gw.tasks.SubAgentManager().SetDashboardEmitter(e)
-	}
+	gw.agentDeps.Observability.Emitter = e
 	if gw.contextMgr != nil {
 		gw.contextMgr.SetDashboardEmitter(e)
 	}
@@ -427,11 +447,9 @@ func (gw *Gateway) AddDashboardEmitter(e agent.DashboardEmitter) {
 	gw.SetDashboardEmitter(merged)
 }
 
-// SetMetricsEmitter sets a MetricsEmitter on the runtime for TUI status reporting.
+// SetMetricsEmitter sets a MetricsEmitter on the agent deps for TUI status reporting.
 func (gw *Gateway) SetMetricsEmitter(e agent.MetricsEmitter) {
-	if gw.runtime != nil {
-		gw.runtime.SetMetricsEmitter(e)
-	}
+	gw.agentDeps.Observability.MetricsEmitter = e
 }
 
 // Stop gracefully shuts down all components.
@@ -580,88 +598,20 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 		})
 	}
 
-	// Handle /tasks command — list active and recent tasks from task ledger
-	if msg.Text == "/tasks" {
-		gw.handleTasksCommand(ctx, ch, msg)
-		return
-	}
-
-	// Handle /team <goal> command — break goal into parallel tasks
-	if strings.HasPrefix(msg.Text, "/team ") {
-		goal := strings.TrimPrefix(msg.Text, "/team ")
-		result := gw.handleTeamCommand(ctx, strings.TrimSpace(goal))
-		if err := ch.Send(ctx, channel.OutboundMessage{
-			Channel:   msg.Channel,
-			ChannelID: msg.ChannelID,
-			Text:      result,
-		}); err != nil {
-			slog.Warn("failed to send message", "err", err)
-		}
-		return
-	}
-
-	// Handle /mode command — switch or query active agent mode
-	if msg.Text == "/mode" || strings.HasPrefix(msg.Text, "/mode ") {
-		arg := strings.TrimPrefix(msg.Text, "/mode")
-		arg = strings.TrimSpace(arg)
-		response := gw.handleModeCommand(arg)
-		if err := ch.Send(ctx, channel.OutboundMessage{
-			Channel:   msg.Channel,
-			ChannelID: msg.ChannelID,
-			Text:      response,
-		}); err != nil {
-			slog.Warn("failed to send message", "err", err)
-		}
-		return
-	}
-
-	// Handle /feature command
-	if msg.Text == "/feature" || strings.HasPrefix(msg.Text, "/feature ") {
-		args := strings.TrimPrefix(msg.Text, "/feature")
-		gw.handleFeatureCommand(ctx, ch, msg, strings.TrimSpace(args))
-		return
-	}
-
-	// Handle /config command
-	if msg.Text == "/config" || msg.Text == "/config show" {
-		gw.handleConfigCommand(ctx, ch, msg)
-		return
-	}
-
-	// Handle /compact command
-	if msg.Text == "/compact" {
-		gw.handleCompactCommand(ctx, ch, msg)
-		return
-	}
-
-	// Handle /model command
-	if msg.Text == "/model" || strings.HasPrefix(msg.Text, "/model ") {
-		args := strings.TrimPrefix(msg.Text, "/model")
-		gw.handleModelCommand(ctx, ch, msg, strings.TrimSpace(args))
-		return
-	}
-
-	// Handle /new and /start commands — reset session to start fresh conversation
-	if msg.Text == "/new" || msg.Text == "/start" {
-		if err := gw.sessions.Reset(ctx, msg.Channel, msg.ChannelID); err != nil {
-			slog.Error("session reset failed", "err", err)
-			if err := ch.Send(ctx, channel.OutboundMessage{
-				Channel:   msg.Channel,
-				ChannelID: msg.ChannelID,
-				Text:      "Error: failed to reset session: " + err.Error(),
-			}); err != nil {
-				slog.Warn("failed to send message", "err", err)
+	// Command dispatch via command table
+	if gw.cmdTable != nil {
+		if resp, handled := gw.cmdTable.dispatch(ctx, ch, msg); handled {
+			if resp != "" {
+				if err := ch.Send(ctx, channel.OutboundMessage{
+					Channel:   msg.Channel,
+					ChannelID: msg.ChannelID,
+					Text:      resp,
+				}); err != nil {
+					slog.Warn("failed to send command response", "err", err)
+				}
 			}
 			return
 		}
-		if err := ch.Send(ctx, channel.OutboundMessage{
-			Channel:   msg.Channel,
-			ChannelID: msg.ChannelID,
-			Text:      "New conversation started.",
-		}); err != nil {
-			slog.Warn("failed to send message", "err", err)
-		}
-		return
 	}
 
 	slog.Info("message received", "channel", msg.Channel, "user", msg.UserName, "text_len", len(msg.Text))

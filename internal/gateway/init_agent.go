@@ -25,15 +25,47 @@ func (gw *Gateway) initAgentRuntime() error {
 	}
 	gw.provider = provider
 
-	// Agent runtime
-	gw.runtime = agent.NewRuntime(provider, gw.tools, gw.sessions, gw.db, gw.cfg.Agent, gw.cfg.LLM)
+	// Build interceptor chain helper
+	getInterceptor := func() *tool.InterceptorChain {
+		if gw.sandbox.InterceptorChain() != nil {
+			return gw.sandbox.InterceptorChain()
+		}
+		return tool.NewInterceptorChain(nil)
+	}
 
-	// Wire hook manager and permission engine
-	gw.runtime.SetHookManager(gw.hookMgr)
-	gw.runtime.SetPermissionEngine(gw.permEngine)
-	gw.runtime.SetInterceptorChain(gw.sandbox.interceptorChain)
+	// Build AgentDeps with whatever is available at this point.
+	// Memory/MultiAgent fields will be populated later as subsystems initialize.
+	deps := agent.AgentDeps{
+		Core: agent.CoreDeps{
+			Provider: gw.provider,
+			Tools:    gw.tools,
+			Sessions: gw.sessions,
+			DB:       gw.db,
+			Cfg:      gw.cfg.Agent,
+			LLMCfg:   gw.cfg.LLM,
+			AgentID:  "gateway",
+			ToolsCfg: gw.cfg.Tools,
+		},
+		Memory: agent.MemoryDeps{
+			ContextMgr: gw.contextMgr,
+		}.WithDefaults(),
+		Security: agent.SecurityDeps{
+			Interceptor: getInterceptor(),
+			HookMgr:     gw.hookMgr,
+			PermEngine:  gw.permEngine,
+		}.WithDefaults(),
+		Observability: agent.ObservabilityDeps{
+			Emitter:        gw.dashboard.Emitter(),
+			MetricsEmitter: nil,
+			ReplayRecorder: gw.replayRecorder,
+		}.WithDefaults(),
+		MultiAgent: agent.MultiAgentDeps{
+			ResultStore: gw.resultStore,
+			SkillMgr:    gw.skillMgr,
+		}.WithDefaults(),
+	}
 
-	// Tool result persistence
+	// Build result store if configured
 	if gw.cfg.Tools.ResultPersistence.Enabled {
 		gw.resultStore = tool.NewResultStore(
 			gw.cfg.Tools.ResultPersistence.CacheDir,
@@ -41,7 +73,7 @@ func (gw *Gateway) initAgentRuntime() error {
 			gw.cfg.Tools.ResultPersistence.PreviewChars,
 			gw.cfg.Tools.ResultPersistence.TTLHours,
 		)
-		gw.runtime.SetResultStore(gw.resultStore)
+		deps.MultiAgent.ResultStore = gw.resultStore
 		// Startup cleanup sweep
 		if err := gw.resultStore.Cleanup(); err != nil {
 			slog.Warn("gateway: result store startup cleanup failed", "err", err)
@@ -52,17 +84,9 @@ func (gw *Gateway) initAgentRuntime() error {
 		)
 	}
 
-	// Concurrent tool execution
-	gw.runtime.SetConcurrentConfig(gw.cfg.Tools.ConcurrentExecution)
-	if gw.cfg.Tools.ConcurrentExecution.Enabled {
-		slog.Info("concurrent tool execution enabled", "max_concurrency", gw.cfg.Tools.ConcurrentExecution.MaxConcurrency)
-	}
-	if gw.replayRecorder != nil {
-		gw.runtime.SetReplayRecorder(gw.replayRecorder)
-	}
-	if gw.selfHealEngine != nil {
-		gw.runtime.SetSelfHealEngine(gw.selfHealEngine)
-	}
+	gw.agentDeps = deps
+	gw.runtime = agent.NewRuntime(deps)
+	gw.runtime.SetApprovalFunc(gw.handleApproval)
 
 	return nil
 }

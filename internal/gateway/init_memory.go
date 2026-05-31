@@ -66,15 +66,9 @@ func (gw *Gateway) initMemorySystem() error {
 
 	slog.Info("memory: file-based storage enabled", "dir", storageDir)
 
-	gw.runtime.SetMemoryStore(gw.memory.memStore)
-
-	// Set memory base dir on runtime for user profile injection
-	gw.runtime.SetMemoryBaseDir(storageDir)
-
-	// Initialize incremental compressor
-	compressor := memory.NewIncrementalCompressor(storageDir, &completerAdapter{provider: gw.provider, model: gw.cfg.LLM.Model})
-	gw.runtime.SetCompressor(compressor)
-	slog.Info("memory: incremental compressor enabled")
+	// Update agentDeps with the memory store
+	gw.agentDeps.Memory.Store = gw.memory.memStore
+	gw.agentDeps.Memory.BaseDir = storageDir
 
 	// Initialize forgetting curve manager
 	forgettingCurve := memory.NewForgettingCurveManager(gw.db)
@@ -99,7 +93,7 @@ func (gw *Gateway) initMemorySystem() error {
 		// Create profiler and wire it to the reflection tracker
 		profiler := memory.NewProfiler(gw.memory.memStore, completer, gw.db.DB, storageDir, memCfg)
 		reflector.SetProfilerCallback(profiler)
-		gw.runtime.SetProfiler(profiler)
+		gw.agentDeps.Memory.Profiler = profiler
 		slog.Info("memory: profiler created and wired to reflection tracker")
 
 		if err := profiler.MigrateLegacyProfile(gw.initCtx, "default"); err != nil {
@@ -107,13 +101,13 @@ func (gw *Gateway) initMemorySystem() error {
 		}
 	}
 
-	// Wire fact extractor and lifecycle manager to simple runtime (if enabled).
-	// These may be nil when FactExtraction is disabled; the runtime does nil checks.
+	// Wire fact extractor and lifecycle manager to agent deps (if enabled).
+	// These may be nil when FactExtraction is disabled; the agent does nil checks.
 	if gw.memory.factExtractor != nil {
-		gw.runtime.SetFactExtractor(gw.memory.factExtractor)
+		gw.agentDeps.Memory.FactExtractor = gw.memory.factExtractor
 	}
 	if gw.memory.lifecycleMgr != nil {
-		gw.runtime.SetLifecycleManager(gw.memory.lifecycleMgr)
+		gw.agentDeps.Memory.LifecycleMgr = gw.memory.lifecycleMgr
 	}
 
 	// Register memory_manage tool

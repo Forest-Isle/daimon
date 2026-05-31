@@ -266,6 +266,41 @@ func (ca *CognitiveAgent) EvolutionEngine() *evolution.Engine {
 	return ca.evoEngine
 }
 
+// SetObservationCallback sets the callback invoked after each OBSERVE phase.
+func (ca *CognitiveAgent) SetObservationCallback(fn func(result *ObservationResult)) {
+	ca.observationCallback = fn
+}
+
+// SetCortexRetriever sets the unified cortex retriever for the perceiver phase.
+func (ca *CognitiveAgent) SetCortexRetriever(cr *cortex.UnifiedRetriever) {
+	ca.cortex = cr
+	if ca.perceiver != nil {
+		ca.perceiver.SetCortexRetriever(cr)
+	}
+}
+
+// SetKnowledgeSearcher sets the knowledge searcher for the perceiver phase.
+func (ca *CognitiveAgent) SetKnowledgeSearcher(s knowledge.Searcher) {
+	if ca.perceiver != nil {
+		ca.perceiver.SetKnowledgeSearcher(s)
+	}
+}
+
+// SetKnowledgeGraph sets the knowledge graph store for the perceiver phase.
+func (ca *CognitiveAgent) SetKnowledgeGraph(g graph.Graph) {
+	if ca.perceiver != nil {
+		ca.perceiver.SetKnowledgeGraph(g)
+	}
+}
+
+// SetEntityExtractor sets the entity extractor for knowledge graph entity extraction.
+func (ca *CognitiveAgent) SetEntityExtractor(ee *graph.LLMEntityExtractor) {
+	ca.entityExtractor = ee
+	if ca.reflector != nil {
+		ca.reflector.SetEntityExtractor(ee)
+	}
+}
+
 // Sessions returns the session manager.
 func (ca *CognitiveAgent) Sessions() *session.Manager {
 	return ca.deps.Core.Sessions

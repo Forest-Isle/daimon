@@ -15,40 +15,21 @@ import (
 
 func (gw *Gateway) initCognitiveAgent() error {
 	opts := &agent.CognitiveAgentOptions{}
-	if gw.memory.memStore != nil {
-		opts.MemoryStore = gw.memory.memStore
-	}
-	if gw.memory.factExtractor != nil {
-		opts.FactExtractor = gw.memory.factExtractor
-	}
-	if gw.memory.lifecycleMgr != nil {
-		opts.LifecycleManager = gw.memory.lifecycleMgr
-	}
+
+	// Codebase index (optional)
 	if gw.codebaseIndex != nil {
 		opts.CodebaseIndex = gw.codebaseIndex
 	}
 
-	// Wire hook manager and permission engine (security: parity with simple runtime)
-	if gw.hookMgr != nil {
-		opts.HookManager = gw.hookMgr
-	}
-	if gw.permEngine != nil {
-		opts.PermissionEngine = gw.permEngine
-	}
-	if gw.sandbox.interceptorChain != nil {
-		opts.InterceptorChain = gw.sandbox.interceptorChain
-	}
-
-	// Inject memory notification callback
+	// Memory notification callback
 	opts.MemoryNotifyFunc = gw.sendMemoryNotification
 
 	// Plan Mode: plan->approve->execute flow for write tools.
-	// Enabled when cognitive mode is active and provider supports plan generation.
 	if gw.provider != nil {
 		gw.planMode = agent.NewPlanMode(
 			gw.provider,
 			gw.handleApproval,
-			false, // safe default: require approval for write tools
+			false,
 		)
 		opts.PlanMode = gw.planMode
 		slog.Info("plan mode wired into cognitive agent")
@@ -71,37 +52,27 @@ func (gw *Gateway) initCognitiveAgent() error {
 		slog.Info("RL system initialized")
 
 		// Bridge memory lifecycle events to RL system
-		if gw.memory.lifecycleMgr != nil {
+		if gw.memory.LifecycleManager() != nil {
 			memoryRewards := rl.DefaultMemoryRLRewards()
 			memRLHandler := rl.NewMemoryRLHandler(gw.rlTrainer, memoryRewards)
-			gw.memory.lifecycleMgr.SetRLEventHandler(memRLHandler)
+			gw.memory.LifecycleManager().SetRLEventHandler(memRLHandler)
 			slog.Info("RL-memory bridge connected")
 		}
 	}
 
-	if gw.evolution.engine != nil {
-		opts.EvolutionEngine = gw.evolution.engine
+	if gw.evolution.Engine() != nil {
+		opts.EvolutionEngine = gw.evolution.Engine()
 	}
-	if gw.replayRecorder != nil {
-		opts.ReplayRecorder = gw.replayRecorder
-	}
-	if gw.selfHealEngine != nil {
-		opts.SelfHealEngine = gw.selfHealEngine
-	}
+
 	if gw.treePlanner != nil {
 		opts.TreePlanner = gw.treePlanner
 	}
 
-	gw.cognitiveAgent = agent.NewCognitiveAgent(
-		gw.provider,
-		gw.tools,
-		gw.sessions,
-		gw.db,
-		gw.cfg.Agent,
-		gw.cfg.LLM,
-		opts,
-	)
-	if gw.cognitiveAgent != nil && gw.evolution.engine != nil {
+	opts.DebateConfig = gw.cfg.Agents.Debate
+
+	// Create cognitive agent with shared AgentDeps
+	gw.cognitiveAgent = agent.NewCognitiveAgent(gw.agentDeps, opts)
+	if gw.cognitiveAgent != nil && gw.evolution.Engine() != nil {
 		gw.registerEvolutionHooks()
 	}
 

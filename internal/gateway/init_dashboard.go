@@ -39,13 +39,7 @@ func (gw *Gateway) setupDashboard() error {
 
 	emitter := dashboard.NewEmitter(gw.dashboard.bus)
 	gw.dashboard.emitter = emitter
-	gw.runtime.SetDashboardEmitter(emitter)
-	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetDashboardEmitter(emitter)
-	}
-	if gw.tasks.subAgentMgr != nil {
-		gw.tasks.subAgentMgr.SetDashboardEmitter(emitter)
-	}
+	gw.agentDeps.Observability.Emitter = emitter
 	if gw.contextMgr != nil {
 		gw.contextMgr.SetDashboardEmitter(emitter)
 	}
