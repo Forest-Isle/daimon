@@ -200,16 +200,16 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 	}
 
 	if err := gw.features.SetOnEnable("evolution", func(ctx context.Context) error {
-		if gw.evoEngine != nil {
-			gw.evoEngine.Start()
+		if gw.evolution.engine != nil {
+			gw.evolution.engine.Start()
 		}
 		return nil
 	}); err != nil {
 		slog.Warn("gateway: SetOnEnable hook failed", "feature", "evolution", "err", err)
 	}
 	if err := gw.features.SetOnDisable("evolution", func(ctx context.Context) error {
-		if gw.evoEngine != nil {
-			gw.evoEngine.Stop()
+		if gw.evolution.engine != nil {
+			gw.evolution.engine.Stop()
 		}
 		return nil
 	}); err != nil {
@@ -217,16 +217,16 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 	}
 
 	if err := gw.features.SetOnEnable("scheduler", func(ctx context.Context) error {
-		if gw.sched != nil {
-			gw.sched.Start(ctx)
+		if gw.channels.sched != nil {
+			gw.channels.sched.Start(ctx)
 		}
 		return nil
 	}); err != nil {
 		slog.Warn("gateway: SetOnEnable hook failed", "feature", "scheduler", "err", err)
 	}
 	if err := gw.features.SetOnDisable("scheduler", func(ctx context.Context) error {
-		if gw.sched != nil {
-			gw.sched.Stop()
+		if gw.channels.sched != nil {
+			gw.channels.sched.Stop()
 		}
 		return nil
 	}); err != nil {

@@ -141,7 +141,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 			if !available {
 				slog.Warn("sandbox: Docker not available, bash will run on host")
 			}
-			gw.dockerSessionMgr = sandbox.NewDockerSessionManager(sandbox.DockerSessionConfig{
+			gw.sandbox.dockerSessionMgr = sandbox.NewDockerSessionManager(sandbox.DockerSessionConfig{
 				Image:        gw.cfg.Sandbox.Bash.Docker.Image,
 				NetworkMode:  gw.cfg.Sandbox.Bash.Docker.Network,
 				MemoryLimit:  gw.cfg.Sandbox.Bash.Docker.MemoryLimit,
@@ -153,7 +153,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 		}
 	}
 
-	// Build interceptor chain: permission → hook → sandbox → verify → audit
+	// Build interceptor chain: permission -> hook -> sandbox -> verify -> audit
 	auditInterceptor, err := tool.NewAuditInterceptor("")
 	if err != nil {
 		slog.Warn("audit interceptor init failed, continuing without audit", "err", err)
@@ -161,13 +161,13 @@ func (gw *Gateway) initToolsAndHooks() error {
 	verifyInterceptor := tool.NewVerifyInterceptor(".")
 
 	// Progressive trust tracker (resets per session)
-	gw.trustTracker = tool.NewTrustTracker()
+	gw.sandbox.trustTracker = tool.NewTrustTracker()
 
 	interceptors := []tool.ToolInterceptor{
 		tool.NewPermissionInterceptor(gw.permEngine, nil, nil),
 		tool.NewHookInterceptor(gw.hookMgr),
 		newUserHookInterceptor(gw.userHookMgr),
-		tool.NewSandboxInterceptor(gw.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
+		tool.NewSandboxInterceptor(gw.sandbox.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
 	}
 	if gw.cfg.Tools.Verify.Enabled {
 		interceptors = append(interceptors, verifyInterceptor)
@@ -175,7 +175,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 	if auditInterceptor != nil {
 		interceptors = append(interceptors, auditInterceptor)
 	}
-	gw.interceptorChain = tool.NewInterceptorChain(interceptors)
+	gw.sandbox.interceptorChain = tool.NewInterceptorChain(interceptors)
 
 	slog.Info("sandbox system initialized", "enabled", sandboxEnabled)
 

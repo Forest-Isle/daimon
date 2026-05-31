@@ -22,14 +22,14 @@ func (gw *Gateway) initDashboard() error {
 // without going through featureEnabled() (which would deadlock since
 // Registry.Enable holds the mutex when invoking OnEnable).
 func (gw *Gateway) setupDashboard() error {
-	gw.dashboardBus = dashboard.NewBus(256)
-	gw.stateTracker = dashboard.NewAgentStateTracker(gw.dashboardBus)
-	go gw.stateTracker.Run()
+	gw.dashboard.bus = dashboard.NewBus(256)
+	gw.dashboard.stateTracker = dashboard.NewAgentStateTracker(gw.dashboard.bus)
+	go gw.dashboard.stateTracker.Run()
 
 	// Use featureEnabled to check registry state, not evoEngine.IsEnabled()
 	// (which reads static config and misses runtime-enabled evolution).
-	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
-		gw.evoEngine.RegisterHook(dashboard.NewEvolutionBridge(gw.dashboardBus))
+	if gw.evolution.engine != nil && gw.featureEnabled("evolution") {
+		gw.evolution.engine.RegisterHook(dashboard.NewEvolutionBridge(gw.dashboard.bus))
 	}
 
 	// Ensure the cog-metrics collector exists (idempotent — initCogMetrics
@@ -37,39 +37,39 @@ func (gw *Gateway) setupDashboard() error {
 	// path where setupDashboard is called via OnEnable after a fresh start).
 	gw.initCogMetrics()
 
-	emitter := dashboard.NewEmitter(gw.dashboardBus)
-	gw.dashEmitter = emitter
+	emitter := dashboard.NewEmitter(gw.dashboard.bus)
+	gw.dashboard.emitter = emitter
 	gw.runtime.SetDashboardEmitter(emitter)
 	if gw.cognitiveAgent != nil {
 		gw.cognitiveAgent.SetDashboardEmitter(emitter)
 	}
-	if gw.subAgentMgr != nil {
-		gw.subAgentMgr.SetDashboardEmitter(emitter)
+	if gw.tasks.subAgentMgr != nil {
+		gw.tasks.subAgentMgr.SetDashboardEmitter(emitter)
 	}
 	if gw.contextMgr != nil {
 		gw.contextMgr.SetDashboardEmitter(emitter)
 	}
 
-	gw.dashboardHub = dashboard.NewHub(gw.dashboardBus)
-	go gw.dashboardHub.Run()
+	gw.dashboard.hub = dashboard.NewHub(gw.dashboard.bus)
+	go gw.dashboard.hub.Run()
 
-	gw.dashboardSrv = dashboard.NewServer(gw.cfg.Dashboard, dashboard.ServerDeps{
+	gw.dashboard.srv = dashboard.NewServer(gw.cfg.Dashboard, dashboard.ServerDeps{
 		DB:        gw.db,
-		Hub:       gw.dashboardHub,
-		Tracker:   gw.stateTracker,
-		Collector: gw.cogCollector,
+		Hub:       gw.dashboard.hub,
+		Tracker:   gw.dashboard.stateTracker,
+		Collector: gw.evolution.cogCollector,
 		StaticFS:  dashboard.WebDistFS(),
 	})
 
 	// Apply rate limit middleware if the limiter is configured
-	if gw.rateLimiter != nil {
-		wrapped := ratelimit.RateLimitMiddleware(gw.rateLimiter, nil)(gw.dashboardSrv.Handler)
-		gw.dashboardSrv.Handler = wrapped
+	if gw.observability.rateLimiter != nil {
+		wrapped := ratelimit.RateLimitMiddleware(gw.observability.rateLimiter, nil)(gw.dashboard.srv.Handler)
+		gw.dashboard.srv.Handler = wrapped
 	}
 
 	go func() {
 		slog.Info("dashboard server starting", "addr", gw.cfg.Dashboard.Addr)
-		if err := gw.dashboardSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := gw.dashboard.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("dashboard server error", "err", err)
 		}
 	}()
@@ -79,32 +79,32 @@ func (gw *Gateway) setupDashboard() error {
 }
 
 func (gw *Gateway) startDashboard() error {
-	if gw.dashboardHub != nil {
+	if gw.dashboard.hub != nil {
 		return nil
 	}
 	return gw.setupDashboard()
 }
 
 func (gw *Gateway) stopDashboard() error {
-	if gw.dashboardSrv != nil {
+	if gw.dashboard.srv != nil {
 		ctx, cancel := context.WithTimeout(gw.initCtx, 5*time.Second)
 		defer cancel()
-		if err := gw.dashboardSrv.Shutdown(ctx); err != nil {
+		if err := gw.dashboard.srv.Shutdown(ctx); err != nil {
 			slog.Warn("dashboard shutdown error", "err", err)
 		}
-		gw.dashboardSrv = nil
+		gw.dashboard.srv = nil
 	}
-	if gw.dashboardHub != nil {
-		gw.dashboardHub.Stop()
-		gw.dashboardHub = nil
+	if gw.dashboard.hub != nil {
+		gw.dashboard.hub.Stop()
+		gw.dashboard.hub = nil
 	}
-	if gw.stateTracker != nil {
-		gw.stateTracker.Stop()
-		gw.stateTracker = nil
+	if gw.dashboard.stateTracker != nil {
+		gw.dashboard.stateTracker.Stop()
+		gw.dashboard.stateTracker = nil
 	}
-	gw.dashboardBus = nil
-	gw.dashEmitter = nil
-	gw.cogCollector = nil
+	gw.dashboard.bus = nil
+	gw.dashboard.emitter = nil
+	gw.evolution.cogCollector = nil
 	slog.Info("dashboard stopped")
 	return nil
 }

@@ -23,7 +23,7 @@ func (gw *Gateway) initMemorySystem() error {
 		embedder = memory.NewCachedEmbedder(baseEmbedder)
 		slog.Info("memory: cached embedder enabled")
 	}
-	gw.embedder = embedder
+	gw.memory.embedder = embedder
 	memCfg := memory.MemoryConfig{
 		FactExtraction:           gw.cfg.Memory.FactExtraction,
 		SimilarityThreshold:      gw.cfg.Memory.SimilarityThreshold,
@@ -61,12 +61,12 @@ func (gw *Gateway) initMemorySystem() error {
 	if err != nil {
 		return fmt.Errorf("create file memory store: %w", err)
 	}
-	gw.memStore = fileStore
-	gw.memoryDir = storageDir
+	gw.memory.memStore = fileStore
+	gw.memory.memoryDir = storageDir
 
 	slog.Info("memory: file-based storage enabled", "dir", storageDir)
 
-	gw.runtime.SetMemoryStore(gw.memStore)
+	gw.runtime.SetMemoryStore(gw.memory.memStore)
 
 	// Set memory base dir on runtime for user profile injection
 	gw.runtime.SetMemoryBaseDir(storageDir)
@@ -81,23 +81,23 @@ func (gw *Gateway) initMemorySystem() error {
 
 	if gw.cfg.Memory.FactExtraction {
 		completer := &completerAdapter{provider: gw.provider, model: gw.cfg.LLM.Model}
-		gw.factExtractor = memory.NewLLMFactExtractor(completer, memCfg)
+		gw.memory.factExtractor = memory.NewLLMFactExtractor(completer, memCfg)
 
 		// Create reflection tracker for automatic L1/L2 reflections
-		reflector := memory.NewReflectionTracker(gw.memStore, completer, embedder, memCfg, gw.db.DB)
+		reflector := memory.NewReflectionTracker(gw.memory.memStore, completer, embedder, memCfg, gw.db.DB)
 		slog.Info("memory: reflection tracker enabled")
 
-		gw.lifecycleMgr = memory.NewLifecycleManager(gw.memStore, embedder, completer, memCfg, reflector)
-		gw.lifecycleMgr.SetAuditLogger(memory.NewAuditLogger(gw.db.DB))
+		gw.memory.lifecycleMgr = memory.NewLifecycleManager(gw.memory.memStore, embedder, completer, memCfg, reflector)
+		gw.memory.lifecycleMgr.SetAuditLogger(memory.NewAuditLogger(gw.db.DB))
 
 		// Start compactor background task
-		compactor := memory.NewCompactor(gw.memStore, completer, gw.db.DB, storageDir, memCfg)
-		gw.compactor = compactor
+		compactor := memory.NewCompactor(gw.memory.memStore, completer, gw.db.DB, storageDir, memCfg)
+		gw.memory.compactor = compactor
 		compactor.Start(gw.initCtx)
 		slog.Info("memory: compactor enabled")
 
 		// Create profiler and wire it to the reflection tracker
-		profiler := memory.NewProfiler(gw.memStore, completer, gw.db.DB, storageDir, memCfg)
+		profiler := memory.NewProfiler(gw.memory.memStore, completer, gw.db.DB, storageDir, memCfg)
 		reflector.SetProfilerCallback(profiler)
 		gw.runtime.SetProfiler(profiler)
 		slog.Info("memory: profiler created and wired to reflection tracker")
@@ -109,21 +109,21 @@ func (gw *Gateway) initMemorySystem() error {
 
 	// Wire fact extractor and lifecycle manager to simple runtime (if enabled).
 	// These may be nil when FactExtraction is disabled; the runtime does nil checks.
-	if gw.factExtractor != nil {
-		gw.runtime.SetFactExtractor(gw.factExtractor)
+	if gw.memory.factExtractor != nil {
+		gw.runtime.SetFactExtractor(gw.memory.factExtractor)
 	}
-	if gw.lifecycleMgr != nil {
-		gw.runtime.SetLifecycleManager(gw.lifecycleMgr)
+	if gw.memory.lifecycleMgr != nil {
+		gw.runtime.SetLifecycleManager(gw.memory.lifecycleMgr)
 	}
 
 	// Register memory_manage tool
-	memTool := tool.NewMemoryManageTool(gw.memStore, gw.db.DB, storageDir)
+	memTool := tool.NewMemoryManageTool(gw.memory.memStore, gw.db.DB, storageDir)
 	gw.tools.Register(memTool)
 	slog.Info("memory: memory_manage tool registered")
 
 	// Start consolidator background task (promotes session facts to user scope)
-	gw.consolidator = memory.NewConsolidator(gw.memStore, gw.db.DB, storageDir, gw.cfg.Memory.ConsolidationInterval)
-	gw.consolidator.Start(gw.initCtx)
+	gw.memory.consolidator = memory.NewConsolidator(gw.memory.memStore, gw.db.DB, storageDir, gw.cfg.Memory.ConsolidationInterval)
+	gw.memory.consolidator.Start(gw.initCtx)
 	slog.Info("memory: consolidator enabled")
 
 	// Schedule daily retention policy enforcement alongside fade task

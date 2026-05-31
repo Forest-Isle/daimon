@@ -31,7 +31,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 		kbEmbedder = &noopKBEmbedder{}
 	}
 	kb := knowledge.New(gw.db, kbEmbedder, kbCfg)
-	gw.kbSearcher = nil
+	gw.memory.kbSearcher = nil
 
 	// Build reranker + hybrid retriever (used as the searcher for perceiver)
 	var reranker knowledge.Reranker = &knowledge.NoopReranker{}
@@ -40,7 +40,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 		reranker = knowledge.NewLLMReranker(llmCompleter)
 	}
 	retriever := knowledge.NewHybridRetriever(kb, reranker)
-	gw.kbSearcher = retriever
+	gw.memory.kbSearcher = retriever
 
 	// Ingest configured directories at startup
 	for _, dir := range gw.cfg.Knowledge.IngestDirs {
@@ -56,7 +56,7 @@ func (gw *Gateway) initKnowledgeSystem() error {
 	// Knowledge graph (Phase 3)
 	if gw.featureEnabled("knowledge_graph") {
 		kg := graph.NewSQLiteGraph(gw.db)
-		gw.graphStore = kg
+		gw.memory.graphStore = kg
 		llmCompleter := &completerAdapter{provider: gw.provider, model: gw.cfg.LLM.Model}
 		extractor := graph.NewLLMEntityExtractor(kg, llmCompleter)
 
@@ -88,16 +88,16 @@ func (gw *Gateway) initKnowledgeSystem() error {
 			gw.cognitiveAgent.SetEntityExtractor(extractor)
 		}
 
-		// Wire GraphSync to lifecycle manager for memory→graph synchronization
-		if gw.lifecycleMgr != nil {
+		// Wire GraphSync to lifecycle manager for memory->graph synchronization
+		if gw.memory.lifecycleMgr != nil {
 			graphSync := graph.NewGraphSync(kg, extractor)
-			gw.lifecycleMgr.SetGraphSync(graphSync)
+			gw.memory.lifecycleMgr.SetGraphSync(graphSync)
 			slog.Info("knowledge graph: memory lifecycle sync enabled")
 		}
 
 		// Start graph decay background task
 		graphDecay := graph.NewGraphDecayTask(kg, 24*time.Hour)
-		gw.graphDecay = graphDecay
+		gw.memory.graphDecay = graphDecay
 		go graphDecay.Start(gw.initCtx)
 		slog.Info("knowledge graph: decay task started")
 
