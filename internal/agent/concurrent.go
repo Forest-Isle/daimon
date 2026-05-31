@@ -41,7 +41,7 @@ func (r *Runtime) executeTools(
 	toolCalls []ToolUseBlock,
 ) {
 	// Single tool or concurrency disabled — sequential execution
-	if len(toolCalls) <= 1 || !r.concurrentCfg.Enabled {
+	if len(toolCalls) <= 1 || !r.deps.Core.Cfg.Tools.ConcurrentExecution.Enabled {
 		for _, tc := range toolCalls {
 			r.executeSingleTool(ctx, ch, sess, target, tc)
 		}
@@ -56,7 +56,7 @@ func (r *Runtime) executeTools(
 	claimedPaths := make(map[string]bool)
 
 	for _, tc := range toolCalls {
-		t, err := r.tools.Get(tc.Name)
+		t, err := r.deps.Core.Tools.Get(tc.Name)
 		if err != nil {
 			r.addToolResult(sess, tc.ID, "tool not found: "+tc.Name)
 			continue
@@ -103,7 +103,7 @@ func (r *Runtime) executeTools(
 
 	// Execute concurrent tools in parallel
 	if len(concurrent) > 0 {
-		maxConcurrency := r.concurrentCfg.MaxConcurrency
+		maxConcurrency := r.deps.Core.Cfg.Tools.ConcurrentExecution.MaxConcurrency
 		if maxConcurrency <= 0 {
 			maxConcurrency = 4
 		}
@@ -129,7 +129,7 @@ func (r *Runtime) executeTools(
 		// Apply results in original order
 		for i, tc := range concurrent {
 			res := results[i]
-			session.LogToolExecution(ctx, r.db, sess.ID, res.toolName, res.toolInput, res.output, res.status, res.duration)
+			session.LogToolExecution(ctx, r.deps.Core.DB, sess.ID, res.toolName, res.toolInput, res.output, res.status, res.duration)
 			r.addToolResult(sess, tc.ID, res.output)
 			slog.Info("tool executed (concurrent)", "tool", res.toolName, "status", res.status, "duration_ms", res.duration)
 		}
@@ -190,14 +190,14 @@ func (r *Runtime) executeToolCall(
 	target channel.MessageTarget,
 	tc ToolUseBlock,
 ) toolResult {
-	t, err := r.tools.Get(tc.Name)
+	t, err := r.deps.Core.Tools.Get(tc.Name)
 	if err != nil {
 		return toolResult{toolUseID: tc.ID, output: err.Error(), status: "error", toolName: tc.Name, toolInput: tc.Input}
 	}
 
 	// Check for a speculative execution result (read-only tools launched during streaming)
-	if r.speculativeExecutor != nil {
-		if specResult, specErr := r.speculativeExecutor.Collect(tc.ID); specResult != nil {
+	if r.deps.MultiAgent.Speculative != nil {
+		if specResult, specErr := r.deps.MultiAgent.Speculative.Collect(tc.ID); specResult != nil {
 			var output, status string
 			if specErr != nil {
 				output = "error: " + specErr.Error()
@@ -209,10 +209,8 @@ func (r *Runtime) executeToolCall(
 				output = specResult.Output
 				status = "success"
 			}
-			if r.dashEmitter != nil {
-				r.dashEmitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
-				r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, status == "success", 0)
-			}
+			r.deps.Observability.Emitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
+			r.deps.Observability.Emitter.EmitToolEnd(sess.ID, tc.Name, status == "success", 0)
 			slog.Info("speculative result used", "tool", tc.Name, "status", status)
 			return toolResult{
 				toolUseID: tc.ID, output: output, status: status,
@@ -222,19 +220,17 @@ func (r *Runtime) executeToolCall(
 		}
 	}
 
-	// Route through interceptor chain when configured (e.g. sandbox enforcement)
-	if r.interceptorChain != nil {
-		return r.executeToolCallViaChain(ctx, ch, sess, target, tc, t)
-	}
+	// Route through interceptor chain
+	return r.executeToolCallViaChain(ctx, ch, sess, target, tc, t)
 
 	// Track permission decision metadata
 	var permAction, permReason, permRule string
 
 	// Fire PreToolUse hooks
 	skipApproval := false
-	if r.hookMgr != nil && r.hookMgr.HasPreToolUseHandlers() {
+	if r.deps.Security.HookMgr != nil && r.deps.Security.HookMgr.HasPreToolUseHandlers() {
 		caps := tool.GetCapabilities(t)
-		hookResult, hookErr := r.hookMgr.FirePreToolUse(ctx, hook.PreToolUseEvent{
+		hookResult, hookErr := r.deps.Security.HookMgr.FirePreToolUse(ctx, hook.PreToolUseEvent{
 			ToolName: tc.Name,
 			Input:    tc.Input,
 			Capabilities: map[string]bool{
@@ -256,9 +252,9 @@ func (r *Runtime) executeToolCall(
 	}
 
 	// Permission engine check
-	if r.permEngine != nil {
+	if r.deps.Security.PermEngine != nil {
 		caps := tool.GetCapabilities(t)
-		permResult := r.permEngine.Evaluate(tc.Name, tc.Input, caps)
+		permResult := r.deps.Security.PermEngine.Evaluate(tc.Name, tc.Input, caps)
 		switch permResult.Action {
 		case tool.PermissionDeny:
 			return toolResult{toolUseID: tc.ID, output: buildDeniedOutput(tc.Name, "denied by permission engine: "+permResult.Reason), status: "denied", toolName: tc.Name, toolInput: tc.Input,
@@ -288,35 +284,15 @@ func (r *Runtime) executeToolCall(
 		}
 	}
 
-	if r.dashEmitter != nil {
-		r.dashEmitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
-	}
-	if r.replayRecorder != nil && r.replayID != "" {
-		r.replayRecorder.RecordToolStart(ctx, r.replayID, tc.Name, tc.Input)
+	r.deps.Observability.Emitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
+	if r.deps.Observability.ReplayRecorder != nil && r.replayID != "" {
+		r.deps.Observability.ReplayRecorder.RecordToolStart(ctx, r.replayID, tc.Name, tc.Input)
 	}
 	start := time.Now()
 	result, err := t.Execute(ctx, []byte(tc.Input))
 	duration := time.Since(start).Milliseconds()
 
-	// Self-heal: try to auto-fix tool errors
-	if r.selfHealEngine != nil && (err != nil || result.Error != "") {
-		errStr := ""
-		if err != nil {
-			errStr = err.Error()
-		} else {
-			errStr = result.Error
-		}
-		healResult := r.selfHealEngine.HealToolError(ctx, tc.Name, tc.Input, errStr)
-		if healResult.Resolved && healResult.RetryResult != nil {
-			slog.Info("self-heal: runtime tool error fixed", "tool", tc.Name, "error", errStr)
-			err = nil
-			result = tool.Result{
-				Output:   healResult.RetryResult.Output,
-				Error:    "",
-				Metadata: healResult.RetryResult.Metadata,
-			}
-		}
-	}
+
 
 	var output string
 	status := "success"
@@ -329,29 +305,26 @@ func (r *Runtime) executeToolCall(
 	} else {
 		output = result.Output
 		// Persist large results to disk if enabled
-		if r.resultStore != nil && r.resultStore.ShouldPersist(output) {
-			stored, storeErr := r.resultStore.Store(sess.ID, tc.ID, output)
+		if r.deps.MultiAgent.ResultStore != nil && r.deps.MultiAgent.ResultStore.ShouldPersist(output) {
+			stored, storeErr := r.deps.MultiAgent.ResultStore.Store(sess.ID, tc.ID, output)
 			if storeErr != nil {
 				slog.Warn("failed to persist tool result", "tool", tc.Name, "err", storeErr)
 			} else {
 				output = stored.Preview
 			}
 		}
-		// Compress long tool outputs
-		if r.compressor != nil {
-			output = r.compressor.CompressToolResult(output)
-		}
+
 	}
 
 	// Fire PostToolUse hooks
-	if r.hookMgr != nil && r.hookMgr.HasPostToolUseHandlers() {
+	if r.deps.Security.HookMgr != nil && r.deps.Security.HookMgr.HasPostToolUseHandlers() {
 		var errStr string
 		if err != nil {
 			errStr = err.Error()
 		} else if result.Error != "" {
 			errStr = result.Error
 		}
-		postResult, _ := r.hookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
+		postResult, _ := r.deps.Security.HookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
 			ToolName:         tc.Name,
 			Input:            tc.Input,
 			Output:           output,
@@ -368,10 +341,8 @@ func (r *Runtime) executeToolCall(
 		}
 	}
 
-	if r.dashEmitter != nil {
-		r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, status == "success", duration)
-	}
-	if r.replayRecorder != nil && r.replayID != "" {
+	r.deps.Observability.Emitter.EmitToolEnd(sess.ID, tc.Name, status == "success", duration)
+	if r.deps.Observability.ReplayRecorder != nil && r.replayID != "" {
 		errStr := ""
 		denied := status == "denied"
 		if err != nil {
@@ -379,7 +350,7 @@ func (r *Runtime) executeToolCall(
 		} else if result.Error != "" {
 			errStr = result.Error
 		}
-		r.replayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, status == "success" && !denied, denied, errStr, duration)
+		r.deps.Observability.ReplayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, status == "success" && !denied, denied, errStr, duration)
 	}
 	return toolResult{toolUseID: tc.ID, output: output, status: status, duration: duration, toolName: tc.Name, toolInput: tc.Input,
 		permissionAction: permAction, permissionReason: permReason, permissionRule: permRule}
@@ -401,14 +372,12 @@ func (r *Runtime) executeToolCallViaChain(
 		SessionID: sess.ID,
 	}
 
-	if r.dashEmitter != nil {
-		r.dashEmitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
-	}
-	if r.replayRecorder != nil && r.replayID != "" {
-		r.replayRecorder.RecordToolStart(ctx, r.replayID, tc.Name, tc.Input)
+	r.deps.Observability.Emitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
+	if r.deps.Observability.ReplayRecorder != nil && r.replayID != "" {
+		r.deps.Observability.ReplayRecorder.RecordToolStart(ctx, r.replayID, tc.Name, tc.Input)
 	}
 	start := time.Now()
-	res, err := r.interceptorChain.Execute(ctx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
+	res, err := r.deps.Security.Interceptor.Execute(ctx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
 		result, execErr := t.Execute(ctx, []byte(call.Input))
 		if execErr != nil {
 			return &tool.ToolResult{Error: execErr.Error()}, nil
@@ -425,36 +394,30 @@ func (r *Runtime) executeToolCallViaChain(
 	duration := time.Since(start).Milliseconds()
 
 	if err != nil {
-		if r.dashEmitter != nil {
-			r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, false, duration)
-		}
-		if r.replayRecorder != nil && r.replayID != "" {
-			r.replayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, false, false, err.Error(), duration)
+		r.deps.Observability.Emitter.EmitToolEnd(sess.ID, tc.Name, false, duration)
+		if r.deps.Observability.ReplayRecorder != nil && r.replayID != "" {
+			r.deps.Observability.ReplayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, false, false, err.Error(), duration)
 		}
 		return toolResult{toolUseID: tc.ID, output: "error: " + err.Error(), status: "error", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 	}
 	if res.Error != "" {
-		if r.dashEmitter != nil {
-			r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, false, duration)
-		}
-		if r.replayRecorder != nil && r.replayID != "" {
-			r.replayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, false, true, res.Error, duration)
+		r.deps.Observability.Emitter.EmitToolEnd(sess.ID, tc.Name, false, duration)
+		if r.deps.Observability.ReplayRecorder != nil && r.replayID != "" {
+			r.deps.Observability.ReplayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, false, true, res.Error, duration)
 		}
 		return toolResult{toolUseID: tc.ID, output: buildDeniedOutput(tc.Name, res.Error), status: "denied", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 	}
 
 	output := res.Output
-	if r.resultStore != nil && r.resultStore.ShouldPersist(output) {
-		if stored, storeErr := r.resultStore.Store(sess.ID, tc.ID, output); storeErr == nil {
+	if r.deps.MultiAgent.ResultStore != nil && r.deps.MultiAgent.ResultStore.ShouldPersist(output) {
+		if stored, storeErr := r.deps.MultiAgent.ResultStore.Store(sess.ID, tc.ID, output); storeErr == nil {
 			output = stored.Preview
 		}
 	}
-	if r.compressor != nil {
-		output = r.compressor.CompressToolResult(output)
-	}
 
-	if r.hookMgr != nil && r.hookMgr.HasPostToolUseHandlers() {
-		postResult, _ := r.hookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
+
+	if r.deps.Security.HookMgr != nil && r.deps.Security.HookMgr.HasPostToolUseHandlers() {
+		postResult, _ := r.deps.Security.HookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
 			ToolName:   tc.Name,
 			Input:      tc.Input,
 			Output:     output,
@@ -467,11 +430,9 @@ func (r *Runtime) executeToolCallViaChain(
 		}
 	}
 
-	if r.dashEmitter != nil {
-		r.dashEmitter.EmitToolEnd(sess.ID, tc.Name, true, duration)
-	}
-	if r.replayRecorder != nil && r.replayID != "" {
-		r.replayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, true, false, "", duration)
+	r.deps.Observability.Emitter.EmitToolEnd(sess.ID, tc.Name, true, duration)
+	if r.deps.Observability.ReplayRecorder != nil && r.replayID != "" {
+		r.deps.Observability.ReplayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, true, false, "", duration)
 	}
 	return toolResult{toolUseID: tc.ID, output: output, status: "success", duration: duration, toolName: tc.Name, toolInput: tc.Input}
 }
@@ -485,7 +446,7 @@ func (r *Runtime) executeSingleTool(
 	tc ToolUseBlock,
 ) {
 	res := r.executeToolCall(ctx, ch, sess, target, tc)
-	session.LogToolExecution(ctx, r.db, sess.ID, res.toolName, res.toolInput, res.output, res.status, res.duration)
+	session.LogToolExecution(ctx, r.deps.Core.DB, sess.ID, res.toolName, res.toolInput, res.output, res.status, res.duration)
 	r.addToolResult(sess, tc.ID, res.output)
 	slog.Info("tool executed", "tool", res.toolName, "status", res.status, "duration_ms", res.duration)
 }
