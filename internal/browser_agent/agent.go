@@ -29,6 +29,9 @@ func New(debugURL string) (*BrowserAgent, error) {
 
 // NewPage opens a new tab and returns a Page handle.
 func (ba *BrowserAgent) NewPage(ctx context.Context) (*Page, error) {
+	if ba.client == nil {
+		return nil, fmt.Errorf("client not initialized")
+	}
 	result, err := ba.client.SendCommand(ctx, "Target.createTarget", map[string]interface{}{
 		"url": "about:blank",
 	})
@@ -43,6 +46,9 @@ func (ba *BrowserAgent) NewPage(ctx context.Context) (*Page, error) {
 
 // Close shuts down the browser connection.
 func (ba *BrowserAgent) Close() error {
+	if ba.client == nil {
+		return fmt.Errorf("client not initialized")
+	}
 	return ba.client.Close()
 }
 
@@ -56,6 +62,9 @@ type Page struct {
 
 // Navigate loads a URL in this page.
 func (p *Page) Navigate(ctx context.Context, url string) error {
+	if p.client == nil {
+		return fmt.Errorf("client not initialized")
+	}
 	_, err := p.client.SendCommand(ctx, "Page.navigate", map[string]interface{}{
 		"url": url,
 	})
@@ -68,6 +77,9 @@ func (p *Page) Navigate(ctx context.Context, url string) error {
 
 // Snapshot returns a list of interactive elements on the page.
 func (p *Page) Snapshot(ctx context.Context) (*PageSnapshot, error) {
+	if p.client == nil {
+		return nil, fmt.Errorf("client not initialized")
+	}
 	// Inject element IDs via JavaScript
 	script := `
 		(() => {
@@ -113,6 +125,9 @@ func (p *Page) Snapshot(ctx context.Context) (*PageSnapshot, error) {
 
 // Click clicks an element by its data-ba-id.
 func (p *Page) Click(ctx context.Context, elementID string) error {
+	if p.client == nil {
+		return fmt.Errorf("client not initialized")
+	}
 	script := fmt.Sprintf(`
 		(() => {
 			const el = document.querySelector('[data-ba-id="%s"]');
@@ -128,6 +143,9 @@ func (p *Page) Click(ctx context.Context, elementID string) error {
 
 // Type enters text into an input element.
 func (p *Page) Type(ctx context.Context, elementID, text string) error {
+	if p.client == nil {
+		return fmt.Errorf("client not initialized")
+	}
 	script := fmt.Sprintf(`
 		(() => {
 			const el = document.querySelector('[data-ba-id="%s"]');
@@ -144,6 +162,9 @@ func (p *Page) Type(ctx context.Context, elementID, text string) error {
 
 // Scroll scrolls the page.
 func (p *Page) Scroll(ctx context.Context, direction string, amount int) error {
+	if p.client == nil {
+		return fmt.Errorf("client not initialized")
+	}
 	script := fmt.Sprintf(`window.scrollBy(0, %d)`, amount)
 	if direction == "up" {
 		script = fmt.Sprintf(`window.scrollBy(0, %d)`, -amount)
@@ -154,6 +175,9 @@ func (p *Page) Scroll(ctx context.Context, direction string, amount int) error {
 
 // WaitFor waits for text to appear on the page.
 func (p *Page) WaitFor(ctx context.Context, text string, timeout time.Duration) error {
+	if p.client == nil {
+		return fmt.Errorf("client not initialized")
+	}
 	deadline := time.Now().Add(timeout)
 	script := fmt.Sprintf(`document.body.innerText.includes(%q)`, text)
 	for time.Now().Before(deadline) {
@@ -270,6 +294,9 @@ type AutomationResult struct {
 
 // Close closes this page.
 func (p *Page) Close(ctx context.Context) error {
+	if p.client == nil {
+		return fmt.Errorf("client not initialized")
+	}
 	_, err := p.client.SendCommand(ctx, "Target.closeTarget", map[string]interface{}{
 		"targetId": p.targetID,
 	})
@@ -278,6 +305,9 @@ func (p *Page) Close(ctx context.Context) error {
 
 // GetTitle returns the page title.
 func (p *Page) GetTitle(ctx context.Context) (string, error) {
+	if p.client == nil {
+		return "", fmt.Errorf("client not initialized")
+	}
 	result, err := p.client.Evaluate(ctx, "document.title")
 	if err != nil {
 		return "", err
@@ -288,11 +318,17 @@ func (p *Page) GetTitle(ctx context.Context) (string, error) {
 
 // GetText extracts visible text from the page.
 func (p *Page) GetText(ctx context.Context) (string, error) {
+	if p.client == nil {
+		return "", fmt.Errorf("client not initialized")
+	}
 	return p.client.Evaluate(ctx, "document.body.innerText")
 }
 
 // ExtractJSON runs a querySelector and returns matching elements as JSON.
 func (p *Page) ExtractJSON(ctx context.Context, selector string) (string, error) {
+	if p.client == nil {
+		return "", fmt.Errorf("client not initialized")
+	}
 	script := fmt.Sprintf(`
 		(() => {
 			const els = document.querySelectorAll(%q);
