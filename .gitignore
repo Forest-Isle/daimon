@@ -71,3 +71,6 @@ configs/ironclaw_eval.yaml
 /ironclaw
 .gomodcache/
 .tmp/
+
+# Node modules (web studio)
+web/studio/node_modules/
