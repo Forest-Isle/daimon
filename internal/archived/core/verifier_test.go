@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/core"
+	"github.com/Forest-Isle/IronClaw/internal/archived/core"
 )
 
 func TestVerifierMiddlewareBashExitCode(t *testing.T) {

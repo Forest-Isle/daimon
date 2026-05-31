@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/core/boot"
+	"github.com/Forest-Isle/IronClaw/internal/archived/core/boot"
 )
 
 // minimalCfg builds a config sufficient for boot.New without relying on any

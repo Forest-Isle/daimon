@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/core"
+	"github.com/Forest-Isle/IronClaw/internal/archived/core"
 )
 
 func TestFileMemoryAppendSnapshot(t *testing.T) {

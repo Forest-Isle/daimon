@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/core"
+	"github.com/Forest-Isle/IronClaw/internal/archived/core"
 )
 
 // streamingFakeProvider returns a provider whose Stream method yields pre-built

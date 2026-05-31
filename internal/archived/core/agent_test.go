@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/core"
+	"github.com/Forest-Isle/IronClaw/internal/archived/core"
 )
 
 // fakeProvider is a deterministic Provider used to script multi-turn

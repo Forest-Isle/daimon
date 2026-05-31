@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
-	"github.com/Forest-Isle/IronClaw/internal/core"
+	"github.com/Forest-Isle/IronClaw/internal/archived/core"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 

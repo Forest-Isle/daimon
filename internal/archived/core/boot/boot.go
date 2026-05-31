@@ -14,8 +14,8 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/core"
-	"github.com/Forest-Isle/IronClaw/internal/core/adapter"
+	"github.com/Forest-Isle/IronClaw/internal/archived/core"
+	"github.com/Forest-Isle/IronClaw/internal/archived/core/adapter"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
