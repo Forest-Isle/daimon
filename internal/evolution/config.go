@@ -22,6 +22,13 @@ type Config struct {
 	// HookTimeout is the maximum duration for a single hook execution.
 	// Hooks that exceed this timeout are cancelled and logged as warnings.
 	HookTimeout time.Duration `yaml:"hook_timeout"`
+
+	// SandboxValidation controls whether evolved skills are validated by
+	// executing them in a Docker sandbox before promotion. When true and
+	// Docker is available, the SandboxTestGate runs a full sandbox execution.
+	// When Docker is not available, a warning is logged and validation
+	// falls through to static-analysis-only mode.
+	SandboxValidation bool `yaml:"sandbox_validation"`
 }
 
 // PreferenceConfig controls Loop 1: learning user preferences.
@@ -61,10 +68,11 @@ type OptimizerConfig struct {
 // DefaultConfig returns sensible defaults with the engine disabled.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:        false,
-		HookTimeout:    10 * time.Second,
-		PreferenceFile: "preferences.yaml",
-		Router:         DefaultRouterConfig(),
+		Enabled:            false,
+		HookTimeout:        10 * time.Second,
+		PreferenceFile:     "preferences.yaml",
+		SandboxValidation:  true,
+		Router:             DefaultRouterConfig(),
 		Preference: PreferenceConfig{
 			Enabled:        true,
 			MaxPreferences: 100,

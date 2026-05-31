@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 )
 
@@ -175,5 +174,3 @@ var _ interface {
 	Run(context.Context, string) (StreamResult, error)
 } = (*StreamAgent)(nil)
 
-// Compile-time check that the core loop doesn't accidentally capture anything.
-var _ = sync.Mutex{}

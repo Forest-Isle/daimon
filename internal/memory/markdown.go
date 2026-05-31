@@ -157,7 +157,9 @@ func (p *MarkdownParser) parseMetadataLine(line string, fact *MarkdownFact) erro
 	case "Category":
 		fact.Category = value
 	case "Version":
-		_, _ = fmt.Sscanf(value, "%d", &fact.Version)
+		if _, err := fmt.Sscanf(value, "%d", &fact.Version); err != nil {
+			return fmt.Errorf("parse Version from %q: %w", value, err)
+		}
 	case "Created":
 		t, _ := time.Parse(time.RFC3339, value)
 		fact.CreatedAt = t

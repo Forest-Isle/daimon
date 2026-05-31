@@ -73,6 +73,9 @@ type SchedulerConfig struct {
 type ServerConfig struct {
 	Addr    string `yaml:"addr"`
 	Enabled bool   `yaml:"enabled"`
+	// A2AServerAddr is the listen address for the A2A protocol server.
+	// Default: ":9191".
+	A2AServerAddr string `yaml:"a2a_server_addr"`
 }
 
 type DashboardConfig struct {

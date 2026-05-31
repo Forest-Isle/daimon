@@ -157,15 +157,34 @@ func (g *SemanticGate) Check(draft SkillDraft) (bool, string) {
 
 // --- Gate 6: SandboxTestGate ---
 
-// SandboxTestGate is a placeholder for future sandbox-based validation.
-// TODO: Implement actual sandbox execution to validate skill behavior.
-type SandboxTestGate struct{}
+// SandboxValidator is a function that validates a SkillDraft by executing it
+// inside a Docker sandbox. Returns (passed, reason). When the sandbox is
+// unavailable the function should return (true, "") and log a warning so
+// validation falls through to static-analysis-only mode.
+type SandboxValidator func(draft SkillDraft) (bool, string)
+
+// SandboxTestGate validates skill behavior by running it in a Docker sandbox.
+// When Validator is nil or sandbox_validation is disabled, the gate passes
+// all drafts (static-analysis-only mode). A warning is logged when the
+// sandbox is unavailable.
+type SandboxTestGate struct {
+	// Validator is an optional function that performs sandbox execution.
+	// If nil, the gate passes all drafts (static-analysis-only mode).
+	Validator SandboxValidator
+
+	// Enabled controls whether sandbox validation is active. When false
+	// the gate always passes. This mirrors the evolution.sandbox_validation
+	// config flag.
+	Enabled bool
+}
 
 func (g *SandboxTestGate) Name() string { return "sandbox_test" }
 
-func (g *SandboxTestGate) Check(_ SkillDraft) (bool, string) {
-	// TODO: run skill in a sandboxed environment to validate behavior
-	return true, ""
+func (g *SandboxTestGate) Check(draft SkillDraft) (bool, string) {
+	if !g.Enabled || g.Validator == nil {
+		return true, ""
+	}
+	return g.Validator(draft)
 }
 
 // --- Gate 7: ConflictGate ---

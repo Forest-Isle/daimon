@@ -213,6 +213,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	// WASM plugin host — load .wasm tools from ~/.IronClaw/plugins/
 	if gw.features.IsEnabled("wasm_plugins") {
+		wasm.DefaultPluginTimeout = gw.cfg.Tools.WASM.DefaultTimeout
 		gw.loadWasmPlugins(context.Background())
 	}
 	if err := gw.initSkillManager(); err != nil {
@@ -808,7 +809,10 @@ func (n *noopKBEmbedder) Dimensions() int {
 // watchMCPDir periodically scans ~/.IronClaw/mcp/ and syncs MCP servers.
 // New yaml files trigger server startup; removed files trigger shutdown.
 func (gw *Gateway) watchMCPDir(ctx context.Context) {
-	const pollInterval = 30 * time.Second
+	pollInterval := gw.cfg.Tools.MCP.PollInterval
+	if pollInterval <= 0 {
+		pollInterval = 30 * time.Second
+	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
@@ -956,7 +960,9 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 	rootTask.State = taskledger.TaskStateCompleted
 	rootTask.CompletedAt = &now
 	rootTask.Result = result.Summary
-	_ = gw.taskLedger.Update(ctx, rootTask)
+	if err := gw.taskLedger.Update(ctx, rootTask); err != nil {
+		slog.Warn("gateway: failed to update root task", "err", err)
+	}
 
 	return fmt.Sprintf("Team completed: %d tasks done, %d failed", result.TasksCompleted, result.TasksFailed)
 }
@@ -974,7 +980,9 @@ func (gw *Gateway) handleModeCommand(arg string) string {
 	if arg == current {
 		return fmt.Sprintf("Already in %s mode", current)
 	}
-	_ = gw.SetMode(arg)
+	if err := gw.SetMode(arg); err != nil {
+			slog.Warn("gateway: set mode failed", "mode", arg, "err", err)
+		}
 	return fmt.Sprintf("Mode switched to %s (was: %s)", arg, current)
 }
 
@@ -1066,10 +1074,14 @@ func (gw *Gateway) RateLimiter() ratelimit.Limiter {
 
 // startA2AServer creates and starts the A2A protocol server.
 func (gw *Gateway) startA2AServer() error {
+	a2aAddr := gw.cfg.Server.A2AServerAddr
+	if a2aAddr == "" {
+		a2aAddr = ":9191"
+	}
 	card := a2a.AgentCard{
 		Name:        "IronClaw",
 		Description: "IronClaw — local-first self-evolving AI agent runtime",
-		URL:         "http://localhost:9191",
+		URL:         "http://localhost" + a2aAddr,
 		Version:     "1.0",
 		Capabilities: a2a.Capabilities{
 			Streaming:         true,
@@ -1113,11 +1125,11 @@ func (gw *Gateway) startA2AServer() error {
 
 	gw.a2aServer = a2a.NewServer(card, handler)
 	go func() {
-		if err := gw.a2aServer.Start(":9191"); err != nil {
+		if err := gw.a2aServer.Start(a2aAddr); err != nil {
 			slog.Error("a2a: server failed", "err", err)
 		}
 	}()
-	slog.Info("a2a: server started", "addr", ":9191")
+	slog.Info("a2a: server started", "addr", a2aAddr)
 	return nil
 }
 
@@ -1175,8 +1187,12 @@ func (gw *Gateway) unloadWasmPlugins(ctx context.Context) {
 	if gw.wasmHost == nil {
 		return
 	}
-	// Unregister WASM tools
-	for _ = range gw.wasmHost.ListPlugins() {
+	// Unregister WASM tools (ListPlugins returns plugin names, used as tool names).
+	for _, name := range gw.wasmHost.ListPlugins() {
+		removed := gw.tools.UnregisterByPrefix(name)
+		if len(removed) > 0 {
+			slog.Debug("wasm: unregistered tool(s)", "names", removed)
+		}
 	}
 	if err := gw.wasmHost.Close(ctx); err != nil {
 		slog.Warn("wasm: host close error", "err", err)

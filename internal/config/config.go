@@ -91,6 +91,9 @@ func defaultConfig() Config {
 				MaxDelay:   30 * time.Second,
 			},
 		},
+		Telegram: TelegramConfig{
+			Timeout: 30 * time.Second,
+		},
 		Agent: AgentConfig{
 			MaxIterations: 20,
 			Mode:          "simple",
@@ -171,7 +174,8 @@ func defaultConfig() Config {
 			Port: 9090,
 		},
 		Server: ServerConfig{
-			Addr: ":8080",
+			Addr:          ":8080",
+			A2AServerAddr: ":9191",
 		},
 		Log: LogConfig{
 			Level:  "info",
@@ -200,6 +204,12 @@ func defaultConfig() Config {
 			},
 			Verify: VerifyConfig{
 				Enabled: true,
+			},
+			MCP: MCPConfig{
+				PollInterval: 30 * time.Second,
+			},
+			WASM: WASMConfig{
+				DefaultTimeout: 30 * time.Second,
 			},
 			ConcurrentExecution: ConcurrentExecutionConfig{
 				Enabled:        true,

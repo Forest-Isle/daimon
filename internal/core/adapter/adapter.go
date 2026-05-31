@@ -6,7 +6,6 @@ package adapter
 import (
 	"context"
 	"encoding/json"
-	"errors"
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/core"
@@ -43,10 +42,100 @@ func (l *LegacyProvider) Complete(ctx context.Context, req core.LLMRequest) (*co
 	}, nil
 }
 
-// Stream is not used by the core loop; return an error to surface misuse
-// rather than silently fall back to non-streaming.
+// Stream delegates to the underlying provider's Stream method, adapting
+// the agent.StreamIterator to core.Stream.
 func (l *LegacyProvider) Stream(ctx context.Context, req core.LLMRequest) (core.Stream, error) {
-	return nil, errors.New("adapter: streaming via core not yet supported — use Complete")
+	areq := agent.CompletionRequest{
+		Model:     req.Model,
+		System:    req.System,
+		Messages:  toAgentMessages(req.Messages),
+		Tools:     toAgentTools(req.Tools),
+		MaxTokens: req.MaxTokens,
+	}
+	inner, err := l.P.Stream(ctx, areq)
+	if err != nil {
+		return nil, err
+	}
+	return &legacyStream{inner: inner}, nil
+}
+
+// legacyStream adapts agent.StreamIterator to core.Stream.
+type legacyStream struct {
+	inner agent.StreamIterator
+
+	// pending buffers tool calls from a final delta so they are emitted
+	// one-by-one before the Done signal.
+	pending []core.ToolCall
+
+	// finalStop and pendingDone track whether a synthetic Done chunk must
+	// be emitted after all pending tool calls have been drained.
+	pendingDone bool
+	finalStop   core.StopReason
+}
+
+func (s *legacyStream) Next(ctx context.Context) (core.LLMChunk, error) {
+	// Drain buffered tool calls before reading more from the inner stream.
+	if len(s.pending) > 0 {
+		tc := s.pending[0]
+		s.pending = s.pending[1:]
+		return core.LLMChunk{ToolCall: &tc}, nil
+	}
+
+	// Emit the synthetic Done chunk now that all tool calls are drained.
+	if s.pendingDone {
+		return core.LLMChunk{Done: true, Stop: s.finalStop}, nil
+	}
+
+	delta, err := s.inner.Next()
+	if err != nil {
+		return core.LLMChunk{}, err
+	}
+
+	chunk := core.LLMChunk{
+		Text: delta.Text,
+		Done: delta.Done,
+	}
+	if delta.Done {
+		chunk.Stop = fromAgentStop(delta.StopReason)
+	}
+
+	// Emit the first tool call (singular) inline if present.
+	if delta.ToolCall != nil {
+		tc := fromAgentToolCall(*delta.ToolCall)
+		chunk.ToolCall = &tc
+	}
+
+	// When the final delta carries multiple tool calls, buffer all of them
+	// so they are emitted one-by-one before the Done chunk. The singular
+	// ToolCall above covers the first one.
+	if delta.Done && len(delta.ToolCalls) > 0 {
+		s.pending = make([]core.ToolCall, 0, len(delta.ToolCalls))
+		for _, t := range delta.ToolCalls {
+			s.pending = append(s.pending, fromAgentToolCall(t))
+		}
+		// The chunk above already consumed delta.ToolCall (first element).
+		// If delta.ToolCalls[0] == delta.ToolCall, skip it from pending.
+		if len(s.pending) > 0 && delta.ToolCall != nil && s.pending[0].ID == delta.ToolCall.ID {
+			s.pending = s.pending[1:]
+		}
+		// Don't set Done yet — tool calls must be emitted first.
+		chunk.Done = false
+		if len(s.pending) == 0 {
+			// Only one tool call; emit Done on the next call.
+			s.pendingDone = true
+			s.finalStop = fromAgentStop(delta.StopReason)
+		} else {
+			s.pendingDone = true
+			s.finalStop = fromAgentStop(delta.StopReason)
+		}
+	}
+
+	return chunk, nil
+}
+
+func (s *legacyStream) Close() error {
+	s.inner.Close()
+	return nil
 }
 
 func toAgentMessages(in []core.Message) []agent.CompletionMessage {
@@ -95,17 +184,21 @@ func toAgentTools(in []core.ToolSchema) []agent.ToolDefinition {
 	return out
 }
 
+func fromAgentToolCall(in agent.ToolUseBlock) core.ToolCall {
+	raw := json.RawMessage(in.Input)
+	if len(raw) == 0 {
+		raw = json.RawMessage("{}")
+	}
+	return core.ToolCall{ID: in.ID, Name: in.Name, Input: raw}
+}
+
 func fromAgentToolCalls(in []agent.ToolUseBlock) []core.ToolCall {
 	if len(in) == 0 {
 		return nil
 	}
 	out := make([]core.ToolCall, 0, len(in))
 	for _, b := range in {
-		raw := json.RawMessage(b.Input)
-		if len(raw) == 0 {
-			raw = json.RawMessage("{}")
-		}
-		out = append(out, core.ToolCall{ID: b.ID, Name: b.Name, Input: raw})
+		out = append(out, fromAgentToolCall(b))
 	}
 	return out
 }

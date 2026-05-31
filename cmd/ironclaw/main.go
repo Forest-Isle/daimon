@@ -275,7 +275,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create and register Telegram channel
-	tg, err := telegram.New(cfg.Telegram.Token, cfg.Telegram.AllowedUserIDs)
+	tgTimeout := 30
+	if cfg.Telegram.Timeout > 0 {
+		tgTimeout = int(cfg.Telegram.Timeout.Seconds())
+	}
+	tg, err := telegram.New(cfg.Telegram.Token, cfg.Telegram.AllowedUserIDs, tgTimeout)
 	if err != nil {
 		return fmt.Errorf("init telegram: %w", err)
 	}

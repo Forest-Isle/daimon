@@ -3,9 +3,15 @@ package wasm
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// DefaultPluginTimeout is the default timeout for WASM plugin execution when
+// the manifest does not specify one. The gateway sets this from config at
+// startup (wasm.default_timeout).
+var DefaultPluginTimeout = 30 * time.Second
 
 // PluginManifest describes a WASM plugin's metadata and requirements.
 type PluginManifest struct {
@@ -96,7 +102,7 @@ func (m *PluginManifest) applyDefaults() {
 		m.Runtime.MemoryLimitMB = 64
 	}
 	if m.Runtime.TimeoutMS <= 0 {
-		m.Runtime.TimeoutMS = 30000
+		m.Runtime.TimeoutMS = int64(DefaultPluginTimeout.Milliseconds())
 	}
 	if m.Runtime.MaxInstances <= 0 {
 		m.Runtime.MaxInstances = 4
