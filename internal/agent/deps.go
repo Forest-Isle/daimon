@@ -22,6 +22,7 @@ type CoreDeps struct {
 	Cfg      config.AgentConfig
 	LLMCfg   config.LLMConfig
 	AgentID  string
+	ToolsCfg config.ToolsConfig // concurrent tool execution config
 }
 
 // ────────────────────────────── MemoryDeps ──────────────────────────────

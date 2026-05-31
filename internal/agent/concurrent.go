@@ -41,7 +41,7 @@ func (r *Runtime) executeTools(
 	toolCalls []ToolUseBlock,
 ) {
 	// Single tool or concurrency disabled — sequential execution
-	if len(toolCalls) <= 1 || !r.deps.Core.Cfg.Tools.ConcurrentExecution.Enabled {
+	if len(toolCalls) <= 1 || !r.deps.Core.ToolsCfg.ConcurrentExecution.Enabled {
 		for _, tc := range toolCalls {
 			r.executeSingleTool(ctx, ch, sess, target, tc)
 		}
@@ -103,7 +103,7 @@ func (r *Runtime) executeTools(
 
 	// Execute concurrent tools in parallel
 	if len(concurrent) > 0 {
-		maxConcurrency := r.deps.Core.Cfg.Tools.ConcurrentExecution.MaxConcurrency
+		maxConcurrency := r.deps.Core.ToolsCfg.ConcurrentExecution.MaxConcurrency
 		if maxConcurrency <= 0 {
 			maxConcurrency = 4
 		}

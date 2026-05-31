@@ -14,17 +14,13 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/cortex"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
-	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/observability"
 	"github.com/Forest-Isle/IronClaw/internal/rl"
 	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/skill"
-	"github.com/Forest-Isle/IronClaw/internal/store"
 	"github.com/Forest-Isle/IronClaw/internal/taskledger"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -45,71 +41,47 @@ type RunResult struct {
 
 // CognitiveAgent implements the structured PERCEIVE→PLAN→ACT→OBSERVE→REFLECT loop.
 type CognitiveAgent struct {
-	runtime             *Runtime
-	perceiver           *Perceiver
-	planner             *Planner
-	executor            *Executor
-	observer            *Observer
-	reflector           *Reflector
-	sessions            *session.Manager
-	db                  *store.DB
-	cfg                 config.AgentConfig
-	llmCfg              config.LLMConfig
-	debateCfg           config.DebateSettings
-	memStore            memory.Store
-	skillMgr            *skill.Manager
-	agentMgr            *AgentManager
-	orchestrator        *AgentOrchestrator
-	teamManager         *TeamManager
-	entityExtractor     *graph.LLMEntityExtractor
-	rlPolicy            RLPolicy          // RL policy interface (nil if disabled)
-	rlTrainer           RLTrainer         // RL trainer interface (nil if disabled)
-	evoEngine           *evolution.Engine // self-evolution event dispatcher (nil if disabled)
-	hookMgr             *hook.Manager
-	permEngine          *tool.PermissionEngine
-	checkpointStore     CheckpointStore
-	contextManager      ContextManager
-	taskLedger          taskledger.TaskLedger
-	dashEmitter         DashboardEmitter
-	planMode            *PlanMode
+	deps AgentDeps
+
+	// Phase components
+	perceiver *Perceiver
+	planner   *Planner
+	executor  *Executor
+	observer  *Observer
+	reflector *Reflector
+
+	// Optional subsystems (nil = disabled)
+	debateCfg        config.DebateSettings
+	entityExtractor  *graph.LLMEntityExtractor
+	rlPolicy         RLPolicy
+	rlTrainer        RLTrainer
+	evoEngine        *evolution.Engine
+	checkpointStore  CheckpointStore
+	planMode         *PlanMode
+	treePlanner      *StrategicTreePlanner
+	mctsPlanner      *MCTSPlanner
+	codebaseIndex    *CodebaseIndex
+	cortex           *cortex.UnifiedRetriever
+
+	// Transient
+	approvalFunc        ApprovalFunc
 	observationCallback func(result *ObservationResult)
-	replayRecorder      *ReplayRecorder
-	selfHealEngine      *SelfHealEngine
-	treePlanner         *StrategicTreePlanner
-	mctsPlanner         *MCTSPlanner
-	codebaseIndex       *CodebaseIndex
-	cortex              *cortex.UnifiedRetriever
 }
 
 // CognitiveAgentOptions bundles all optional dependencies for the cognitive agent.
 // Fields left nil are silently skipped (feature not enabled).
 type CognitiveAgentOptions struct {
-	MemoryStore         memory.Store
-	FactExtractor       *memory.LLMFactExtractor
-	LifecycleManager    *memory.LifecycleManager
+	EntityExtractor     *graph.LLMEntityExtractor
 	CodebaseIndex       *CodebaseIndex
 	KnowledgeSearcher   knowledge.Searcher
 	KnowledgeGraph      graph.Graph
-	EntityExtractor     *graph.LLMEntityExtractor
-	SelfHealEngine      *SelfHealEngine
 	TreePlanner         *StrategicTreePlanner
 	MCTSPlanner         *MCTSPlanner
-	HookManager         *hook.Manager
-	PermissionEngine    *tool.PermissionEngine
-	InterceptorChain    *tool.InterceptorChain
-	SkillManager        *skill.Manager
-	AgentManager        *AgentManager
-	Orchestrator        *AgentOrchestrator
-	TeamManager         *TeamManager
 	EvolutionEngine     *evolution.Engine
 	RLPolicy            RLPolicy
 	RLTrainer           RLTrainer
 	MemoryNotifyFunc    MemoryNotifyFunc
 	CheckpointStore     CheckpointStore
-	ContextManager      ContextManager
-	TaskLedger          taskledger.TaskLedger
-	DashboardEmitter    DashboardEmitter
-	ReplayRecorder      *ReplayRecorder
 	ObservationCallback func(result *ObservationResult)
 	ApprovalFunc        ApprovalFunc
 	PlanMode            *PlanMode
@@ -119,39 +91,50 @@ type CognitiveAgentOptions struct {
 
 // NewCognitiveAgent creates a CognitiveAgent, wiring all phases together.
 func NewCognitiveAgent(
-	provider Provider,
-	tools *tool.Registry,
-	sessions *session.Manager,
-	db *store.DB,
-	cfg config.AgentConfig,
-	llmCfg config.LLMConfig,
+	deps AgentDeps,
 	opts *CognitiveAgentOptions,
 ) *CognitiveAgent {
 	ca := &CognitiveAgent{
-		sessions: sessions,
-		db:       db,
-		cfg:      cfg,
-		llmCfg:   llmCfg,
+		deps: deps,
 	}
 
-	cogCfg := cfg.Cognitive
+	cogCfg := deps.Core.Cfg.Cognitive
 
-	// Build runtime for simple-task delegation
-	ca.runtime = NewRuntime(provider, tools, sessions, db, cfg, llmCfg)
-
-	// Build phase components
-	ca.perceiver = NewPerceiver(nil, "") // memStore + memBaseDir injected via SetMemoryStore
+	// Build phase components using deps
+	ca.perceiver = NewPerceiver(deps.Memory.Store, deps.Memory.BaseDir)
 	scanner := NewProjectContextScanner()
 	ca.perceiver.SetProjectScanner(scanner)
 	gitProvider := NewGitContextProvider()
 	ca.perceiver.SetGitProvider(gitProvider)
 	budgetAlloc := NewContextBudgetAllocator()
 	ca.perceiver.SetBudgetAllocator(budgetAlloc)
-	ca.planner = NewPlanner(provider, tools, cogCfg, llmCfg.Model)
-	ca.executor = NewExecutor(tools, db, nil, cogCfg) // approvalFunc set via SetApprovalFunc
+	ca.planner = NewPlanner(deps.Core.Provider, deps.Core.Tools, cogCfg, deps.Core.LLMCfg.Model)
+	ca.executor = NewExecutor(deps.Core.Tools, deps.Core.DB, nil, cogCfg)
 	ca.executor.SetToolCache(NewToolResultCache())
 	ca.observer = NewObserver()
-	ca.reflector = NewReflector(provider, nil, cogCfg, llmCfg.Model)
+	ca.reflector = NewReflector(deps.Core.Provider, deps.Memory.Store, cogCfg, deps.Core.LLMCfg.Model)
+
+	// Wire deps to subsystems
+	if deps.Security.HookMgr != nil {
+		ca.executor.SetHookManager(deps.Security.HookMgr)
+	}
+	if deps.Security.PermEngine != nil {
+		ca.executor.SetPermissionEngine(deps.Security.PermEngine)
+	}
+	if deps.Security.Interceptor != nil {
+		ca.executor.SetInterceptorChain(deps.Security.Interceptor)
+	}
+	ca.executor.SetDashboardEmitter(deps.Observability.Emitter)
+	if deps.Memory.FactExtractor != nil {
+		ca.reflector.SetFactExtractor(deps.Memory.FactExtractor)
+	}
+	if deps.Memory.LifecycleMgr != nil {
+		ca.reflector.SetLifecycleManager(deps.Memory.LifecycleMgr)
+	}
+	if deps.Observability.ReplayRecorder != nil {
+		ca.executor.SetReplayRecorder(deps.Observability.ReplayRecorder)
+	}
+
 	ca.applyOptions(opts)
 
 	return ca
@@ -161,201 +144,77 @@ func (ca *CognitiveAgent) applyOptions(opts *CognitiveAgentOptions) {
 	if opts == nil {
 		return
 	}
-	if opts.MemoryStore != nil {
-		ca.SetMemoryStore(opts.MemoryStore)
-	}
-	if opts.FactExtractor != nil {
-		ca.SetFactExtractor(opts.FactExtractor)
-	}
-	if opts.LifecycleManager != nil {
-		ca.SetLifecycleManager(opts.LifecycleManager)
-	}
 	if opts.CodebaseIndex != nil {
-		ca.SetCodebaseIndex(opts.CodebaseIndex)
+		ca.codebaseIndex = opts.CodebaseIndex
 	}
 	if opts.KnowledgeSearcher != nil {
-		ca.SetKnowledgeSearcher(opts.KnowledgeSearcher)
+		ca.perceiver.SetKnowledgeSearcher(opts.KnowledgeSearcher)
 	}
 	if opts.KnowledgeGraph != nil {
-		ca.SetKnowledgeGraph(opts.KnowledgeGraph)
+		ca.perceiver.SetKnowledgeGraph(opts.KnowledgeGraph)
 	}
 	if opts.EntityExtractor != nil {
-		ca.SetEntityExtractor(opts.EntityExtractor)
-	}
-	if opts.SelfHealEngine != nil {
-		ca.SetSelfHealEngine(opts.SelfHealEngine)
+		ca.entityExtractor = opts.EntityExtractor
+		ca.reflector.SetEntityExtractor(opts.EntityExtractor)
 	}
 	if opts.TreePlanner != nil {
-		ca.SetTreePlanner(opts.TreePlanner)
+		ca.treePlanner = opts.TreePlanner
 	}
 	if opts.MCTSPlanner != nil {
-		ca.SetMCTSPlanner(opts.MCTSPlanner)
-	}
-	if opts.HookManager != nil {
-		ca.SetHookManager(opts.HookManager)
-	}
-	if opts.PermissionEngine != nil {
-		ca.SetPermissionEngine(opts.PermissionEngine)
-	}
-	if opts.InterceptorChain != nil {
-		ca.SetInterceptorChain(opts.InterceptorChain)
-	}
-	if opts.SkillManager != nil {
-		ca.SetSkillManager(opts.SkillManager)
-	}
-	if opts.AgentManager != nil {
-		ca.SetAgentManager(opts.AgentManager)
-	}
-	if opts.Orchestrator != nil {
-		ca.SetOrchestrator(opts.Orchestrator)
-	}
-	if opts.TeamManager != nil {
-		ca.SetTeamManager(opts.TeamManager)
+		ca.mctsPlanner = opts.MCTSPlanner
 	}
 	if opts.EvolutionEngine != nil {
-		ca.SetEvolutionEngine(opts.EvolutionEngine)
+		ca.evoEngine = opts.EvolutionEngine
 	}
 	if opts.RLPolicy != nil {
-		ca.SetRLPolicy(opts.RLPolicy)
+		ca.rlPolicy = opts.RLPolicy
+		ca.perceiver.SetRLPolicy(opts.RLPolicy)
+		ca.planner.SetRLPolicy(opts.RLPolicy)
+		ca.executor.SetRLPolicy(opts.RLPolicy)
+		ca.reflector.SetRLPolicy(opts.RLPolicy)
 	}
 	if opts.RLTrainer != nil {
-		ca.SetRLTrainer(opts.RLTrainer)
+		ca.rlTrainer = opts.RLTrainer
 	}
 	if opts.MemoryNotifyFunc != nil {
-		ca.SetMemoryNotifyFunc(opts.MemoryNotifyFunc)
+		ca.reflector.SetMemoryNotifyFunc(opts.MemoryNotifyFunc)
 	}
 	if opts.CheckpointStore != nil {
-		ca.SetCheckpointStore(opts.CheckpointStore)
-	}
-	if opts.ContextManager != nil {
-		ca.SetContextManager(opts.ContextManager)
-	}
-	if opts.TaskLedger != nil {
-		ca.SetTaskLedger(opts.TaskLedger)
-	}
-	if opts.DashboardEmitter != nil {
-		ca.SetDashboardEmitter(opts.DashboardEmitter)
-	}
-	if opts.ReplayRecorder != nil {
-		ca.SetReplayRecorder(opts.ReplayRecorder)
+		ca.checkpointStore = opts.CheckpointStore
 	}
 	if opts.ObservationCallback != nil {
-		ca.SetObservationCallback(opts.ObservationCallback)
+		ca.observationCallback = opts.ObservationCallback
 	}
 	if opts.ApprovalFunc != nil {
-		ca.SetApprovalFunc(opts.ApprovalFunc)
+		ca.approvalFunc = opts.ApprovalFunc
+		ca.executor.approvalFunc = opts.ApprovalFunc
 	}
 	if opts.PlanMode != nil {
-		ca.SetPlanMode(opts.PlanMode)
+		ca.planMode = opts.PlanMode
+		if ca.executor != nil {
+			ca.executor.SetPlanMode(opts.PlanMode)
+		}
 	}
 	if opts.CortexRetriever != nil {
-		ca.SetCortexRetriever(opts.CortexRetriever)
+		ca.cortex = opts.CortexRetriever
+		ca.perceiver.SetCortexRetriever(opts.CortexRetriever)
 	}
-	ca.SetDebateConfig(opts.DebateConfig)
+	if opts.DebateConfig != (config.DebateSettings{}) {
+		ca.debateCfg = opts.DebateConfig
+	}
 }
 
 // MemoryStore returns the active memory store, or nil when memory is disabled.
 // Used by the eval harness to inject test fixtures directly into the store the
 // agent reads from during PERCEIVE.
-func (ca *CognitiveAgent) MemoryStore() memory.Store { return ca.memStore }
+func (ca *CognitiveAgent) MemoryStore() memory.Store { return ca.deps.Memory.Store }
 
-// SetMemoryStore injects the memory.md store into all phases that need it.
-func (ca *CognitiveAgent) SetMemoryStore(s memory.Store) {
-	ca.memStore = s
-	ca.runtime.SetMemoryStore(s)
-	// Preserve existing searcher, graph, scanner, git provider, budget, and RL policy when rebuilding the perceiver.
-	oldSearcher := ca.perceiver.searcher
-	oldGraph := ca.perceiver.graph
-	oldCortex := ca.perceiver.cortex
-	oldScanner := ca.perceiver.scanner
-	oldGitProvider := ca.perceiver.gitProvider
-	oldBudgetAlloc := ca.perceiver.budgetAlloc
-	oldRLPolicy := ca.perceiver.rlPolicy
-	ca.perceiver = NewPerceiver(s, ca.perceiver.memBaseDir)
-	if oldSearcher != nil {
-		ca.perceiver.SetKnowledgeSearcher(oldSearcher)
-	}
-	if oldGraph != nil {
-		ca.perceiver.SetKnowledgeGraph(oldGraph)
-	}
-	if oldCortex != nil {
-		ca.perceiver.SetCortexRetriever(oldCortex)
-	}
-	if oldScanner != nil {
-		ca.perceiver.SetProjectScanner(oldScanner)
-	}
-	if oldGitProvider != nil {
-		ca.perceiver.SetGitProvider(oldGitProvider)
-	}
-	if oldBudgetAlloc != nil {
-		ca.perceiver.SetBudgetAllocator(oldBudgetAlloc)
-	}
-	if oldRLPolicy != nil {
-		ca.perceiver.SetRLPolicy(oldRLPolicy)
-	}
-	ca.reflector = NewReflector(
-		ca.planner.provider,
-		s,
-		ca.cfg.Cognitive,
-		ca.llmCfg.Model,
-	)
-}
-
-// SetKnowledgeSearcher injects a knowledge searcher (KB or HybridRetriever) into the perceiver.
-func (ca *CognitiveAgent) SetKnowledgeSearcher(s knowledge.Searcher) {
-	ca.perceiver.SetKnowledgeSearcher(s)
-}
-
-// SetKnowledgeGraph injects a knowledge graph into the perceiver.
-func (ca *CognitiveAgent) SetKnowledgeGraph(g graph.Graph) {
-	ca.perceiver.SetKnowledgeGraph(g)
-}
-
-// SetCortexRetriever injects the unified cortex retriever into the perceiver and agent.
-func (ca *CognitiveAgent) SetCortexRetriever(ur *cortex.UnifiedRetriever) {
-	ca.cortex = ur
-	ca.perceiver.SetCortexRetriever(ur)
-}
-
-// SetCodebaseIndex injects a semantic codebase index into the cognitive agent.
-func (ca *CognitiveAgent) SetCodebaseIndex(index *CodebaseIndex) {
-	ca.codebaseIndex = index
-}
-
-func (ca *CognitiveAgent) SetSelfHealEngine(eng *SelfHealEngine) {
-	ca.selfHealEngine = eng
-}
-
-func (ca *CognitiveAgent) SetTreePlanner(tp *StrategicTreePlanner) {
-	ca.treePlanner = tp
-}
-
-// SetMCTSPlanner injects a Monte Carlo Tree Search planner.
-// When set, MCTS takes priority over the simpler tree planner during PLAN.
-func (ca *CognitiveAgent) SetMCTSPlanner(mp *MCTSPlanner) {
-	ca.mctsPlanner = mp
-}
-
-// SetEntityExtractor injects an entity extractor for graph population during reflection.
-func (ca *CognitiveAgent) SetEntityExtractor(e *graph.LLMEntityExtractor) {
-	ca.entityExtractor = e
-	ca.reflector.SetEntityExtractor(e)
-}
-
-// SetFactExtractor injects a fact extractor into the reflector.
-func (ca *CognitiveAgent) SetFactExtractor(fe *memory.LLMFactExtractor) {
-	ca.reflector.SetFactExtractor(fe)
-}
-
-// SetLifecycleManager injects a lifecycle manager into the reflector.
-func (ca *CognitiveAgent) SetLifecycleManager(lm *memory.LifecycleManager) {
-	ca.reflector.SetLifecycleManager(lm)
-}
-
-// SetApprovalFunc injects the approval function into executor and runtime.
+// SetApprovalFunc injects the approval function into executor for tool approval.
 func (ca *CognitiveAgent) SetApprovalFunc(fn ApprovalFunc) {
-	ca.executor.approvalFunc = fn
-	ca.runtime.SetApprovalFunc(fn)
+	ca.approvalFunc = fn
+	if ca.executor != nil {
+		ca.executor.approvalFunc = fn
+	}
 }
 
 // SetPlanMode injects a PlanMode instance into the cognitive agent.
@@ -367,43 +226,10 @@ func (ca *CognitiveAgent) SetPlanMode(pm *PlanMode) {
 	}
 }
 
-// SetHookManager injects a hook manager into the cognitive agent, its executor, and inner runtime.
-func (ca *CognitiveAgent) SetHookManager(mgr *hook.Manager) {
-	ca.hookMgr = mgr
-	ca.executor.SetHookManager(mgr)
-	ca.runtime.SetHookManager(mgr)
-}
-
-// SetPermissionEngine injects a permission engine into the cognitive agent, its executor, and inner runtime.
-func (ca *CognitiveAgent) SetPermissionEngine(pe *tool.PermissionEngine) {
-	ca.permEngine = pe
-	ca.executor.SetPermissionEngine(pe)
-	ca.runtime.SetPermissionEngine(pe)
-}
-
-// SetInterceptorChain injects an interceptor chain into the cognitive agent's executor and inner runtime.
-func (ca *CognitiveAgent) SetInterceptorChain(chain *tool.InterceptorChain) {
-	ca.executor.SetInterceptorChain(chain)
-	ca.runtime.SetInterceptorChain(chain)
-}
-
-// SetSkillManager injects a skill manager into the cognitive agent and its inner runtime.
-func (ca *CognitiveAgent) SetSkillManager(m *skill.Manager) {
-	ca.skillMgr = m
-	ca.runtime.SetSkillManager(m)
-}
-
-// SetAgentManager injects an agent manager into the cognitive agent and its inner runtime.
-func (ca *CognitiveAgent) SetAgentManager(m *AgentManager) {
-	ca.agentMgr = m
-	ca.runtime.SetAgentManager(m)
-}
-
 // SetModel updates the default model on the cognitive agent, its inner runtime,
 // and the planner/reflector components.
 func (ca *CognitiveAgent) SetModel(model string) {
-	ca.llmCfg.Model = model
-	ca.runtime.SetModel(model)
+	ca.deps.Core.LLMCfg.Model = model
 	if ca.planner != nil {
 		ca.planner.llmModel = model
 	}
@@ -417,6 +243,7 @@ func (ca *CognitiveAgent) SetDebateConfig(cfg config.DebateSettings) {
 	ca.debateCfg = cfg
 }
 
+// BuildNodeDeps builds NodeDeps for the cognitive agent.
 func (ca *CognitiveAgent) BuildNodeDeps(ch channel.Channel) NodeDeps {
 	return NodeDeps{
 		Perceiver: ca.perceiver,
@@ -424,19 +251,9 @@ func (ca *CognitiveAgent) BuildNodeDeps(ch channel.Channel) NodeDeps {
 		Executor:  ca.executor,
 		Observer:  ca.observer,
 		Reflector: ca.reflector,
-		Sessions:  ca.sessions,
+		Sessions:  ca.deps.Core.Sessions,
 		Channel:   ch,
 	}
-}
-
-// SetOrchestrator injects an agent orchestrator into the cognitive agent.
-func (ca *CognitiveAgent) SetOrchestrator(o *AgentOrchestrator) {
-	ca.orchestrator = o
-}
-
-// SetTeamManager injects a team manager for multi-agent team coordination.
-func (ca *CognitiveAgent) SetTeamManager(tm *TeamManager) {
-	ca.teamManager = tm
 }
 
 // SetEvolutionEngine injects the self-evolution event dispatcher.
@@ -451,79 +268,23 @@ func (ca *CognitiveAgent) EvolutionEngine() *evolution.Engine {
 
 // Sessions returns the session manager.
 func (ca *CognitiveAgent) Sessions() *session.Manager {
-	return ca.sessions
+	return ca.deps.Core.Sessions
 }
 
-// SetRLPolicy injects an RL policy into the cognitive agent.
-func (ca *CognitiveAgent) SetRLPolicy(policy RLPolicy) {
-	ca.rlPolicy = policy
-	ca.perceiver.SetRLPolicy(policy)
-	ca.planner.SetRLPolicy(policy)
-	ca.executor.SetRLPolicy(policy)
-	ca.reflector.SetRLPolicy(policy)
-}
-
-// SetRLTrainer injects an RL trainer into the cognitive agent.
-func (ca *CognitiveAgent) SetRLTrainer(trainer RLTrainer) {
-	ca.rlTrainer = trainer
-}
-
-// SetMemoryNotifyFunc injects a callback for sending memory operation summaries.
-func (ca *CognitiveAgent) SetMemoryNotifyFunc(fn MemoryNotifyFunc) {
-	ca.reflector.SetMemoryNotifyFunc(fn)
-}
-
-// SetCheckpointStore injects a checkpoint store for task resume support.
-func (ca *CognitiveAgent) SetCheckpointStore(cs CheckpointStore) {
-	ca.checkpointStore = cs
-}
-
-// SetContextManager injects a context manager for compression pipeline support.
-// Propagates to the inner runtime so simple-task delegation also benefits.
-func (ca *CognitiveAgent) SetContextManager(cm ContextManager) {
-	ca.contextManager = cm
-	ca.runtime.SetContextManager(cm)
-}
-
-// SetTaskLedger injects a task ledger for tracking cognitive subtasks.
-func (ca *CognitiveAgent) SetTaskLedger(tl taskledger.TaskLedger) {
-	ca.taskLedger = tl
-	ca.runtime.SetTaskLedger(tl)
-}
-
-// SetDashboardEmitter injects a dashboard event emitter into the cognitive agent and its inner runtime.
-func (ca *CognitiveAgent) SetDashboardEmitter(e DashboardEmitter) {
-	ca.dashEmitter = e
-	ca.executor.SetDashboardEmitter(e)
-	ca.runtime.SetDashboardEmitter(e)
-}
-
-// SetReplayRecorder injects a replay recorder into the cognitive agent and delegates.
-func (ca *CognitiveAgent) SetReplayRecorder(rr *ReplayRecorder) {
-	ca.replayRecorder = rr
-	ca.runtime.SetReplayRecorder(rr)
-	if ca.executor != nil {
-		ca.executor.SetReplayRecorder(rr)
-	}
-}
-
-// SetObservationCallback registers a function that is called after each OBSERVE
-// phase completes. Used by the eval harness to capture assertion statistics.
-func (ca *CognitiveAgent) SetObservationCallback(fn func(result *ObservationResult)) {
-	ca.observationCallback = fn
-}
+// LLMProvider returns the LLM provider.
+func (ca *CognitiveAgent) LLMProvider() Provider { return ca.deps.Core.Provider }
 
 func (ca *CognitiveAgent) setupCognitiveSession(
 	ctx context.Context,
 	ch channel.Channel,
 	msg channel.InboundMessage,
 ) (*session.Session, channel.MessageTarget, string, func(), error) {
-	sess, err := ca.sessions.Get(ctx, msg.Channel, msg.ChannelID)
+	sess, err := ca.deps.Core.Sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
 		return nil, channel.MessageTarget{}, "", func() {}, fmt.Errorf("get session: %w", err)
 	}
-	if ca.dashEmitter != nil {
-		ca.dashEmitter.EmitSessionStart(sess.ID, msg.Channel)
+	if ca.deps.Observability.Emitter != nil {
+		ca.deps.Observability.Emitter.EmitSessionStart(sess.ID, msg.Channel)
 	}
 
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
@@ -536,7 +297,7 @@ func (ca *CognitiveAgent) setupCognitiveSession(
 
 	var parentTaskID string
 	cleanup := func() {}
-	if ca.taskLedger != nil {
+	if ca.deps.MultiAgent.TaskLedger != nil {
 		parentTaskID = fmt.Sprintf("cog_%d", time.Now().UnixNano())
 		task := taskledger.Task{
 			ID:    parentTaskID,
@@ -544,7 +305,7 @@ func (ca *CognitiveAgent) setupCognitiveSession(
 			State: taskledger.TaskStateRunning,
 			Title: util.TruncateStr(msg.Text, 100),
 		}
-		if err := ca.taskLedger.Register(ctx, task); err != nil {
+		if err := ca.deps.MultiAgent.TaskLedger.Register(ctx, task); err != nil {
 			slog.Warn("cognitive: failed to register task", "err", err)
 			parentTaskID = ""
 		} else {
@@ -552,7 +313,7 @@ func (ca *CognitiveAgent) setupCognitiveSession(
 				task.State = taskledger.TaskStateCompleted
 				now := time.Now()
 				task.CompletedAt = &now
-				if err := ca.taskLedger.Update(ctx, task); err != nil {
+				if err := ca.deps.MultiAgent.TaskLedger.Update(ctx, task); err != nil {
 					slog.Warn("cognitive: failed to complete task", "err", err)
 				}
 			}
@@ -566,12 +327,12 @@ func (ca *CognitiveAgent) setupCognitiveSession(
 		CreatedAt: time.Now(),
 	})
 
-	if ca.contextManager != nil {
-		if _, err := ca.contextManager.Compress(ctx, sess, ""); err != nil {
+	if ca.deps.Memory.ContextMgr != nil {
+		if _, err := ca.deps.Memory.ContextMgr.Compress(ctx, sess, ""); err != nil {
 			slog.Warn("cognitive: context compression failed", "session", sess.ID, "err", err)
 		}
 	} else {
-		if err := CompactHistory(ctx, ca.planner.provider, sess, ca.llmCfg.Model); err != nil {
+		if err := CompactHistory(ctx, ca.planner.provider, sess, ca.deps.Core.LLMCfg.Model); err != nil {
 			slog.Warn("cognitive: history compaction failed", "session", sess.ID, "err", err)
 		}
 	}
@@ -585,15 +346,15 @@ func (ca *CognitiveAgent) runPerceivePhase(
 	msg channel.InboundMessage,
 	parentTaskID string,
 ) (*CognitiveState, error) {
-	if ca.dashEmitter != nil {
-		ca.dashEmitter.EmitPhaseStart(sess.ID, "PERCEIVE")
+	if ca.deps.Observability.Emitter != nil {
+		ca.deps.Observability.Emitter.EmitPhaseStart(sess.ID, "PERCEIVE")
 	}
 	perceiveStart := time.Now()
 	donePerceive := ca.registerSubtask(ctx, parentTaskID, "PERCEIVE phase")
 	state, err := ca.perceiver.Run(ctx, sess, msg.Text, msg.UserID)
 	donePerceive()
-	if ca.dashEmitter != nil {
-		ca.dashEmitter.EmitPhaseEnd(sess.ID, "PERCEIVE", time.Since(perceiveStart).Milliseconds())
+	if ca.deps.Observability.Emitter != nil {
+		ca.deps.Observability.Emitter.EmitPhaseEnd(sess.ID, "PERCEIVE", time.Since(perceiveStart).Milliseconds())
 	}
 	observability.CognitivePhasesDuration.Record(ctx, time.Since(perceiveStart).Milliseconds(),
 		metric.WithAttributes(attribute.String("phase", "perceive")))
@@ -613,14 +374,14 @@ func (ca *CognitiveAgent) runPerceivePhase(
 		}
 	}
 
-	if ca.skillMgr != nil {
-		state.Skills = ca.skillMgr.BuildPromptSection(msg.Text)
+	if ca.deps.MultiAgent.SkillMgr != nil {
+		state.Skills = ca.deps.MultiAgent.SkillMgr.BuildPromptSection(msg.Text)
 	}
-	if ca.agentMgr != nil {
-		state.Agents = ca.agentMgr.BuildPromptSection()
+	if ca.deps.MultiAgent.AgentMgr != nil {
+		state.Agents = ca.deps.MultiAgent.AgentMgr.BuildPromptSection()
 	}
-	state.Personality = ca.cfg.Personality
-	state.PersistentRules = ca.cfg.PersistentRules
+	state.Personality = ca.deps.Core.Cfg.Personality
+	state.PersistentRules = ca.deps.Core.Cfg.PersistentRules
 
 	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
 		if pl := ca.evoEngine.PreferenceLearnerHook(); pl != nil {
@@ -646,7 +407,11 @@ func (ca *CognitiveAgent) delegateToRuntime(
 ) error {
 	slog.Info("cognitive: simple task, delegating to runtime", "session", sess.ID)
 	simpleStart := time.Now()
-	err := ca.runtime.HandleMessage(ctx, ch, msg)
+	rt := NewRuntime(ca.deps)
+	if ca.approvalFunc != nil {
+		rt.SetApprovalFunc(ca.approvalFunc)
+	}
+	err := rt.HandleMessage(ctx, ch, msg)
 
 	if ca.evoEngine != nil && ca.evoEngine.IsEnabled() {
 		durationMs := time.Since(simpleStart).Milliseconds()
@@ -716,7 +481,7 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 	treePlanner *StrategicTreePlanner,
 	parentTaskID string,
 ) (string, *TaskPlan, *ObservationResult, *Reflection, *rl.PlanStrategyAction, *EpisodeCollector, rl.ReplanActionType, *rl.RLState, error) {
-	cogCfg := ca.cfg.Cognitive
+	cogCfg := ca.deps.Core.Cfg.Cognitive
 	confidenceThreshold := cogCfg.ConfidenceThreshold
 	if confidenceThreshold <= 0 {
 		confidenceThreshold = 0.6
@@ -753,12 +518,12 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 	for attempt := 0; attempt <= maxReplans; attempt++ {
 		if attempt > 0 {
 			slog.Info("cognitive: replanning", "attempt", attempt, "max", maxReplans, "session", sess.ID)
-			if ca.dashEmitter != nil {
+			if ca.deps.Observability.Emitter != nil {
 				reason := "low_confidence"
 				if reflection != nil && reflection.SuggestedAdjustment != "" {
 					reason = "adjustment: " + util.TruncateStr(reflection.SuggestedAdjustment, 100)
 				}
-				ca.dashEmitter.EmitReplanStart(sess.ID, attempt, reason)
+				ca.deps.Observability.Emitter.EmitReplanStart(sess.ID, attempt, reason)
 			}
 		}
 
@@ -778,8 +543,8 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 			slog.Info("cognitive: using MCTS plan", "attempt", attempt, "plan_steps", len(plan.SubTasks))
 		} else {
 			var err error
-			if ca.dashEmitter != nil {
-				ca.dashEmitter.EmitPhaseStart(sess.ID, "PLAN")
+			if ca.deps.Observability.Emitter != nil {
+				ca.deps.Observability.Emitter.EmitPhaseStart(sess.ID, "PLAN")
 			}
 			planStart := time.Now()
 			donePlan := ca.registerSubtask(ctx, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
@@ -789,8 +554,8 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 					failureSummary := buildTreeFailureSummary(reflection, obsResult)
 					if expandErr := treePlanner.Expand(ctx, failureSummary); expandErr != nil {
 						donePlan()
-						if ca.dashEmitter != nil {
-							ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
+						if ca.deps.Observability.Emitter != nil {
+							ca.deps.Observability.Emitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
 						}
 						observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
 							metric.WithAttributes(attribute.String("phase", "plan")))
@@ -800,8 +565,8 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 					plan = treePlanner.Select()
 					if plan == nil {
 						donePlan()
-						if ca.dashEmitter != nil {
-							ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
+						if ca.deps.Observability.Emitter != nil {
+							ca.deps.Observability.Emitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
 						}
 						observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
 							metric.WithAttributes(attribute.String("phase", "plan")))
@@ -817,8 +582,8 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 				plan, err = ca.planner.Run(ctx, state)
 			}
 			donePlan()
-			if ca.dashEmitter != nil {
-				ca.dashEmitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
+			if ca.deps.Observability.Emitter != nil {
+				ca.deps.Observability.Emitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
 			}
 			observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
 				metric.WithAttributes(attribute.String("phase", "plan")))
@@ -830,9 +595,9 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 		}
 
 		plan.ReplanCount = attempt
-		if ca.dashEmitter != nil {
+		if ca.deps.Observability.Emitter != nil {
 			complexity := string(state.Goal.Complexity)
-			ca.dashEmitter.EmitPlanGenerated(sess.ID, len(plan.SubTasks), complexity, plan.DirectReply != "")
+			ca.deps.Observability.Emitter.EmitPlanGenerated(sess.ID, len(plan.SubTasks), complexity, plan.DirectReply != "")
 		}
 
 		if rlEnabled && rlState != nil {
@@ -852,16 +617,16 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 			return finalAnswer, plan, obsResult, reflection, ppoStrategy, episodeCollector, dqnReplanAction, rlState, nil
 		}
 
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseStart(sess.ID, "ACT")
+		if ca.deps.Observability.Emitter != nil {
+			ca.deps.Observability.Emitter.EmitPhaseStart(sess.ID, "ACT")
 		}
 		actStart := time.Now()
 		doneAct := ca.registerSubtask(ctx, parentTaskID, "ACT phase")
 		taskCtx := NewTaskContext(fmt.Sprintf("task_%d", time.Now().UnixNano()), state.UserMessage)
 		observations, actErr := ca.executor.RunWithContext(ctx, ch, sess, target, plan, taskCtx, rlState, episodeCollector)
 		doneAct()
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseEnd(sess.ID, "ACT", time.Since(actStart).Milliseconds())
+		if ca.deps.Observability.Emitter != nil {
+			ca.deps.Observability.Emitter.EmitPhaseEnd(sess.ID, "ACT", time.Since(actStart).Milliseconds())
 		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(actStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "act")))
@@ -871,13 +636,13 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 				fmt.Errorf("act: %w", actErr)
 		}
 
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseStart(sess.ID, "OBSERVE")
+		if ca.deps.Observability.Emitter != nil {
+			ca.deps.Observability.Emitter.EmitPhaseStart(sess.ID, "OBSERVE")
 		}
 		observeStart := time.Now()
 		obsResult = ca.observer.Run(observations, plan)
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseEnd(sess.ID, "OBSERVE", time.Since(observeStart).Milliseconds())
+		if ca.deps.Observability.Emitter != nil {
+			ca.deps.Observability.Emitter.EmitPhaseEnd(sess.ID, "OBSERVE", time.Since(observeStart).Milliseconds())
 		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(observeStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "observe")))
@@ -886,8 +651,8 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 			"failure", obsResult.FailureCount,
 			"progress", fmt.Sprintf("%.0f%%", obsResult.OverallProgress*100),
 		)
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitObservationResult(sess.ID, obsResult.SuccessCount, obsResult.FailureCount,
+		if ca.deps.Observability.Emitter != nil {
+			ca.deps.Observability.Emitter.EmitObservationResult(sess.ID, obsResult.SuccessCount, obsResult.FailureCount,
 				obsResult.SuccessCount+obsResult.FailureCount, obsResult.OverallProgress)
 		}
 		if ca.observationCallback != nil && obsResult != nil {
@@ -912,16 +677,16 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 			updateRLStateWithObservation(rlState, obsResult)
 		}
 
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseStart(sess.ID, "REFLECT")
+		if ca.deps.Observability.Emitter != nil {
+			ca.deps.Observability.Emitter.EmitPhaseStart(sess.ID, "REFLECT")
 		}
 		reflectStart := time.Now()
 		doneReflect := ca.registerSubtask(ctx, parentTaskID, "REFLECT phase")
 		var err error
 		reflection, err = ca.reflector.Run(ctx, ch, target, state, plan, obsResult, attempt)
 		doneReflect()
-		if ca.dashEmitter != nil {
-			ca.dashEmitter.EmitPhaseEnd(sess.ID, "REFLECT", time.Since(reflectStart).Milliseconds())
+		if ca.deps.Observability.Emitter != nil {
+			ca.deps.Observability.Emitter.EmitPhaseEnd(sess.ID, "REFLECT", time.Since(reflectStart).Milliseconds())
 		}
 		observability.CognitivePhasesDuration.Record(ctx, time.Since(reflectStart).Milliseconds(),
 			metric.WithAttributes(attribute.String("phase", "reflect")))
@@ -965,7 +730,7 @@ func (ca *CognitiveAgent) runCognitiveLoop(
 			rlState.ReflectionConfidence = clampRL(reflection.OverallConfidence, 0, 1)
 			if reflection.NeedsReplan {
 				dqnReplanAction = ca.rlPolicy.SelectReplanAction(rlState)
-				dqnWeight := ca.cfg.RL.DQN.ReplanWeight
+				dqnWeight := ca.deps.Core.Cfg.RL.DQN.ReplanWeight
 				adjConfidence, shouldAbort := applyDQNReplanAdjustment(reflection.OverallConfidence, dqnReplanAction, dqnWeight)
 				slog.Info("cognitive: DQN replan adjustment",
 					"action", dqnReplanAction.String(),
@@ -1062,7 +827,7 @@ func (ca *CognitiveAgent) finalizeCognitiveSession(
 		ca.evoEngine.WaitPending()
 	}
 
-	if err := ca.sessions.Persist(ctx, sess); err != nil {
+	if err := ca.deps.Core.Sessions.Persist(ctx, sess); err != nil {
 		slog.Error("cognitive: failed to persist session", "err", err)
 		if finalizeErr == nil {
 			finalizeErr = fmt.Errorf("persist session: %w", err)
@@ -1070,8 +835,8 @@ func (ca *CognitiveAgent) finalizeCognitiveSession(
 			finalizeErr = fmt.Errorf("%v; persist session: %w", finalizeErr, err)
 		}
 	}
-	if ca.memStore != nil {
-		if err := ca.memStore.Save(ctx, memory.Entry{
+	if ca.deps.Memory.Store != nil {
+		if err := ca.deps.Memory.Store.Save(ctx, memory.Entry{
 			ID:        fmt.Sprintf("conv_%d", time.Now().UnixNano()),
 			Scope:     memory.ScopeSession,
 			SessionID: sess.ID,
@@ -1088,9 +853,9 @@ func (ca *CognitiveAgent) finalizeCognitiveSession(
 		}
 	}
 
-	if ca.dashEmitter != nil {
+	if ca.deps.Observability.Emitter != nil {
 		succeeded := reflection != nil && reflection.Succeeded
-		ca.dashEmitter.EmitSessionEnd(sess.ID, succeeded, time.Since(sessionStart).Milliseconds())
+		ca.deps.Observability.Emitter.EmitSessionEnd(sess.ID, succeeded, time.Since(sessionStart).Milliseconds())
 	}
 
 	return finalizeErr
@@ -1118,7 +883,7 @@ func (ca *CognitiveAgent) HandleMessage(ctx context.Context, ch channel.Channel,
 	if ca.shouldDebate(state) {
 		return ca.handleDebate(ctx, ch, msg, sess, state, target)
 	}
-	if ca.cfg.Cognitive.StreamingEnabled {
+	if ca.deps.Core.Cfg.Cognitive.StreamingEnabled {
 		return ca.handleStreaming(ctx, ch, msg, sess, target, state, parentTaskID)
 	}
 
@@ -1234,8 +999,8 @@ func (ca *CognitiveAgent) handleResume(ctx context.Context, ch channel.Channel, 
 
 	state, _ := ca.perceiver.Run(ctx, sess, "Resume execution from checkpoint", msg.UserID)
 	if state != nil {
-		state.Personality = ca.cfg.Personality
-		state.PersistentRules = ca.cfg.PersistentRules
+		state.Personality = ca.deps.Core.Cfg.Personality
+		state.PersistentRules = ca.deps.Core.Cfg.PersistentRules
 	}
 
 	reflection, err := ca.reflector.Run(ctx, ch, target, state, &plan, newObsResult, 0)
@@ -1253,7 +1018,7 @@ func (ca *CognitiveAgent) handleResume(ctx context.Context, ch channel.Channel, 
 		slog.Warn("cognitive: resume delete checkpoint failed", "session", resumeSessionID, "err", err)
 	}
 
-	if err := ca.sessions.Persist(ctx, sess); err != nil {
+	if err := ca.deps.Core.Sessions.Persist(ctx, sess); err != nil {
 		slog.Error("cognitive: persist failed after resume", "err", err)
 	}
 
@@ -1262,11 +1027,11 @@ func (ca *CognitiveAgent) handleResume(ctx context.Context, ch channel.Channel, 
 
 // shouldDebate checks if the current task should trigger debate mode.
 func (ca *CognitiveAgent) shouldDebate(state *CognitiveState) bool {
-	if ca.agentMgr == nil {
+	if ca.deps.MultiAgent.AgentMgr == nil {
 		return false
 	}
 
-	agents := ca.agentMgr.All()
+	agents := ca.deps.MultiAgent.AgentMgr.All()
 	if len(agents) < 2 {
 		return false
 	}
@@ -1297,12 +1062,16 @@ func (ca *CognitiveAgent) handleDebate(
 	state *CognitiveState,
 	target channel.MessageTarget,
 ) error {
-	agents := ca.agentMgr.All()
+	agents := ca.deps.MultiAgent.AgentMgr.All()
 	proposer, critic := SelectDebateAgents(agents, state.UserMessage)
 
 	if proposer == "" || critic == "" {
 		slog.Warn("cognitive: insufficient agents for debate, falling back to normal mode")
-		return ca.runtime.HandleMessage(ctx, ch, msg)
+		rt := NewRuntime(ca.deps)
+		if ca.approvalFunc != nil {
+			rt.SetApprovalFunc(ca.approvalFunc)
+		}
+		return rt.HandleMessage(ctx, ch, msg)
 	}
 
 	// Build debate plan
@@ -1458,7 +1227,7 @@ func (ca *CognitiveAgent) dispatchEvolutionEvents(
 // a function that marks it completed. If the ledger is unavailable the
 // returned function is a no-op.
 func (ca *CognitiveAgent) registerSubtask(ctx context.Context, parentID, title string) func() {
-	if ca.taskLedger == nil || parentID == "" {
+	if ca.deps.MultiAgent.TaskLedger == nil || parentID == "" {
 		return func() {}
 	}
 	task := taskledger.Task{
@@ -1468,7 +1237,7 @@ func (ca *CognitiveAgent) registerSubtask(ctx context.Context, parentID, title s
 		State:    taskledger.TaskStateRunning,
 		Title:    title,
 	}
-	if err := ca.taskLedger.Register(ctx, task); err != nil {
+	if err := ca.deps.MultiAgent.TaskLedger.Register(ctx, task); err != nil {
 		slog.Warn("cognitive: failed to register subtask", "title", title, "err", err)
 		return func() {}
 	}
@@ -1476,7 +1245,7 @@ func (ca *CognitiveAgent) registerSubtask(ctx context.Context, parentID, title s
 		task.State = taskledger.TaskStateCompleted
 		now := time.Now()
 		task.CompletedAt = &now
-		if err := ca.taskLedger.Update(ctx, task); err != nil {
+		if err := ca.deps.MultiAgent.TaskLedger.Update(ctx, task); err != nil {
 			slog.Warn("cognitive: failed to complete subtask", "title", title, "err", err)
 		}
 	}
@@ -1616,12 +1385,12 @@ func (a *gitContextProviderAdapter) Scan(ctx context.Context) (*ContextFragment,
 // available optional subsystems into the new single-loop architecture.
 func (ca *CognitiveAgent) toV2() *CognitiveAgentV2 {
 	v2 := NewCognitiveAgentV2(
-		ca.runtime.provider,
+		ca.deps.Core.Provider,
 		ca.executor.tools,
-		ca.sessions,
-		ca.db,
-		ca.cfg,
-		ca.llmCfg,
+		ca.deps.Core.Sessions,
+		ca.deps.Core.DB,
+		ca.deps.Core.Cfg,
+		ca.deps.Core.LLMCfg,
 	)
 
 	// Build ContextBuilder from old perceiver's scanners.
@@ -1638,11 +1407,11 @@ func (ca *CognitiveAgent) toV2() *CognitiveAgentV2 {
 
 	// Build ToolMiddlewareChain with available security/filtering subsystems.
 	var mws []ToolMiddleware
-	if ca.hookMgr != nil {
-		mws = append(mws, NewHookMiddleware(ca.hookMgr))
+	if ca.deps.Security.HookMgr != nil {
+		mws = append(mws, NewHookMiddleware(ca.deps.Security.HookMgr))
 	}
-	if ca.permEngine != nil {
-		mws = append(mws, NewPermissionMiddleware(ca.permEngine, ca.executor.approvalFunc))
+	if ca.deps.Security.PermEngine != nil {
+		mws = append(mws, NewPermissionMiddleware(ca.deps.Security.PermEngine, ca.executor.approvalFunc))
 	}
 	if ca.executor != nil && ca.executor.interceptorChain != nil {
 		mws = append(mws, NewSandboxMiddleware(ca.executor.interceptorChain))
@@ -1656,24 +1425,24 @@ func (ca *CognitiveAgent) toV2() *CognitiveAgentV2 {
 	// Build LoopHookChain with available lifecycle subsystems.
 	var hooks []LoopHook
 	if ca.checkpointStore != nil {
-		hooks = append(hooks, NewCheckpointHook(ca.checkpointStore, ca.db))
+		hooks = append(hooks, NewCheckpointHook(ca.checkpointStore, ca.deps.Core.DB))
 	}
-	if ca.contextManager != nil {
-		hooks = append(hooks, NewCompressionHook(ca.contextManager, 0.85))
+	if ca.deps.Memory.ContextMgr != nil {
+		hooks = append(hooks, NewCompressionHook(ca.deps.Memory.ContextMgr, 0.85))
 	}
 	if ca.planMode != nil {
 		hooks = append(hooks, NewPlanModeHook(ca.planMode, ca.executor.approvalFunc))
 	}
 	if ca.evoEngine != nil {
-		hooks = append(hooks, NewEvolutionHook(ca.evoEngine, ca.dashEmitter))
+		hooks = append(hooks, NewEvolutionHook(ca.evoEngine, ca.deps.Observability.Emitter))
 	}
 	if len(hooks) > 0 {
 		v2.SetLoopHooks(NewLoopHookChain(hooks...))
 	}
 
 	// Set dashboard emitter.
-	if ca.dashEmitter != nil {
-		v2.SetDashboardEmitter(ca.dashEmitter)
+	if ca.deps.Observability.Emitter != nil {
+		v2.SetDashboardEmitter(ca.deps.Observability.Emitter)
 	}
 
 	return v2

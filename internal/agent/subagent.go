@@ -12,10 +12,7 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/observability"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/store"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -27,47 +24,13 @@ import (
 // It handles spawning sub-agents with isolated sessions, scoped tools,
 // and optional model overrides.
 type SubAgentManager struct {
-	provider    Provider
-	sessions    *session.Manager
-	db          *store.DB
-	memStore    memory.Store
-	tools       *tool.Registry
-	cfg         config.AgentConfig
-	llmCfg      config.LLMConfig
-	bgManager   *BackgroundManager
-	agentMCP    *AgentMCPManager
-	dashEmitter DashboardEmitter
+	deps AgentDeps
 }
 
 // NewSubAgentManager creates a new SubAgentManager.
-func NewSubAgentManager(
-	provider Provider,
-	sessions *session.Manager,
-	db *store.DB,
-	memStore memory.Store,
-	tools *tool.Registry,
-	cfg config.AgentConfig,
-	llmCfg config.LLMConfig,
-) *SubAgentManager {
-	return &SubAgentManager{
-		provider: provider,
-		sessions: sessions,
-		db:       db,
-		memStore: memStore,
-		tools:    tools,
-		cfg:      cfg,
-		llmCfg:   llmCfg,
-	}
+func NewSubAgentManager(deps AgentDeps) *SubAgentManager {
+	return &SubAgentManager{deps: deps}
 }
-
-// SetBackgroundManager attaches a background manager for async spawns.
-func (m *SubAgentManager) SetBackgroundManager(bm *BackgroundManager) { m.bgManager = bm }
-
-// SetAgentMCPManager attaches a per-agent MCP manager.
-func (m *SubAgentManager) SetAgentMCPManager(mgr *AgentMCPManager) { m.agentMCP = mgr }
-
-// SetDashboardEmitter attaches a dashboard emitter for sub-agent lifecycle events.
-func (m *SubAgentManager) SetDashboardEmitter(e DashboardEmitter) { m.dashEmitter = e }
 
 // SpawnRequest holds the parameters for spawning a sub-agent.
 type SpawnRequest struct {
@@ -98,27 +61,27 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 
 	sessionID := fmt.Sprintf("subagent_%s_%s", req.Spec.Name, uuid.New().String()[:8])
 
-	if m.dashEmitter != nil {
-		m.dashEmitter.EmitSubAgentSpawn(sessionID, req.ParentID, req.Spec.Name, req.Task)
+	if m.deps.Observability.Emitter != nil {
+		m.deps.Observability.Emitter.EmitSubAgentSpawn(sessionID, req.ParentID, req.Spec.Name, req.Task)
 	}
 
-	scopedTools := buildScopedRegistryStandalone(m.tools, req.Spec.Tools)
+	scopedTools := buildScopedRegistryStandalone(m.deps.Core.Tools, req.Spec.Tools)
 	subCfg, subLLMCfg := m.buildSubConfig(req.Spec)
-
-	subRuntime := NewRuntime(m.provider, scopedTools, m.sessions, m.db, subCfg, subLLMCfg)
-	if m.memStore != nil {
-		subRuntime.SetMemoryStore(m.memStore)
-	}
-	if m.dashEmitter != nil {
-		subRuntime.SetDashboardEmitter(m.dashEmitter)
-	}
-
 	agentID := uuid.New().String()
+
+	// Build sub-agent deps with overridden fields for isolation
+	subDeps := m.deps
+	subDeps.Core.Tools = scopedTools
+	subDeps.Core.Cfg = subCfg
+	subDeps.Core.LLMCfg = subLLMCfg
+	subDeps.Core.AgentID = agentID
+
+	subRuntime := NewRuntime(subDeps)
+
 	chainID := req.ChainID
 	if chainID == "" {
 		chainID = uuid.New().String()
 	}
-	subRuntime.SetAgentID(agentID)
 	subRuntime.SetParentID(req.ParentID)
 	subRuntime.SetDepth(req.ParentDepth + 1)
 	subRuntime.SetChainID(chainID)
@@ -139,12 +102,12 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 
 	execErr := subRuntime.HandleMessage(ctx, capture, msg)
 
-	if m.dashEmitter != nil {
+	if m.deps.Observability.Emitter != nil {
 		durationMs := time.Since(start).Milliseconds()
-		m.dashEmitter.EmitSubAgentComplete(sessionID, req.Spec.Name, execErr == nil, durationMs)
+		m.deps.Observability.Emitter.EmitSubAgentComplete(sessionID, req.Spec.Name, execErr == nil, durationMs)
 	}
 
-	_ = m.sessions.Delete(ctx, "subagent", sessionID)
+	_ = m.deps.Core.Sessions.Delete(ctx, "subagent", sessionID)
 
 	result, err := m.buildResult(ctx, req.Spec.Name, capture, start, execErr)
 
@@ -236,7 +199,7 @@ func (m *SubAgentManager) SpawnParallel(ctx context.Context, reqs []SpawnRequest
 }
 
 func (m *SubAgentManager) spawnBackground(ctx context.Context, req SpawnRequest) (*SubAgentResult, error) {
-	if m.bgManager == nil {
+	if m.deps.MultiAgent.BgManager == nil {
 		slog.Warn("subagent: no BackgroundManager, falling back to sync spawn", "agent", req.Spec.Name)
 		syncReq := req
 		syncReq.Spec = copySpec(req.Spec)
@@ -255,7 +218,7 @@ func (m *SubAgentManager) spawnBackground(ctx context.Context, req SpawnRequest)
 		return &AgentResult{AgentName: req.Spec.Name, Output: result.Summary}, nil
 	}
 
-	agentID := m.bgManager.Spawn(ctx, req.Spec, runner)
+	agentID := m.deps.MultiAgent.BgManager.Spawn(ctx, req.Spec, runner)
 
 	return &SubAgentResult{
 		AgentName: req.Spec.Name,
@@ -270,7 +233,7 @@ func copySpec(s *AgentSpec) *AgentSpec {
 }
 
 func (m *SubAgentManager) buildSubConfig(spec *AgentSpec) (config.AgentConfig, config.LLMConfig) {
-	subCfg := m.cfg
+	subCfg := m.deps.Core.Cfg
 	if spec.MaxIterations > 0 {
 		subCfg.MaxIterations = spec.MaxIterations
 	}
@@ -280,7 +243,7 @@ func (m *SubAgentManager) buildSubConfig(spec *AgentSpec) (config.AgentConfig, c
 		subCfg.SystemPrompt = subCfg.SystemPrompt + subagentOutputInstruction
 	}
 
-	subLLMCfg := m.llmCfg
+	subLLMCfg := m.deps.Core.LLMCfg
 	if spec.Model != "" {
 		subLLMCfg.Model = spec.Model
 	}
@@ -311,8 +274,8 @@ func (m *SubAgentManager) buildResult(ctx context.Context, name string, capture 
 		return result, nil
 	}
 
-	if m.provider != nil && raw != "" {
-		if result := summarizeWithLLM(ctx, m.provider, m.llmCfg.Model, name, raw); result != nil {
+	if m.deps.Core.Provider != nil && raw != "" {
+		if result := summarizeWithLLM(ctx, m.deps.Core.Provider, m.deps.Core.LLMCfg.Model, name, raw); result != nil {
 			result.Duration = dur
 			result.Output = raw
 			return result, nil

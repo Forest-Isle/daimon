@@ -28,11 +28,11 @@ func (ca *CognitiveAgent) handleStreaming(
 		return fmt.Errorf("stream updater: %w", err)
 	}
 
-	confidenceThreshold := ca.cfg.Cognitive.ConfidenceThreshold
+	confidenceThreshold := ca.deps.Core.Cfg.Cognitive.ConfidenceThreshold
 	if confidenceThreshold <= 0 {
 		confidenceThreshold = 0.6
 	}
-	maxReplans := ca.cfg.Cognitive.MaxReplanAttempts
+	maxReplans := ca.deps.Core.Cfg.Cognitive.MaxReplanAttempts
 	if maxReplans <= 0 {
 		maxReplans = MaxReplanAttempts
 	}
