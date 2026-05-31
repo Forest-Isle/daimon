@@ -126,10 +126,14 @@ func (cg *CallGraph) ImpactAnalysis(functionName string, maxDepth int) *ImpactRe
 	queue := []string{}
 
 	// Find all node IDs matching the function name
+	var firstNodeID string
 	for id, node := range cg.nodes {
 		if node.Symbol != nil && node.Symbol.Name == functionName {
 			queue = append(queue, id)
 			visited[id] = true
+			if firstNodeID == "" {
+				firstNodeID = id
+			}
 		}
 	}
 
@@ -152,8 +156,12 @@ func (cg *CallGraph) ImpactAnalysis(functionName string, maxDepth int) *ImpactRe
 		queue = nextQueue
 	}
 
-	// Count direct and transitive
-	report.DirectCallers = len(cg.nodes[functionName].Callers)
+	// Count direct callers from the first matching node
+	if firstNodeID != "" {
+		if firstNode := cg.nodes[firstNodeID]; firstNode != nil {
+			report.DirectCallers = len(firstNode.Callers)
+		}
+	}
 	report.TotalAffected = len(report.AffectedFunctions)
 
 	return report
