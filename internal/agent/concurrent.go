@@ -220,9 +220,6 @@ func (r *Runtime) executeToolCall(
 		}
 	}
 
-	// Route through interceptor chain
-	return r.executeToolCallViaChain(ctx, ch, sess, target, tc, t)
-
 	// Track permission decision metadata
 	var permAction, permReason, permRule string
 
@@ -284,76 +281,12 @@ func (r *Runtime) executeToolCall(
 		}
 	}
 
-	r.deps.Observability.Emitter.EmitToolStart(sess.ID, tc.Name, tc.Input)
-	if r.deps.Observability.ReplayRecorder != nil && r.replayID != "" {
-		r.deps.Observability.ReplayRecorder.RecordToolStart(ctx, r.replayID, tc.Name, tc.Input)
-	}
-	start := time.Now()
-	result, err := t.Execute(ctx, []byte(tc.Input))
-	duration := time.Since(start).Milliseconds()
-
-
-
-	var output string
-	status := "success"
-	if err != nil {
-		output = "error: " + err.Error()
-		status = "error"
-	} else if result.Error != "" {
-		output = "error: " + result.Error
-		status = "error"
-	} else {
-		output = result.Output
-		// Persist large results to disk if enabled
-		if r.deps.MultiAgent.ResultStore != nil && r.deps.MultiAgent.ResultStore.ShouldPersist(output) {
-			stored, storeErr := r.deps.MultiAgent.ResultStore.Store(sess.ID, tc.ID, output)
-			if storeErr != nil {
-				slog.Warn("failed to persist tool result", "tool", tc.Name, "err", storeErr)
-			} else {
-				output = stored.Preview
-			}
-		}
-
-	}
-
-	// Fire PostToolUse hooks
-	if r.deps.Security.HookMgr != nil && r.deps.Security.HookMgr.HasPostToolUseHandlers() {
-		var errStr string
-		if err != nil {
-			errStr = err.Error()
-		} else if result.Error != "" {
-			errStr = result.Error
-		}
-		postResult, _ := r.deps.Security.HookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
-			ToolName:         tc.Name,
-			Input:            tc.Input,
-			Output:           output,
-			Error:            errStr,
-			Status:           status,
-			DurationMs:       duration,
-			SessionID:        sess.ID,
-			PermissionAction: permAction,
-			PermissionReason: permReason,
-			PermissionRule:   permRule,
-		})
-		if postResult.ModifiedOutput != nil {
-			output = *postResult.ModifiedOutput
-		}
-	}
-
-	r.deps.Observability.Emitter.EmitToolEnd(sess.ID, tc.Name, status == "success", duration)
-	if r.deps.Observability.ReplayRecorder != nil && r.replayID != "" {
-		errStr := ""
-		denied := status == "denied"
-		if err != nil {
-			errStr = err.Error()
-		} else if result.Error != "" {
-			errStr = result.Error
-		}
-		r.deps.Observability.ReplayRecorder.RecordToolEnd(ctx, r.replayID, tc.Name, status == "success" && !denied, denied, errStr, duration)
-	}
-	return toolResult{toolUseID: tc.ID, output: output, status: status, duration: duration, toolName: tc.Name, toolInput: tc.Input,
-		permissionAction: permAction, permissionReason: permReason, permissionRule: permRule}
+	// Route through interceptor chain (sandbox, execution, post hooks, emission)
+	res := r.executeToolCallViaChain(ctx, ch, sess, target, tc, t)
+	res.permissionAction = permAction
+	res.permissionReason = permReason
+	res.permissionRule = permRule
+	return res
 }
 
 // executeToolCallViaChain runs a tool through the interceptor chain (e.g. sandbox policy).
@@ -414,7 +347,6 @@ func (r *Runtime) executeToolCallViaChain(
 			output = stored.Preview
 		}
 	}
-
 
 	if r.deps.Security.HookMgr != nil && r.deps.Security.HookMgr.HasPostToolUseHandlers() {
 		postResult, _ := r.deps.Security.HookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{

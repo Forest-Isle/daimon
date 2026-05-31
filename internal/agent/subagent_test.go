@@ -72,12 +72,16 @@ func TestSubAgentManager_Spawn_IndependentSession(t *testing.T) {
 	sessions := session.NewManager(db)
 	tools := tool.NewRegistry()
 
-	mgr := NewSubAgentManager(
-		&mockSubagentProvider{response: "<result>\n<status>success</status>\n<summary>Task done.</summary>\n</result>"},
-		sessions, db, nil, tools,
-		config.AgentConfig{MaxIterations: 2},
-		config.LLMConfig{Model: "test-model", MaxTokens: 100},
-	)
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Provider: &mockSubagentProvider{response: "<result>\n<status>success</status>\n<summary>Task done.</summary>\n</result>"},
+			Sessions: sessions,
+			DB:       db,
+			Tools:    tools,
+			Cfg:      config.AgentConfig{MaxIterations: 2},
+			LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+		},
+	}.WithDefaults())
 
 	spec := &AgentSpec{
 		Name:        "test-agent",
@@ -122,11 +126,16 @@ func TestSubAgentManager_Spawn_ModelOverride(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	mgr := NewSubAgentManager(
-		provider, session.NewManager(db), db, nil, tool.NewRegistry(),
-		config.AgentConfig{MaxIterations: 1},
-		config.LLMConfig{Model: "default-model", MaxTokens: 100},
-	)
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Provider: provider,
+			Sessions: session.NewManager(db),
+			DB:       db,
+			Tools:    tool.NewRegistry(),
+			Cfg:      config.AgentConfig{MaxIterations: 1},
+			LLMCfg:   config.LLMConfig{Model: "default-model", MaxTokens: 100},
+		},
+	}.WithDefaults())
 
 	spec := &AgentSpec{
 		Name:        "fast-agent",
@@ -152,12 +161,16 @@ func TestSubAgentManager_Spawn_BackgroundFallback(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	mgr := NewSubAgentManager(
-		&mockSubagentProvider{response: "done"},
-		session.NewManager(db), db, nil, tool.NewRegistry(),
-		config.AgentConfig{MaxIterations: 1},
-		config.LLMConfig{Model: "test-model", MaxTokens: 100},
-	)
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Provider: &mockSubagentProvider{response: "done"},
+			Sessions: session.NewManager(db),
+			DB:       db,
+			Tools:    tool.NewRegistry(),
+			Cfg:      config.AgentConfig{MaxIterations: 1},
+			LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+		},
+	}.WithDefaults())
 
 	spec := &AgentSpec{
 		Name:          "bg-agent",
@@ -238,12 +251,16 @@ func TestSubAgentManager_SpawnParallel_BestEffort(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	mgr := NewSubAgentManager(
-		&mockSubagentProvider{response: "<result>\n<status>success</status>\n<summary>Done.</summary>\n</result>"},
-		session.NewManager(db), db, nil, tool.NewRegistry(),
-		config.AgentConfig{MaxIterations: 1},
-		config.LLMConfig{Model: "test", MaxTokens: 100},
-	)
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Provider: &mockSubagentProvider{response: "<result>\n<status>success</status>\n<summary>Done.</summary>\n</result>"},
+			Sessions: session.NewManager(db),
+			DB:       db,
+			Tools:    tool.NewRegistry(),
+			Cfg:      config.AgentConfig{MaxIterations: 1},
+			LLMCfg:   config.LLMConfig{Model: "test", MaxTokens: 100},
+		},
+	}.WithDefaults())
 
 	reqs := make([]SpawnRequest, 3)
 	for i := range 3 {

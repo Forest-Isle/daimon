@@ -42,7 +42,7 @@ func TestRuntimeContext_RoundTrip(t *testing.T) {
 		t.Error("expected nil runtime from empty context")
 	}
 
-	runtime := &Runtime{agentID: "test-123"}
+	runtime := NewRuntime(AgentDeps{Core: CoreDeps{AgentID: "test-123"}}.WithDefaults())
 	ctx = RuntimeToContext(ctx, runtime)
 
 	rt := RuntimeFromContext(ctx)

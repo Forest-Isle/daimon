@@ -23,12 +23,16 @@ func TestAgentTool_SubAgentManager_Integration(t *testing.T) {
 	sessions := session.NewManager(db)
 	tools := tool.NewRegistry()
 
-	mgr := NewSubAgentManager(
-		&mockSubagentProvider{response: "<result>\n<status>success</status>\n<summary>Integration test passed.</summary>\n<artifacts>/tmp/output.txt</artifacts>\n</result>"},
-		sessions, db, nil, tools,
-		config.AgentConfig{MaxIterations: 1, SystemPrompt: "You are helpful."},
-		config.LLMConfig{Model: "test-model", MaxTokens: 100},
-	)
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Provider: &mockSubagentProvider{response: "<result>\n<status>success</status>\n<summary>Integration test passed.</summary>\n<artifacts>/tmp/output.txt</artifacts>\n</result>"},
+			Sessions: sessions,
+			DB:       db,
+			Tools:    tools,
+			Cfg:      config.AgentConfig{MaxIterations: 1, SystemPrompt: "You are helpful."},
+			LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+		},
+	}.WithDefaults())
 
 	spec := &AgentSpec{
 		Name:        "integration-agent",

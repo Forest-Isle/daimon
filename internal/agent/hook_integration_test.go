@@ -85,12 +85,16 @@ func TestPreToolUseDenyPreventsExecution(t *testing.T) {
 	hookMgr := hook.NewManager()
 	hookMgr.RegisterPreToolUse(&denyHookHandler{reason: "blocked by test"})
 
-	rt := &Runtime{
-		tools:   registry,
-		db:      db,
-		cfg:     config.AgentConfig{},
-		hookMgr: hookMgr,
-	}
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Tools: registry,
+			DB:    db,
+			Cfg:   config.AgentConfig{},
+		},
+		Security: SecurityDeps{
+			HookMgr: hookMgr,
+		},
+	}.WithDefaults())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
@@ -131,13 +135,17 @@ func TestPreToolUseAllowSkipsApproval(t *testing.T) {
 		return false, nil
 	}
 
-	rt := &Runtime{
-		tools:        registry,
-		db:           db,
-		cfg:          config.AgentConfig{},
-		hookMgr:      hookMgr,
-		approvalFunc: denyApproval,
-	}
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Tools: registry,
+			DB:    db,
+			Cfg:   config.AgentConfig{},
+		},
+		Security: SecurityDeps{
+			HookMgr: hookMgr,
+		},
+	}.WithDefaults())
+	rt.SetApprovalFunc(denyApproval)
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "approval_tool", Input: "{}"}
@@ -180,12 +188,16 @@ func TestPostToolUseAuditHandlerCalled(t *testing.T) {
 	hookMgr := hook.NewManager()
 	hookMgr.RegisterPostToolUse(tracker)
 
-	rt := &Runtime{
-		tools:   registry,
-		db:      db,
-		cfg:     config.AgentConfig{},
-		hookMgr: hookMgr,
-	}
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Tools: registry,
+			DB:    db,
+			Cfg:   config.AgentConfig{},
+		},
+		Security: SecurityDeps{
+			HookMgr: hookMgr,
+		},
+	}.WithDefaults())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "audited_tool", Input: `{"cmd":"test"}`}
@@ -220,20 +232,24 @@ func TestOnUserMessageContextInjection(t *testing.T) {
 		context: "Current time: 2026-04-02T12:00:00Z",
 	})
 
-	rt := &Runtime{
-		cfg: config.AgentConfig{
-			SystemPrompt: "You are a helpful assistant.",
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Cfg: config.AgentConfig{
+				SystemPrompt: "You are a helpful assistant.",
+			},
 		},
-		hookMgr: hookMgr,
-	}
+		Security: SecurityDeps{
+			HookMgr: hookMgr,
+		},
+	}.WithDefaults())
 
 	// Build system prompt
 	ctx := context.Background()
 	systemPrompt := rt.buildSystemPrompt(ctx, "What time is it?")
 
 	// Simulate OnUserMessage hook firing (as done in HandleMessage)
-	if rt.hookMgr != nil && rt.hookMgr.HasOnUserMessageHandlers() {
-		msgResult, _ := rt.hookMgr.FireOnUserMessage(ctx, hook.OnUserMessageEvent{
+	if rt.deps.Security.HookMgr != nil && rt.deps.Security.HookMgr.HasOnUserMessageHandlers() {
+		msgResult, _ := rt.deps.Security.HookMgr.FireOnUserMessage(ctx, hook.OnUserMessageEvent{
 			Channel:   "test",
 			ChannelID: "test-channel",
 			UserID:    "user-1",
@@ -269,12 +285,16 @@ func TestPermissionEngineDenyPreventsExecution(t *testing.T) {
 	}
 	permEngine := tool.NewPermissionEngine(rules, "ask", nil)
 
-	rt := &Runtime{
-		tools:      registry,
-		db:         db,
-		cfg:        config.AgentConfig{},
-		permEngine: permEngine,
-	}
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Tools: registry,
+			DB:    db,
+			Cfg:   config.AgentConfig{},
+		},
+		Security: SecurityDeps{
+			PermEngine: permEngine,
+		},
+	}.WithDefaults())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "bash", Input: `{"command":"rm -rf /tmp/test"}`}
@@ -306,13 +326,17 @@ func TestHookAndPermissionEngineIntegration(t *testing.T) {
 	// Permission engine allows all by default
 	permEngine := tool.NewPermissionEngine(nil, "allow", nil)
 
-	rt := &Runtime{
-		tools:      registry,
-		db:         db,
-		cfg:        config.AgentConfig{},
-		hookMgr:    hookMgr,
-		permEngine: permEngine,
-	}
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Tools: registry,
+			DB:    db,
+			Cfg:   config.AgentConfig{},
+		},
+		Security: SecurityDeps{
+			HookMgr:    hookMgr,
+			PermEngine: permEngine,
+		},
+	}.WithDefaults())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
@@ -346,16 +370,22 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 	hookMgr := hook.NewManager()
 	hookMgr.RegisterPostToolUse(tracker)
 
-	rt := &Runtime{
-		tools:   registry,
-		db:      db,
-		cfg:     config.AgentConfig{},
-		hookMgr: hookMgr,
-		concurrentCfg: config.ConcurrentExecutionConfig{
-			Enabled:        true,
-			MaxConcurrency: 4,
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Tools:    registry,
+			DB:       db,
+			Cfg:      config.AgentConfig{},
+			ToolsCfg: config.ToolsConfig{
+				ConcurrentExecution: config.ConcurrentExecutionConfig{
+					Enabled:        true,
+					MaxConcurrency: 4,
+				},
+			},
 		},
-	}
+		Security: SecurityDeps{
+			HookMgr: hookMgr,
+		},
+	}.WithDefaults())
 
 	sess := concurrentTestSession()
 	toolCalls := []ToolUseBlock{

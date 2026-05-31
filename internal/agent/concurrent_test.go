@@ -92,15 +92,19 @@ func TestConcurrentReadOnlyExecution(t *testing.T) {
 		})
 	}
 
-	rt := &Runtime{
-		tools: registry,
-		db:    db,
-		cfg:   config.AgentConfig{},
-		concurrentCfg: config.ConcurrentExecutionConfig{
-			Enabled:        true,
-			MaxConcurrency: 4,
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Tools:    registry,
+			DB:       db,
+			Cfg:      config.AgentConfig{},
+			ToolsCfg: config.ToolsConfig{
+				ConcurrentExecution: config.ConcurrentExecutionConfig{
+					Enabled:        true,
+					MaxConcurrency: 4,
+				},
+			},
 		},
-	}
+	}.WithDefaults())
 
 	sess := concurrentTestSession()
 
@@ -151,15 +155,19 @@ func TestMixedReadWriteExecution(t *testing.T) {
 		name: "writer", delay: 10 * time.Millisecond, execCount: &writeCount,
 	})
 
-	rt := &Runtime{
-		tools: registry,
-		db:    db,
-		cfg:   config.AgentConfig{},
-		concurrentCfg: config.ConcurrentExecutionConfig{
-			Enabled:        true,
-			MaxConcurrency: 4,
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Tools:    registry,
+			DB:       db,
+			Cfg:      config.AgentConfig{},
+			ToolsCfg: config.ToolsConfig{
+				ConcurrentExecution: config.ConcurrentExecutionConfig{
+					Enabled:        true,
+					MaxConcurrency: 4,
+				},
+			},
 		},
-	}
+	}.WithDefaults())
 
 	sess := concurrentTestSession()
 
@@ -204,14 +212,18 @@ func TestSequentialFallbackWhenDisabled(t *testing.T) {
 	}
 
 	// Concurrency disabled
-	rt := &Runtime{
-		tools: registry,
-		db:    db,
-		cfg:   config.AgentConfig{},
-		concurrentCfg: config.ConcurrentExecutionConfig{
-			Enabled: false,
+	rt := NewRuntime(AgentDeps{
+		Core: CoreDeps{
+			Tools:    registry,
+			DB:       db,
+			Cfg:      config.AgentConfig{},
+			ToolsCfg: config.ToolsConfig{
+				ConcurrentExecution: config.ConcurrentExecutionConfig{
+					Enabled: false,
+				},
+			},
 		},
-	}
+	}.WithDefaults())
 
 	sess := concurrentTestSession()
 
