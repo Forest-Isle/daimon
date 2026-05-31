@@ -31,7 +31,7 @@ func (gw *Gateway) initAgentRuntime() error {
 	// Wire hook manager and permission engine
 	gw.runtime.SetHookManager(gw.hookMgr)
 	gw.runtime.SetPermissionEngine(gw.permEngine)
-	gw.runtime.SetInterceptorChain(gw.interceptorChain)
+	gw.runtime.SetInterceptorChain(gw.sandbox.interceptorChain)
 
 	// Tool result persistence
 	if gw.cfg.Tools.ResultPersistence.Enabled {

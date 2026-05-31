@@ -12,10 +12,10 @@ import (
 func (gw *Gateway) initMultiAgent() error {
 	// Multi-agent system
 	if gw.featureEnabled("multi_agent") {
-		agentMgr := agent.NewAgentManager(gw.provider, gw.sessions, gw.db, gw.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
+		agentMgr := agent.NewAgentManager(gw.provider, gw.sessions, gw.db, gw.memory.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
 
-		subAgentMgr := agent.NewSubAgentManager(gw.provider, gw.sessions, gw.db, gw.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
-		gw.subAgentMgr = subAgentMgr
+		subAgentMgr := agent.NewSubAgentManager(gw.provider, gw.sessions, gw.db, gw.memory.memStore, gw.tools, gw.cfg.Agent, gw.cfg.LLM)
+		gw.tasks.subAgentMgr = subAgentMgr
 		agentMgr.SetSubAgentManager(subAgentMgr)
 
 		_ = agentMgr.LoadDir(userdir.AgentsDir())
@@ -74,7 +74,7 @@ func (gw *Gateway) initMultiAgent() error {
 		// Team coordination manager
 		if gw.cfg.Agent.Team.Enabled {
 			teamMgr := agent.NewTeamManager(subAgentMgr)
-			gw.teamManager = teamMgr
+			gw.tasks.teamManager = teamMgr
 			if gw.cognitiveAgent != nil {
 				gw.cognitiveAgent.SetTeamManager(teamMgr)
 			}

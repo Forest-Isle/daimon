@@ -15,14 +15,14 @@ import (
 
 func (gw *Gateway) initCognitiveAgent() error {
 	opts := &agent.CognitiveAgentOptions{}
-	if gw.memStore != nil {
-		opts.MemoryStore = gw.memStore
+	if gw.memory.memStore != nil {
+		opts.MemoryStore = gw.memory.memStore
 	}
-	if gw.factExtractor != nil {
-		opts.FactExtractor = gw.factExtractor
+	if gw.memory.factExtractor != nil {
+		opts.FactExtractor = gw.memory.factExtractor
 	}
-	if gw.lifecycleMgr != nil {
-		opts.LifecycleManager = gw.lifecycleMgr
+	if gw.memory.lifecycleMgr != nil {
+		opts.LifecycleManager = gw.memory.lifecycleMgr
 	}
 	if gw.codebaseIndex != nil {
 		opts.CodebaseIndex = gw.codebaseIndex
@@ -35,14 +35,14 @@ func (gw *Gateway) initCognitiveAgent() error {
 	if gw.permEngine != nil {
 		opts.PermissionEngine = gw.permEngine
 	}
-	if gw.interceptorChain != nil {
-		opts.InterceptorChain = gw.interceptorChain
+	if gw.sandbox.interceptorChain != nil {
+		opts.InterceptorChain = gw.sandbox.interceptorChain
 	}
 
 	// Inject memory notification callback
 	opts.MemoryNotifyFunc = gw.sendMemoryNotification
 
-	// Plan Mode: plan→approve→execute flow for write tools.
+	// Plan Mode: plan->approve->execute flow for write tools.
 	// Enabled when cognitive mode is active and provider supports plan generation.
 	if gw.provider != nil {
 		gw.planMode = agent.NewPlanMode(
@@ -71,16 +71,16 @@ func (gw *Gateway) initCognitiveAgent() error {
 		slog.Info("RL system initialized")
 
 		// Bridge memory lifecycle events to RL system
-		if gw.lifecycleMgr != nil {
+		if gw.memory.lifecycleMgr != nil {
 			memoryRewards := rl.DefaultMemoryRLRewards()
 			memRLHandler := rl.NewMemoryRLHandler(gw.rlTrainer, memoryRewards)
-			gw.lifecycleMgr.SetRLEventHandler(memRLHandler)
+			gw.memory.lifecycleMgr.SetRLEventHandler(memRLHandler)
 			slog.Info("RL-memory bridge connected")
 		}
 	}
 
-	if gw.evoEngine != nil {
-		opts.EvolutionEngine = gw.evoEngine
+	if gw.evolution.engine != nil {
+		opts.EvolutionEngine = gw.evolution.engine
 	}
 	if gw.replayRecorder != nil {
 		opts.ReplayRecorder = gw.replayRecorder
@@ -101,7 +101,7 @@ func (gw *Gateway) initCognitiveAgent() error {
 		gw.cfg.LLM,
 		opts,
 	)
-	if gw.cognitiveAgent != nil && gw.evoEngine != nil {
+	if gw.cognitiveAgent != nil && gw.evolution.engine != nil {
 		gw.registerEvolutionHooks()
 	}
 
@@ -112,7 +112,7 @@ func (gw *Gateway) initCognitiveAgent() error {
 // after evolution.NewEngine and before gateway.Start (hooks must register
 // before Engine.Start). No-op when evolution is disabled in config.
 func (gw *Gateway) registerEvolutionHooks() {
-	if gw.evoEngine == nil || !gw.featureEnabled("evolution") {
+	if gw.evolution.engine == nil || !gw.featureEnabled("evolution") {
 		return
 	}
 
@@ -133,7 +133,7 @@ func (gw *Gateway) registerEvolutionHooks() {
 				}
 			}
 		}
-		gw.evoEngine.RegisterHook(pl)
+		gw.evolution.engine.RegisterHook(pl)
 		prefLearner = pl
 	}
 
@@ -162,14 +162,14 @@ func (gw *Gateway) registerEvolutionHooks() {
 
 			// Inject sandbox validation into the SandboxTestGate if Docker is available.
 			sandboxEnabled := gw.cfg.Evolution.SandboxValidation
-			if sandboxEnabled && gw.dockerSessionMgr != nil && gw.dockerSessionMgr.Available() {
+			if sandboxEnabled && gw.sandbox.dockerSessionMgr != nil && gw.sandbox.dockerSessionMgr.Available() {
 				activator.SetSandboxValidator(true, gw.sandboxSkillValidator())
 			} else if sandboxEnabled {
 				slog.Warn("gateway: evolution: sandbox validation enabled but Docker unavailable, falling back to static-analysis-only")
 			}
 
 			ss.SetActivator(activator)
-			gw.evoEngine.RegisterHook(ss)
+			gw.evolution.engine.RegisterHook(ss)
 			skillSynth = ss
 		}
 	}
@@ -178,8 +178,8 @@ func (gw *Gateway) registerEvolutionHooks() {
 	if trajDir, err := gw.resolveEvolutionTrajDir(); err != nil {
 		slog.Warn("gateway: evolution: trajectory dir unavailable, recorder disabled", "err", err)
 	} else {
-		gw.evoEngine.RegisterHook(evolution.NewTrajectoryRecorder(trajDir))
-		gw.evoEngine.SetTrajectoryDir(trajDir)
+		gw.evolution.engine.RegisterHook(evolution.NewTrajectoryRecorder(trajDir))
+		gw.evolution.engine.SetTrajectoryDir(trajDir)
 	}
 
 	optCfg := evo.Optimizer
@@ -199,7 +199,7 @@ func (gw *Gateway) registerEvolutionHooks() {
 					}
 				}
 			}
-			gw.evoEngine.RegisterHook(opt)
+			gw.evolution.engine.RegisterHook(opt)
 			stratOptimizer = opt
 		}
 	}
@@ -207,7 +207,7 @@ func (gw *Gateway) registerEvolutionHooks() {
 	// Evolution Brain: unified coordinator with cross-loop feedback
 	if prefLearner != nil || stratOptimizer != nil || skillSynth != nil {
 		brain := evolution.NewBrain(prefLearner, stratOptimizer, skillSynth)
-		gw.evoEngine.SetBrain(brain)
+		gw.evolution.engine.SetBrain(brain)
 		slog.Info("evolution brain wired into engine",
 			"preference", prefLearner != nil,
 			"optimizer", stratOptimizer != nil,
@@ -307,7 +307,7 @@ func (gw *Gateway) resolveEvolutionTrajDir() (string, error) {
 // logs a warning, allowing static-analysis-only fallback.
 func (gw *Gateway) sandboxSkillValidator() evolution.SandboxValidator {
 	return func(draft evolution.SkillDraft) (bool, string) {
-		if gw.dockerSessionMgr == nil || !gw.dockerSessionMgr.Available() {
+		if gw.sandbox.dockerSessionMgr == nil || !gw.sandbox.dockerSessionMgr.Available() {
 			slog.Warn("evolution: sandbox validator called but Docker unavailable, allowing draft",
 				"draft", draft.Name)
 			return true, ""
@@ -317,7 +317,7 @@ func (gw *Gateway) sandboxSkillValidator() evolution.SandboxValidator {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		session, err := gw.dockerSessionMgr.GetOrCreate(ctx, "sandbox-val-"+draft.Name)
+		session, err := gw.sandbox.dockerSessionMgr.GetOrCreate(ctx, "sandbox-val-"+draft.Name)
 		if err != nil {
 			slog.Warn("evolution: sandbox validator failed to create session, allowing draft",
 				"draft", draft.Name, "err", err)
@@ -361,4 +361,3 @@ func (gw *Gateway) sandboxSkillValidator() evolution.SandboxValidator {
 		return true, ""
 	}
 }
-

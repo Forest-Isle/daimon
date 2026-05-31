@@ -13,27 +13,27 @@ import (
 // Called unconditionally after the evolution engine is set up so that eval runs
 // (which disable the dashboard) still accumulate health metrics.
 func (gw *Gateway) initCogMetrics() {
-	if gw.cogCollector != nil {
+	if gw.evolution.cogCollector != nil {
 		return
 	}
-	if gw.evoEngine == nil || !gw.featureEnabled("evolution") {
+	if gw.evolution.engine == nil || !gw.featureEnabled("evolution") {
 		return
 	}
-	gw.cogCollector = cogmetrics.NewCollector()
-	gw.evoEngine.RegisterHook(gw.cogCollector)
+	gw.evolution.cogCollector = cogmetrics.NewCollector()
+	gw.evolution.engine.RegisterHook(gw.evolution.cogCollector)
 
 	// Health checker and circuit breaker
-	gw.healthChecker = cogmetrics.NewHealthChecker()
-	gw.breaker = cogmetrics.NewBreaker(gw.healthChecker)
+	gw.evolution.healthChecker = cogmetrics.NewHealthChecker()
+	gw.evolution.breaker = cogmetrics.NewBreaker(gw.evolution.healthChecker)
 
 	// Register breaker action callbacks
-	gw.breaker.OnAction(cogmetrics.ActionTriggerCompression, func() {
+	gw.evolution.breaker.OnAction(cogmetrics.ActionTriggerCompression, func() {
 		slog.Warn("coghealth: breaker triggered compression")
 	})
-	gw.breaker.OnAction(cogmetrics.ActionPauseAndAskUser, func() {
+	gw.evolution.breaker.OnAction(cogmetrics.ActionPauseAndAskUser, func() {
 		slog.Warn("coghealth: breaker requesting user intervention")
 	})
-	gw.breaker.OnAction(cogmetrics.ActionDegradeToSimple, func() {
+	gw.evolution.breaker.OnAction(cogmetrics.ActionDegradeToSimple, func() {
 		slog.Warn("coghealth: breaker degrading to simple mode")
 	})
 

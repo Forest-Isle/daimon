@@ -3,8 +3,6 @@ package gateway
 import (
 	"context"
 	"fmt"
-	"github.com/Forest-Isle/IronClaw/internal/knowledge"
-	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
 	"os"
@@ -22,14 +20,12 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/cortex"
-	"github.com/Forest-Isle/IronClaw/internal/dashboard"
 	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
 	"github.com/Forest-Isle/IronClaw/internal/health"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/ratelimit"
 	"github.com/Forest-Isle/IronClaw/internal/rl"
 	"github.com/Forest-Isle/IronClaw/internal/sandbox"
@@ -56,52 +52,19 @@ type Gateway struct {
 	tools            *tool.Registry
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
-	memStore         memory.Store
-	embedder         memory.EmbeddingProvider
-	kbSearcher       knowledge.Searcher
-	graphStore       graph.Graph
-	cortex           *cortex.UnifiedRetriever
-	wasmHost         *wasm.PluginHost
-	factExtractor    *memory.LLMFactExtractor
-	lifecycleMgr     *memory.LifecycleManager
 	skillMgr         *skill.Manager
-	channels         map[string]channel.Channel
-	sched            *scheduler.Scheduler
-	mcpManager       *mcp.Manager
-	rlTrainer        *rl.Trainer
 	resultStore      *tool.ResultStore
-	consolidator     *memory.Consolidator
-	compactor        *memory.Compactor
-	graphDecay       *graph.GraphDecayTask
-	evoEngine        *evolution.Engine
-	dockerSessionMgr *sandbox.DockerSessionManager
-	interceptorChain *tool.InterceptorChain
-	trustTracker     *tool.TrustTracker
+	mcpManager       *mcp.Manager
+	wasmHost         *wasm.PluginHost
+	rlTrainer        *rl.Trainer
 	userHookMgr      *hook.UserHookManager // user-configurable hook scripts
-	a2aServer        *a2a.Server           // A2A protocol server
-	planMode         *agent.PlanMode       // plan→approve→execute flow
-	taskLedger       *taskledger.SQLiteTaskLedger
-	teamCoordinator  *taskledger.TeamCoordinator
-	subAgentMgr      *agent.SubAgentManager
-	teamManager      *agent.TeamManager
-	staleDetector    *taskledger.StaleDetector
-	dashboardBus     *dashboard.Bus
-	dashboardHub     *dashboard.Hub
-	dashboardSrv     *http.Server
-	stateTracker     *dashboard.AgentStateTracker
-	dashEmitter      agent.DashboardEmitter
+	planMode         *agent.PlanMode       // plan->approve->execute flow
 	contextMgr       *agent.PipelineContextManager
 	features         *feature.Registry
 	featureStatePath string // path to ~/.IronClaw/feature_state.json
-	obsShutdown      func(context.Context)
-	cogCollector     *cogmetrics.Collector
-	healthChecker    *cogmetrics.HealthChecker
-	breaker          *cogmetrics.Breaker
-	rateLimiter      ratelimit.Limiter
 	healthRegistry   *health.Registry
 	healthSrv        *http.Server
 	currentMode      atomic.Value // stores string: "simple" | "cognitive" | "graph"
-	memoryDir        string       // resolved base dir for file-based memory
 	replayRecorder   *agent.ReplayRecorder
 	selfHealEngine   *agent.SelfHealEngine
 	treePlanner      *agent.StrategicTreePlanner
@@ -110,6 +73,19 @@ type Gateway struct {
 	stopCh           chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce         sync.Once     // ensures stopCh is closed exactly once
 	initCtx          context.Context
+	initCancel       context.CancelFunc
+
+	// Subsystems — each manages a group of related fields
+	memory        *MemorySubsystem
+	channels      *ChannelSubsystem
+	dashboard     *DashboardSubsystem
+	sandbox       *SandboxSubsystem
+	evolution     *EvolutionSubsystem
+	tasks         *TaskSubsystem
+	observability *ObservabilitySubsystem
+	a2a           *A2ASubsystem
+
+	subsystems Subsystems // ordered list for lifecycle management
 }
 
 // GatewayOptions configures optional behaviour for Gateway.New.
@@ -124,14 +100,23 @@ type GatewayOptions struct {
 func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw := &Gateway{
 		cfg:         cfg,
-		channels:    make(map[string]channel.Channel),
 		stopCh:      make(chan struct{}),
+	}
+	// Initialize subsystems with their zero values — fields will be populated
+	// by the init* methods below.
+	gw.memory = &MemorySubsystem{}
+	gw.channels = &ChannelSubsystem{channels: make(map[string]channel.Channel)}
+	gw.dashboard = &DashboardSubsystem{}
+	gw.sandbox = &SandboxSubsystem{}
+	gw.evolution = &EvolutionSubsystem{}
+	gw.tasks = &TaskSubsystem{}
+	gw.observability = &ObservabilitySubsystem{
 		obsShutdown: func(context.Context) {},
 	}
+	gw.a2a = &A2ASubsystem{}
+
 	gw.currentMode.Store(cfg.Agent.Mode)
-	initCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	gw.initCtx = initCtx
-	defer cancel()
+	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
 
 	if err := gw.initDatabase(); err != nil {
 		return nil, fmt.Errorf("database: %w", err)
@@ -148,7 +133,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		slog.Warn("observability init failed, continuing without telemetry", "err", err)
 		obsShutdown = func(context.Context) {}
 	}
-	gw.obsShutdown = obsShutdown
+	gw.observability.obsShutdown = obsShutdown
 
 	opt := GatewayOptions{}
 	if len(opts) > 0 {
@@ -179,7 +164,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	}
 
 	// Register Docker health check if Docker sandbox is available
-	if gw.dockerSessionMgr != nil {
+	if gw.sandbox.DockerSessionManager() != nil {
 		gw.healthRegistry.Register("docker", health.CheckerFunc(func(ctx context.Context) error {
 			if !sandbox.ProbeDocker(ctx) {
 				return fmt.Errorf("docker daemon not reachable")
@@ -195,7 +180,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		return nil, fmt.Errorf("memory: %w", err)
 	}
 	// Evolution engine must exist before cognitive agent registers hooks.
-	gw.evoEngine = evolution.NewEngine(cfg.Evolution)
+	gw.evolution.engine = evolution.NewEngine(cfg.Evolution)
 	if err := gw.initCognitiveAgent(); err != nil {
 		return nil, fmt.Errorf("cognitive: %w", err)
 	}
@@ -205,11 +190,11 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	if err := gw.initKnowledgeSystem(); err != nil {
 		return nil, fmt.Errorf("knowledge: %w", err)
 	}
-	if gw.memStore != nil {
-		procedural := cortex.NewProceduralStore(gw.memStore, gw.embedder)
-		gw.cortex = cortex.NewUnifiedRetriever(gw.memStore, gw.kbSearcher, gw.graphStore, procedural)
+	if gw.memory.Store() != nil {
+		procedural := cortex.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
+		gw.memory.cortex = cortex.NewUnifiedRetriever(gw.memory.Store(), gw.memory.KBSearcher(), gw.memory.GraphStore(), procedural)
 		if gw.cognitiveAgent != nil {
-			gw.cognitiveAgent.SetCortexRetriever(gw.cortex)
+			gw.cognitiveAgent.SetCortexRetriever(gw.memory.Cortex())
 		}
 	}
 
@@ -226,10 +211,10 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	}
 
 	// Task ledger
-	gw.taskLedger = taskledger.NewSQLiteTaskLedger(gw.db)
-	gw.runtime.SetTaskLedger(gw.taskLedger)
+	gw.tasks.taskLedger = taskledger.NewSQLiteTaskLedger(gw.db)
+	gw.runtime.SetTaskLedger(gw.tasks.TaskLedger())
 	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetTaskLedger(gw.taskLedger)
+		gw.cognitiveAgent.SetTaskLedger(gw.tasks.TaskLedger())
 	}
 
 	// Team coordinator
@@ -238,9 +223,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		if maxWorkers <= 0 {
 			maxWorkers = 3
 		}
-		tc := taskledger.NewTeamCoordinator(gw.taskLedger, maxWorkers)
+		tc := taskledger.NewTeamCoordinator(gw.tasks.TaskLedger(), maxWorkers)
 		tc.SetExecutor(func(ctx context.Context, task taskledger.Task) (string, error) {
-			if gw.subAgentMgr == nil {
+			if gw.tasks.SubAgentManager() == nil {
 				return gw.executeTeamTask(ctx, task)
 			}
 			taskIDShort := task.ID
@@ -257,7 +242,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 				spec.Model = gw.cfg.Agent.Team.Model
 			}
 			_ = spec.Validate()
-			result, err := gw.subAgentMgr.Spawn(ctx, agent.SpawnRequest{
+			result, err := gw.tasks.SubAgentManager().Spawn(ctx, agent.SpawnRequest{
 				Spec: spec,
 				Task: task.Description,
 			})
@@ -269,11 +254,11 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 			}
 			return result.Summary, nil
 		})
-		gw.teamCoordinator = tc
+		gw.tasks.teamCoordinator = tc
 	}
 
 	// Scheduler
-	gw.sched = scheduler.New(gw.db, cfg.Scheduler.PollInterval)
+	gw.channels.sched = scheduler.New(gw.db, cfg.Scheduler.PollInterval)
 	gw.mcpManager = mcp.NewManager()
 
 	// Approval wiring
@@ -283,7 +268,8 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	}
 
 	// Scheduler handler
-	gw.sched.SetHandler(func(ctx context.Context, task scheduler.Task) {
+	sched := gw.channels.Scheduler()
+	sched.SetHandler(func(ctx context.Context, task scheduler.Task) {
 		gw.handleInbound(ctx, channel.InboundMessage{
 			Channel: task.Channel, ChannelID: task.ChannelID,
 			UserID: "scheduler", UserName: "scheduler", Text: task.Prompt,
@@ -294,10 +280,23 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// still populate cogCollector.
 	gw.initCogMetrics()
 
+	// Rate limiter must be initialized before dashboard (which may wrap it).
 	gw.initRateLimiter()
 
 	if err := gw.initDashboard(); err != nil {
 		return nil, fmt.Errorf("dashboard: %w", err)
+	}
+
+	// Build subsystems list in dependency order
+	gw.subsystems = Subsystems{
+		gw.observability, // shutdown last, start first
+		gw.memory,
+		gw.sandbox,
+		gw.evolution,
+		gw.tasks,
+		gw.channels,
+		gw.dashboard,
+		gw.a2a,
 	}
 
 	gw.bindFeatureLifecycleHooks()
@@ -307,7 +306,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 // AddChannel registers a channel adapter. Call before Start().
 func (gw *Gateway) AddChannel(ch channel.Channel) {
-	gw.channels[ch.Name()] = ch
+	gw.channels.channels[ch.Name()] = ch
 }
 
 // Start initializes all channels and begins processing.
@@ -359,7 +358,7 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	}
 
 	// Start channels
-	for name, ch := range gw.channels {
+	for name, ch := range gw.channels.Channels() {
 		if err := ch.Start(ctx, gw.handleInbound); err != nil {
 			return err
 		}
@@ -368,7 +367,7 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 	// Start scheduler
 	if gw.features.IsEnabled("scheduler") {
-		gw.sched.Start(ctx)
+		gw.channels.Scheduler().Start(ctx)
 		slog.Info("scheduler started")
 	}
 
@@ -378,15 +377,10 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	}
 
 	// Start stale task detector
-	if gw.taskLedger != nil {
-		gw.staleDetector = taskledger.NewStaleDetector(
-			gw.taskLedger, 2*time.Minute, 30*time.Second,
-			func(t taskledger.Task) {
-				slog.Info("stale-detector: task marked stale", "id", t.ID, "title", t.Title)
-			},
-		)
-		gw.staleDetector.Start()
-		slog.Info("stale task detector started")
+	if gw.tasks.TaskLedger() != nil {
+		if err := gw.tasks.Start(ctx); err != nil {
+			slog.Warn("gateway: stale detector start failed", "err", err)
+		}
 	}
 
 	// Start RL trainer
@@ -396,8 +390,8 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	}
 
 	// Start evolution engine only when feature is enabled
-	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
-		gw.evoEngine.Start()
+	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {
+		gw.evolution.Engine().Start()
 		if gw.rlTrainer != nil {
 			go gw.importTrajectoriesToRL()
 		}
@@ -411,15 +405,15 @@ func (gw *Gateway) Start(ctx context.Context) error {
 // cognitive agent. Prefer AddDashboardEmitter when multiple consumers must
 // coexist (e.g. web dashboard + TUI).
 func (gw *Gateway) SetDashboardEmitter(e agent.DashboardEmitter) {
-	gw.dashEmitter = e
+	gw.dashboard.emitter = e
 	if gw.runtime != nil {
 		gw.runtime.SetDashboardEmitter(e)
 	}
 	if gw.cognitiveAgent != nil {
 		gw.cognitiveAgent.SetDashboardEmitter(e)
 	}
-	if gw.subAgentMgr != nil {
-		gw.subAgentMgr.SetDashboardEmitter(e)
+	if gw.tasks.SubAgentManager() != nil {
+		gw.tasks.SubAgentManager().SetDashboardEmitter(e)
 	}
 	if gw.contextMgr != nil {
 		gw.contextMgr.SetDashboardEmitter(e)
@@ -429,7 +423,7 @@ func (gw *Gateway) SetDashboardEmitter(e agent.DashboardEmitter) {
 // AddDashboardEmitter merges e with the existing emitter so both the web
 // dashboard and channel-specific consumers (e.g. TUI status bar) receive events.
 func (gw *Gateway) AddDashboardEmitter(e agent.DashboardEmitter) {
-	merged := agent.NewMultiEmitter(gw.dashEmitter, e)
+	merged := agent.NewMultiEmitter(gw.dashboard.Emitter(), e)
 	gw.SetDashboardEmitter(merged)
 }
 
@@ -442,15 +436,8 @@ func (gw *Gateway) SetMetricsEmitter(e agent.MetricsEmitter) {
 
 // Stop gracefully shuts down all components.
 func (gw *Gateway) Stop(ctx context.Context) error {
-	for name, ch := range gw.channels {
-		if err := ch.Stop(ctx); err != nil {
-			slog.Error("failed to stop channel", "name", name, "err", err)
-		}
-	}
-
-	if gw.features.IsEnabled("scheduler") {
-		gw.sched.Stop()
-	}
+	// Stop subsystems in reverse order
+	gw.subsystems.StopAll(ctx)
 
 	_ = gw.mcpManager.Close()
 
@@ -462,53 +449,26 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	}
 
 	// Persist evolution state and stop engine (only when feature was enabled)
-	if gw.evoEngine != nil && gw.featureEnabled("evolution") {
+	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {
 		prefPath := ""
 		if p, err := gw.resolveEvolutionPreferencePath(gw.cfg.Evolution.PreferenceFile); err == nil {
 			prefPath = p
 		}
-		gw.evoEngine.SaveState(prefPath)
-		gw.evoEngine.Stop()
+		gw.evolution.Engine().SaveState(prefPath)
+		gw.evolution.Engine().Stop()
 	}
 
-	if gw.staleDetector != nil {
-		gw.staleDetector.Stop()
-	}
-
-	if gw.dashboardSrv != nil {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = gw.dashboardSrv.Shutdown(shutCtx)
-	}
 	if gw.healthSrv != nil {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = gw.healthSrv.Shutdown(shutCtx)
 	}
-	if gw.dashboardHub != nil {
-		gw.dashboardHub.Stop()
-	}
-	if gw.stateTracker != nil {
-		gw.stateTracker.Stop()
-	}
 
-	// Stop memory background tasks
 	gw.stopOnce.Do(func() { close(gw.stopCh) })
-	if gw.consolidator != nil {
-		gw.consolidator.Stop()
-	}
-	if gw.compactor != nil {
-		gw.compactor.Stop()
-	}
-	if gw.graphDecay != nil {
-		gw.graphDecay.Stop()
+	if gw.initCancel != nil {
+		gw.initCancel()
 	}
 
-	if gw.dockerSessionMgr != nil {
-		gw.dockerSessionMgr.CleanupAll()
-	}
-
-	gw.obsShutdown(ctx)
 	_ = gw.db.Close()
 	slog.Info("gateway stopped")
 	return nil
@@ -533,7 +493,7 @@ func (gw *Gateway) SetMode(mode string) error {
 // CogMetricsCollector returns the cognitive-metrics collector, or nil when
 // evolution is not enabled. Used by the eval harness to populate CogHealth.
 func (gw *Gateway) CogMetricsCollector() *cogmetrics.Collector {
-	return gw.cogCollector
+	return gw.evolution.Collector()
 }
 
 // NewEvalRunner creates an eval.AgentRunner backed by the gateway's cognitive agent.
@@ -544,13 +504,13 @@ func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
 		return nil
 	}
 	r := eval.NewCognitiveAgentRunner(gw.cognitiveAgent)
-	r.SetCogCollector(gw.cogCollector)
-	r.SetMemoryStore(gw.memStore)
+	r.SetCogCollector(gw.evolution.Collector())
+	r.SetMemoryStore(gw.memory.Store())
 	// Route context compression events through the eval hook so they appear
 	// in EvalResult.CompressionEvents even when the dashboard is disabled.
 	if gw.contextMgr != nil {
 		gw.contextMgr.SetDashboardEmitter(
-			agent.NewMultiEmitter(gw.dashEmitter, r.CompressionEmitter()),
+			agent.NewMultiEmitter(gw.dashboard.Emitter(), r.CompressionEmitter()),
 		)
 	}
 	return r
@@ -560,7 +520,7 @@ func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
 // is not configured. Used by the eval longitudinal command to trigger insights
 // cycles between benchmark iterations.
 func (gw *Gateway) EvolutionEngine() *evolution.Engine {
-	return gw.evoEngine
+	return gw.evolution.Engine()
 }
 
 // LLMProvider returns the gateway's LLM provider for external use (e.g. eval judging).
@@ -581,13 +541,13 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	}
 
 	// Rate limiting for agent message handling
-	if gw.rateLimiter != nil {
-		allowed, waitTime, err := gw.rateLimiter.Allow(ctx, msg.UserID)
+	if limiter := gw.observability.RateLimiter(); limiter != nil {
+		allowed, waitTime, err := limiter.Allow(ctx, msg.UserID)
 		if err != nil {
 			slog.Warn("gateway: rate limiter error, allowing message", "err", err, "user", msg.UserID)
 		} else if !allowed {
 			slog.Warn("gateway: rate limited", "user", msg.UserID, "wait", waitTime)
-			ch, ok := gw.channels[msg.Channel]
+			ch, ok := gw.channels.Channels()[msg.Channel]
 			if ok {
 				if err := ch.Send(ctx, channel.OutboundMessage{
 					Channel:   msg.Channel,
@@ -601,7 +561,7 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 		}
 	}
 
-	ch, ok := gw.channels[msg.Channel]
+	ch, ok := gw.channels.Channels()[msg.Channel]
 	if !ok {
 		slog.Error("unknown channel", "channel", msg.Channel)
 		return
@@ -855,7 +815,7 @@ func defToSpec(def config.AgentDefinition) *agent.AgentSpec {
 func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) {
 	target := channel.OutboundMessage{Channel: msg.Channel, ChannelID: msg.ChannelID}
 
-	if gw.taskLedger == nil {
+	if gw.tasks.TaskLedger() == nil {
 		target.Text = "Task ledger not available."
 		if err := ch.Send(ctx, target); err != nil {
 			slog.Warn("failed to send message", "err", err)
@@ -864,7 +824,7 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 	}
 
 	running := taskledger.TaskStateRunning
-	runningTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &running})
+	runningTasks, err := gw.tasks.TaskLedger().List(ctx, taskledger.TaskFilter{State: &running})
 	if err != nil {
 		target.Text = "Error: failed to list tasks: " + err.Error()
 		if err := ch.Send(ctx, target); err != nil {
@@ -874,7 +834,7 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 	}
 
 	pending := taskledger.TaskStatePending
-	pendingTasks, err := gw.taskLedger.List(ctx, taskledger.TaskFilter{State: &pending})
+	pendingTasks, err := gw.tasks.TaskLedger().List(ctx, taskledger.TaskFilter{State: &pending})
 	if err != nil {
 		target.Text = "Error: failed to list tasks: " + err.Error()
 		if err := ch.Send(ctx, target); err != nil {
@@ -915,7 +875,7 @@ func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, m
 
 // handleTeamCommand breaks a goal into parallel tasks using the LLM and executes them.
 func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
-	if gw.teamCoordinator == nil {
+	if gw.tasks.TeamCoordinator() == nil {
 		return "Team mode is not enabled. Set agent.team.enabled: true in config."
 	}
 
@@ -938,7 +898,7 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 		State: taskledger.TaskStateRunning,
 		Title: util.TruncateStr(goal, 100),
 	}
-	if err := gw.taskLedger.Register(ctx, rootTask); err != nil {
+	if err := gw.tasks.TaskLedger().Register(ctx, rootTask); err != nil {
 		return fmt.Sprintf("Failed to register root task: %v", err)
 	}
 
@@ -948,12 +908,12 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 	}
 
 	for _, t := range tasks {
-		if err := gw.teamCoordinator.AddTask(ctx, t); err != nil {
+		if err := gw.tasks.TeamCoordinator().AddTask(ctx, t); err != nil {
 			return fmt.Sprintf("Failed to add task %s: %v", t.ID, err)
 		}
 	}
 
-	result, err := gw.teamCoordinator.RunWithExecutor(ctx)
+	result, err := gw.tasks.TeamCoordinator().RunWithExecutor(ctx)
 	if err != nil {
 		return fmt.Sprintf("Team execution failed: %v", err)
 	}
@@ -962,7 +922,7 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 	rootTask.State = taskledger.TaskStateCompleted
 	rootTask.CompletedAt = &now
 	rootTask.Result = result.Summary
-	if err := gw.taskLedger.Update(ctx, rootTask); err != nil {
+	if err := gw.tasks.TaskLedger().Update(ctx, rootTask); err != nil {
 		slog.Warn("gateway: failed to update root task", "err", err)
 	}
 
@@ -983,8 +943,8 @@ func (gw *Gateway) handleModeCommand(arg string) string {
 		return fmt.Sprintf("Already in %s mode", current)
 	}
 	if err := gw.SetMode(arg); err != nil {
-			slog.Warn("gateway: set mode failed", "mode", arg, "err", err)
-		}
+		slog.Warn("gateway: set mode failed", "mode", arg, "err", err)
+	}
 	return fmt.Sprintf("Mode switched to %s (was: %s)", arg, current)
 }
 
@@ -1046,7 +1006,7 @@ func (gw *Gateway) importTrajectoriesToRL() {
 // initRateLimiter creates the rate limiter based on config.
 func (gw *Gateway) initRateLimiter() {
 	if !gw.cfg.RateLimit.Enabled {
-		gw.rateLimiter = ratelimit.NoopLimiter{}
+		gw.observability.rateLimiter = ratelimit.NoopLimiter{}
 		slog.Info("rate limiting disabled")
 		return
 	}
@@ -1060,18 +1020,18 @@ func (gw *Gateway) initRateLimiter() {
 		burst = 20
 	}
 
-	gw.rateLimiter = ratelimit.NewPerKeyLimiter(rate, burst, 5*time.Minute)
+	gw.observability.rateLimiter = ratelimit.NewPerKeyLimiter(rate, burst, 5*time.Minute)
 	slog.Info("rate limiting enabled", "requests_per_sec", rate, "burst", burst)
 }
 
 // SetRateLimiter replaces the rate limiter. Used for testing.
 func (gw *Gateway) SetRateLimiter(l ratelimit.Limiter) {
-	gw.rateLimiter = l
+	gw.observability.rateLimiter = l
 }
 
 // RateLimiter returns the current rate limiter.
 func (gw *Gateway) RateLimiter() ratelimit.Limiter {
-	return gw.rateLimiter
+	return gw.observability.RateLimiter()
 }
 
 // startA2AServer creates and starts the A2A protocol server.
@@ -1104,9 +1064,9 @@ func (gw *Gateway) startA2AServer() error {
 	}
 
 	handler := func(ctx context.Context, task *a2a.Task) (*a2a.TaskOutput, error) {
-		ch, ok := gw.channels["tui"]
+		ch, ok := gw.channels.Channels()["tui"]
 		if !ok {
-			for _, c := range gw.channels {
+			for _, c := range gw.channels.Channels() {
 				ch = c
 				break
 			}
@@ -1125,9 +1085,9 @@ func (gw *Gateway) startA2AServer() error {
 		}, nil
 	}
 
-	gw.a2aServer = a2a.NewServer(card, handler)
+	gw.a2a.server = a2a.NewServer(card, handler)
 	go func() {
-		if err := gw.a2aServer.Start(a2aAddr); err != nil {
+		if err := gw.a2a.server.Start(a2aAddr); err != nil {
 			slog.Error("a2a: server failed", "err", err)
 		}
 	}()
@@ -1137,10 +1097,10 @@ func (gw *Gateway) startA2AServer() error {
 
 // stopA2AServer gracefully shuts down the A2A server.
 func (gw *Gateway) stopA2AServer() error {
-	if gw.a2aServer != nil {
+	if gw.a2a.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := gw.a2aServer.Stop(ctx); err != nil {
+		if err := gw.a2a.server.Stop(ctx); err != nil {
 			slog.Warn("a2a: server stop error", "err", err)
 			return err
 		}
