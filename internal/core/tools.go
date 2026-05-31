@@ -73,13 +73,13 @@ func (r *ToolRegistry) Get(name string) (Tool, error) {
 	return t, nil
 }
 
-// MustGet panics if the tool is absent. Useful in tests.
-func (r *ToolRegistry) MustGet(name string) Tool {
+// MustGet returns the tool with the given name, or an error if absent.
+func (r *ToolRegistry) MustGet(name string) (Tool, error) {
 	t, err := r.Get(name)
 	if err != nil {
-		panic(err.Error())
+		return nil, fmt.Errorf("tool registry init: %w", err)
 	}
-	return t
+	return t, nil
 }
 
 // Schemas returns the schemas of all registered tools, suitable for
