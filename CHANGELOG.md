@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 2026-06-03
+
+### Added
+- **Temporal Fact Modeling**: memory facts now carry `valid_from`/`valid_to` timestamps with soft invalidation on contradiction — default search returns only current-truth facts (`valid_to IS NULL`), `IncludeHistorical` flag for audit/historical queries, `SoftInvalidate()` method for contradiction handling, partial index on active facts for fast current-truth retrieval. Enables 15+ point LongMemEval improvement per 2026 industry benchmarks.
+- **Circuit Breaker for LLM Providers**: `CircuitBreaker` type with Closed→Open→HalfOpen state machine integrated into `RetryProvider` and `AgentTool` — prevents cascading retry storms against failing upstreams. Configurable threshold (5 consecutive failures) and open timeout (30s). `ErrCircuitOpen` sentinel for graceful caller handling.
+- **OpenInference Span Kinds**: all OTel spans annotated with `openinference.span.kind` (LLM/TOOL/AGENT/RETRIEVER/CHAIN/RERANKER/GUARDRAIL/EMBEDDING) and `trace.SpanKind` (Client for LLM/tool calls, Internal for sub-agents) — compatible with Arize Phoenix, Grafana, LangSmith, and traceAI.
+- **OTel-GenAI Token Attributes**: LLM spans now carry `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens` from Claude and OpenAI responses — enables token-usage-based alerting and cost tracking in any OTel backend.
+- **Agent-as-Tool Enhancements**: `AgentTool` now auto-generates rich descriptions including available tools, max iterations, and model info; implements `CapableTool` interface with proper `ParallelSafety` and `ApprovalMode` — parent LLMs can now make informed delegation decisions.
+- **Config Validation**: `CheckUnknownKeys()` warns on startup about top-level YAML keys with no corresponding Config struct field — catches typos and keys from removed features (e.g., `rl:`).
+- **CI Pipeline**: added `vet` job, `build-bin` target (no npm dependency), `.golangci.yml` with project-specific linter config (gosec, gocognit, dupl).
+- **Docker Production Readiness**: OCI labels, HEALTHCHECK, EXPOSE ports, build tags (`fts5`), version/commit/date build args.
+
+### Changed
+- **RL System Purged**: deleted dead `007_rl_system.sql` migration (82 lines, 6 SQLite tables), added `022_drop_rl_tables.sql` cleanup migration, removed ~33 lines of dead RL config from both YAML configs, renamed `FormatRLHF`→`FormatReward` in eval/training_export (uses evolution trajectory data, not the removed RL system).
+- **Dockerfile**: Go builder `golang:1.23`→`1.25` to match `go.mod`; added CGO build tags.
+- **Makefile**: added `build-bin`, `test-coverage`, `vet` targets; docker target passes version/commit/date.
+
+### Fixed
+- Stale Dockerfile Go version causing potential toolchain directive mismatch.
+- Config YAML silently ignoring unknown keys (no user feedback when RL keys did nothing).
+
 ## [0.4.0] - 2026-04-19
 
 ### Added
