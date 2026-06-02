@@ -40,6 +40,17 @@ jobs:
           path: coverage.out
           retention-days: 7
 
+  vet:
+    name: Vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Go vet
+        run: make vet
+
   build:
     name: Build
     runs-on: ${{ matrix.os }}
@@ -51,5 +62,5 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Build
-        run: make build
+      - name: Build (binary only)
+        run: make build-bin

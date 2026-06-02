@@ -1,4 +1,4 @@
-.PHONY: web build run test clean lint fmt docker help
+.PHONY: web build build-bin run test test-short test-coverage lint fmt docker clean help
 
 BINARY    := ironclaw
 BUILD_DIR := bin
@@ -7,8 +7,9 @@ COMMIT    ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE      ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS   := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 TAGS      := fts5
+COVERAGE  := coverage.out
 
-## web: Build frontend assets
+## web: Build frontend assets (requires npm)
 web:
 	@if [ -d web/node_modules ]; then \
 		cd web && npm run build; \
@@ -16,8 +17,13 @@ web:
 		cd web && npm ci --prefer-offline && npm run build; \
 	fi
 
-## build: Build the binary
+## build: Build the binary (with frontend)
 build: web
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/ironclaw
+
+## build-bin: Build binary only (no frontend, for CI without npm)
+build-bin:
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/ironclaw
 
@@ -25,13 +31,18 @@ build: web
 run: build
 	./$(BUILD_DIR)/$(BINARY) start
 
-## test: Run tests (with race detector)
+## test: Run all tests (with race detector)
 test:
 	CGO_ENABLED=1 go test -tags "$(TAGS)" ./... -v -race -count=1
 
 ## test-short: Run tests without race detector (faster, for dev loops)
 test-short:
 	CGO_ENABLED=1 go test -tags "$(TAGS)" ./... -v -count=1
+
+## test-coverage: Run tests with coverage profile
+test-coverage:
+	CGO_ENABLED=1 go test -tags "$(TAGS)" ./... -coverprofile=$(COVERAGE) -covermode=atomic -count=1
+	@echo "Coverage report: go tool cover -html=$(COVERAGE)"
 
 ## lint: Run linter (requires golangci-lint)
 lint:
@@ -42,13 +53,21 @@ fmt:
 	go fmt ./...
 	goimports -w . 2>/dev/null || true
 
+## vet: Run go vet
+vet:
+	go vet ./...
+
 ## docker: Build Docker image
 docker:
-	docker build -t $(BINARY):$(VERSION) --build-arg VERSION=$(VERSION) .
+	docker build -t $(BINARY):$(VERSION) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(DATE) \
+		.
 
 ## clean: Remove build artifacts
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) $(COVERAGE)
 
 ## help: Show this help
 help:
