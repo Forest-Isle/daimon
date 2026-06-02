@@ -149,7 +149,7 @@ func (gw *Gateway) handleCompactCommand(ctx context.Context, ch channel.Channel,
 
 	beforeCount := len(sess.History())
 
-	// TODO: pass actual system prompt once accessible from gateway context
+	// Compress with empty prompt — ContextMgr estimates tokens from history alone
 	compressed, err := gw.contextMgr.Compress(ctx, sess, "")
 	if err != nil {
 		gw.sendReply(ctx, ch, msg, fmt.Sprintf("Error: compression failed: %v", err))
