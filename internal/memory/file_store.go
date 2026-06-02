@@ -48,6 +48,8 @@ type MemoryFile struct {
 	RelatedTo    string            `yaml:"related_to,omitempty"`
 	PromotedFrom string            `yaml:"promoted_from,omitempty"`
 	PromotedAt   *time.Time        `yaml:"promoted_at,omitempty"`
+	ValidFrom    *time.Time        `yaml:"valid_from,omitempty"` // when this fact became true
+	ValidTo      *time.Time        `yaml:"valid_to,omitempty"`   // when this fact was superseded (soft invalidation)
 	Metadata     map[string]string `yaml:"metadata,omitempty"`
 	Content      string            `yaml:"-"`
 }
@@ -273,6 +275,12 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 		}
 	}
 
+
+	// Temporal filtering: by default, only return currently-valid facts (valid_to IS NULL).
+	// IncludeHistorical=true includes superseded/expired facts for audit or trend analysis.
+	if !query.IncludeHistorical {
+		whereClause = append(whereClause, "valid_to IS NULL")
+	}
 	// Sensitivity filtering: exclude secret memories from automated searches
 	whereClause = append(whereClause, "sensitivity != 'secret'")
 
@@ -695,6 +703,26 @@ func (s *FileMemoryStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// SoftInvalidate marks a memory fact as superseded without deleting it.
+// Sets valid_to = now, preserving the fact for audit trails and historical queries.
+// Use this when a newer fact contradicts or replaces an existing one.
+func (s *FileMemoryStore) SoftInvalidate(ctx context.Context, id string) error {
+	now := time.Now().UTC()
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE memory_index SET valid_to = ?, updated_at = ? WHERE memory_id = ? AND valid_to IS NULL`,
+		now, now, id)
+	if err != nil {
+		return fmt.Errorf("soft invalidate %s: %w", id, err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("soft invalidate %s: already invalidated or not found", id)
+	}
+	s.invalidateIndexCache()
+	slog.Info("memory: fact soft-invalidated", "id", id, "valid_to", now)
+	return nil
+}
+
 func (s *FileMemoryStore) buildFilePath(scope MemoryScope, id string, createdAt time.Time) string {
 	category := "memory"
 	dateStr := createdAt.Format("20060102")
@@ -793,17 +821,19 @@ func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath s
 		}
 	}
 
+	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO memory_index (memory_id, file_path, scope, user_id, session_id, created_at, updated_at, strength, memory_type, emotion, sensitivity)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO memory_index (memory_id, file_path, scope, user_id, session_id, created_at, updated_at, strength, memory_type, emotion, sensitivity, valid_from)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(memory_id) DO UPDATE SET
 			file_path = excluded.file_path,
 			updated_at = excluded.updated_at,
 			strength = excluded.strength,
 			memory_type = excluded.memory_type,
 			emotion = excluded.emotion,
-			sensitivity = excluded.sensitivity
-	`, entry.ID, filePath, entry.Scope, entry.UserID, entry.SessionID, entry.CreatedAt, entry.UpdatedAt, 1.0, memType, emotion, sensitivity)
+			sensitivity = excluded.sensitivity,
+			valid_from = COALESCE(memory_index.valid_from, excluded.valid_from)
+	`, entry.ID, filePath, entry.Scope, entry.UserID, entry.SessionID, entry.CreatedAt, entry.UpdatedAt, 1.0, memType, emotion, sensitivity, now)
 	if err != nil {
 		return fmt.Errorf("update memory_index: %w", err)
 	}
