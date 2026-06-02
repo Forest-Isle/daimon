@@ -84,6 +84,7 @@ func (c *ClaudeProvider) Complete(ctx context.Context, req CompletionRequest) (*
 		model = c.model
 	}
 	ctx, span := observability.StartSpan(ctx, "llm.complete",
+		observability.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("provider", "claude"),
 			attribute.String("model", model),
@@ -120,6 +121,7 @@ func (c *ClaudeProvider) Stream(ctx context.Context, req CompletionRequest) (Str
 		model = c.model
 	}
 	ctx, span := observability.StartSpan(ctx, "llm.complete",
+		observability.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("provider", "claude"),
 			attribute.String("model", model),

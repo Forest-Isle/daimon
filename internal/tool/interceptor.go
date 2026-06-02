@@ -49,6 +49,7 @@ func NewInterceptorChain(interceptors []ToolInterceptor) *InterceptorChain {
 // Execute runs the interceptor chain, ending with the final function.
 func (c *InterceptorChain) Execute(ctx context.Context, call *ToolCall, final InterceptorFunc) (*ToolResult, error) {
 	ctx, span := observability.StartSpan(ctx, "tool.execute",
+		observability.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("tool.name", call.ToolName),
 			attribute.String("session.id", call.SessionID),

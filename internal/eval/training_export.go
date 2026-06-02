@@ -15,7 +15,7 @@ import (
 type TrainingFormat string
 
 const (
-	FormatRLHF TrainingFormat = "rlhf" // Reward-labeled pairs
+	FormatReward TrainingFormat = "reward" // Reward-labeled pairs (from evolution trajectories, not RL)
 	FormatDPO  TrainingFormat = "dpo"  // Direct Preference Optimization pairs
 	FormatSFT  TrainingFormat = "sft"  // Supervised Fine-Tuning (successful only)
 )
@@ -127,7 +127,7 @@ func ExportTrainingData(cfg ExportConfig) (*ExportResult, error) {
 	result := &ExportResult{Format: cfg.Format, OutputPath: outputPath}
 
 	switch cfg.Format {
-	case FormatRLHF:
+	case FormatReward:
 		samples, exportErr := exportRLHF(records, cfg)
 		if exportErr != nil {
 			return nil, exportErr

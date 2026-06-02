@@ -41,14 +41,14 @@ func newTrainingCmd() *cobra.Command {
 
 			var tf eval.TrainingFormat
 			switch format {
-			case "rlhf":
-				tf = eval.FormatRLHF
+			case "reward", "rlhf":
+				tf = eval.FormatReward
 			case "dpo":
 				tf = eval.FormatDPO
 			case "sft":
 				tf = eval.FormatSFT
 			default:
-				return fmt.Errorf("unsupported format: %s (use rlhf, dpo, or sft)", format)
+				return fmt.Errorf("unsupported format: %s (use reward, dpo, or sft)", format)
 			}
 
 			since := time.Now().AddDate(0, 0, -sinceDays)
@@ -76,7 +76,7 @@ func newTrainingCmd() *cobra.Command {
 			fmt.Printf("  Format:  %s\n", result.Format)
 			fmt.Printf("  Output:  %s\n", result.OutputPath)
 			switch result.Format {
-			case eval.FormatRLHF:
+			case eval.FormatReward:
 				fmt.Printf("  Samples: %d\n", result.Samples)
 			case eval.FormatDPO:
 				fmt.Printf("  Pairs:   %d\n", result.Pairs)
@@ -90,7 +90,7 @@ func newTrainingCmd() *cobra.Command {
 
 	exportCmd.Flags().StringVar(&trajectoryDir, "trajectory-dir", "", "trajectory JSONL directory (default: ~/.IronClaw/evolution/trajectories)")
 	exportCmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory (default: ./training_output)")
-	exportCmd.Flags().StringVarP(&format, "format", "f", "rlhf", "export format: rlhf, dpo, or sft")
+	exportCmd.Flags().StringVarP(&format, "format", "f", "reward", "export format: reward, dpo, or sft")
 	exportCmd.Flags().Float64Var(&minReward, "min-reward", 0, "minimum reward threshold")
 	exportCmd.Flags().Float64Var(&minConfidence, "min-confidence", 0, "minimum confidence threshold")
 	exportCmd.Flags().IntVar(&sinceDays, "days", 30, "include trajectories from last N days")

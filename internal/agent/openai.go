@@ -145,6 +145,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*
 		model = p.model
 	}
 	ctx, span := observability.StartSpan(ctx, "llm.complete",
+		observability.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("provider", "openai"),
 			attribute.String("model", model),
@@ -200,6 +201,7 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req CompletionRequest) (Str
 		model = p.model
 	}
 	ctx, span := observability.StartSpan(ctx, "llm.complete",
+		observability.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("provider", "openai"),
 			attribute.String("model", model),

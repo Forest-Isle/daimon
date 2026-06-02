@@ -65,6 +65,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	// Warn about unknown top-level YAML keys (typos, removed features like RL).
+	CheckUnknownKeys(expanded)
+
 	// Overlay project-level and local-level config if available.
 	// The explicit path acts as user-level; project (.ironclaw/) and
 	// local (.ironclaw/local.yaml) configs are discovered from cwd.

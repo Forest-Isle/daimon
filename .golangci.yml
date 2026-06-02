@@ -1,0 +1,64 @@
+# IronClaw golangci-lint configuration
+# Run: golangci-lint run ./...
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - gocognit
+    - dupl
+    - gofmt
+    - goimports
+    - misspell
+  disable-all: false
+
+linters-settings:
+  gocognit:
+    min-complexity: 30
+  dupl:
+    threshold: 100
+  gosec:
+    excludes:
+      - G104  # Errors not checked (too noisy in tool callbacks)
+  funlen:
+    lines: 120
+    statements: 60
+  staticcheck:
+    checks: ["all", "-SA1019"]  # Allow deprecated symbol usage during migration
+
+issues:
+  exclude-rules:
+    # Exclude dupl in test files
+    - path: _test\.go
+      linters:
+        - dupl
+        - gosec
+    # Exclude gosec for intentional test patterns
+    - path: _test\.go
+      text: "G306|G404"
+    # Exclude examples from long-function checks
+    - path: examples/
+      linters:
+        - funlen
+    # Exclude eval fixtures from complexity checks
+    - path: internal/eval/fixtures
+      linters:
+        - gocognit
+        - funlen
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+output:
+  formats:
+    - format: colored-line-number
+  sort-results: true

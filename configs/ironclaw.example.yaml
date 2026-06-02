@@ -6,7 +6,7 @@
 #
 # 默认开启: memory, skills, multi_agent, team, speculative, scheduler, knowledge,
 #           knowledge_graph, reranker, sandbox (auto-detect Docker)
-# 默认关闭: evolution, rl, model_routing, dashboard, server
+# 默认关闭: evolution, model_routing, dashboard, server
 
 llm:
   provider: claude                               # "claude" (default) or "openai" / "openai-compatible"
@@ -48,41 +48,6 @@ agent:
     max_replan_attempts: 2
     plan_max_tokens: 2048
     reflect_max_tokens: 1024
-    approval_timeout_seconds: 120
-  # 强化学习系统 - 自适应工具选择、Plan 策略优化、Replan 决策
-  rl:
-    enabled: false
-    cold_start_episodes: 1000        # 冷启动数据收集数量
-    exploration_rate: 0.2            # 初始探索率
-    exploration_decay: 0.9995        # 探索率衰减
-    update_frequency: 10             # 每 N 个 Episode 更新策略
-    checkpoint_frequency: 100        # 每 N 个 Episode 保存 checkpoint
-    bandit:
-      enabled: true
-      prior_alpha: 1.0               # Beta 分布先验 α
-      prior_beta: 1.0                # Beta 分布先验 β
-    ppo:
-      enabled: true
-      learning_rate: 0.0003
-      clip_epsilon: 0.2
-      epochs: 4
-      batch_size: 64
-      gamma: 0.99
-      gae_lambda: 0.95
-    dqn:
-      enabled: true
-      learning_rate: 0.001
-      gamma: 0.99
-      epsilon_start: 0.9
-      epsilon_end: 0.05
-      epsilon_decay: 0.995
-      target_update_freq: 500
-      buffer_size: 10000
-    reward:
-      task_success_weight: 0.5
-      efficiency_weight: 0.3
-      safety_weight: 0.15
-      user_satisfaction_weight: 0.05
   # Context compression strategy (Phase 1 performance optimization)
   # "layered": progressive multi-layer compression (recommended)
   # "legacy": original single-pass LLM compression

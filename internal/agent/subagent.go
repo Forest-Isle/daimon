@@ -47,6 +47,7 @@ type SpawnRequest struct {
 func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgentResult, error) {
 	start := time.Now()
 	ctx, span := observability.StartSpan(ctx, "subagent.spawn",
+		observability.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("agent.name", req.Spec.Name),
 			attribute.String("parent.id", req.ParentID),

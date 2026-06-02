@@ -155,7 +155,7 @@ func TestExportRLHF(t *testing.T) {
 	result, err := ExportTrainingData(ExportConfig{
 		TrajectoryDir: dir,
 		OutputDir:     outDir,
-		Format:        FormatRLHF,
+		Format:        FormatReward,
 		MinReward:     0,
 		MinConfidence: 0,
 		Since:         time.Time{},
@@ -265,7 +265,7 @@ func TestExportConfig_MinReward(t *testing.T) {
 	result, err := ExportTrainingData(ExportConfig{
 		TrajectoryDir: dir,
 		OutputDir:     outDir,
-		Format:        FormatRLHF,
+		Format:        FormatReward,
 		MinReward:     10.0,
 		MinConfidence: 0,
 		Since:         time.Time{},
