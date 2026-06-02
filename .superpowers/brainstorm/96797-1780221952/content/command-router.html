@@ -1,0 +1,94 @@
+<h2>Phase 1 Design — Section 2: CommandRouter</h2>
+<p class="subtitle">把 handleInbound 从 170 行砍到 10 行，每个命令独立可测</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">❌ Before: if-else 链</div>
+    <div class="mockup-body" style="font-family:monospace;font-size:11px;line-height:1.5">
+func (gw *Gateway) handleInbound(...) {<br>
+&nbsp;&nbsp;<span style="color:#c44">if msg.Text == "/tasks" {</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;gw.handleTasksCommand(...)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;return<br>
+&nbsp;&nbsp;<span style="color:#c44">}</span><br>
+&nbsp;&nbsp;<span style="color:#c44">if strings.HasPrefix(msg.Text, "/team ") {</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;result := gw.handleTeamCommand(...)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;...<br>
+&nbsp;&nbsp;<span style="color:#c44">}</span><br>
+&nbsp;&nbsp;<span style="color:#c44">if msg.Text == "/mode" ||</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#c44">strings.HasPrefix(msg.Text, "/mode ") {</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;...<br>
+&nbsp;&nbsp;<span style="color:#c44">}</span><br>
+&nbsp;&nbsp;<span style="color:#888">// ... 6 more if-blocks</span><br>
+&nbsp;&nbsp;<span style="color:#888">// 170 lines total</span><br>
+}
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">✅ After: Router dispatch</div>
+    <div class="mockup-body" style="font-family:monospace;font-size:11px;line-height:1.5">
+<span style="color:#888">// gateway/router.go</span><br>
+<span style="color:#c48">type</span> CommandHandler <span style="color:#c48">func</span>(<br>
+&nbsp;&nbsp;ctx, ch, msg,<br>
+) <span style="color:#c48">string</span> <span style="color:#888">// returns response</span><br>
+<br>
+<span style="color:#c48">var</span> commands = <span style="color:#c48">map</span>[<span style="color:#c48">string</span>]CommandHandler{<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/tasks"</span>:   gw.handleTasks,<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/team"</span>:    gw.handleTeam,<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/mode"</span>:    gw.handleMode,<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/feature"</span>: gw.handleFeature,<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/config"</span>:  gw.handleConfig,<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/compact"</span>: gw.handleCompact,<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/model"</span>:   gw.handleModel,<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/new"</span>:     gw.handleReset,<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/start"</span>:   gw.handleReset,<br>
+}<br>
+<br>
+<span style="color:#888">// handleInbound → 10 lines</span><br>
+func (gw *Gateway) handleInbound(...) {<br>
+&nbsp;&nbsp;<span style="color:#c48">if</span> cmd, ok := commands[<br>
+&nbsp;&nbsp;&nbsp;&nbsp;msg.Text]; ok {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;resp := cmd(ctx, ch, msg)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#888">// send + return</span><br>
+&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;<span style="color:#888">// prefix match for /team, /mode,</span><br>
+&nbsp;&nbsp;<span style="color:#888">// /feature, /model with args</span><br>
+}
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:20px">前缀匹配策略</h3>
+<div class="mockup" style="margin-bottom:16px">
+  <div class="mockup-body" style="font-family:monospace;font-size:13px;line-height:1.7">
+<span style="color:#c48">type</span> commandEntry <span style="color:#c48">struct</span> {<br>
+&nbsp;&nbsp;handler  CommandHandler<br>
+&nbsp;&nbsp;exact    <span style="color:#c48">bool</span>  <span style="color:#888">// true = exact match only (e.g. /new)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#888">// false = prefix match (e.g. /feature enable x)</span><br>
+}<br>
+<br>
+<span style="color:#c48">var</span> commandTable = <span style="color:#c48">map</span>[<span style="color:#c48">string</span>]commandEntry{<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/tasks"</span>:   {gw.handleTasks, <span style="color:#c48">true</span>},<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/team"</span>:    {gw.handleTeam, <span style="color:#c48">false</span>},<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/mode"</span>:    {gw.handleMode, <span style="color:#c48">false</span>},<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/feature"</span>: {gw.handleFeature, <span style="color:#c48">false</span>},<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/config"</span>:  {gw.handleConfig, <span style="color:#c48">true</span>},<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/compact"</span>: {gw.handleCompact, <span style="color:#c48">true</span>},<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/model"</span>:   {gw.handleModel, <span style="color:#c48">false</span>},<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/new"</span>:     {gw.handleReset, <span style="color:#c48">true</span>},<br>
+&nbsp;&nbsp;<span style="color:#4a4">"/start"</span>:   {gw.handleReset, <span style="color:#c48">true</span>},<br>
+}<br>
+<br>
+<span style="color:#888">// dispatch: exact match first, then prefix scan</span>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros">
+    <h4>好处</h4>
+    <ul><li>加新命令 = 改 map，不改 handleInbound</li><li>每个 handler 独立测试（mock ch 接口）</li><li>路由逻辑 10 行，出错概率趋零</li></ul>
+  </div>
+  <div class="cons">
+    <h4>注意</h4>
+    <ul><li>/team 和 /mode 共享前缀匹配——/team 需排在 /tasks 前面避免误匹配</li><li>Handler 签名统一后，复杂的 handleFeature 需要从 msg.Text 自己解析 args</li></ul>
+  </div>
+</div>

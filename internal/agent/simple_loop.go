@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
+	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
 	"github.com/Forest-Isle/IronClaw/internal/session"
 )
 
@@ -244,4 +245,22 @@ func simpleNonStreaming(ctx context.Context, a *Agent, ch channel.Channel, sess 
 		}
 	}
 	return nil
+}
+
+// isContextLengthError returns true if the error is related to the LLM context
+// window being exceeded (e.g., prompt too long, context_length_exceeded).
+func isContextLengthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if ierrors.IsKind(err, ierrors.KindContextLength) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "context_length_exceeded") ||
+		strings.Contains(msg, "prompt is too long") ||
+		strings.Contains(msg, "too many tokens") ||
+		strings.Contains(msg, "413") ||
+		strings.Contains(msg, "request too large") ||
+		strings.Contains(msg, "payload too large")
 }

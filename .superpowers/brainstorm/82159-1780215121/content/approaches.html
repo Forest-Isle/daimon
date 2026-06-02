@@ -1,0 +1,58 @@
+<h2>IronClaw 全线修复 — 三种实施策略</h2>
+<p class="subtitle">P0 即时修复 → P1 测试+拆分 → P2 重构 → 架构债务。跨 20+ 改动点，涉及 ~40 个文件。</p>
+
+<div class="options" data-multiselect>
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>顺序推进 · 按优先级串行</h3>
+      <p>P0 → P1 → P2 → 架构债务，一个 worktree 顺序执行。安全、可预测、但慢。</p>
+      <div class="section">
+        <div class="label">时间估算</div>
+        <p>P0: 30min → P1: 3-4h → P2: 4-6h → 架构: 6-8h ≈ <strong>总计 14-19 小时</strong></p>
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>每一步验证后再前进</li><li>不会产生合并冲突</li><li>审阅友好（每个阶段一个 PR）</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>周期最长</li><li>大量串行等待</li><li>后期阶段可能因前期设计决定而返工</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>并行 Worktree · 按模块独立推进</h3>
+      <p>按受影响模块拆成独立 worktree，互不依赖的并行执行。快但需要精心协调合并顺序。</p>
+      <div class="section">
+        <div class="label">Worktree 拆分（3 条并行轨道）</div>
+        <p><strong>轨道 1 "外科手术"</strong> — P0 三修 + gateway 拆分 + cognitive 拆分<br>
+        <strong>轨道 2 "测试补全"</strong> — 9 个零测试包全部补测试<br>
+        <strong>轨道 3 "架构决策"</strong> — core/ vs agent/ 去留 + config 简化 + TUI 拆分</p>
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>总耗时最短（3 轨并行 ≈ 6-8h）</li><li>互不阻塞</li><li>每条轨道可以独立 review</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>合并时需要处理冲突</li><li>轨道 1 和 2 可能 touching 相同文件</li><li>需要明确的合并顺序规划</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>垂直切片 · 按子系统逐个击破</h3>
+      <p>每个子系统从 P0→P2→架构一次性做完。E.g. 先彻底搞定 agent/，再搞定 gateway/，再搞定 knowledge/。</p>
+      <div class="section">
+        <div class="label">切片顺序</div>
+        <p><strong>Slice 1 "Agent 核心"</strong> — cognitive.go 拆分 + act.go 拆分 + agent 测试 + core/ 归档<br>
+        <strong>Slice 2 "Gateway 编排"</strong> — context 泄漏 + god object 拆分 + config 简化<br>
+        <strong>Slice 3 "子系统补强"</strong> — knowledge/wasm/code_engine/guardian 测试 + TUI 拆分</p>
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>每个切片独立可交付</li><li>风险隔离好</li><li>自然的分批 PR 节奏</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>模块间依赖可能导致返工</li><li>中等耗时（≈ 10-14h）</li><li>需要先锁定模块间接口变更</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>

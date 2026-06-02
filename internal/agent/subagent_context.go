@@ -66,22 +66,6 @@ type SubagentContext struct {
 	ChainID string
 }
 
-// runtimeContextKey is the context.Context key for storing the parent Runtime.
-type runtimeContextKey struct{}
-
-// RuntimeToContext stores a Runtime reference in the context.
-// Used to pass the parent Runtime to sub-agent tool executions.
-func RuntimeToContext(ctx context.Context, rt *Runtime) context.Context {
-	return context.WithValue(ctx, runtimeContextKey{}, rt)
-}
-
-// RuntimeFromContext retrieves the parent Runtime from the context.
-// Returns nil if no Runtime is stored.
-func RuntimeFromContext(ctx context.Context) *Runtime {
-	rt, _ := ctx.Value(runtimeContextKey{}).(*Runtime)
-	return rt
-}
-
 // subagentContextKey is the context.Context key for SubagentContext.
 type subagentContextKey struct{}
 

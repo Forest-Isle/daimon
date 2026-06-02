@@ -22,10 +22,11 @@ type ToolInterceptor interface {
 
 // ToolCall carries all information about a pending tool invocation.
 type ToolCall struct {
-	ToolName  string
-	Input     string
-	SessionID string
-	Metadata  map[string]string
+	ToolName     string
+	Input        string
+	SessionID    string
+	Metadata     map[string]string
+	HookApproved bool // set to true when a pre-tool-use hook returns "allow"
 }
 
 // ToolResult wraps the output of a tool execution through the interceptor chain.

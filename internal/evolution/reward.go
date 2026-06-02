@@ -41,5 +41,5 @@ func ComputeReward(in RewardInput) float64 {
 
 	reward += in.UserFeedback * 0.1
 
-	return clampReward(reward, -1.5, 1.0)
+	return clampFloat(reward, -1.5, 1.0)
 }

@@ -1,0 +1,91 @@
+<h2>Phase 1 Design — Section 1: AgentDeps Structure</h2>
+<p class="subtitle">五个子 struct，每个有明确的 ownership 和默认 no-op</p>
+
+<h3>CoreDeps — 必须提供（无 no-op）</h3>
+<div class="mockup" style="margin-bottom:16px">
+  <div class="mockup-body" style="font-family:monospace;font-size:13px;line-height:1.7">
+<span style="color:#888">// internal/agent/deps.go</span><br>
+<span style="color:#c48">type</span> CoreDeps <span style="color:#c48">struct</span> {<br>
+&nbsp;&nbsp;Provider  Provider<br>
+&nbsp;&nbsp;Tools     *tool.Registry<br>
+&nbsp;&nbsp;Sessions  *session.Manager<br>
+&nbsp;&nbsp;DB        *store.DB<br>
+&nbsp;&nbsp;Cfg       config.AgentConfig<br>
+&nbsp;&nbsp;LLMCfg    config.LLMConfig<br>
+&nbsp;&nbsp;AgentID   <span style="color:#c48">string</span><br>
+}<br>
+<br>
+<span style="color:#888">// NewRuntime(deps CoreDeps) *Runtime  ← 3个参数变1个</span><br>
+<span style="color:#888">// NewCognitiveAgent(deps CoreDeps) *CognitiveAgent</span>
+  </div>
+</div>
+
+<h3>MemoryDeps — 默认 no-op</h3>
+<div class="mockup" style="margin-bottom:16px">
+  <div class="mockup-body" style="font-family:monospace;font-size:13px;line-height:1.7">
+<span style="color:#888">// 所有字段默认 noopMemoryStore{}, noopLifecycleMgr{} 等</span><br>
+<span style="color:#c48">type</span> MemoryDeps <span style="color:#c48">struct</span> {<br>
+&nbsp;&nbsp;Store          memory.Store<br>
+&nbsp;&nbsp;LifecycleMgr   *memory.LifecycleManager  <span style="color:#888">// nil = NOOP decisions</span><br>
+&nbsp;&nbsp;Profiler       *memory.Profiler          <span style="color:#888">// nil = no profile updates</span><br>
+&nbsp;&nbsp;Compressor     Compressor                <span style="color:#888">// noopCompressor{}</span><br>
+&nbsp;&nbsp;FactExtractor  *memory.LLMFactExtractor  <span style="color:#888">// nil = no extraction</span><br>
+&nbsp;&nbsp;BaseDir        <span style="color:#c48">string</span><br>
+}<br>
+<span style="color:#888">// 提供了 MemoryDeps{}.WithDefaults() 方法补全 no-op</span>
+  </div>
+</div>
+
+<h3>SecurityDeps + ObservabilityDeps + MultiAgentDeps</h3>
+<div class="mockup" style="margin-bottom:16px">
+  <div class="mockup-body" style="font-family:monospace;font-size:13px;line-height:1.7">
+<span style="color:#c48">type</span> SecurityDeps <span style="color:#c48">struct</span> {<br>
+&nbsp;&nbsp;Interceptor  *tool.InterceptorChain  <span style="color:#888">// nil = passthrough</span><br>
+&nbsp;&nbsp;HookMgr       *hook.Manager            <span style="color:#888">// nil = no hooks</span><br>
+&nbsp;&nbsp;PermEngine    *tool.PermissionEngine   <span style="color:#888">// nil = allow-all</span><br>
+}<br><br>
+<span style="color:#c48">type</span> ObservabilityDeps <span style="color:#c48">struct</span> {<br>
+&nbsp;&nbsp;Emitter        DashboardEmitter  <span style="color:#888">// discardEmitter{}</span><br>
+&nbsp;&nbsp;MetricsEmitter MetricsEmitter    <span style="color:#888">// discardMetrics{}</span><br>
+&nbsp;&nbsp;ReplayRecorder *ReplayRecorder   <span style="color:#888">// nil = no recording</span><br>
+}<br><br>
+<span style="color:#c48">type</span> MultiAgentDeps <span style="color:#c48">struct</span> {<br>
+&nbsp;&nbsp;SkillMgr       *skill.Manager<br>
+&nbsp;&nbsp;AgentMgr       *AgentManager<br>
+&nbsp;&nbsp;Orchestrator   *AgentOrchestrator<br>
+&nbsp;&nbsp;SubAgentMgr    *SubAgentManager  <span style="color:#888">// nil = no sub-agents</span><br>
+&nbsp;&nbsp;AgentMCP       *AgentMCPManager<br>
+&nbsp;&nbsp;ResultStore    *tool.ResultStore<br>
+}<br><br>
+<span style="color:#888">// 完整 AgentDeps</span><br>
+<span style="color:#c48">type</span> AgentDeps <span style="color:#c48">struct</span> {<br>
+&nbsp;&nbsp;Core           CoreDeps<br>
+&nbsp;&nbsp;Memory         MemoryDeps<br>
+&nbsp;&nbsp;Security       SecurityDeps<br>
+&nbsp;&nbsp;Observability  ObservabilityDeps<br>
+&nbsp;&nbsp;MultiAgent     MultiAgentDeps<br>
+}
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros">
+    <h4>变更影响</h4>
+    <ul>
+      <li>删除 ~30 个 Set* 方法（runtime.go）</li>
+      <li>删除 ~20 个 Set* 方法（cognitive.go）</li>
+      <li>删除 ~200 行 nil 检查散落代码</li>
+      <li>Runtime 从 68 字段 → 1 个 deps + 5 个自身状态字段</li>
+      <li>gateway 构造 1 个 AgentDeps，runtime 和 cognitiveAgent 共享</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>破坏性</h4>
+    <ul>
+      <li>所有 NewRuntime / NewCognitiveAgent 调用点需改</li>
+      <li>所有测试的 mock 构造方式需改</li>
+      <li>SubAgentManager 的依赖传递需适配</li>
+      <li>eval harness 的 Agent 构造需改</li>
+    </ul>
+  </div>
+</div>

@@ -1,0 +1,100 @@
+<h2>Phase 1 Design — Section 3: No-op Implementations</h2>
+<p class="subtitle">每个接口一个 no-op 实现。编译期安全，运行时零开销（内联为空）。消灭所有 nil 检查。</p>
+
+<h3>需要 No-op 的接口</h3>
+
+<div class="mockup" style="margin-bottom:20px">
+  <div class="mockup-body" style="font-family:monospace;font-size:13px;line-height:1.8">
+<span style="color:#888">// internal/agent/noop.go</span><br>
+<span style="color:#c48">type</span> discardEmitter <span style="color:#c48">struct</span>{}<br>
+<span style="color:#c48">func</span> (discardEmitter) EmitSessionStart(<span style="color:#c48">_ string</span>, <span style="color:#c48">_ string</span>)         {}<br>
+<span style="color:#c48">func</span> (discardEmitter) EmitToolStart(<span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>)            {}<br>
+<span style="color:#c48">func</span> (discardEmitter) EmitToolDone(<span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>)         {}<br>
+<span style="color:#c48">func</span> (discardEmitter) EmitPhaseChange(<span style="color:#c48">_</span>, <span style="color:#c48">_</span>)              {}<br>
+<span style="color:#c48">func</span> (discardEmitter) EmitContextCompress(<span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>) {}<br>
+<span style="color:#c48">func</span> (discardEmitter) EmitMetricsUpdate(<span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>, <span style="color:#c48">_</span>) {}<br>
+<br>
+<span style="color:#888">// internal/tool/noop.go</span><br>
+<span style="color:#c48">type</span> passthroughChain <span style="color:#c48">struct</span>{}<br>
+<span style="color:#c48">func</span> (passthroughChain) Execute(ctx, call, final) (*ToolResult, error) {<br>
+&nbsp;&nbsp;<span style="color:#c48">return</span> final(ctx, call)  <span style="color:#888">// 直接执行，无拦截</span><br>
+}<br>
+<br>
+<span style="color:#888">// internal/agent/noop_compressor.go</span><br>
+<span style="color:#c48">type</span> noopCompressor <span style="color:#c48">struct</span>{}<br>
+<span style="color:#c48">func</span> (noopCompressor) Compress(ctx, sess, prompt) error { <span style="color:#c48">return nil</span> }<br>
+<span style="color:#c48">func</span> (noopCompressor) Utilization(sess, prompt) float64 { <span style="color:#c48">return 0</span> }<br>
+<br>
+<span style="color:#888">// internal/memory/noop.go</span><br>
+<span style="color:#c48">type</span> noopStore <span style="color:#c48">struct</span>{}<br>
+<span style="color:#c48">func</span> (noopStore) Save(ctx, e) error             { <span style="color:#c48">return nil</span> }<br>
+<span style="color:#c48">func</span> (noopStore) Search(ctx, q) ([]SearchResult, error) { <span style="color:#c48">return nil, nil</span> }<br>
+<span style="color:#c48">func</span> (noopStore) ListByScope(...) ([]Entry, error)     { <span style="color:#c48">return nil, nil</span> }<br>
+<span style="color:#c48">func</span> (noopStore) Update(...) error                    { <span style="color:#c48">return nil</span> }<br>
+<span style="color:#c48">func</span> (noopStore) Delete(...) error                    { <span style="color:#c48">return nil</span> }<br>
+<br>
+<span style="color:#888">// internal/knowledge/noop.go</span><br>
+<span style="color:#c48">type</span> noopSearcher <span style="color:#c48">struct</span>{}<br>
+<span style="color:#c48">func</span> (noopSearcher) Search(ctx, q) ([]Result, error) { <span style="color:#c48">return nil, nil</span> }<br>
+<br>
+<span style="color:#888">// internal/session/noop.go</span><br>
+<span style="color:#c48">type</span> noopTaskLedger <span style="color:#c48">struct</span>{}<br>
+<span style="color:#c48">func</span> (noopTaskLedger) Register(ctx, t) error { <span style="color:#c48">return nil</span> }<br>
+<span style="color:#c48">func</span> (noopTaskLedger) Update(ctx, t) error  { <span style="color:#c48">return nil</span> }<br>
+<span style="color:#c48">func</span> (noopTaskLedger) List(ctx, f) ([]Task, error) { <span style="color:#c48">return nil, nil</span> }<br>
+  </div>
+</div>
+
+<h3>使用对比</h3>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">❌ Before: nil 散弹</div>
+    <div class="mockup-body" style="font-family:monospace;font-size:11px;line-height:1.6">
+<span style="color:#c44">if r.dashEmitter != nil</span> {<br>
+&nbsp;&nbsp;r.dashEmitter.EmitSessionStart(...)<br>}<br>
+<span style="color:#c44">if r.memStore != nil</span> {<br>
+&nbsp;&nbsp;memories, err := r.memStore.Search(...)<br>
+}<br>
+<span style="color:#c44">if r.interceptorChain != nil</span> {<br>
+&nbsp;&nbsp;result, _ := r.interceptorChain.Execute(...)<br>
+}<br>
+<span style="color:#888">// ... scattered through EVERY method</span>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">✅ After: 直接调用</div>
+    <div class="mockup-body" style="font-family:monospace;font-size:11px;line-height:1.6">
+<span style="color:#888">// deps.Observability.Emitter is NEVER nil</span><br>
+r.deps.Observability.Emitter.EmitSessionStart(...)<br>
+<br>
+<span style="color:#888">// deps.Memory.Store is NEVER nil</span><br>
+memories, _ := r.deps.Memory.Store.Search(...)<br>
+<br>
+<span style="color:#888">// deps.Security.Interceptor is NEVER nil</span><br>
+result, _ := r.deps.Security.Interceptor.Execute(...)<br>
+<br>
+<span style="color:#888">// ZERO nil checks. Compiler guarantees safety.</span>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top:20px">
+  <div class="mockup-header">MemoryDeps.WithDefaults() 工厂方法</div>
+  <div class="mockup-body" style="font-family:monospace;font-size:13px;line-height:1.7">
+<span style="color:#c48">func</span> (d MemoryDeps) WithDefaults() MemoryDeps {<br>
+&nbsp;&nbsp;<span style="color:#c48">if</span> d.Store == <span style="color:#c48">nil</span> { d.Store = noopStore{} }<br>
+&nbsp;&nbsp;<span style="color:#c48">if</span> d.Compressor == <span style="color:#c48">nil</span> { d.Compressor = noopCompressor{} }<br>
+&nbsp;&nbsp;<span style="color:#c48">return</span> d  <span style="color:#888">// LifecycleMgr/Profiler/FactExtractor stay nil (intentional)</span><br>
+}<br>
+<br>
+<span style="color:#888">// Gateway 构造处：一次补全，终身安全</span><br>
+deps := agent.AgentDeps{<br>
+&nbsp;&nbsp;Core: agent.CoreDeps{...},<br>
+&nbsp;&nbsp;Memory: agent.MemoryDeps{<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Store: gw.memory.Store(),        <span style="color:#888">// or nil</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;LifecycleMgr: gw.memory.LifecycleMgr(),<br>
+&nbsp;&nbsp;}.WithDefaults(),  <span style="color:#888">// ← fills noopStore{} if Store was nil</span><br>
+}
+  </div>
+</div>

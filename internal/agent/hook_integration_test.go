@@ -3,13 +3,17 @@ package agent
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/store"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
@@ -85,7 +89,7 @@ func TestPreToolUseDenyPreventsExecution(t *testing.T) {
 	hookMgr := hook.NewManager()
 	hookMgr.RegisterPreToolUse(&denyHookHandler{reason: "blocked by test"})
 
-	rt := NewRuntime(AgentDeps{
+	rt := NewAgent(AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -94,28 +98,26 @@ func TestPreToolUseDenyPreventsExecution(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults())
+	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
 
-	result := rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc)
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
 
 	// Tool should NOT have been executed
 	if mockTool.execCount.Load() != 0 {
 		t.Errorf("tool was executed %d times, expected 0 (should have been denied by hook)", mockTool.execCount.Load())
 	}
 
-	// Result should indicate denial
-	if result.status != "denied" {
-		t.Errorf("expected status 'denied', got '%s'", result.status)
+	// Verify denial in session history
+	history := sess.History()
+	if len(history) == 0 || history[len(history)-1].Role != "tool_result" {
+		t.Fatal("expected tool_result message in session history")
 	}
-
-	if !strings.Contains(result.output, "denied by hook: blocked by test") {
-		t.Errorf("expected output to contain denial reason, got: %s", result.output)
-	}
-	if !strings.Contains(result.output, "[Recovery Hint:") {
-		t.Errorf("expected output to contain recovery hint, got: %s", result.output)
+	lastMsg := history[len(history)-1]
+	if !strings.Contains(lastMsg.Content, "denied by hook: blocked by test") {
+		t.Errorf("expected output to contain denial reason, got: %s", lastMsg.Content)
 	}
 }
 
@@ -135,7 +137,7 @@ func TestPreToolUseAllowSkipsApproval(t *testing.T) {
 		return false, nil
 	}
 
-	rt := NewRuntime(AgentDeps{
+	rt := NewAgent(AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -144,22 +146,19 @@ func TestPreToolUseAllowSkipsApproval(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults())
+	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
 	rt.SetApprovalFunc(denyApproval)
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "approval_tool", Input: "{}"}
 
-	result := rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc)
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
 
 	// Tool SHOULD have been executed (hook allowed, skipping approval)
 	if mockTool.execCount.Load() != 1 {
 		t.Errorf("tool was executed %d times, expected 1 (hook should have skipped approval)", mockTool.execCount.Load())
 	}
 
-	if result.status != "success" {
-		t.Errorf("expected status 'success', got '%s'", result.status)
-	}
 }
 
 // approvalTestTool requires approval.
@@ -188,7 +187,7 @@ func TestPostToolUseAuditHandlerCalled(t *testing.T) {
 	hookMgr := hook.NewManager()
 	hookMgr.RegisterPostToolUse(tracker)
 
-	rt := NewRuntime(AgentDeps{
+	rt := NewAgent(AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -197,12 +196,12 @@ func TestPostToolUseAuditHandlerCalled(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults())
+	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "audited_tool", Input: `{"cmd":"test"}`}
 
-	result := rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc)
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
 
 	// Tool should have been executed
 	if mockTool.execCount.Load() != 1 {
@@ -221,8 +220,14 @@ func TestPostToolUseAuditHandlerCalled(t *testing.T) {
 	if tracker.lastEvent.Status != "success" {
 		t.Errorf("expected status 'success', got '%s'", tracker.lastEvent.Status)
 	}
-	if result.output != "executed audited_tool" {
-		t.Errorf("unexpected output: %s", result.output)
+	// Verify output in session history
+	history := sess.History()
+	if len(history) > 0 && history[len(history)-1].Role == "tool_result" {
+		if history[len(history)-1].Content != "executed audited_tool" {
+			t.Errorf("unexpected output: %s", history[len(history)-1].Content)
+		}
+	} else {
+		t.Error("expected tool_result message in session history")
 	}
 }
 
@@ -232,7 +237,7 @@ func TestOnUserMessageContextInjection(t *testing.T) {
 		context: "Current time: 2026-04-02T12:00:00Z",
 	})
 
-	rt := NewRuntime(AgentDeps{
+	rt := NewAgent(AgentDeps{
 		Core: CoreDeps{
 			Cfg: config.AgentConfig{
 				SystemPrompt: "You are a helpful assistant.",
@@ -241,7 +246,7 @@ func TestOnUserMessageContextInjection(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults())
+	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
 
 	// Build system prompt
 	ctx := context.Background()
@@ -285,7 +290,7 @@ func TestPermissionEngineDenyPreventsExecution(t *testing.T) {
 	}
 	permEngine := tool.NewPermissionEngine(rules, "ask", nil)
 
-	rt := NewRuntime(AgentDeps{
+	rt := NewAgent(AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -294,20 +299,26 @@ func TestPermissionEngineDenyPreventsExecution(t *testing.T) {
 		Security: SecurityDeps{
 			PermEngine: permEngine,
 		},
-	}.WithDefaults())
+	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "bash", Input: `{"command":"rm -rf /tmp/test"}`}
 
-	result := rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc)
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
 
 	// Tool should NOT have been executed
 	if mockTool.execCount.Load() != 0 {
 		t.Errorf("tool was executed %d times, expected 0 (should have been denied by permission engine)", mockTool.execCount.Load())
 	}
 
-	if result.status != "denied" {
-		t.Errorf("expected status 'denied', got '%s'", result.status)
+	// Verify denial in session history
+	history := sess.History()
+	if len(history) == 0 || history[len(history)-1].Role != "tool_result" {
+		t.Fatal("expected tool_result message in session history")
+	}
+	lastMsg := history[len(history)-1]
+	if !strings.Contains(lastMsg.Content, "denied") && !strings.Contains(lastMsg.Content, "Permission") {
+		t.Errorf("expected denial message in session history, got: %s", lastMsg.Content)
 	}
 }
 
@@ -326,7 +337,7 @@ func TestHookAndPermissionEngineIntegration(t *testing.T) {
 	// Permission engine allows all by default
 	permEngine := tool.NewPermissionEngine(nil, "allow", nil)
 
-	rt := NewRuntime(AgentDeps{
+	rt := NewAgent(AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -336,19 +347,16 @@ func TestHookAndPermissionEngineIntegration(t *testing.T) {
 			HookMgr:    hookMgr,
 			PermEngine: permEngine,
 		},
-	}.WithDefaults())
+	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
 
-	result := rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc)
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
 
 	// Tool should have been executed
 	if mockTool.execCount.Load() != 1 {
 		t.Errorf("tool was executed %d times, expected 1", mockTool.execCount.Load())
-	}
-	if result.status != "success" {
-		t.Errorf("expected status 'success', got '%s'", result.status)
 	}
 	// Post hook should have been called
 	if tracker.callCount.Load() != 1 {
@@ -370,7 +378,7 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 	hookMgr := hook.NewManager()
 	hookMgr.RegisterPostToolUse(tracker)
 
-	rt := NewRuntime(AgentDeps{
+	rt := NewAgent(AgentDeps{
 		Core: CoreDeps{
 			Tools:    registry,
 			DB:       db,
@@ -385,7 +393,7 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults())
+	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	toolCalls := []ToolUseBlock{
@@ -394,7 +402,9 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 		{ID: "tc_2", Name: "tool_2", Input: "{}"},
 	}
 
-	rt.executeTools(context.Background(), nil, sess, channel.MessageTarget{}, toolCalls)
+	for _, tc := range toolCalls {
+		rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
+	}
 
 	// All tools should have been executed
 	for i, tl := range tools {
@@ -433,4 +443,28 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// newTestDB opens a store.DB on a temporary SQLite file.
+func newTestDB(t *testing.T) *store.DB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "ironclaw_test.db")
+	db, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("store.Open(%q) failed: %v", dbPath, err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+// concurrentTestSession creates a basic test session.
+func concurrentTestSession() *session.Session {
+	return &session.Session{
+		ID:        "test-session",
+		Channel:   "test",
+		ChannelID: "test-channel",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Metadata:  make(map[string]string),
+	}
 }

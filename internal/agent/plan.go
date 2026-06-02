@@ -18,7 +18,6 @@ type Planner struct {
 	tools    *tool.Registry
 	cfg      config.CognitiveConfig
 	llmModel string
-	rlPolicy RLPolicy // optional RL policy
 }
 
 // NewPlanner creates a new Planner.
@@ -33,11 +32,6 @@ func NewPlanner(provider Provider, tools *tool.Registry, cfg config.CognitiveCon
 		cfg:      cfg,
 		llmModel: model,
 	}
-}
-
-// SetRLPolicy injects an optional RL policy.
-func (p *Planner) SetRLPolicy(policy RLPolicy) {
-	p.rlPolicy = policy
 }
 
 // strategyHint carries a named planning strategy.

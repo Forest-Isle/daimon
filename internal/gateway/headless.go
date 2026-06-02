@@ -22,7 +22,7 @@ type HeadlessGateway struct {
 	permEngine *tool.PermissionEngine
 	hookMgr    *hook.Manager
 	provider   agent.Provider
-	runtime    *agent.Runtime
+	agent      *agent.Agent
 	cfg        *config.Config
 }
 
@@ -130,14 +130,14 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 		deps.MultiAgent.ResultStore = rs
 	}
 
-	h.runtime = agent.NewRuntime(deps)
+	h.agent = agent.NewAgent(deps.WithDefaults(), &agent.SimpleLoop{}, agent.NewEventBus())
 
 	slog.Info("headless gateway initialized")
 	return h, nil
 }
 
-// Runtime returns the agent runtime.
-func (h *HeadlessGateway) Runtime() *agent.Runtime { return h.runtime }
+// Agent returns the agent runtime.
+func (h *HeadlessGateway) Agent() *agent.Agent { return h.agent }
 
 // Provider returns the LLM provider.
 func (h *HeadlessGateway) Provider() agent.Provider { return h.provider }

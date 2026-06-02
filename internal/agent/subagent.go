@@ -76,15 +76,22 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 	subDeps.Core.LLMCfg = subLLMCfg
 	subDeps.Core.AgentID = agentID
 
-	subRuntime := NewRuntime(subDeps)
+	subAgent := NewAgent(subDeps.WithDefaults(), &SimpleLoop{}, NewEventBus())
 
 	chainID := req.ChainID
 	if chainID == "" {
 		chainID = uuid.New().String()
 	}
-	subRuntime.SetParentID(req.ParentID)
-	subRuntime.SetDepth(req.ParentDepth + 1)
-	subRuntime.SetChainID(chainID)
+
+	// Store parent tracking info in SubagentContext so sub-sub-agent
+	// spawns (e.g. via AgentTool) can inherit the chain for tracing.
+	subCtx := &SubagentContext{
+		AgentID:  agentID,
+		ParentID: req.ParentID,
+		Depth:    req.ParentDepth + 1,
+		ChainID:  chainID,
+	}
+	ctx = SubagentContextToCtx(ctx, subCtx)
 
 	userText := req.Task
 	if req.TaskContext != "" {
@@ -100,7 +107,7 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 		Text:      userText,
 	}
 
-	execErr := subRuntime.HandleMessage(ctx, capture, msg)
+	execErr := subAgent.HandleMessage(ctx, capture, msg)
 
 	if m.deps.Observability.Emitter != nil {
 		durationMs := time.Since(start).Milliseconds()

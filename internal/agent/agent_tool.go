@@ -92,14 +92,20 @@ func (a *AgentTool) Execute(ctx context.Context, input []byte) (tool.Result, err
 		"mode", a.spec.ExecutionMode,
 	)
 
-	parentRT := RuntimeFromContext(ctx)
+	parentAgent := AgentFromContext(ctx)
 	var parentID string
 	var parentDepth int
 	var chainID string
-	if parentRT != nil {
-		parentID = parentRT.AgentID()
-		parentDepth = parentRT.Depth()
-		chainID = parentRT.ChainID()
+	if parentAgent != nil {
+		parentID = parentAgent.AgentID()
+	}
+	if sc := SubagentContextFromCtx(ctx); sc != nil {
+		if parentDepth == 0 {
+			parentDepth = sc.Depth
+		}
+		if chainID == "" {
+			chainID = sc.ChainID
+		}
 	}
 
 	result, err := a.manager.Spawn(ctx, SpawnRequest{

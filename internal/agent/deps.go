@@ -59,9 +59,18 @@ type SecurityDeps struct {
 }
 
 // WithDefaults returns a copy of SecurityDeps with nil fields filled.
+// Automatically wires HookInterceptor and PermissionInterceptor into the chain
+// when HookMgr or PermEngine are non-nil and Interceptor has not been explicitly set.
 func (d SecurityDeps) WithDefaults() SecurityDeps {
 	if d.Interceptor == nil {
-		d.Interceptor = tool.NewInterceptorChain(nil) // empty chain = direct execution
+		var interceptors []tool.ToolInterceptor
+		if d.PermEngine != nil {
+			interceptors = append(interceptors, tool.NewPermissionInterceptor(d.PermEngine, nil, nil))
+		}
+		if d.HookMgr != nil {
+			interceptors = append(interceptors, tool.NewHookInterceptor(d.HookMgr))
+		}
+		d.Interceptor = tool.NewInterceptorChain(interceptors)
 	}
 	return d
 }

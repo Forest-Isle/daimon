@@ -1,0 +1,91 @@
+<h2>Cognitive Agent 重设计 · 当前问题 vs 新架构</h2>
+<p class="subtitle">当前 cognitive.go 1562 行。问题不在 5 阶段概念——而在实现方式。</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">🔴 当前设计 · 4 个结构性问题</div>
+    <div class="mockup-body" style="padding:16px">
+      <p style="margin:4px 0;font-size:13px">
+      <strong>1. Phase 是具体 struct，不是接口</strong><br>
+      Perceiver/Planner/Executor/Observer/Reflector 都是具体类型。<br>
+      不能替换、不能 mock、不能组合。<br><br>
+
+      <strong>2. 30 个可选依赖通过 nil-check 散落各处</strong><br>
+      <code>if ca.selfHealEngine != nil { ... }</code><br>
+      <code>if ca.replayRecorder != nil { ... }</code><br>
+      <code>if ca.planMode != nil { ... }</code><br>
+      加一个 feature → 加一个字段 + N 个 nil 检查点<br><br>
+
+      <strong>3. Run() 方法是一个状态机噩梦</strong><br>
+      正常循环 + replan + checkpoint 恢复 + plan-mode 审批等待<br>
+      + 413 响应压缩 + 自主循环模式 — 全塞在一个方法里<br><br>
+
+      <strong>4. 控制流和业务逻辑耦合</strong><br>
+      "replan 几次后放弃"、"checkpoint 什么时候存"、<br>
+      "plan-mode 审批怎么等待" — 这些是横切关注点，<br>
+      不应该嵌在 phase 执行逻辑里。
+      </p>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">🟢 新设计 · Phase 接口 + Pipeline Middleware</div>
+    <div class="mockup-body" style="padding:16px">
+      <p style="margin:4px 0;font-size:13px">
+      <strong>1. Phase 变成接口</strong><br>
+      <code>type Phase interface {<br>
+        Name() string<br>
+        Run(ctx, state) (*Output, error)<br>
+      }</code><br>
+      5 个实现：PerceivePhase, PlanPhase, ActPhase,<br>
+      ObservePhase, ReflectPhase<br><br>
+
+      <strong>2. 横切关注点变成 Pipeline Middleware</strong><br>
+      • ReplanMiddleware — 失败→回到 PLAN<br>
+      • CheckpointMiddleware — 每阶段后自动保存<br>
+      • PlanModeMiddleware — PLAN 后等待审批<br>
+      • SelfHealMiddleware — ACT 工具错误修复<br>
+      • ReplayMiddleware — 记录所有阶段转换<br>
+      • CompressionMiddleware — 413 响应自动压缩<br><br>
+
+      <strong>3. 状态转换表替代硬编码循环</strong><br>
+      PERCEIVE→PLAN→ACT→OBSERVE→{REFLECT|PLAN}→DONE<br>
+      每条转换由 PhaseOutput.NextPhase 决定<br><br>
+
+      <strong>4. 内聚到 core/cognitive/ 包</strong><br>
+      直接依赖 core.Agent 的 Provider + Tool 接口<br>
+      Gateway 从 55 字段自然瘦身<br>
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px">
+  <div class="mockup">
+    <div class="mockup-header">迁移策略 · Strangler Fig（绞杀榕模式）</div>
+    <div class="mockup-body" style="padding:16px">
+      <p style="font-size:14px">
+      <strong>Step 1:</strong> 在 <code>internal/core/cognitive/</code> 定义 Phase 接口 + Pipeline runner<br>
+      <strong>Step 2:</strong> 写 adapter 包装现有 Perceiver/Planner/Executor/Observer/Reflector 为 Phase 实现<br>
+      <strong>Step 3:</strong> gateway.go 同时持有旧 CognitiveAgent 和新 Pipeline，feature flag 切换<br>
+      <strong>Step 4:</strong> 逐个将 adapter 替换为真正的 Phase 实现<br>
+      <strong>Step 5:</strong> 删除 agent/cognitive.go 的编排逻辑，只保留 phase 内部实现<br>
+      <strong>Step 6:</strong> 删除 adapter 层<br><br>
+
+      <strong>每一步独立可验证、可回滚。不影响现有功能。</strong>
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px">
+  <div class="label">风险与范围</div>
+  <p style="font-size:14px">
+  这是整个修复计划中最大的单一体力活。<br>
+  <strong>预计新增:</strong> internal/core/cognitive/ (6-8 个新文件, ~2000 行)<br>
+  <strong>预计修改:</strong> gateway.go（瘦身 30%）, agent/cognitive.go（删除编排逻辑）<br>
+  <strong>预计删除:</strong> agent/ 中的编排代码（~400 行）<br><br>
+  需要独立 worktree，不能和其他改动混在一起。<br>
+  这一步放在轨道 1 的第一优先级——因为其他拆分都依赖 agent 结构稳定。
+  </p>
+</div>

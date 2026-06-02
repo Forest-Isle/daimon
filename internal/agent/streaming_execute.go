@@ -64,7 +64,7 @@ func (se *StreamingExecutor) Stream(
 			subtask.Status = SubTaskRunning
 			mu.Unlock()
 
-			obs := se.inner.executeSubTask(ctx, ch, sess, target, subtask, taskSnapshot, nil, &TaskPlan{SubTasks: taskSnapshot}, nil, nil)
+			obs := se.inner.executeSubTask(ctx, ch, sess, target, subtask, taskSnapshot, nil, &TaskPlan{SubTasks: taskSnapshot})
 
 			var progressText string
 			mu.Lock()

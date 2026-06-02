@@ -16,6 +16,10 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/util"
 )
 
+// ApprovalFunc is called when a tool requires user approval.
+// It should return true if approved, false if denied.
+type ApprovalFunc func(ctx context.Context, ch channel.Channel, target channel.MessageTarget, toolName string, input string) (bool, error)
+
 // agentContextKey is the context.Context key for storing the Agent reference.
 type agentContextKey struct{}
 
@@ -65,6 +69,12 @@ func (a *Agent) AgentID() string { return a.deps.Core.AgentID }
 
 // GetTools returns the tool registry.
 func (a *Agent) GetTools() *tool.Registry { return a.deps.Core.Tools }
+
+// Strategy returns the current execution strategy.
+func (a *Agent) Strategy() LoopStrategy { return a.strategy }
+
+// Sessions returns the session manager.
+func (a *Agent) Sessions() *session.Manager { return a.deps.Core.Sessions }
 
 // HandleMessage is the single entry point for all agent modes.
 func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
@@ -269,8 +279,8 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 			return &tool.ToolResult{Error: getErr.Error()}, nil
 		}
 
-		// Approval check
-		if t.RequiresApproval() && a.approvalFn != nil {
+		// Approval check (skip if pre-tool-use hook already approved)
+		if t.RequiresApproval() && a.approvalFn != nil && !call.HookApproved {
 			approved, approveErr := a.approvalFn(ctx, ch, target, call.ToolName, call.Input)
 			if approveErr != nil || !approved {
 				return &tool.ToolResult{Error: "tool execution denied by user"}, nil
@@ -297,6 +307,20 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 		} else {
 			content = result.Output
 		}
+	}
+
+	// Fire PostToolUse hooks
+	if a.deps.Security.HookMgr != nil && a.deps.Security.HookMgr.HasPostToolUseHandlers() {
+		status := "success"
+		if isError {
+			status = "error"
+		}
+		a.deps.Security.HookMgr.FirePostToolUse(ctx, hook.PostToolUseEvent{
+			ToolName: tc.Name,
+			Input:    tc.Input,
+			Output:   content,
+			Status:   status,
+		})
 	}
 
 	sess.AddMessage(session.Message{

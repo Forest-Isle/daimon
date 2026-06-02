@@ -1,0 +1,79 @@
+<h2>轨道 2 · 测试分层策略</h2>
+<p class="subtitle">9 个零测试包，按风险等级分 3 层，每层不同测试深度。</p>
+
+<div class="section">
+  <div class="label">测试深度标准</div>
+  <p><strong>Level A "集成级"</strong> — 复杂子系统，需要 mock 外部依赖 + 多组件协作测试<br>
+  <strong>Level B "单元级"</strong> — 独立逻辑，纯 Go 可测试，不需要外部依赖<br>
+  <strong>Level C "烟雾级"</strong> — 简单/接口定义包，happy-path 编译验证即可</p>
+</div>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">🔴 Level A · 集成测试（3个包）</div>
+    <div class="mockup-body" style="padding:16px">
+      <p style="margin:4px 0;font-size:13px">
+      <strong>knowledge/ (7 files + graph/ 14 files)</strong><br>
+      • store.go: SQLite FTS5 + vector 混合检索<br>
+      • graph/: 实体/关系三元组 + 递归 CTE 遍历<br>
+      • pipeline.go: 文档摄取流水线<br>
+      • reranker.go: LLM 重排序<br>
+      → <strong>策略:</strong> 建临时 SQLite，走完整 ingest→chunk→embed→search→rerank 链路<br>
+      → <strong>预计:</strong> 3-4 个测试文件，~800 行<br><br>
+
+      <strong>wasm/ (6 files)</strong><br>
+      • wazero 插件运行时，插件加载/执行/隔离<br>
+      → <strong>策略:</strong> 编译最小 .wasm 测试模块，验证加载→调用→沙箱隔离<br>
+      → <strong>预计:</strong> 2 个测试文件，~400 行<br><br>
+
+      <strong>code_engine/ (3 files)</strong><br>
+      • symbol_index.go(420行): 符号索引、调用图、语义搜索<br>
+      → <strong>策略:</strong> 用 mock 文件系统建 Go 源码样本，验证索引→查询→调用图<br>
+      → <strong>预计:</strong> 2 个测试文件，~500 行
+      </p>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">🟡 Level B · 单元测试（3个包）</div>
+    <div class="mockup-body" style="padding:16px">
+      <p style="margin:4px 0;font-size:13px">
+      <strong>guardian/ (1 file, guardian.go 420行)</strong><br>
+      • 质量检查流水线，规则引擎<br>
+      → 定义 mock checker，验证流水线执行和结果聚合<br>
+      → ~250 行<br><br>
+
+      <strong>browser_agent/ (2 files)</strong><br>
+      • 浏览器自动化 Agent<br>
+      → mock HTTP/Playwright 接口，验证 action 编排<br>
+      → ~200 行<br><br>
+
+      <strong>finetune/ (1 file)</strong><br>
+      • 微调数据集构建/导出<br>
+      → 验证 JSONL 格式输出、token 计数<br>
+      → ~150 行
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px">
+  <div class="mockup">
+    <div class="mockup-header">🟢 Level C · 烟雾测试（3个包）</div>
+    <div class="mockup-body" style="padding:16px">
+      <p style="margin:4px 0;font-size:13px">
+      <strong>channel/</strong> — 接口定义 + 简单工具函数<br>
+      <strong>userdir/</strong> — 用户目录路径解析<br>
+      <strong>util/</strong> — 通用工具函数（如 TruncateStr）<br>
+      → 编译验证 + 关键函数的 table-driven 测试
+      → 各 ~50-80 行
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px">
+  <div class="label">轨道 2 总计</div>
+  <p style="font-size:15px"><strong>~10 个新测试文件 · ~2500 行测试代码</strong><br>
+  全部走 worktree → CGO_ENABLED=1 go test -tags fts5 验证通过</p>
+</div>

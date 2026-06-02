@@ -12,7 +12,6 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
-	"github.com/Forest-Isle/IronClaw/internal/rl"
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/store"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
@@ -24,13 +23,12 @@ type Executor struct {
 	db               *store.DB
 	approvalFunc     ApprovalFunc
 	cfg              config.CognitiveConfig
-	rlPolicy         RLPolicy // optional RL policy
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
 	cache            *ToolResultCache
 	interceptorChain *tool.InterceptorChain
 	dashEmitter      DashboardEmitter
-	planMode         *PlanMode // optional plan→approve→execute flow
+	planMode         *PlanMode // optional plan->approve->execute flow
 	replayRecorder   *ReplayRecorder
 	replayID         string
 }
@@ -43,11 +41,6 @@ func NewExecutor(tools *tool.Registry, db *store.DB, approvalFunc ApprovalFunc, 
 		approvalFunc: approvalFunc,
 		cfg:          cfg,
 	}
-}
-
-// SetRLPolicy injects an optional RL policy.
-func (e *Executor) SetRLPolicy(policy RLPolicy) {
-	e.rlPolicy = policy
 }
 
 // SetHookManager injects a hook manager for pre/post tool-use hooks.
@@ -78,13 +71,13 @@ func (e *Executor) SetDashboardEmitter(em DashboardEmitter) {
 // SetReplayRecorder injects a replay recorder for ACT tool execution events.
 func (e *Executor) SetReplayRecorder(rr *ReplayRecorder) { e.replayRecorder = rr }
 
-// SetPlanMode injects a PlanMode instance for plan→approve→execute flow.
+// SetPlanMode injects a PlanMode instance for plan->approve->execute flow.
 // When set, write tool executions must be approved through an active plan.
 func (e *Executor) SetPlanMode(pm *PlanMode) {
 	e.planMode = pm
 }
 
-// Run executes the ACT phase — topological ordering + parallel execution.
+// Run executes the ACT phase -- topological ordering + parallel execution.
 func (e *Executor) Run(
 	ctx context.Context,
 	ch channel.Channel,
@@ -92,11 +85,10 @@ func (e *Executor) Run(
 	target channel.MessageTarget,
 	plan *TaskPlan,
 ) ([]Observation, error) {
-	return e.RunWithContext(ctx, ch, sess, target, plan, nil, nil, nil)
+	return e.RunWithContext(ctx, ch, sess, target, plan, nil)
 }
 
 // RunWithContext executes the ACT phase with an optional TaskContext for multi-agent collaboration.
-// rlState and collector are optional (nil when RL is disabled).
 func (e *Executor) RunWithContext(
 	ctx context.Context,
 	ch channel.Channel,
@@ -104,8 +96,6 @@ func (e *Executor) RunWithContext(
 	target channel.MessageTarget,
 	plan *TaskPlan,
 	taskCtx *TaskContext,
-	rlState *rl.RLState,
-	collector *EpisodeCollector,
 ) ([]Observation, error) {
 	maxParallel := e.cfg.MaxParallelTools
 	if maxParallel <= 0 {
@@ -158,7 +148,7 @@ func (e *Executor) RunWithContext(
 			wg.Add(1)
 			go func(subtask *SubTask) {
 				defer wg.Done()
-				obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks, taskCtx, plan, rlState, collector)
+				obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks, taskCtx, plan)
 				obsMu.Lock()
 				observations = append(observations, obs)
 				doneCount++
@@ -198,8 +188,6 @@ func (e *Executor) executeSubTask(
 	allTasks []*SubTask,
 	taskCtx *TaskContext,
 	plan *TaskPlan,
-	rlState *rl.RLState,
-	collector *EpisodeCollector,
 ) Observation {
 	obs := Observation{
 		SubTaskID: subtask.ID,
@@ -207,7 +195,7 @@ func (e *Executor) executeSubTask(
 		Input:     subtask.ToolInput,
 	}
 
-	// If no tool, mark as skipped (direct-reply subtask — shouldn't reach ACT)
+	// If no tool, mark as skipped (direct-reply subtask -- shouldn't reach ACT)
 	if subtask.ToolName == "" {
 		subtask.Status = SubTaskDone
 		obs.Output = subtask.Description
@@ -222,7 +210,7 @@ func (e *Executor) executeSubTask(
 		return obs
 	}
 
-	// ── Cache lookup for read-only tools ─────────────────────────────────────
+	// -- Cache lookup for read-only tools --------------------------------------------
 	if e.cache != nil && tool.IsToolReadOnly(t) {
 		if cached, ok := e.cache.Get(subtask.ToolName, subtask.ToolInput); ok {
 			subtask.Status = SubTaskDone
@@ -234,13 +222,13 @@ func (e *Executor) executeSubTask(
 
 	// Route through interceptor chain when configured (e.g. sandbox enforcement)
 	if e.interceptorChain != nil {
-		return e.executeSubTaskViaChain(ctx, ch, sess, target, subtask, allTasks, taskCtx, plan, rlState, collector, t)
+		return e.executeSubTaskViaChain(ctx, ch, sess, target, subtask, allTasks, taskCtx, plan, t)
 	}
 
 	// Track permission decision metadata
 	var permAction, permReason, permRule string
 
-	// ── PreToolUse hooks ──────────────────────────────────────────────────────
+	// -- PreToolUse hooks ------------------------------------------------------------
 	skipApproval := false
 	if e.hookMgr != nil && e.hookMgr.HasPreToolUseHandlers() {
 		caps := tool.GetCapabilities(t)
@@ -259,7 +247,6 @@ func (e *Executor) executeSubTask(
 				obs.Denied = true
 				obs.Error = "denied by hook: " + hookResult.Reason
 				session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "denied", 0)
-				e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 				return obs
 			case "allow":
 				skipApproval = true
@@ -269,7 +256,7 @@ func (e *Executor) executeSubTask(
 		}
 	}
 
-	// ── Permission engine check ───────────────────────────────────────────────
+	// -- Permission engine check -----------------------------------------------------
 	if e.permEngine != nil {
 		caps := tool.GetCapabilities(t)
 		permResult := e.permEngine.Evaluate(subtask.ToolName, subtask.ToolInput, caps)
@@ -279,7 +266,6 @@ func (e *Executor) executeSubTask(
 			obs.Denied = true
 			obs.Error = "denied by permission engine: " + permResult.Reason
 			session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "denied", 0)
-			e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 			return obs
 		case tool.PermissionAllow:
 			skipApproval = true
@@ -289,7 +275,7 @@ func (e *Executor) executeSubTask(
 		}
 	}
 
-	// ── Approval check ────────────────────────────────────────────────────────
+	// -- Approval check --------------------------------------------------------------
 	if !skipApproval && t.RequiresApproval() && e.approvalFunc != nil {
 		approved, err := e.approvalFunc(ctx, ch, target, subtask.ToolName, subtask.ToolInput)
 		if err != nil || !approved {
@@ -297,7 +283,6 @@ func (e *Executor) executeSubTask(
 			obs.Denied = true
 			obs.Error = "tool execution denied by user"
 			session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, "", "denied", 0)
-			e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 			return obs
 		}
 		permAction = "ask_approved"
@@ -370,7 +355,7 @@ func (e *Executor) executeSubTask(
 		obs.Output = result.Output
 	}
 
-	// ── PostToolUse hooks (fires on all outcomes; may modify output) ───────────
+	// -- PostToolUse hooks (fires on all outcomes; may modify output) ----------------
 	if e.hookMgr != nil && e.hookMgr.HasPostToolUseHandlers() {
 		hookOutput := obs.Output
 		if execStatus == "error" {
@@ -395,11 +380,10 @@ func (e *Executor) executeSubTask(
 
 	// Early return on execution failure (after PostToolUse hooks have fired)
 	if execStatus == "error" {
-		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 		return obs
 	}
 
-	// ── Cache update ─────────────────────────────────────────────────────────
+	// -- Cache update ---------------------------------------------------------------
 	if e.cache != nil {
 		if tool.IsToolReadOnly(t) {
 			e.cache.Put(subtask.ToolName, subtask.ToolInput, result)
@@ -440,15 +424,12 @@ func (e *Executor) executeSubTask(
 	session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, result.Output, "success", durationMs)
 	slog.Info("subtask done", "id", subtask.ID, "tool", subtask.ToolName, "duration_ms", durationMs)
 
-	// RL: record bandit experience after successful execution
-	e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
-
 	return obs
 }
 
 // executeSubTaskViaChain runs a subtask through the interceptor chain (e.g. sandbox policy).
 // Preserves all post-execution behavior: TaskContext injection, session messages, logging,
-// cache updates, PostToolUse hooks, and bandit recording.
+// cache updates, and PostToolUse hooks.
 func (e *Executor) executeSubTaskViaChain(
 	ctx context.Context,
 	ch channel.Channel,
@@ -458,8 +439,6 @@ func (e *Executor) executeSubTaskViaChain(
 	allTasks []*SubTask,
 	taskCtx *TaskContext,
 	plan *TaskPlan,
-	rlState *rl.RLState,
-	collector *EpisodeCollector,
 	t tool.Tool,
 ) Observation {
 	obs := Observation{
@@ -524,7 +503,6 @@ func (e *Executor) executeSubTaskViaChain(
 		obs.Error = err.Error()
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "error", durationMs)
 		slog.Info("subtask failed (chain)", "id", subtask.ID, "tool", subtask.ToolName, "err", err)
-		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 		return obs
 	}
 	if res.Error != "" {
@@ -539,7 +517,6 @@ func (e *Executor) executeSubTaskViaChain(
 		obs.Error = res.Error
 		session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "denied", durationMs)
 		slog.Info("subtask denied (chain)", "id", subtask.ID, "tool", subtask.ToolName, "reason", res.Error)
-		e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 		return obs
 	}
 
@@ -616,7 +593,6 @@ func (e *Executor) executeSubTaskViaChain(
 	session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, res.Output, "success", durationMs)
 	slog.Info("subtask done (chain)", "id", subtask.ID, "tool", subtask.ToolName, "duration_ms", durationMs)
 
-	e.recordBanditExperience(ctx, rlState, collector, subtask, &obs)
 	return obs
 }
 
@@ -690,46 +666,5 @@ func statusEmoji(s SubTaskStatus) string {
 		return "skipped"
 	default:
 		return ""
-	}
-}
-
-// recordBanditExperience computes tool reward and records a bandit experience.
-func (e *Executor) recordBanditExperience(
-	ctx context.Context,
-	rlState *rl.RLState,
-	collector *EpisodeCollector,
-	subtask *SubTask,
-	obs *Observation,
-) {
-	if e.rlPolicy == nil || !e.rlPolicy.IsEnabled() || rlState == nil {
-		return
-	}
-
-	succeeded := subtask.Status == SubTaskDone
-	reward := rl.ComputeToolReward(succeeded, obs.Denied, obs.DurationMs)
-
-	// Update bandit arm statistics
-	if err := e.rlPolicy.UpdateToolSelection(ctx, rlState, subtask.ToolName, reward); err != nil {
-		slog.Warn("act: bandit update failed", "tool", subtask.ToolName, "err", err)
-	}
-
-	// Record experience in the episode collector
-	if collector != nil {
-		// Compute a tool index for the action vector (used for training, not selection)
-		toolIdx := 0.0
-		for i, t := range e.tools.All() {
-			if t.Name() == subtask.ToolName {
-				toolIdx = float64(i)
-				break
-			}
-		}
-		collector.Add(rl.Experience{
-			State:     rlState,
-			Action:    []float64{toolIdx},
-			Reward:    reward,
-			NextState: rlState, // same state within episode
-			Done:      false,
-			Level:     rl.LevelBandit,
-		})
 	}
 }

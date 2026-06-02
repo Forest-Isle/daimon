@@ -25,8 +25,6 @@ type EvoSnapshotDiff struct {
 
 	ReplanThresholdDelta float64            `json:"replan_threshold_delta,omitempty"`
 	ToolPriorityDeltas   map[string]float64 `json:"tool_priority_deltas,omitempty"`
-	RLAvgRewardDelta     float64            `json:"rl_avg_reward_delta,omitempty"`
-	RLSuccessRateDelta   float64            `json:"rl_success_rate_delta,omitempty"`
 
 	// RouterModelChanges lists models whose task-routing counts changed between
 	// runs. Key is model name; value is delta (positive = more tasks routed there).
@@ -133,8 +131,6 @@ func Compare(before, after *SuiteResult) *ComparisonReport {
 			SkillDraftCountDelta: after.EvoAfter.SkillDraftCount - before.EvoAfter.SkillDraftCount,
 			TrajectoryCountDelta: after.EvoAfter.TrajectoryCount - before.EvoAfter.TrajectoryCount,
 			ReplanThresholdDelta: after.EvoAfter.ReplanThreshold - before.EvoAfter.ReplanThreshold,
-			RLAvgRewardDelta:     after.EvoAfter.RLAvgReward - before.EvoAfter.RLAvgReward,
-			RLSuccessRateDelta:   after.EvoAfter.RLSuccessRate - before.EvoAfter.RLSuccessRate,
 		}
 		// Per-tool priority deltas — only for tools present in both snapshots.
 		if len(before.EvoAfter.ToolPriorities) > 0 && len(after.EvoAfter.ToolPriorities) > 0 {
@@ -298,8 +294,6 @@ func (r *ComparisonReport) FormatMarkdown() string {
 		fmt.Fprintf(&b, "| Skill Draft Count | %+d |\n", r.EvoSnapshot.SkillDraftCountDelta)
 		fmt.Fprintf(&b, "| Trajectory Count | %+d |\n", r.EvoSnapshot.TrajectoryCountDelta)
 		fmt.Fprintf(&b, "| Replan Threshold | %s |\n", fmtDelta(r.EvoSnapshot.ReplanThresholdDelta, "", false))
-		fmt.Fprintf(&b, "| RL Avg Reward | %s |\n", fmtDelta(r.EvoSnapshot.RLAvgRewardDelta, "", true))
-		fmt.Fprintf(&b, "| RL Success Rate | %s |\n", fmtDelta(r.EvoSnapshot.RLSuccessRateDelta*100, "%%", true))
 		if len(r.EvoSnapshot.ToolPriorityDeltas) > 0 {
 			b.WriteString("\n**Tool Priority Deltas:**\n\n")
 			b.WriteString("| Tool | Delta |\n")

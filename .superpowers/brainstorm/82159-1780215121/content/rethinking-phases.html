@@ -1,0 +1,105 @@
+<h2>重新审视 · 5 阶段真的需要吗？</h2>
+<p class="subtitle">拆开来看，每个阶段的真实价值和问题。</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">每个阶段到底在做什么</div>
+    <div class="mockup-body" style="padding:16px">
+      <p style="margin:4px 0;font-size:13px">
+      <strong>PERCEIVE</strong><br>
+      → 项目扫描 + Git 上下文 + knowledge 检索 + 内存搜索<br>
+      = <strong>上下文注入</strong>，不需要是独立阶段<br><br>
+
+      <strong>PLAN</strong><br>
+      → LLM 生成结构化任务计划<br>
+      = <strong>强制 agent 在行动前思考</strong>。<br>
+      现代 Claude/GPT-4 在 tool-use 循环中自然会做这个<br><br>
+
+      <strong>ACT</strong><br>
+      → 拓扑排序 → 并行执行工具<br>
+      = <strong>真正有价值</strong>。工具编排是 5 阶段里唯一不能省略的<br><br>
+
+      <strong>OBSERVE</strong><br>
+      → 验证断言 + 归因失败<br>
+      = <strong>真正有价值</strong>。这是自愈能力的核心<br><br>
+
+      <strong>REFLECT</strong><br>
+      → 提取教训 → 决定 replan 还是完成<br>
+      = 本质上是 OBSERVE 的后续决策，<br>
+      不需要独立 LLM 调用
+      </p>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">真正重要的只有两件事</div>
+    <div class="mockup-body" style="padding:16px">
+      <p style="margin:4px 0;font-size:14px">
+      <strong>1. 上下文注入（代替 PERCEIVE）</strong><br>
+      一次性完成，注入 system prompt &lt;DYNAMIC_CONTEXT&gt;。<br>
+      不是独立阶段，是 loop 的前置步骤。<br><br>
+
+      <strong>2. 自愈循环（代替 OBSERVE+REFLECT+PLAN）</strong><br>
+      ACT → 断言检查 → 失败? → 注入失败上下文 → 重试<br>
+      这才是整个 cognitive agent 的核心价值。<br>
+      不是三个独立阶段，是一个闭环。<br><br>
+
+      <span style="font-size:16px;font-weight:bold">PERCEIVE 和 PLAN 是 LLM 能力溢出前的产物。</span><br>
+      当模型是 GPT-3.5 时你需要显式分阶段引导它。<br>
+      当模型是 Claude 4 时它在一个 thinking block 里完成这些。
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px">
+  <div class="mockup">
+    <div class="mockup-header">新架构 · 单一 LLM 循环 + 自愈闭环</div>
+    <div class="mockup-body" style="padding:16px">
+      <p style="font-size:13px;font-family:monospace">
+      ┌─────────────────────────────────────────┐<br>
+      │ <strong>CognitiveAgent.Run(task)</strong>                    │<br>
+      │                                          │<br>
+      │  1. Context Injection (one-time)         │<br>
+      │     project scan + git + memory + kb     │<br>
+      │     → populate {{DYNAMIC_CONTEXT}}       │<br>
+      │                                          │<br>
+      │  2. LLM Tool-Use Loop                   │<br>
+      │     ┌──────────────────────┐             │<br>
+      │     │ LLM(system+ctx+hist) │ ← core loop│<br>
+      │     │   → tool_calls      │             │<br>
+      │     │   → execute(mw)     │ middleware  │<br>
+      │     │   → results         │             │<br>
+      │     │   → next turn       │             │<br>
+      │     └──────────────────────┘             │<br>
+      │                                          │<br>
+      │  3. Self-Correction Hook (post-loop)    │<br>
+      │     ┌──────────────────────┐             │<br>
+      │     │ Assertion check      │ auto-verify│<br>
+      │     │   → PASS → extract   │ learnings  │<br>
+      │     │   → FAIL → inject    │ + rerun    │<br>
+      │     │     failure context   │ (max N)    │<br>
+      │     └──────────────────────┘             │<br>
+      │                                          │<br>
+      │  All cross-cutting:                     │<br>
+      │  checkpoint, replay, plan-mode,         │<br>
+      │  compression, self-heal                 │<br>
+      │  → middleware on the LLM loop           │<br>
+      └─────────────────────────────────────────┘
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px">
+  <div class="label">对比 · 旧 vs 新</div>
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+  <tr style="background:#1a1a2e"><th style="padding:8px;text-align:left;border-bottom:1px solid #333">维度</th><th style="padding:8px;text-align:left;border-bottom:1px solid #333">旧 (5 Phase)</th><th style="padding:8px;text-align:left;border-bottom:1px solid #333">新 (Single Loop + Heal)</th></tr>
+  <tr><td style="padding:8px;border-bottom:1px solid #222">每轮 LLM 调用</td><td style="padding:8px;border-bottom:1px solid #222">最少 3 次(PLAN+ACT+REFLECT)</td><td style="padding:8px;border-bottom:1px solid #222">1 次（tool-use loop）</td></tr>
+  <tr><td style="padding:8px;border-bottom:1px solid #222">延迟</td><td style="padding:8px;border-bottom:1px solid #222">高（串行 phase）</td><td style="padding:8px;border-bottom:1px solid #222">低（串行仅 tool 执行）</td></tr>
+  <tr><td style="padding:8px;border-bottom:1px solid #222">代码量</td><td style="padding:8px;border-bottom:1px solid #222">~3500 行（5 文件）</td><td style="padding:8px;border-bottom:1px solid #222">~1500 行（2 文件）</td></tr>
+  <tr><td style="padding:8px;border-bottom:1px solid #222">扩展性</td><td style="padding:8px;border-bottom:1px solid #222">加 phase 需改 Run()</td><td style="padding:8px;border-bottom:1px solid #222">middleware 链，不改核心</td></tr>
+  <tr><td style="padding:8px;border-bottom:1px solid #222">自愈能力</td><td style="padding:8px;border-bottom:1px solid #222">OBSERVE+REFLECT 两阶段</td><td style="padding:8px;border-bottom:1px solid #222">PostLoopHook 单钩子</td></tr>
+  <tr><td style="padding:8px">断点续传</td><td style="padding:8px">checkpoint 存阶段状态</td><td style="padding:8px">checkpoint 存消息历史</td></tr>
+  </table>
+</div>

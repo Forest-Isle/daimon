@@ -29,7 +29,6 @@ type Reflector struct {
 	graphExtractor *graph.LLMEntityExtractor
 	cfg            config.CognitiveConfig
 	llmModel       string
-	rlPolicy       RLPolicy         // optional RL policy
 	memoryNotify   MemoryNotifyFunc // optional notification callback
 }
 
@@ -65,11 +64,6 @@ func (r *Reflector) SetLifecycleManager(lm *memory.LifecycleManager) {
 // SetEntityExtractor injects a graph entity extractor for populating the knowledge graph.
 func (r *Reflector) SetEntityExtractor(e *graph.LLMEntityExtractor) {
 	r.graphExtractor = e
-}
-
-// SetRLPolicy injects an optional RL policy.
-func (r *Reflector) SetRLPolicy(policy RLPolicy) {
-	r.rlPolicy = policy
 }
 
 // SetMemoryNotifyFunc injects a callback for sending memory operation summaries.

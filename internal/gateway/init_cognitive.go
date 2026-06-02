@@ -10,7 +10,6 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
-	"github.com/Forest-Isle/IronClaw/internal/rl"
 )
 
 func (gw *Gateway) initCognitiveAgent() error {
@@ -39,27 +38,6 @@ func (gw *Gateway) initCognitiveAgent() error {
 	checkpointStore := agent.NewSQLiteCheckpointStore(gw.db)
 	opts.CheckpointStore = checkpointStore
 
-	// RL System (requires cognitive agent)
-	if gw.featureEnabled("rl") {
-		rlStorage := rl.NewStorage(gw.db)
-		rlPolicy := rl.NewPolicy(rlStorage, gw.cfg.Agent.RL)
-		if err := rlPolicy.LoadCheckpoint(gw.initCtx); err != nil {
-			slog.Warn("gateway: failed to load RL checkpoint", "err", err)
-		}
-		gw.rlTrainer = rl.NewTrainer(rlPolicy, gw.cfg.Agent.RL)
-		opts.RLPolicy = rlPolicy
-		opts.RLTrainer = gw.rlTrainer
-		slog.Info("RL system initialized")
-
-		// Bridge memory lifecycle events to RL system
-		if gw.memory.LifecycleManager() != nil {
-			memoryRewards := rl.DefaultMemoryRLRewards()
-			memRLHandler := rl.NewMemoryRLHandler(gw.rlTrainer, memoryRewards)
-			gw.memory.LifecycleManager().SetRLEventHandler(memRLHandler)
-			slog.Info("RL-memory bridge connected")
-		}
-	}
-
 	if gw.evolution.Engine() != nil {
 		opts.EvolutionEngine = gw.evolution.Engine()
 	}
@@ -70,9 +48,12 @@ func (gw *Gateway) initCognitiveAgent() error {
 
 	opts.DebateConfig = gw.cfg.Agents.Debate
 
-	// Create cognitive agent with shared AgentDeps
-	gw.cognitiveAgent = agent.NewCognitiveAgent(gw.agentDeps, opts)
-	if gw.cognitiveAgent != nil && gw.evolution.Engine() != nil {
+	// Create CognitiveLoop strategy and set it on the shared Agent
+	gw.cognitiveLoop = agent.NewCognitiveLoop(gw.agentDeps, opts)
+	if gw.cognitiveLoop != nil {
+		gw.agent.SetStrategy(gw.cognitiveLoop)
+	}
+	if gw.cognitiveLoop != nil && gw.evolution.Engine() != nil {
 		gw.registerEvolutionHooks()
 	}
 
@@ -323,7 +304,6 @@ func (gw *Gateway) sandboxSkillValidator() evolution.SandboxValidator {
 
 			case toolName == "http" || toolName == "network":
 				// Validate network access is constrained.
-				_, _, _, _, _ = session.Exec(ctx, "curl -s --connect-timeout 3 http://localhost:9999 || true")
 			}
 		}
 

@@ -1,0 +1,71 @@
+<h2>Phase 1: 止血 — Current vs Target Architecture</h2>
+<p class="subtitle">Setter Hell elimination, command routing, no-op implementations, init rollback</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">❌ Current: Gateway God Object + Setter Hell</div>
+    <div class="mockup-body" style="font-size:13px;line-height:1.6;font-family:monospace">
+      <strong>Gateway</strong> (40+ fields)<br>
+      ├─ runtime → 30 Set*() methods<br>
+      │  ├─ <span style="color:#c44">if r.memStore != nil</span><br>
+      │  ├─ <span style="color:#c44">if r.hookMgr != nil</span><br>
+      │  ├─ <span style="color:#c44">if r.dashEmitter != nil</span><br>
+      │  └─ ... 27 more nil checks<br>
+      ├─ cognitiveAgent → 25 fields (duplicated)<br>
+      │  ├─ own runtime copy<br>
+      │  └─ <span style="color:#c44">same nil checks again</span><br>
+      ├─ handleInbound() → 170 lines<br>
+      │  └─ 9 if-blocks for slash commands<br>
+      └─ New() → 15+ sequential init*()<br>
+      &nbsp;&nbsp;&nbsp;└─ <span style="color:#c44">no rollback on failure</span><br>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">✅ Target: Clean DI + Router + Lifecycle</div>
+    <div class="mockup-body" style="font-size:13px;line-height:1.6;font-family:monospace">
+      <strong>Gateway</strong> (8 subsystems only)<br>
+      ├─ AgentDeps (one struct, constructor injected)<br>
+      │  ├─ <span style="color:#4a4">memStore (noop, never nil)</span><br>
+      │  ├─ <span style="color:#4a4">hookMgr (noop, never nil)</span><br>
+      │  ├─ <span style="color:#4a4">emitter (discard, never nil)</span><br>
+      │  └─ <span style="color:#4a4">ZERO nil checks</span><br>
+      ├─ CommandRouter (map-based dispatch)<br>
+      │  └─ handleInbound() → 10 lines<br>
+      └─ New() → init with rollback stack<br>
+      &nbsp;&nbsp;&nbsp;└─ <span style="color:#4a4">defer rollback on any failure</span><br>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px">四项目标改动</h3>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="a">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>AgentDeps — 统一依赖注入</h3>
+      <p>一个 struct 包含所有可选依赖，用 no-op 实现替代 nil。Runtime 和 CognitiveAgent 共享同一个 deps 实例。消除 ~60 个 Set* 方法和 ~200 个 nil 检查。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>CommandRouter — 命令路由表</h3>
+      <p>map[string]CommandHandler 替代 handleInbound 里的 if-else 链。每个斜杠命令是独立函数，可单独测试。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>No-op Implementations</h3>
+      <p>noopEmitter、noopCompressor、noopInterceptor 等零实现。编译期保证接口一致，运行时零开销（空方法被内联）。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="d">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>Init Rollback Stack</h3>
+      <p>每个 init 步骤注册对应的 cleanup 函数。任一步骤失败时 defer 栈自动回滚已初始化的资源。无资源泄漏。</p>
+    </div>
+  </div>
+</div>

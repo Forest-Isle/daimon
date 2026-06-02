@@ -19,8 +19,8 @@ func (gw *Gateway) initGraphEngine() error {
 }
 
 func (gw *Gateway) handleGraphMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
-	if gw.graphEventStore == nil || gw.cognitiveAgent == nil {
-		return gw.runtime.HandleMessage(ctx, ch, msg)
+	if gw.graphEventStore == nil || gw.cognitiveLoop == nil {
+		return gw.agent.HandleMessage(ctx, ch, msg)
 	}
 
 	sess, err := gw.sessions.Get(ctx, msg.Channel, msg.ChannelID)
@@ -28,7 +28,7 @@ func (gw *Gateway) handleGraphMessage(ctx context.Context, ch channel.Channel, m
 		return err
 	}
 
-	deps := gw.cognitiveAgent.BuildNodeDeps(ch)
+	deps := gw.cognitiveLoop.BuildNodeDeps(ch)
 	graph := agent.BuildGraphWithDeps(deps, msg.Text, msg.UserID)
 	engine := agent.NewGraphEngine(graph, gw.graphEventStore)
 
@@ -44,12 +44,12 @@ func (gw *Gateway) handleGraphMessage(ctx context.Context, ch channel.Channel, m
 	}
 
 	if len(finalState.Events) == 0 {
-		return gw.runtime.HandleMessage(ctx, ch, msg)
+		return gw.agent.HandleMessage(ctx, ch, msg)
 	}
 
 	lastEvent := finalState.Events[len(finalState.Events)-1]
 	if lastEvent.OutputSnapshot == "" || lastEvent.OutputSnapshot == "{}" {
-		return gw.runtime.HandleMessage(ctx, ch, msg)
+		return gw.agent.HandleMessage(ctx, ch, msg)
 	}
 
 	return ch.Send(ctx, channel.OutboundMessage{

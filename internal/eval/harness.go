@@ -164,10 +164,6 @@ type EvolutionSnapshot struct {
 	ToolPriorities        map[string]float64 `json:"tool_priorities,omitempty"`
 
 	// RLStats captures aggregate RL experience statistics from recent trajectories.
-	RLEpisodeCount int     `json:"rl_episode_count,omitempty"`
-	RLAvgReward    float64 `json:"rl_avg_reward,omitempty"`
-	RLSuccessRate  float64 `json:"rl_success_rate,omitempty"`
-	RLAvgProgress  float64 `json:"rl_avg_progress,omitempty"`
 
 	// PreferenceQuality captures the distribution of learned preferences.
 	PreferenceHighConfCount   int     `json:"pref_high_conf_count,omitempty"` // confidence >= 0.8
@@ -571,8 +567,6 @@ type IterationPoint struct {
 
 	// Extended evolution metrics — populated from EvolutionSnapshot when available.
 	ReplanThreshold         float64        `json:"replan_threshold,omitempty"`
-	RLAvgReward             float64        `json:"rl_avg_reward,omitempty"`
-	RLSuccessRate           float64        `json:"rl_success_rate,omitempty"`
 	PreferenceAvgConfidence float64        `json:"pref_avg_confidence,omitempty"`
 	PreferenceHighConfCount int            `json:"pref_high_conf_count,omitempty"`
 	RouterDecisions         map[string]int `json:"router_decisions,omitempty"`

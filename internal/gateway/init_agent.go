@@ -85,8 +85,8 @@ func (gw *Gateway) initAgentRuntime() error {
 	}
 
 	gw.agentDeps = deps
-	gw.runtime = agent.NewRuntime(deps)
-	gw.runtime.SetApprovalFunc(gw.handleApproval)
+	gw.agent = agent.NewAgent(deps.WithDefaults(), &agent.SimpleLoop{}, agent.NewEventBus())
+	gw.agent.SetApprovalFunc(gw.handleApproval)
 
 	return nil
 }

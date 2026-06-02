@@ -35,22 +35,22 @@ func TestAgentSpec_InvalidMode(t *testing.T) {
 	}
 }
 
-func TestRuntimeContext_RoundTrip(t *testing.T) {
+func TestAgentContext_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 
-	if rt := RuntimeFromContext(ctx); rt != nil {
-		t.Error("expected nil runtime from empty context")
+	if a := AgentFromContext(ctx); a != nil {
+		t.Error("expected nil agent from empty context")
 	}
 
-	runtime := NewRuntime(AgentDeps{Core: CoreDeps{AgentID: "test-123"}}.WithDefaults())
-	ctx = RuntimeToContext(ctx, runtime)
+	agent := NewAgent(AgentDeps{Core: CoreDeps{AgentID: "test-123"}}.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	ctx = AgentToContext(ctx, agent)
 
-	rt := RuntimeFromContext(ctx)
-	if rt == nil {
-		t.Fatal("expected non-nil runtime")
+	a := AgentFromContext(ctx)
+	if a == nil {
+		t.Fatal("expected non-nil agent")
 	}
-	if rt.AgentID() != "test-123" {
-		t.Errorf("expected agent ID 'test-123', got %q", rt.AgentID())
+	if a.AgentID() != "test-123" {
+		t.Errorf("expected agent ID 'test-123', got %q", a.AgentID())
 	}
 }
 

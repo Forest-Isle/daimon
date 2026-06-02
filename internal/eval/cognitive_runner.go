@@ -23,10 +23,11 @@ type indexRebuilder interface {
 	RebuildIndex(ctx context.Context) error
 }
 
-// CognitiveAgentRunner implements AgentRunner by driving a real CognitiveAgent.
-// Each task gets a fresh session and an EvalChannel that auto-approves tools.
+// CognitiveAgentRunner implements AgentRunner by driving a real Agent with
+// CognitiveLoop strategy. Each task gets a fresh session and an EvalChannel
+// that auto-approves tools.
 type CognitiveAgentRunner struct {
-	agent        *agent.CognitiveAgent
+	agent        *agent.Agent
 	hook         *EvalHook
 	channel      *EvalChannel
 	cogCollector *cogmetrics.Collector
@@ -36,27 +37,29 @@ type CognitiveAgentRunner struct {
 	lastObservation *agent.ObservationResult
 }
 
-// NewCognitiveAgentRunner creates a runner that drives the given CognitiveAgent.
-// If the agent has an evolution engine configured, an EvalHook is registered to
-// capture reflection/episode metrics. An observation callback is set on the
-// agent to capture assertion statistics.
-func NewCognitiveAgentRunner(ca *agent.CognitiveAgent) *CognitiveAgentRunner {
+// NewCognitiveAgentRunner creates a runner that drives the given Agent.
+// If the agent has CognitiveLoop strategy with an evolution engine configured,
+// an EvalHook is registered to capture reflection/episode metrics.
+func NewCognitiveAgentRunner(a *agent.Agent) *CognitiveAgentRunner {
 	r := &CognitiveAgentRunner{
-		agent:   ca,
+		agent:   a,
 		channel: &EvalChannel{},
 	}
 
-	// Register observation callback to capture assertion stats.
-	ca.SetObservationCallback(func(result *agent.ObservationResult) {
-		r.mu.Lock()
-		r.lastObservation = result
-		r.mu.Unlock()
-	})
+	// Access CognitiveLoop strategy methods via type assertion.
+	if cl, ok := a.Strategy().(*agent.CognitiveLoop); ok {
+		// Register observation callback to capture assertion stats.
+		cl.SetObservationCallback(func(result *agent.ObservationResult) {
+			r.mu.Lock()
+			r.lastObservation = result
+			r.mu.Unlock()
+		})
 
-	// Register eval hook on evolution engine if available.
-	if evo := ca.EvolutionEngine(); evo != nil {
-		r.hook = NewEvalHook()
-		evo.RegisterHook(r.hook)
+		// Register eval hook on evolution engine if available.
+		if evo := cl.EvolutionEngine(); evo != nil {
+			r.hook = NewEvalHook()
+			evo.RegisterHook(r.hook)
+		}
 	}
 
 	return r
@@ -70,6 +73,15 @@ type MemoryAwareRunner interface {
 	InjectMemory(ctx context.Context, entries ...memory.Entry) error
 	// CleanupMemory removes previously injected entries by ID.
 	CleanupMemory(ctx context.Context, ids ...string) error
+}
+
+// evoEngine returns the evolution engine from the CognitiveLoop strategy.
+// Returns nil when the strategy is not CognitiveLoop or no engine is configured.
+func (r *CognitiveAgentRunner) evoEngine() *evolution.Engine {
+	if cl, ok := r.agent.Strategy().(*agent.CognitiveLoop); ok {
+		return cl.EvolutionEngine()
+	}
+	return nil
 }
 
 // SetMemoryStore attaches the gateway's memory store so that InjectMemory and
@@ -207,7 +219,7 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 	duration := time.Since(start)
 
 	// Wait for all async evolution hooks to finish before reading their state.
-	if evo := r.agent.EvolutionEngine(); evo != nil {
+	if evo := r.evoEngine(); evo != nil {
 		evo.WaitPending()
 	}
 
@@ -220,7 +232,7 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 	}
 
 	// Capture routing decision for this task's complexity level.
-	if evo := r.agent.EvolutionEngine(); evo != nil {
+	if evo := r.evoEngine(); evo != nil {
 		if rr := evo.Router().SelectModel(task.Complexity); rr.Routed {
 			result.RoutedModel = rr.Model
 		}
@@ -299,7 +311,7 @@ func (r *CognitiveAgentRunner) populateFromObservation(result *EvalResult) {
 // engine's insights feedback loop immediately, bypassing the 6-hour timer.
 // Returns whether the cycle ran and a human-readable reason.
 func (r *CognitiveAgentRunner) RunInsightsCycle() (ran bool, reason string) {
-	evo := r.agent.EvolutionEngine()
+	evo := r.evoEngine()
 	if evo == nil {
 		return false, "evolution engine not configured"
 	}
@@ -313,7 +325,7 @@ func (r *CognitiveAgentRunner) RunInsightsCycle() (ran bool, reason string) {
 // TrajectoryCount implements InsightsTrigger. Returns the number of trajectory
 // records written in the last 7 days by the evolution engine.
 func (r *CognitiveAgentRunner) TrajectoryCount() int {
-	evo := r.agent.EvolutionEngine()
+	evo := r.evoEngine()
 	if evo == nil {
 		return 0
 	}
@@ -333,7 +345,7 @@ func (r *CognitiveAgentRunner) TrajectoryCount() int {
 // Returns a zero-valued snapshot when no evolution engine is configured.
 func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 	snap := &EvolutionSnapshot{}
-	evo := r.agent.EvolutionEngine()
+	evo := r.evoEngine()
 	if evo == nil {
 		return snap
 	}
@@ -364,36 +376,12 @@ func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 			since := time.Now().Add(-7 * 24 * time.Hour)
 			if records, err := evolution.ReadTrajectories(dir, since, time.Now()); err == nil {
 				snap.TrajectoryCount = len(records)
-				snap = computeRLStats(snap, records)
 			}
 		}
 	}
 	return snap
 }
 
-// computeRLStats converts trajectory records to RLExperiences and computes
-// aggregate statistics, populating the RL* fields of the snapshot.
-func computeRLStats(snap *EvolutionSnapshot, records []evolution.TrajectoryRecord) *EvolutionSnapshot {
-	exps := evolution.ConvertTrajectories(records)
-	if len(exps) == 0 {
-		return snap
-	}
-	snap.RLEpisodeCount = len(exps)
-	var totalReward, totalProgress float64
-	var successCount int
-	for _, e := range exps {
-		totalReward += e.Reward
-		totalProgress += e.Progress
-		if e.Progress >= 1.0 {
-			successCount++
-		}
-	}
-	n := float64(len(exps))
-	snap.RLAvgReward = totalReward / n
-	snap.RLSuccessRate = float64(successCount) / n
-	snap.RLAvgProgress = totalProgress / n
-	return snap
-}
 
 // populateSuccessFallback sets Success and Confidence when the evolution
 // hook did not provide explicit success signals. This covers runs where

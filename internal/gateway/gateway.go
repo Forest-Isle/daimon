@@ -27,7 +27,6 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
 	"github.com/Forest-Isle/IronClaw/internal/ratelimit"
-	"github.com/Forest-Isle/IronClaw/internal/rl"
 	"github.com/Forest-Isle/IronClaw/internal/sandbox"
 	"github.com/Forest-Isle/IronClaw/internal/scheduler"
 	"github.com/Forest-Isle/IronClaw/internal/session"
@@ -45,8 +44,8 @@ type Gateway struct {
 	db               *store.DB
 	sessions         *session.Manager
 	provider         agent.Provider // stored for completerAdapter use
-	runtime          *agent.Runtime
-	cognitiveAgent   *agent.CognitiveAgent
+	agent            *agent.Agent
+	cognitiveLoop    *agent.CognitiveLoop
 	graphEventStore  agent.ExecutionEventStore
 	heartbeat        *agent.HeartbeatScheduler
 	tools            *tool.Registry
@@ -56,7 +55,6 @@ type Gateway struct {
 	resultStore      *tool.ResultStore
 	mcpManager       *mcp.Manager
 	wasmHost         *wasm.PluginHost
-	rlTrainer        *rl.Trainer
 	userHookMgr      *hook.UserHookManager // user-configurable hook scripts
 	planMode         *agent.PlanMode       // plan->approve->execute flow
 	contextMgr       *agent.PipelineContextManager
@@ -209,8 +207,8 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	if gw.memory.Store() != nil {
 		procedural := cortex.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
 		gw.memory.cortex = cortex.NewUnifiedRetriever(gw.memory.Store(), gw.memory.KBSearcher(), gw.memory.GraphStore(), procedural)
-		if gw.cognitiveAgent != nil {
-			gw.cognitiveAgent.SetCortexRetriever(gw.memory.Cortex())
+		if gw.cognitiveLoop != nil {
+			gw.cognitiveLoop.SetCortexRetriever(gw.memory.Cortex())
 		}
 	}
 
@@ -275,9 +273,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.mcpManager = mcp.NewManager()
 
 	// Approval wiring
-	gw.runtime.SetApprovalFunc(gw.handleApproval)
-	if gw.cognitiveAgent != nil {
-		gw.cognitiveAgent.SetApprovalFunc(gw.handleApproval)
+	gw.agent.SetApprovalFunc(gw.handleApproval)
+	if gw.cognitiveLoop != nil {
+		gw.cognitiveLoop.SetApprovalFunc(gw.handleApproval)
 	}
 
 	// Scheduler handler
@@ -411,18 +409,10 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start RL trainer
-	if gw.rlTrainer != nil {
-		gw.rlTrainer.Start(ctx)
-		slog.Info("RL trainer started")
-	}
 
 	// Start evolution engine only when feature is enabled
 	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {
 		gw.evolution.Engine().Start()
-		if gw.rlTrainer != nil {
-			go gw.importTrajectoriesToRL()
-		}
 	}
 
 	slog.Info("gateway started")
@@ -462,9 +452,6 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	if gw.wasmHost != nil {
 		_ = gw.wasmHost.Close(ctx)
 	}
-	if gw.rlTrainer != nil {
-		gw.rlTrainer.Stop()
-	}
 
 	// Persist evolution state and stop engine (only when feature was enabled)
 	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {
@@ -497,11 +484,21 @@ func (gw *Gateway) CurrentMode() string {
 	return gw.currentMode.Load().(string)
 }
 
-// SetMode atomically switches the active agent mode.
+// SetMode atomically switches the active agent mode and strategy.
 // Returns an error if mode is not "simple", "cognitive", or "graph".
 func (gw *Gateway) SetMode(mode string) error {
 	if mode != "simple" && mode != "cognitive" && mode != "graph" {
 		return fmt.Errorf("unknown mode %q: valid modes are simple, cognitive, graph", mode)
+	}
+	switch mode {
+	case "cognitive":
+		if gw.agent != nil && gw.cognitiveLoop != nil {
+			gw.agent.SetStrategy(gw.cognitiveLoop)
+		}
+	default:
+		if gw.agent != nil {
+			gw.agent.SetStrategy(&agent.SimpleLoop{})
+		}
 	}
 	gw.currentMode.Store(mode)
 	slog.Info("gateway: mode switched", "mode", mode)
@@ -518,10 +515,10 @@ func (gw *Gateway) CogMetricsCollector() *cogmetrics.Collector {
 // It also wires the runner's compression emitter into the context manager so that
 // context compression events are captured even when the dashboard is disabled.
 func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
-	if gw.cognitiveAgent == nil { // defensive: should not happen after init
+	if gw.agent == nil { // defensive: should not happen after init
 		return nil
 	}
-	r := eval.NewCognitiveAgentRunner(gw.cognitiveAgent)
+	r := eval.NewCognitiveAgentRunner(gw.agent)
 	r.SetCogCollector(gw.evolution.Collector())
 	r.SetMemoryStore(gw.memory.Store())
 	// Route context compression events through the eval hook so they appear
@@ -616,20 +613,7 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 
 	slog.Info("message received", "channel", msg.Channel, "user", msg.UserName, "text_len", len(msg.Text))
 
-	switch gw.currentMode.Load().(string) {
-	case "cognitive":
-		if err := gw.cognitiveAgent.HandleMessage(ctx, ch, msg); err != nil {
-			slog.Error("cognitive agent error", "err", err)
-			if err := ch.Send(ctx, channel.OutboundMessage{
-				Channel:   msg.Channel,
-				ChannelID: msg.ChannelID,
-				Text:      "Error: " + err.Error(),
-			}); err != nil {
-				slog.Warn("failed to send message", "err", err)
-			}
-		}
-		return
-	case "graph":
+	if gw.currentMode.Load().(string) == "graph" {
 		if err := gw.handleGraphMessage(ctx, ch, msg); err != nil {
 			slog.Error("graph engine error", "err", err)
 			if err := ch.Send(ctx, channel.OutboundMessage{
@@ -643,7 +627,7 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 		return
 	}
 
-	if err := gw.runtime.HandleMessage(ctx, ch, msg); err != nil {
+	if err := gw.agent.HandleMessage(ctx, ch, msg); err != nil {
 		slog.Error("agent error", "err", err)
 		if err := ch.Send(ctx, channel.OutboundMessage{
 			Channel:   msg.Channel,
@@ -912,45 +896,6 @@ func (gw *Gateway) executeTeamTask(ctx context.Context, task taskledger.Task) (s
 		return "", err
 	}
 	return resp.Text, nil
-}
-
-// importTrajectoriesToRL warm-starts the RL replay buffer from historical
-// trajectory data. Runs once in the background at startup.
-func (gw *Gateway) importTrajectoriesToRL() {
-	trajDir, err := gw.resolveEvolutionTrajDir()
-	if err != nil {
-		return
-	}
-	since := time.Now().AddDate(0, 0, -7)
-	exps, err := evolution.ConvertFromDir(trajDir, since)
-	if err != nil {
-		slog.Warn("gateway: RL trajectory import failed", "err", err)
-		return
-	}
-	for _, exp := range exps {
-		gw.rlTrainer.AddExperience(rl.Experience{
-			State: &rl.RLState{
-				ComplexitySimple:     exp.ComplexitySimple,
-				ComplexityModerate:   exp.ComplexityModerate,
-				ComplexityComplex:    exp.ComplexityComplex,
-				ToolCount:            exp.ToolCount,
-				SubTaskCount:         exp.SubTaskCount,
-				ReplanCount:          exp.ReplanCount,
-				SuccessCount:         exp.SuccessCount,
-				FailureCount:         exp.FailureCount,
-				Progress:             exp.Progress,
-				PlanConfidence:       exp.PlanConfidence,
-				ReflectionConfidence: exp.ReflectionConf,
-			},
-			Action: []float64{exp.Reward},
-			Reward: exp.Reward,
-			Done:   true,
-			Level:  rl.LevelPPO,
-		})
-	}
-	if len(exps) > 0 {
-		slog.Info("gateway: imported trajectories into RL buffer", "experiences", len(exps))
-	}
 }
 
 // initRateLimiter creates the rate limiter based on config.

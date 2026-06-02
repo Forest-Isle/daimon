@@ -15,7 +15,7 @@ import (
 func TestRunTask_SkillEvolutionDraftQuality(t *testing.T) {
 	ctx := context.Background()
 	r := &CognitiveAgentRunner{
-		agent:   &agent.CognitiveAgent{},
+		agent: nil,
 		channel: &EvalChannel{},
 	}
 	res, err := r.RunTask(ctx, TaskCase{
@@ -335,7 +335,7 @@ func TestMemoryAwareRunner_InjectAndCleanup(t *testing.T) {
 
 	// Wire the mock store directly; no need for a real CognitiveAgent.
 	r := &CognitiveAgentRunner{
-		agent:    &agent.CognitiveAgent{},
+		agent: nil,
 		channel:  &EvalChannel{},
 		memStore: store,
 	}
@@ -369,7 +369,7 @@ func TestMemoryAwareRunner_InjectAndCleanup(t *testing.T) {
 func TestMemoryAwareRunner_NoStore(t *testing.T) {
 	// memStore is nil — should return error from InjectMemory.
 	r := &CognitiveAgentRunner{
-		agent:   &agent.CognitiveAgent{},
+		agent: nil,
 		channel: &EvalChannel{},
 	}
 	ctx := context.Background()
@@ -402,7 +402,7 @@ func TestRunSuite_SetupWithRunner(t *testing.T) {
 
 	store := newMockMemoryStore()
 	r := &CognitiveAgentRunner{
-		agent:    &agent.CognitiveAgent{},
+		agent: nil,
 		channel:  &EvalChannel{},
 		memStore: store,
 	}
@@ -510,65 +510,7 @@ func TestCaptureSnapshot_StrategyParams(t *testing.T) {
 	}
 }
 
-// TestCaptureSnapshot_RLStats verifies computeRLStats correctly aggregates
-// RL experience statistics from trajectory records.
-func TestCaptureSnapshot_RLStats(t *testing.T) {
-	records := []evolution.TrajectoryRecord{
-		{
-			SessionID:  "s1",
-			Complexity: "simple",
-			Tools:      []evolution.ToolRecord{{Name: "bash", Succeeded: true}},
-			Reflection: evolution.ReflectionBrief{Succeeded: true, Confidence: 0.9, Reward: 0.8},
-			DurationMs: 1000,
-		},
-		{
-			SessionID:  "s2",
-			Complexity: "moderate",
-			Tools:      []evolution.ToolRecord{{Name: "bash", Succeeded: false}},
-			Reflection: evolution.ReflectionBrief{Succeeded: false, Confidence: 0.4, Reward: -0.2},
-			DurationMs: 2000,
-		},
-		{
-			SessionID:  "s3",
-			Complexity: "simple",
-			Tools:      []evolution.ToolRecord{{Name: "file_write", Succeeded: true}},
-			Reflection: evolution.ReflectionBrief{Succeeded: true, Confidence: 0.85, Reward: 0.7},
-			DurationMs: 1500,
-		},
-	}
 
-	snap := &EvolutionSnapshot{}
-	snap = computeRLStats(snap, records)
-
-	if snap.RLEpisodeCount != 3 {
-		t.Errorf("RLEpisodeCount = %d, want 3", snap.RLEpisodeCount)
-	}
-	// 2 out of 3 succeeded (progress = 1.0)
-	wantSuccessRate := 2.0 / 3.0
-	if diff := snap.RLSuccessRate - wantSuccessRate; diff > 0.001 || diff < -0.001 {
-		t.Errorf("RLSuccessRate = %f, want ~%f", snap.RLSuccessRate, wantSuccessRate)
-	}
-	// RLAvgReward should be the mean of the computed rewards.
-	if snap.RLAvgReward == 0 {
-		t.Error("RLAvgReward should be non-zero")
-	}
-	if snap.RLAvgProgress <= 0 {
-		t.Error("RLAvgProgress should be positive (some tasks succeeded)")
-	}
-}
-
-// TestCaptureSnapshot_RLStats_Empty verifies computeRLStats handles empty input gracefully.
-func TestCaptureSnapshot_RLStats_Empty(t *testing.T) {
-	snap := &EvolutionSnapshot{}
-	snap = computeRLStats(snap, nil)
-
-	if snap.RLEpisodeCount != 0 {
-		t.Errorf("RLEpisodeCount should be 0 for empty input, got %d", snap.RLEpisodeCount)
-	}
-	if snap.RLAvgReward != 0 {
-		t.Errorf("RLAvgReward should be 0 for empty input, got %f", snap.RLAvgReward)
-	}
-}
 
 // TestEvoSnapshotDiff_StrategyDelta verifies Compare correctly computes
 // strategy parameter deltas between two suite results.
@@ -581,8 +523,6 @@ func TestEvoSnapshotDiff_StrategyDelta(t *testing.T) {
 			SkillDraftCount:  1,
 			TrajectoryCount:  10,
 			ReplanThreshold:  0.30,
-			RLAvgReward:      0.50,
-			RLSuccessRate:    0.60,
 			ToolPriorities:   map[string]float64{"bash": 0.5, "file_write": 0.6},
 		},
 	}
@@ -594,8 +534,6 @@ func TestEvoSnapshotDiff_StrategyDelta(t *testing.T) {
 			SkillDraftCount:  2,
 			TrajectoryCount:  15,
 			ReplanThreshold:  0.27,
-			RLAvgReward:      0.65,
-			RLSuccessRate:    0.75,
 			ToolPriorities:   map[string]float64{"bash": 0.55, "file_write": 0.6, "http": 0.4},
 		},
 	}
@@ -619,15 +557,6 @@ func TestEvoSnapshotDiff_StrategyDelta(t *testing.T) {
 		t.Errorf("ReplanThresholdDelta = %f, want ~%f", diff.ReplanThresholdDelta, wantReplanDelta)
 	}
 
-	wantRewardDelta := 0.65 - 0.50
-	if d := diff.RLAvgRewardDelta - wantRewardDelta; d > 0.001 || d < -0.001 {
-		t.Errorf("RLAvgRewardDelta = %f, want ~%f", diff.RLAvgRewardDelta, wantRewardDelta)
-	}
-
-	wantSuccessDelta := 0.75 - 0.60
-	if d := diff.RLSuccessRateDelta - wantSuccessDelta; d > 0.001 || d < -0.001 {
-		t.Errorf("RLSuccessRateDelta = %f, want ~%f", diff.RLSuccessRateDelta, wantSuccessDelta)
-	}
 
 	// Tool priority deltas — only tools present in both snapshots.
 	// "bash" and "file_write" are in both; "http" is only in after.
@@ -653,8 +582,6 @@ func TestFormatMarkdown_EvoSnapshotDelta(t *testing.T) {
 		RunID: "run-a",
 		EvoAfter: &EvolutionSnapshot{
 			ReplanThreshold: 0.30,
-			RLAvgReward:     0.50,
-			RLSuccessRate:   0.60,
 			ToolPriorities:  map[string]float64{"bash": 0.5},
 		},
 	}
@@ -662,8 +589,6 @@ func TestFormatMarkdown_EvoSnapshotDelta(t *testing.T) {
 		RunID: "run-b",
 		EvoAfter: &EvolutionSnapshot{
 			ReplanThreshold: 0.27,
-			RLAvgReward:     0.65,
-			RLSuccessRate:   0.75,
 			ToolPriorities:  map[string]float64{"bash": 0.55},
 		},
 	}
@@ -673,12 +598,6 @@ func TestFormatMarkdown_EvoSnapshotDelta(t *testing.T) {
 
 	if !strings.Contains(md, "Replan Threshold") {
 		t.Error("FormatMarkdown should include 'Replan Threshold' row")
-	}
-	if !strings.Contains(md, "RL Avg Reward") {
-		t.Error("FormatMarkdown should include 'RL Avg Reward' row")
-	}
-	if !strings.Contains(md, "RL Success Rate") {
-		t.Error("FormatMarkdown should include 'RL Success Rate' row")
 	}
 	if !strings.Contains(md, "Tool Priority Deltas") {
 		t.Error("FormatMarkdown should include 'Tool Priority Deltas' section")

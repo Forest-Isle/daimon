@@ -22,7 +22,6 @@ type Perceiver struct {
 	searcher    knowledge.Searcher // optional knowledge searcher (KB or HybridRetriever)
 	graph       graph.Graph        // optional knowledge graph
 	cortex      *cortex.UnifiedRetriever
-	rlPolicy    RLPolicy                // optional RL policy
 	scanner     *ProjectContextScanner  // optional project context scanner
 	gitProvider *GitContextProvider     // optional git state provider
 	budgetAlloc *ContextBudgetAllocator // optional context budget allocator
@@ -46,11 +45,6 @@ func (p *Perceiver) SetKnowledgeGraph(g graph.Graph) {
 // SetCortexRetriever injects the unified cortex retriever.
 func (p *Perceiver) SetCortexRetriever(ur *cortex.UnifiedRetriever) {
 	p.cortex = ur
-}
-
-// SetRLPolicy injects an optional RL policy.
-func (p *Perceiver) SetRLPolicy(policy RLPolicy) {
-	p.rlPolicy = policy
 }
 
 // SetProjectScanner injects an optional project context scanner.

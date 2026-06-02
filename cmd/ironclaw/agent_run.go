@@ -121,8 +121,8 @@ func runAgentFromStdin(cmd *cobra.Command, args []string) error {
 		Text:      userText,
 	}
 
-	runtime := hgw.Runtime()
-	execErr := runtime.HandleMessage(ctx, capture, msg)
+	agt := hgw.Agent()
+	execErr := agt.HandleMessage(ctx, capture, msg)
 	duration := time.Since(start)
 
 	// Build and write response.

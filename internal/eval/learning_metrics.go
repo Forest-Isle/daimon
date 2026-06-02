@@ -20,10 +20,6 @@ const (
 // LearningCurveAnalysis captures the trend in agent performance across
 // longitudinal evaluation iterations using linear regression.
 type LearningCurveAnalysis struct {
-	// RewardSlope is the linear regression slope of RLAvgReward across iterations.
-	// Positive = improving, negative = degrading.
-	RewardSlope float64 `json:"reward_slope"`
-
 	// SuccessRateSlope is the linear regression slope of SuccessRate.
 	SuccessRateSlope float64 `json:"success_rate_slope"`
 
@@ -33,18 +29,13 @@ type LearningCurveAnalysis struct {
 	// PreferenceGrowthPerIter is the average PreferenceCount increase per iteration.
 	PreferenceGrowthPerIter float64 `json:"preference_growth_per_iter"`
 
-	// RewardVelocity classifies the reward trend direction.
-	RewardVelocity LearningVelocity `json:"reward_velocity"`
-
 	// SuccessVelocity classifies the success rate trend direction.
 	SuccessVelocity LearningVelocity `json:"success_velocity"`
 
 	// IterationCount is the number of data points used.
 	IterationCount int `json:"iteration_count"`
 
-	// First/Last bounds for reward and success rate.
-	FirstReward      float64 `json:"first_reward"`
-	LastReward       float64 `json:"last_reward"`
+	// First/Last bounds for success rate.
 	FirstSuccessRate float64 `json:"first_success_rate"`
 	LastSuccessRate  float64 `json:"last_success_rate"`
 }
@@ -93,7 +84,6 @@ func ComputeLearningCurve(points []IterationPoint) *LearningCurveAnalysis {
 	first := points[0]
 	last := points[len(points)-1]
 
-	rewardSlope := lmLinearSlope(lmExtractFloat(points, func(p IterationPoint) float64 { return p.RLAvgReward }))
 	successSlope := lmLinearSlope(lmExtractFloat(points, func(p IterationPoint) float64 { return p.Summary.SuccessRate }))
 
 	skillGrowth := 0.0
@@ -110,15 +100,11 @@ func ComputeLearningCurve(points []IterationPoint) *LearningCurveAnalysis {
 	}
 
 	return &LearningCurveAnalysis{
-		RewardSlope:             rewardSlope,
 		SuccessRateSlope:        successSlope,
 		SkillGrowthPerIter:      skillGrowth,
 		PreferenceGrowthPerIter: prefGrowth,
-		RewardVelocity:          lmClassifyVelocity(rewardSlope, 0.01),
 		SuccessVelocity:         lmClassifyVelocity(successSlope, 0.005),
 		IterationCount:          len(points),
-		FirstReward:             first.RLAvgReward,
-		LastReward:              last.RLAvgReward,
 		FirstSuccessRate:        first.Summary.SuccessRate,
 		LastSuccessRate:         last.Summary.SuccessRate,
 	}
@@ -179,7 +165,7 @@ func ComputeSelfLearningAnalysis(points []IterationPoint) *SelfLearningAnalysisS
 // self-learning analysis, suitable for CLI output.
 func FormatLearningCurveSummary(s *SelfLearningAnalysisSummary) string {
 	if s == nil {
-		return "No self-learning analysis available (need ≥2 longitudinal iterations).\n"
+		return "No self-learning analysis available (need >=2 longitudinal iterations).\n"
 	}
 	var b strings.Builder
 	b.WriteString("\n=== Self-Learning Analysis ===\n")
@@ -187,9 +173,7 @@ func FormatLearningCurveSummary(s *SelfLearningAnalysisSummary) string {
 	if s.LearningCurve != nil {
 		c := s.LearningCurve
 		fmt.Fprintf(&b, "Learning Curve (%d iterations):\n", c.IterationCount)
-		fmt.Fprintf(&b, "  Reward:         %.3f → %.3f  slope=%.4f  [%s]\n",
-			c.FirstReward, c.LastReward, c.RewardSlope, c.RewardVelocity)
-		fmt.Fprintf(&b, "  Success rate:   %.0f%% → %.0f%%  slope=%.4f  [%s]\n",
+		fmt.Fprintf(&b, "  Success rate:   %.0f%% -> %.0f%%  slope=%.4f  [%s]\n",
 			c.FirstSuccessRate*100, c.LastSuccessRate*100, c.SuccessRateSlope, c.SuccessVelocity)
 		fmt.Fprintf(&b, "  Skill growth:   +%.2f/iter\n", c.SkillGrowthPerIter)
 		fmt.Fprintf(&b, "  Pref growth:    +%.2f/iter\n", c.PreferenceGrowthPerIter)
@@ -217,21 +201,19 @@ func FormatLearningCurveSummary(s *SelfLearningAnalysisSummary) string {
 
 // GenerateLearningCurveHTML returns a self-contained HTML page with four line
 // charts visualising learning curve data across longitudinal iterations.
-// Uses Chart.js via CDN — requires internet access to render.
+// Uses Chart.js via CDN -- requires internet access to render.
 func GenerateLearningCurveHTML(points []IterationPoint) string {
 	if len(points) == 0 {
 		return "<html><body><p>No iteration data available.</p></body></html>"
 	}
 
 	labels := make([]string, len(points))
-	rewards := make([]float64, len(points))
 	successRates := make([]float64, len(points))
 	skillCounts := make([]int, len(points))
 	prefCounts := make([]int, len(points))
 
 	for i, p := range points {
 		labels[i] = p.RunID
-		rewards[i] = p.RLAvgReward
 		successRates[i] = p.Summary.SuccessRate * 100
 		skillCounts[i] = p.SkillDraftCount
 		prefCounts[i] = p.PreferenceCount
@@ -242,55 +224,52 @@ func GenerateLearningCurveHTML(points []IterationPoint) string {
 	summaryHTML := strings.ReplaceAll(strings.ReplaceAll(summaryText, "\n", "<br>"), "  ", "&nbsp;&nbsp;")
 
 	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IronClaw — Self-Learning Curve</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<style>
-body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;margin:0;padding:24px}
-h1{color:#a78bfa;margin-bottom:4px}
-.subtitle{color:#64748b;font-size:14px;margin-bottom:24px}
-.summary{background:#1e2130;border-left:3px solid #a78bfa;padding:16px;margin-bottom:28px;
-         font-family:monospace;font-size:13px;line-height:1.8;border-radius:4px;white-space:pre-wrap}
-.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-.chart-box{background:#1e2130;border-radius:8px;padding:18px}
-canvas{max-height:260px}
-</style>
-</head>
-<body>
-<h1>&#129504; IronClaw &mdash; Self-Learning Curve</h1>
-<div class="subtitle">Generated %s &nbsp;|&nbsp; %d iterations</div>
-<div class="summary">%s</div>
-<div class="chart-grid">
-  <div class="chart-box"><canvas id="rewardChart"></canvas></div>
-  <div class="chart-box"><canvas id="successChart"></canvas></div>
-  <div class="chart-box"><canvas id="skillChart"></canvas></div>
-  <div class="chart-box"><canvas id="prefChart"></canvas></div>
-</div>
-<script>
-const labels=%s,rewards=%s,successRates=%s,skillCounts=%s,prefCounts=%s;
-const opts={responsive:true,plugins:{legend:{labels:{color:'#e2e8f0'}}},
-  scales:{x:{ticks:{color:'#94a3b8'},grid:{color:'#2d3748'}},
-          y:{ticks:{color:'#94a3b8'},grid:{color:'#2d3748'}}}};
-function mkChart(id,label,data,color){
-  new Chart(document.getElementById(id),{type:'line',options:opts,
-    data:{labels,datasets:[{label,data,borderColor:color,backgroundColor:color+'33',
-      tension:0.3,fill:true,pointRadius:5}]}});
-}
-mkChart('rewardChart','RL Avg Reward',rewards,'#a78bfa');
-mkChart('successChart','Success Rate (%%)',successRates,'#34d399');
-mkChart('skillChart','Skill Draft Count',skillCounts,'#f59e0b');
-mkChart('prefChart','Preference Count',prefCounts,'#60a5fa');
-</script>
-</body>
-</html>`,
+	<html lang="en">
+	<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>IronClaw -- Self-Learning Curve</title>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+	<style>
+	body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;margin:0;padding:24px}
+	h1{color:#a78bfa;margin-bottom:4px}
+	.subtitle{color:#64748b;font-size:14px;margin-bottom:24px}
+	.summary{background:#1e2130;border-left:3px solid #a78bfa;padding:16px;margin-bottom:28px;
+	         font-family:monospace;font-size:13px;line-height:1.8;border-radius:4px;white-space:pre-wrap}
+	.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+	.chart-box{background:#1e2130;border-radius:8px;padding:18px}
+	canvas{max-height:260px}
+	</style>
+	</head>
+	<body>
+	<h1>&#129504; IronClaw &mdash; Self-Learning Curve</h1>
+	<div class="subtitle">Generated %s &nbsp;|&nbsp; %d iterations</div>
+	<div class="summary">%s</div>
+	<div class="chart-grid">
+	  <div class="chart-box"><canvas id="successChart"></canvas></div>
+	  <div class="chart-box"><canvas id="skillChart"></canvas></div>
+	  <div class="chart-box"><canvas id="prefChart"></canvas></div>
+	</div>
+	<script>
+	const labels=%s,successRates=%s,skillCounts=%s,prefCounts=%s;
+	const opts={responsive:true,plugins:{legend:{labels:{color:'#e2e8f0'}},
+	  scales:{x:{ticks:{color:'#94a3b8'},grid:{color:'#2d3748'}},
+	          y:{ticks:{color:'#94a3b8'},grid:{color:'#2d3748'}}}};
+	function mkChart(id,label,data,color){
+	  new Chart(document.getElementById(id),{type:'line',options:opts,
+	    data:{labels,datasets:[{label,data,borderColor:color,backgroundColor:color+'33',
+	      tension:0.3,fill:true,pointRadius:5}]}});
+	}
+	mkChart('successChart','Success Rate (%%)',successRates,'#34d399');
+	mkChart('skillChart','Skill Draft Count',skillCounts,'#f59e0b');
+	mkChart('prefChart','Preference Count',prefCounts,'#60a5fa');
+	</script>
+	</body>
+	</html>`,
 		time.Now().Format("2006-01-02 15:04"),
 		len(points),
 		summaryHTML,
 		lmToJSStringArray(labels),
-		lmToJSFloatArray(rewards),
 		lmToJSFloatArray(successRates),
 		lmToJSIntArray(skillCounts),
 		lmToJSIntArray(prefCounts),
@@ -331,7 +310,7 @@ func lmStdDev(xs []float64, m float64) float64 {
 }
 
 // lmLinearSlope computes the least-squares slope for a sequence of values,
-// treating each index as the x coordinate (0, 1, 2, …).
+// treating each index as the x coordinate (0, 1, 2, ...).
 func lmLinearSlope(ys []float64) float64 {
 	n := float64(len(ys))
 	if n < 2 {
@@ -365,17 +344,11 @@ func lmClassifyVelocity(slope, threshold float64) LearningVelocity {
 func lmCompositeScore(curve *LearningCurveAnalysis, conv *StrategyConvergenceAnalysis) float64 {
 	score := 0.5
 	if curve != nil {
-		switch curve.RewardVelocity {
-		case VelocityImproving:
-			score += 0.2
-		case VelocityDegrading:
-			score -= 0.1
-		}
 		switch curve.SuccessVelocity {
 		case VelocityImproving:
-			score += 0.2
+			score += 0.4
 		case VelocityDegrading:
-			score -= 0.1
+			score -= 0.2
 		}
 	}
 	if conv != nil && conv.IsConverged {

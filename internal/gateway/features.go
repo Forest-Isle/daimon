@@ -103,13 +103,6 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 		HotReloadable: true,
 	})
 	r.Register(feature.Feature{
-		Name:         "rl",
-		Description:  "Reinforcement learning system",
-		Default:      false,
-		Phase:        feature.PhaseConstruct,
-		Dependencies: []string{"evolution"},
-	})
-	r.Register(feature.Feature{
 		Name:         "model_routing",
 		Description:  "Dynamic model selection by task complexity",
 		Default:      false,
@@ -290,7 +283,6 @@ func configToOverrides(cfg *config.Config) map[string]bool {
 		"reranker":        cfg.Knowledge.Reranker.Enabled,
 		"sandbox":         cfg.Sandbox.Enabled,
 		"evolution":       cfg.Evolution.Enabled,
-		"rl":              cfg.Agent.RL.Enabled,
 		"model_routing":   cfg.Evolution.Router.Enabled,
 		"dashboard":       cfg.Dashboard.Enabled,
 		"server":          cfg.Server.Enabled,

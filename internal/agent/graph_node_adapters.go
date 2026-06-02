@@ -212,7 +212,7 @@ func NewActNodeWithDeps(deps NodeDeps) *FuncNode {
 
 		target := targetFromSession(sess)
 		taskCtx := NewTaskContext(sess.ID, payload.CogState.Goal.Raw)
-		observations, err := deps.Executor.RunWithContext(ctx, deps.Channel, sess, target, payload.TaskPlan, taskCtx, nil, nil)
+		observations, err := deps.Executor.RunWithContext(ctx, deps.Channel, sess, target, payload.TaskPlan, taskCtx)
 		if err != nil {
 			return NodeResult{}, err
 		}

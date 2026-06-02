@@ -74,8 +74,8 @@ func (gw *Gateway) initMultiAgent() error {
 
 		agentMgr.SetAgentMCPManager(agentMCPMgr)
 
-		if gw.cognitiveAgent != nil {
-			gw.cognitiveAgent.SetDebateConfig(gw.cfg.Agents.Debate)
+		if gw.cognitiveLoop != nil {
+			gw.cognitiveLoop.SetDebateConfig(gw.cfg.Agents.Debate)
 		}
 
 		// Team coordination manager

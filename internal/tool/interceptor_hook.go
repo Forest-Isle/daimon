@@ -30,6 +30,8 @@ func (h *HookInterceptor) Intercept(ctx context.Context, call *ToolCall, next In
 		switch hookResult.Action {
 		case "deny":
 			return &ToolResult{Error: "denied by hook: " + hookResult.Reason}, nil
+		case "allow":
+			call.HookApproved = true
 		}
 	}
 

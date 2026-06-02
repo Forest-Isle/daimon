@@ -12,6 +12,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/cortex"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
+	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/observability"
 	"github.com/Forest-Isle/IronClaw/internal/session"
@@ -95,7 +96,65 @@ func NewCognitiveLoop(deps AgentDeps, opts *CognitiveAgentOptions) *CognitiveLoo
 
 	cl.applyOptions(opts)
 
+	// Wire observation callback from opts
+	if opts != nil && opts.ObservationCallback != nil {
+		cl.observationCallback = opts.ObservationCallback
+	}
+
 	return cl
+}
+
+// SetObservationCallback registers a callback invoked after each OBSERVE phase.
+func (cl *CognitiveLoop) SetObservationCallback(fn func(result *ObservationResult)) {
+	cl.observationCallback = fn
+}
+
+// EvolutionEngine returns the evolution engine, or nil if not configured.
+func (cl *CognitiveLoop) EvolutionEngine() *evolution.Engine {
+	return cl.evoEngine
+}
+
+// SetCortexRetriever injects a unified cortex retriever.
+func (cl *CognitiveLoop) SetCortexRetriever(cr *cortex.UnifiedRetriever) {
+	cl.cortex = cr
+	cl.perceiver.SetCortexRetriever(cr)
+}
+
+// SetApprovalFunc sets the tool approval callback.
+func (cl *CognitiveLoop) SetApprovalFunc(fn ApprovalFunc) {
+	cl.approvalFunc = fn
+	if cl.executor != nil {
+		cl.executor.approvalFunc = fn
+	}
+}
+
+// BuildNodeDeps creates NodeDeps for graph node execution.
+func (cl *CognitiveLoop) BuildNodeDeps(ch channel.Channel) NodeDeps {
+	return NodeDeps{
+		Executor: cl.executor,
+		Channel:  ch,
+	}
+}
+
+// SetKnowledgeSearcher injects a knowledge searcher.
+func (cl *CognitiveLoop) SetKnowledgeSearcher(s knowledge.Searcher) {
+	cl.perceiver.SetKnowledgeSearcher(s)
+}
+
+// SetKnowledgeGraph injects a knowledge graph.
+func (cl *CognitiveLoop) SetKnowledgeGraph(g graph.Graph) {
+	cl.perceiver.SetKnowledgeGraph(g)
+}
+
+// SetEntityExtractor injects an entity extractor.
+func (cl *CognitiveLoop) SetEntityExtractor(ee *graph.LLMEntityExtractor) {
+	cl.entityExtractor = ee
+	cl.reflector.SetEntityExtractor(ee)
+}
+
+// SetDebateConfig sets the debate configuration.
+func (cl *CognitiveLoop) SetDebateConfig(cfg config.DebateSettings) {
+	cl.debateCfg = cfg
 }
 
 func (cl *CognitiveLoop) applyOptions(opts *CognitiveAgentOptions) {
