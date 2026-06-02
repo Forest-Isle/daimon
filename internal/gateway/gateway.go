@@ -41,6 +41,8 @@ import (
 // Gateway is the central coordinator that wires all modules together.
 type Gateway struct {
 	cfg              *config.Config
+	cfgPath          string
+	configWatcher    *config.ConfigWatcher
 	db               *store.DB
 	sessions         *session.Manager
 	provider         agent.Provider // stored for completerAdapter use
@@ -96,6 +98,10 @@ type GatewayOptions struct {
 	// eval's forced config overrides cannot be silently reverted by a user's
 	// runtime `/feature disable` state from a previous interactive session.
 	SkipPersistedFeatureState bool
+	// ConfigPath is the path to the YAML config file for hot-reload watching.
+	// When set, the gateway will start a ConfigWatcher that reloads the config
+	// on file changes and calls OnReload callbacks.
+	ConfigPath string
 }
 
 func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
@@ -144,6 +150,16 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	opt := GatewayOptions{}
 	if len(opts) > 0 {
 		opt = opts[0]
+	}
+
+	// Config hot-reload watcher — start after config is loaded, register callbacks later
+	if opt.ConfigPath != "" {
+		gw.cfgPath = opt.ConfigPath
+		gw.configWatcher, err = config.NewConfigWatcher(opt.ConfigPath)
+		if err != nil {
+			slog.Warn("config: hot-reload unavailable, using static config", "err", err)
+			gw.configWatcher = nil
+		}
 	}
 
 	// Feature registry — register all features, apply config overrides, resolve dependencies
@@ -326,6 +342,26 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	gw.bindFeatureLifecycleHooks()
 
+	// Register config hot-reload callbacks now that all subsystems exist.
+	if gw.configWatcher != nil {
+		gw.configWatcher.OnReload(func(newCfg *config.Config) {
+			// Update the gateway's config pointer so all subsystems see the new values.
+			gw.cfg = newCfg
+			// Update LLM model on agent
+			if gw.agent != nil {
+				gw.agent.SetModel(newCfg.LLM.Model)
+			}
+			// Update rate limiter
+			gw.initRateLimiter()
+			// Publish config changed event
+			if gw.agent != nil {
+				gw.agent.EventBus().Publish(agent.ConfigChanged{
+					Path: gw.cfgPath,
+				})
+			}
+		})
+	}
+
 	rb.cleanups = nil // success — Stop() handles cleanup
 	return gw, nil
 }
@@ -472,6 +508,10 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	gw.stopOnce.Do(func() { close(gw.stopCh) })
 	if gw.initCancel != nil {
 		gw.initCancel()
+	}
+
+	if gw.configWatcher != nil {
+		gw.configWatcher.Stop()
 	}
 
 	_ = gw.db.Close()

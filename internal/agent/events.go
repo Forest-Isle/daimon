@@ -134,3 +134,12 @@ type MetricsTick struct {
 }
 
 func (MetricsTick) EventType() string { return "metrics.tick" }
+
+// ──────────────────────── Config Events ────────────────────────
+
+// ConfigChanged is emitted when the config file is hot-reloaded.
+type ConfigChanged struct {
+	Path string
+}
+
+func (ConfigChanged) EventType() string { return "config.changed" }

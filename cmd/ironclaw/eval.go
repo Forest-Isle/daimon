@@ -214,6 +214,7 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 
 	gw, err := gateway.New(cfg, gateway.GatewayOptions{
 		SkipPersistedFeatureState: true,
+		ConfigPath:                configPath,
 	})
 	if err != nil {
 		_ = os.RemoveAll(evalMemDir)

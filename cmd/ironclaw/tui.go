@@ -47,7 +47,7 @@ func runTUI(configPath string) error {
 		return fmt.Errorf("load user config: %w", err)
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := gateway.New(cfg, gateway.GatewayOptions{ConfigPath: configPath})
 	if err != nil {
 		return fmt.Errorf("init gateway: %w", err)
 	}

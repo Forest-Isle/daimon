@@ -66,6 +66,20 @@ func (gw *Gateway) initMemorySystem() error {
 
 	slog.Info("memory: file-based storage enabled", "dir", storageDir)
 
+	// Wrap with search cache if enabled
+	if gw.cfg.Memory.EnableSearchCache {
+		cacheSize := gw.cfg.Memory.SearchCacheSize
+		if cacheSize <= 0 {
+			cacheSize = 500
+		}
+		cacheTTL := gw.cfg.Memory.SearchCacheTTL
+		if cacheTTL <= 0 {
+			cacheTTL = 5 * time.Minute
+		}
+		gw.memory.memStore = memory.NewCachedStore(gw.memory.memStore, cacheSize, cacheTTL)
+		slog.Info("memory: search cache enabled", "size", cacheSize, "ttl", cacheTTL)
+	}
+
 	// Update agentDeps with the memory store
 	gw.agentDeps.Memory.Store = gw.memory.memStore
 	gw.agentDeps.Memory.BaseDir = storageDir
