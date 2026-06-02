@@ -1,101 +1,94 @@
 package agent
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
 
-// CircuitState represents the state of a circuit breaker.
-type CircuitState string
+// CircuitState represents the current state of the circuit breaker.
+type CircuitState int
 
 const (
-	CircuitClosed   CircuitState = "closed"    // normal operation
-	CircuitOpen     CircuitState = "open"      // failing, reject requests
-	CircuitHalfOpen CircuitState = "half_open" // testing recovery
+	CircuitClosed   CircuitState = iota // normal, requests flow through
+	CircuitOpen                         // failing, requests rejected immediately
+	CircuitHalfOpen                     // testing if upstream recovered
 )
 
-// CircuitBreaker implements the circuit breaker pattern for sub-agent calls.
-type CircuitBreaker struct {
-	mu            sync.Mutex
-	state         CircuitState
-	failureCount  int
-	successCount  int
-	threshold     int           // failures before opening
-	resetAfter    time.Duration // time before attempting half-open
-	lastFailTime  time.Time
-	halfOpenLimit int // max requests in half-open state
-}
-
-// NewCircuitBreaker creates a new CircuitBreaker with default settings.
-func NewCircuitBreaker() *CircuitBreaker {
-	return &CircuitBreaker{
-		state:         CircuitClosed,
-		threshold:     3,
-		resetAfter:    60 * time.Second,
-		halfOpenLimit: 1,
+func (s CircuitState) String() string {
+	switch s {
+	case CircuitClosed:
+		return "closed"
+	case CircuitOpen:
+		return "open"
+	case CircuitHalfOpen:
+		return "half-open"
+	default:
+		return "unknown"
 	}
 }
 
-// Allow checks if a request should be allowed through the circuit breaker.
-func (cb *CircuitBreaker) Allow() error {
+// CircuitBreaker implements the circuit breaker pattern for LLM provider calls.
+// After consecutiveFailures consecutive failures, the circuit opens for openTimeout.
+// In half-open state, a single probe request tests if the upstream recovered.
+type CircuitBreaker struct {
+	mu                  sync.Mutex
+	state               CircuitState
+	consecutiveFailures int
+	failureThreshold    int
+	openTimeout         time.Duration
+	openedAt            time.Time
+}
+
+// NewCircuitBreaker creates a circuit breaker.
+func NewCircuitBreaker(failureThreshold int, openTimeout time.Duration) *CircuitBreaker {
+	return &CircuitBreaker{
+		state:            CircuitClosed,
+		failureThreshold: failureThreshold,
+		openTimeout:      openTimeout,
+	}
+}
+
+// Allow returns true if the request should proceed.
+func (cb *CircuitBreaker) Allow() bool {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-
 	switch cb.state {
 	case CircuitClosed:
-		return nil
+		return true
 	case CircuitOpen:
-		// Check if enough time has passed to try half-open
-		if time.Since(cb.lastFailTime) > cb.resetAfter {
+		if time.Since(cb.openedAt) >= cb.openTimeout {
 			cb.state = CircuitHalfOpen
-			cb.successCount = 0
-			return nil
+			return true
 		}
-		return fmt.Errorf("circuit breaker open: agent is failing")
+		return false
 	case CircuitHalfOpen:
-		// Allow limited requests in half-open state
-		if cb.successCount < cb.halfOpenLimit {
-			return nil
-		}
-		return fmt.Errorf("circuit breaker half-open: testing recovery")
+		return false
 	}
-
-	return nil
+	return false
 }
 
-// RecordSuccess records a successful execution.
+// RecordSuccess resets the circuit to closed.
 func (cb *CircuitBreaker) RecordSuccess() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-
-	cb.failureCount = 0
-
-	if cb.state == CircuitHalfOpen {
-		cb.successCount++
-		// If we've had enough successes in half-open, close the circuit
-		if cb.successCount >= cb.halfOpenLimit {
-			cb.state = CircuitClosed
-		}
-	}
+	cb.state = CircuitClosed
+	cb.consecutiveFailures = 0
 }
 
-// RecordFailure records a failed execution.
+// RecordFailure increments failures and opens circuit if threshold reached.
 func (cb *CircuitBreaker) RecordFailure() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-
-	cb.failureCount++
-	cb.lastFailTime = time.Now()
-
-	if cb.state == CircuitHalfOpen {
-		// Failure in half-open state immediately reopens the circuit
+	cb.consecutiveFailures++
+	switch cb.state {
+	case CircuitClosed:
+		if cb.consecutiveFailures >= cb.failureThreshold {
+			cb.state = CircuitOpen
+			cb.openedAt = time.Now()
+		}
+	case CircuitHalfOpen:
 		cb.state = CircuitOpen
-		return
-	}
-
-	if cb.failureCount >= cb.threshold {
-		cb.state = CircuitOpen
+		cb.openedAt = time.Now()
 	}
 }
 

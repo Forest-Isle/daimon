@@ -28,7 +28,7 @@ func NewAgentTool(spec *AgentSpec, manager *SubAgentManager) *AgentTool {
 	return &AgentTool{
 		spec:    spec,
 		manager: manager,
-		breaker: NewCircuitBreaker(),
+		breaker: NewCircuitBreaker(3, 15*time.Second),
 	}
 }
 
@@ -63,8 +63,8 @@ func (a *AgentTool) RequiresApproval() bool {
 
 // Execute delegates to SubAgentManager.Spawn for all execution modes.
 func (a *AgentTool) Execute(ctx context.Context, input []byte) (tool.Result, error) {
-	if err := a.breaker.Allow(); err != nil {
-		return tool.Result{Error: err.Error()}, nil
+	if !a.breaker.Allow() {
+		return tool.Result{Error: "circuit breaker open: agent tool temporarily unavailable"}, nil
 	}
 
 	var in agentToolInput

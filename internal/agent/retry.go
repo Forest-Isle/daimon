@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"time"
 
@@ -21,15 +23,29 @@ type httpStatusError interface {
 type RetryProvider struct {
 	inner Provider
 	cfg   config.RetryConfig
+	cb    *CircuitBreaker
 }
+
+// ErrCircuitOpen is returned when the circuit breaker is open and
+// refusing requests to protect a failing upstream.
+var ErrCircuitOpen = fmt.Errorf("circuit breaker open — upstream provider is failing")
 
 // NewRetryProvider creates a RetryProvider wrapping inner with the given retry config.
 func NewRetryProvider(inner Provider, cfg config.RetryConfig) *RetryProvider {
-	return &RetryProvider{inner: inner, cfg: cfg}
+	return &RetryProvider{
+		inner: inner,
+		cfg:   cfg,
+		cb:    NewCircuitBreaker(5, 30*time.Second), // 5 consecutive failures → open for 30s
+	}
 }
 
 // Complete calls the inner provider's Complete, retrying on transient errors.
 func (r *RetryProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
+	if !r.cb.Allow() {
+		slog.Warn("agent: circuit breaker open, rejecting LLM request", "state", r.cb.State().String())
+		return nil, ErrCircuitOpen
+	}
+
 	var lastErr error
 	for attempt := 0; attempt <= r.cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
@@ -43,20 +59,28 @@ func (r *RetryProvider) Complete(ctx context.Context, req CompletionRequest) (*C
 
 		resp, err := r.inner.Complete(ctx, req)
 		if err == nil {
+			r.cb.RecordSuccess()
 			return resp, nil
 		}
 		lastErr = err
 
 		if !isRetryable(err) {
+			r.cb.RecordFailure()
 			return nil, err
 		}
 	}
+	r.cb.RecordFailure()
 	return nil, lastErr
 }
 
 // Stream calls the inner provider's Stream, retrying on initial connection errors.
 // Mid-stream errors are not retried (the iterator is returned as-is).
 func (r *RetryProvider) Stream(ctx context.Context, req CompletionRequest) (StreamIterator, error) {
+	if !r.cb.Allow() {
+		slog.Warn("agent: circuit breaker open, rejecting LLM stream request", "state", r.cb.State().String())
+		return nil, ErrCircuitOpen
+	}
+
 	var lastErr error
 	for attempt := 0; attempt <= r.cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
@@ -70,14 +94,17 @@ func (r *RetryProvider) Stream(ctx context.Context, req CompletionRequest) (Stre
 
 		iter, err := r.inner.Stream(ctx, req)
 		if err == nil {
+			r.cb.RecordSuccess()
 			return iter, nil
 		}
 		lastErr = err
 
 		if !isRetryable(err) {
+			r.cb.RecordFailure()
 			return nil, err
 		}
 	}
+	r.cb.RecordFailure()
 	return nil, lastErr
 }
 
