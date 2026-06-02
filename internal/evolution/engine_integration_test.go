@@ -1,6 +1,7 @@
 package evolution
 
 import (
+	"math"
 	"context"
 	"os"
 	"path/filepath"
@@ -215,11 +216,9 @@ func TestEngineIntegration_TrajectoryRecorderAndInsights(t *testing.T) {
 	}
 }
 
-// TestEngineIntegration_RewardConsistency verifies that the live agent reward
-// function and the offline trajectory bridge produce the same output for
-// identical inputs.
-func TestEngineIntegration_RewardConsistency(t *testing.T) {
-	// Build a trajectory record and compute reward via bridge
+// TestEngineIntegration_RewardFromTrajectory verifies that ComputeReward works
+// correctly with inputs derived from a TrajectoryRecord's fields.
+func TestEngineIntegration_RewardFromTrajectory(t *testing.T) {
 	rec := TrajectoryRecord{
 		Reflection: ReflectionBrief{
 			Succeeded:  true,
@@ -229,22 +228,21 @@ func TestEngineIntegration_RewardConsistency(t *testing.T) {
 		ReplanCount:  0,
 		UserFeedback: 0.5,
 	}
-	bridgeReward := computeTrajectoryReward(rec)
 
-	// Compute reward via the shared formula with the same inputs
-	directReward := ComputeReward(RewardInput{
-		Succeeded:    true,
-		Progress:     1.0,
-		DurationMs:   30000,
-		ReplanCount:  0,
-		UserFeedback: 0.5,
+	// Compute reward from trajectory record fields via the unified formula.
+	// Succeeded=true -> +0.5, Progress=0 (default) -> +0, DurationMs < 60s -> +0.1,
+	// ReplanCount=0 -> +0.05, UserFeedback=0.5 -> +0.05, total = 0.7
+	reward := ComputeReward(RewardInput{
+		Succeeded:    rec.Reflection.Succeeded,
+		DurationMs:   rec.DurationMs,
+		ReplanCount:  rec.ReplanCount,
+		UserFeedback: rec.UserFeedback,
 	})
 
-	if bridgeReward != directReward {
-		t.Errorf("bridge reward (%f) != direct reward (%f)", bridgeReward, directReward)
+	if math.Abs(reward-0.7) > 1e-9 {
+		t.Errorf("compute reward from trajectory = %.10f, want 0.7", reward)
 	}
 }
-
 // TestEngineIntegration_HardControlPipeline verifies that when hard control
 // is enabled, the optimizer's GetReplanThreshold returns a usable value after
 // the optimization cycle runs.

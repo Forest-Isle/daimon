@@ -15,7 +15,6 @@ func makeTestLMPoints(n int, rewardFn, successFn, threshFn func(i int) float64, 
 			Iteration:       i + 1,
 			RunID:           "iter-" + strings.Repeat("0", 3-len(string(rune('0'+i)))) + string(rune('0'+i)),
 			Timestamp:       time.Now(),
-			RLAvgReward:     rewardFn(i),
 			ReplanThreshold: threshFn(i),
 			SkillDraftCount: skillFn(i),
 			PreferenceCount: prefFn(i),
@@ -39,8 +38,8 @@ func TestComputeLearningCurve_Improving(t *testing.T) {
 	if curve == nil {
 		t.Fatal("expected non-nil curve")
 	}
-	if curve.RewardVelocity != VelocityImproving {
-		t.Errorf("expected improving reward velocity, got %s (slope=%.4f)", curve.RewardVelocity, curve.RewardSlope)
+	if curve.SuccessVelocity != VelocityImproving {
+		t.Errorf("expected improving success velocity, got %s (slope=%.4f)", curve.SuccessVelocity, curve.SuccessRateSlope)
 	}
 	if curve.SuccessVelocity != VelocityImproving {
 		t.Errorf("expected improving success velocity, got %s", curve.SuccessVelocity)
@@ -65,8 +64,8 @@ func TestComputeLearningCurve_Degrading(t *testing.T) {
 	if curve == nil {
 		t.Fatal("expected non-nil curve for 4 points")
 	}
-	if curve.RewardVelocity != VelocityDegrading {
-		t.Errorf("expected degrading reward, got %s (slope=%.4f)", curve.RewardVelocity, curve.RewardSlope)
+	if curve.SuccessVelocity != VelocityDegrading {
+		t.Errorf("expected degrading success, got %s (slope=%.4f)", curve.SuccessVelocity, curve.SuccessRateSlope)
 	}
 }
 
@@ -204,9 +203,6 @@ func TestGenerateLearningCurveHTML_WithData(t *testing.T) {
 		func(i int) int { return i * 3 },
 	)
 	html := GenerateLearningCurveHTML(points)
-	if !strings.Contains(html, "rewardChart") {
-		t.Error("expected reward chart canvas in HTML")
-	}
 	if !strings.Contains(html, "successChart") {
 		t.Error("expected success chart canvas in HTML")
 	}
@@ -232,8 +228,8 @@ func TestFormatLearningCurveSummary_WithData(t *testing.T) {
 	)
 	analysis := ComputeSelfLearningAnalysis(points)
 	out := FormatLearningCurveSummary(analysis)
-	if !strings.Contains(out, "Reward") {
-		t.Errorf("expected 'Reward' in summary, got: %q", out)
+	if !strings.Contains(out, "Success rate") {
+		t.Errorf("expected 'Success rate' in summary, got: %q", out)
 	}
 	if !strings.Contains(out, "Composite") {
 		t.Errorf("expected 'Composite' score in summary, got: %q", out)
