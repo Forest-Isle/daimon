@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/tool"
@@ -37,20 +39,38 @@ func (a *AgentTool) Name() string {
 }
 
 func (a *AgentTool) Description() string {
-	return a.spec.Description
+	desc := a.spec.Description
+	if desc == "" {
+		desc = fmt.Sprintf("Delegate a task to the %s agent.", a.spec.Name)
+	}
+	// Append capability summary so the parent LLM knows what this agent can do.
+	if len(a.spec.Tools) > 0 {
+		desc += fmt.Sprintf(" Available tools: %s.", strings.Join(a.spec.Tools, ", "))
+	}
+	if a.spec.MaxIterations > 0 {
+		desc += fmt.Sprintf(" Max iterations: %d.", a.spec.MaxIterations)
+	}
+	if a.spec.Model != "" {
+		desc += fmt.Sprintf(" Model: %s.", a.spec.Model)
+	}
+	return desc
 }
 
 func (a *AgentTool) InputSchema() map[string]any {
+	desc := fmt.Sprintf("The task for the %s agent to execute.", a.spec.Name)
+	if a.spec.Description != "" {
+		desc = a.spec.Description
+	}
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"task": map[string]any{
 				"type":        "string",
-				"description": "The task to delegate to this agent",
+				"description": desc,
 			},
 			"context": map[string]any{
 				"type":        "string",
-				"description": "Optional context from previous tasks (predecessor outputs, etc.)",
+				"description": "Optional context from previous tasks or parent agent output.",
 			},
 		},
 		"required": []string{"task"},
@@ -59,6 +79,24 @@ func (a *AgentTool) InputSchema() map[string]any {
 
 func (a *AgentTool) RequiresApproval() bool {
 	return a.spec.RequiresApproval
+}
+
+// IsReadOnly returns false — sub-agents typically perform actions, not just reads.
+func (a *AgentTool) IsReadOnly() bool { return false }
+
+// Capabilities returns the tool capabilities for concurrent execution and security.
+func (a *AgentTool) Capabilities() tool.ToolCapabilities {
+	approval := "auto"
+	if a.spec.RequiresApproval {
+		approval = "always"
+	}
+	return tool.ToolCapabilities{
+		IsReadOnly:      false,
+		IsDestructive:   false, // sub-agents may modify state, but it's scoped
+		RequiresNetwork: true,
+		ApprovalMode:    approval,
+		ParallelSafety:  tool.ParallelNever, // sub-agents consume significant resources
+	}
 }
 
 // Execute delegates to SubAgentManager.Spawn for all execution modes.

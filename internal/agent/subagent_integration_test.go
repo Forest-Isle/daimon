@@ -45,8 +45,8 @@ func TestAgentTool_SubAgentManager_Integration(t *testing.T) {
 	if at.Name() != "agent_integration-agent" {
 		t.Errorf("name = %q, want agent_integration-agent", at.Name())
 	}
-	if at.Description() != "An agent for integration testing" {
-		t.Errorf("description = %q", at.Description())
+	if !strings.Contains(at.Description(), "An agent for integration testing") {
+		t.Errorf("description = %q, want it to contain %q", at.Description(), "An agent for integration testing")
 	}
 
 	input, _ := json.Marshal(agentToolInput{Task: "run the integration test"})
