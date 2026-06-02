@@ -9,14 +9,14 @@ import (
 
 // ModelRoute maps a task complexity level to a specific LLM model.
 type ModelRoute struct {
-	Model    string `yaml:"model"`
-	MaxTokens int   `yaml:"max_tokens"` // 0 = use default
+	Model     string `yaml:"model"`
+	MaxTokens int    `yaml:"max_tokens"` // 0 = use default
 }
 
 // RouterConfig configures model routing by task complexity.
 type RouterConfig struct {
-	Enabled bool       `yaml:"enabled"`
-	Simple  ModelRoute `yaml:"simple"`
+	Enabled  bool       `yaml:"enabled"`
+	Simple   ModelRoute `yaml:"simple"`
 	Moderate ModelRoute `yaml:"moderate"`
 	Complex  ModelRoute `yaml:"complex"`
 }

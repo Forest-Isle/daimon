@@ -20,10 +20,10 @@ type TeamManager struct {
 
 // ManagedTeam bundles a Team with its supporting infrastructure.
 type ManagedTeam struct {
-	Team     *Team
-	Router   *MessageRouter
-	Tasks    *TeamTaskList
-	Members  []*SubAgentResult // results from spawned agents
+	Team    *Team
+	Router  *MessageRouter
+	Tasks   *TeamTaskList
+	Members []*SubAgentResult // results from spawned agents
 }
 
 // NewTeamManager creates a TeamManager backed by the given SubAgentManager.
@@ -36,8 +36,8 @@ func NewTeamManager(subMgr *SubAgentManager) *TeamManager {
 
 // SpawnTeamRequest defines a team to create and populate.
 type SpawnTeamRequest struct {
-	Name    string         // team name
-	LeadID  string         // agent ID of the lead (caller)
+	Name    string // team name
+	LeadID  string // agent ID of the lead (caller)
 	Members []TeamMemberSpec
 	Tasks   []TeamTaskSpec
 }
@@ -100,9 +100,9 @@ func (tm *TeamManager) SpawnTeam(ctx context.Context, req SpawnTeamRequest) (*Ma
 		router.Register(m.Name)
 
 		spec := &AgentSpec{
-			Name:        m.Name,
-			Tools:       m.Tools,
-			Model:       m.Model,
+			Name:          m.Name,
+			Tools:         m.Tools,
+			Model:         m.Model,
 			MaxIterations: 20,
 		}
 		spawnReqs[i] = SpawnRequest{

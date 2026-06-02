@@ -31,11 +31,11 @@ func TestEvolutionBridgeSourceField(t *testing.T) {
 	})
 
 	bridge.OnEpisodeComplete(context.Background(), evolution.EpisodeEvent{
-		SessionID:  "s1",
-		Succeeded:  true,
-		DurationMs: 100,
+		SessionID:   "s1",
+		Succeeded:   true,
+		DurationMs:  100,
 		ReplanCount: 1,
-		Timestamp:  now,
+		Timestamp:   now,
 	})
 
 	events := drainEvents(ch, 3)

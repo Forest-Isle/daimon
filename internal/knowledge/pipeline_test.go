@@ -111,8 +111,8 @@ func TestIngestPipeline_IngestDir(t *testing.T) {
 	ctx := context.Background()
 
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "a.md"), []byte("# A\n\n" + repeatStr("Content A. ", 30)), 0644)
-	os.WriteFile(filepath.Join(dir, "b.md"), []byte("# B\n\n" + repeatStr("Content B. ", 30)), 0644)
+	os.WriteFile(filepath.Join(dir, "a.md"), []byte("# A\n\n"+repeatStr("Content A. ", 30)), 0644)
+	os.WriteFile(filepath.Join(dir, "b.md"), []byte("# B\n\n"+repeatStr("Content B. ", 30)), 0644)
 
 	if err := pipeline.IngestDir(ctx, dir); err != nil {
 		t.Fatalf("IngestDir: %v", err)

@@ -36,9 +36,9 @@ func NewBrowserExtractTool(timeout time.Duration, requiresApproval bool) *Browse
 	}
 }
 
-func (b *BrowserExtractTool) Name() string        { return "browser_extract" }
+func (b *BrowserExtractTool) Name() string           { return "browser_extract" }
 func (b *BrowserExtractTool) RequiresApproval() bool { return b.approval }
-func (b *BrowserExtractTool) IsReadOnly() bool     { return true }
+func (b *BrowserExtractTool) IsReadOnly() bool       { return true }
 
 func (b *BrowserExtractTool) Description() string {
 	return "Fetch a URL and extract its main content as clean Markdown, with pagination support."

@@ -33,10 +33,10 @@ func (p *skillDraftProposer) Propose(ctx context.Context, in evolution.SkillProp
 
 	prompt := buildSkillExtractPrompt(in)
 	req := agent.CompletionRequest{
-		Model:   p.model,
-		System:  "You are a skill extraction expert. You identify reusable task procedures from tool-usage context. Output only the JSON object requested, no surrounding prose.",
-		Messages: []agent.CompletionMessage{{Role: "user", Content: prompt}},
-		Tools:   nil,
+		Model:     p.model,
+		System:    "You are a skill extraction expert. You identify reusable task procedures from tool-usage context. Output only the JSON object requested, no surrounding prose.",
+		Messages:  []agent.CompletionMessage{{Role: "user", Content: prompt}},
+		Tools:     nil,
 		MaxTokens: p.maxTokens,
 	}
 
@@ -73,15 +73,15 @@ func (p *skillDraftProposer) Propose(ctx context.Context, in evolution.SkillProp
 var _ evolution.SkillProposer = (*skillDraftProposer)(nil)
 
 type skillProposal struct {
-	NoSkill    bool     `json:"no_skill"`
-	Reasoning  string   `json:"reasoning"`
-	SkillName  string   `json:"skill_name"`
-	Description string  `json:"description"`
-	Steps      []string `json:"procedure_steps"`
-	PreReq     []string `json:"prerequisites"`
-	Success    []string `json:"success_criteria"`
-	Confidence float64  `json:"confidence"`
-	General    string   `json:"generalizability"`
+	NoSkill     bool     `json:"no_skill"`
+	Reasoning   string   `json:"reasoning"`
+	SkillName   string   `json:"skill_name"`
+	Description string   `json:"description"`
+	Steps       []string `json:"procedure_steps"`
+	PreReq      []string `json:"prerequisites"`
+	Success     []string `json:"success_criteria"`
+	Confidence  float64  `json:"confidence"`
+	General     string   `json:"generalizability"`
 }
 
 func buildSkillExtractPrompt(in evolution.SkillProposeInput) string {

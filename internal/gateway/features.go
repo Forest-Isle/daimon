@@ -226,7 +226,6 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 		slog.Warn("gateway: SetOnDisable hook failed", "feature", "scheduler", "err", err)
 	}
 
-
 	// WASM plugin host lifecycle
 	_ = gw.features.SetOnEnable("wasm_plugins", func(ctx context.Context) error {
 		gw.loadWasmPlugins(ctx)
@@ -237,13 +236,13 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 		return nil
 	})
 
-		// A2A server lifecycle
-		_ = gw.features.SetOnEnable("a2a", func(ctx context.Context) error {
-			return gw.startA2AServer()
-		})
-		_ = gw.features.SetOnDisable("a2a", func(ctx context.Context) error {
-			return gw.stopA2AServer()
-		})
+	// A2A server lifecycle
+	_ = gw.features.SetOnEnable("a2a", func(ctx context.Context) error {
+		return gw.startA2AServer()
+	})
+	_ = gw.features.SetOnDisable("a2a", func(ctx context.Context) error {
+		return gw.stopA2AServer()
+	})
 	// MCP servers — bind start/stop hooks for each registered mcp_* feature
 	for _, srv := range gw.features.List() {
 		if !strings.HasPrefix(srv.Name, "mcp_") {

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/bwmarrin/discordgo"
 )
 
 // Adapter implements channel.Channel, channel.ApprovalSender,
@@ -392,13 +392,13 @@ func (a *Adapter) SendFeedbackRequest(ctx context.Context, target channel.Messag
 			discordgo.ActionsRow{
 				Components: []discordgo.MessageComponent{
 					discordgo.Button{
-						Emoji: &discordgo.ComponentEmoji{Name: "\U0001f44d"},
-						Style: discordgo.SecondaryButton,
+						Emoji:    &discordgo.ComponentEmoji{Name: "\U0001f44d"},
+						Style:    discordgo.SecondaryButton,
 						CustomID: "feedback_yes:" + key,
 					},
 					discordgo.Button{
-						Emoji: &discordgo.ComponentEmoji{Name: "\U0001f44e"},
-						Style: discordgo.SecondaryButton,
+						Emoji:    &discordgo.ComponentEmoji{Name: "\U0001f44e"},
+						Style:    discordgo.SecondaryButton,
 						CustomID: "feedback_no:" + key,
 					},
 				},

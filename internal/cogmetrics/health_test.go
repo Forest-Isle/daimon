@@ -143,8 +143,8 @@ func TestHealthChecker_MinSamplesNotMet(t *testing.T) {
 
 func TestHealthChecker_MultipleViolations(t *testing.T) {
 	h := NewHealthChecker()
-	h.Record("context_utilization", 0.95)  // triggers compression
-	h.Record("consecutive_replans", 5)     // triggers degrade
+	h.Record("context_utilization", 0.95) // triggers compression
+	h.Record("consecutive_replans", 5)    // triggers degrade
 
 	status := h.Check()
 	if len(status.Violations) != 2 {

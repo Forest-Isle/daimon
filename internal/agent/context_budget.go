@@ -2,11 +2,11 @@ package agent
 
 // ContextBudget defines per-complexity limits for context items injected into the cognitive state.
 type ContextBudget struct {
-	MemoryLimit          int
-	KBLimit              int
-	IncludeGraph         bool
+	MemoryLimit           int
+	KBLimit               int
+	IncludeGraph          bool
 	IncludeProjectContext bool
-	IncludeGitState      bool
+	IncludeGitState       bool
 }
 
 // ContextBudgetAllocator allocates context limits based on task complexity.
@@ -22,27 +22,27 @@ func (a *ContextBudgetAllocator) Allocate(complexity TaskComplexity) ContextBudg
 	switch complexity {
 	case ComplexitySimple:
 		return ContextBudget{
-			MemoryLimit:          3,
-			KBLimit:              0,
-			IncludeGraph:         false,
+			MemoryLimit:           3,
+			KBLimit:               0,
+			IncludeGraph:          false,
 			IncludeProjectContext: true,
-			IncludeGitState:      false,
+			IncludeGitState:       false,
 		}
 	case ComplexityComplex:
 		return ContextBudget{
-			MemoryLimit:          10,
-			KBLimit:              5,
-			IncludeGraph:         true,
+			MemoryLimit:           10,
+			KBLimit:               5,
+			IncludeGraph:          true,
 			IncludeProjectContext: true,
-			IncludeGitState:      true,
+			IncludeGitState:       true,
 		}
 	default:
 		return ContextBudget{
-			MemoryLimit:          5,
-			KBLimit:              3,
-			IncludeGraph:         false,
+			MemoryLimit:           5,
+			KBLimit:               3,
+			IncludeGraph:          false,
 			IncludeProjectContext: true,
-			IncludeGitState:      false,
+			IncludeGitState:       false,
 		}
 	}
 }

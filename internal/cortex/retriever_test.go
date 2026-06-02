@@ -81,7 +81,6 @@ func (m *mockGraphStore) AddProvenance(ctx context.Context, edgeID, sourceType, 
 	return nil
 }
 
-
 // --- tests ---
 
 func TestNewUnifiedRetriever(t *testing.T) {

@@ -164,19 +164,19 @@ func (a *compressionAdapter) EmitContextCompress(sessionID, reason string, layer
 	a.hook.RecordCompression(sessionID, reason, layersRun, beforePct, afterPct)
 }
 
-func (a *compressionAdapter) EmitPhaseStart(_ string, _ string)                            {}
-func (a *compressionAdapter) EmitPhaseEnd(_ string, _ string, _ int64)                     {}
-func (a *compressionAdapter) EmitToolStart(_ string, _ string, _ string)                   {}
-func (a *compressionAdapter) EmitToolEnd(_ string, _ string, _ bool, _ int64)              {}
-func (a *compressionAdapter) EmitSessionStart(_ string, _ string)                          {}
-func (a *compressionAdapter) EmitSessionEnd(_ string, _ bool, _ int64)                     {}
+func (a *compressionAdapter) EmitPhaseStart(_ string, _ string)               {}
+func (a *compressionAdapter) EmitPhaseEnd(_ string, _ string, _ int64)        {}
+func (a *compressionAdapter) EmitToolStart(_ string, _ string, _ string)      {}
+func (a *compressionAdapter) EmitToolEnd(_ string, _ string, _ bool, _ int64) {}
+func (a *compressionAdapter) EmitSessionStart(_ string, _ string)             {}
+func (a *compressionAdapter) EmitSessionEnd(_ string, _ bool, _ int64)        {}
 func (a *compressionAdapter) EmitMetricsUpdate(_ string, _, _ int, _ float64, _, _, _, _ int64, _, _ string) {
 }
-func (a *compressionAdapter) EmitPlanGenerated(_ string, _ int, _ string, _ bool)           {}
-func (a *compressionAdapter) EmitReplanStart(_ string, _ int, _ string)                     {}
-func (a *compressionAdapter) EmitObservationResult(_ string, _, _, _ int, _ float64)        {}
-func (a *compressionAdapter) EmitSubAgentSpawn(_ string, _ string, _ string, _ string)      {}
-func (a *compressionAdapter) EmitSubAgentComplete(_ string, _ string, _ bool, _ int64)      {}
+func (a *compressionAdapter) EmitPlanGenerated(_ string, _ int, _ string, _ bool)      {}
+func (a *compressionAdapter) EmitReplanStart(_ string, _ int, _ string)                {}
+func (a *compressionAdapter) EmitObservationResult(_ string, _, _, _ int, _ float64)   {}
+func (a *compressionAdapter) EmitSubAgentSpawn(_ string, _ string, _ string, _ string) {}
+func (a *compressionAdapter) EmitSubAgentComplete(_ string, _ string, _ bool, _ int64) {}
 
 // RunTask executes a single evaluation task against the cognitive agent.
 func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*EvalResult, error) {
@@ -382,7 +382,6 @@ func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 	return snap
 }
 
-
 // populateSuccessFallback sets Success and Confidence when the evolution
 // hook did not provide explicit success signals. This covers runs where
 // evolution is disabled or did not emit events for the session.
@@ -527,4 +526,3 @@ func populatePreferenceQuality(snap *EvolutionSnapshot, pl *evolution.Preference
 	}
 	snap.PreferenceAvgConfidence = sumConf / float64(len(all))
 }
-

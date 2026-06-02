@@ -149,7 +149,7 @@ func (a *AgentTool) Execute(ctx context.Context, input []byte) (tool.Result, err
 	result, err := a.manager.Spawn(ctx, SpawnRequest{
 		Spec:        a.spec,
 		Task:        in.Task,
-		TaskContext:  in.Context,
+		TaskContext: in.Context,
 		ParentID:    parentID,
 		ParentDepth: parentDepth,
 		ChainID:     chainID,

@@ -140,9 +140,11 @@ type manageMockStore struct {
 	deleteErr     error
 }
 
-func (m *manageMockStore) Save(_ context.Context, _ memory.Entry) error                          { return nil }
-func (m *manageMockStore) ListByScope(_ context.Context, _ memory.MemoryScope, _ string) ([]memory.Entry, error) { return nil, nil }
-func (m *manageMockStore) Update(_ context.Context, _ string, _ string, _ int) error             { return nil }
+func (m *manageMockStore) Save(_ context.Context, _ memory.Entry) error { return nil }
+func (m *manageMockStore) ListByScope(_ context.Context, _ memory.MemoryScope, _ string) ([]memory.Entry, error) {
+	return nil, nil
+}
+func (m *manageMockStore) Update(_ context.Context, _ string, _ string, _ int) error { return nil }
 
 func (m *manageMockStore) Search(_ context.Context, _ memory.SearchQuery) ([]memory.SearchResult, error) {
 	if m.searchErr != nil {
@@ -275,8 +277,8 @@ func TestMemoryManageForgetWithQuery(t *testing.T) {
 
 func TestMemoryManageForgetWithConfirmIDs(t *testing.T) {
 	tests := []struct {
-		name       string
-		confirmIDs []string
+		name        string
+		confirmIDs  []string
 		wantDeleted int
 		wantOutput  string
 	}{
@@ -447,10 +449,10 @@ func TestMemoryManageForgetConfirmAuditLogWritten(t *testing.T) {
 
 func TestMemoryManageProtect(t *testing.T) {
 	tests := []struct {
-		name        string
-		query       string
-		sensitivity string
-		results     []memory.SearchResult
+		name         string
+		query        string
+		sensitivity  string
+		results      []memory.SearchResult
 		wantContains string
 	}{
 		{

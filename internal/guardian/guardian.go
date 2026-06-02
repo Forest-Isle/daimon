@@ -24,14 +24,14 @@ type QualitySample struct {
 
 // BaselineStats holds statistical baselines for quality metrics.
 type BaselineStats struct {
-	SuccessRate      float64   `json:"success_rate"`
-	MeanConfidence   float64   `json:"mean_confidence"`
-	StdConfidence    float64   `json:"std_confidence"`
-	StdSuccessRate   float64   `json:"std_success_rate"`
-	MeanToolSuccess  float64   `json:"mean_tool_success"`
-	MeanReplanCount  float64   `json:"mean_replan_count"`
-	SampleCount      int       `json:"sample_count"`
-	Period           TimeRange `json:"period"`
+	SuccessRate     float64   `json:"success_rate"`
+	MeanConfidence  float64   `json:"mean_confidence"`
+	StdConfidence   float64   `json:"std_confidence"`
+	StdSuccessRate  float64   `json:"std_success_rate"`
+	MeanToolSuccess float64   `json:"mean_tool_success"`
+	MeanReplanCount float64   `json:"mean_replan_count"`
+	SampleCount     int       `json:"sample_count"`
+	Period          TimeRange `json:"period"`
 }
 
 // TimeRange defines a time window.
@@ -42,11 +42,11 @@ type TimeRange struct {
 
 // DriftDetector monitors agent quality for degradation.
 type DriftDetector struct {
-	window     *SlidingWindow
-	baseline   *BaselineStats
-	config     DriftConfig
-	alertCh    chan DriftAlert
-	mu         sync.RWMutex
+	window   *SlidingWindow
+	baseline *BaselineStats
+	config   DriftConfig
+	alertCh  chan DriftAlert
+	mu       sync.RWMutex
 }
 
 // DriftConfig configures the drift detector.
@@ -69,32 +69,32 @@ func DefaultDriftConfig() DriftConfig {
 type DriftStatus string
 
 const (
-	DriftStatusOK              DriftStatus = "ok"
+	DriftStatusOK               DriftStatus = "ok"
 	DriftStatusInsufficientData DriftStatus = "insufficient_data"
-	DriftStatusDrifting        DriftStatus = "drifting"
-	DriftStatusCritical        DriftStatus = "critical"
+	DriftStatusDrifting         DriftStatus = "drifting"
+	DriftStatusCritical         DriftStatus = "critical"
 )
 
 // DriftReport summarizes a drift check.
 type DriftReport struct {
-	Status     DriftStatus             `json:"status"`
-	DriftScore float64                 `json:"drift_score"`
-	ZScores    map[string]float64      `json:"z_scores"`
-	Current    *QualitySnapshot        `json:"current"`
-	Baseline   *BaselineStats          `json:"baseline"`
-	CheckedAt  time.Time               `json:"checked_at"`
+	Status     DriftStatus        `json:"status"`
+	DriftScore float64            `json:"drift_score"`
+	ZScores    map[string]float64 `json:"z_scores"`
+	Current    *QualitySnapshot   `json:"current"`
+	Baseline   *BaselineStats     `json:"baseline"`
+	CheckedAt  time.Time          `json:"checked_at"`
 }
 
 // QualitySnapshot is a point-in-time quality measurement.
 type QualitySnapshot struct {
-	SuccessRate     float64 `json:"success_rate"`
-	MeanConfidence  float64 `json:"mean_confidence"`
-	MeanToolSuccess float64 `json:"mean_tool_success"`
-	MeanReplanCount float64 `json:"mean_replan_count"`
-	P95LatencyMs    int64   `json:"p95_latency_ms"`
-	SampleCount     int     `json:"sample_count"`
-	HallucinationRate float64 `json:"hallucination_rate"`
-	BaselineP95LatencyMs int64 `json:"baseline_p95_latency_ms"`
+	SuccessRate          float64 `json:"success_rate"`
+	MeanConfidence       float64 `json:"mean_confidence"`
+	MeanToolSuccess      float64 `json:"mean_tool_success"`
+	MeanReplanCount      float64 `json:"mean_replan_count"`
+	P95LatencyMs         int64   `json:"p95_latency_ms"`
+	SampleCount          int     `json:"sample_count"`
+	HallucinationRate    float64 `json:"hallucination_rate"`
+	BaselineP95LatencyMs int64   `json:"baseline_p95_latency_ms"`
 	DriftScore           float64 `json:"drift_score"`
 }
 
@@ -309,7 +309,7 @@ func zScore(current, baseline, stdDev float64) float64 {
 
 // OnlineJudge evaluates agent interaction quality using LLM-as-Judge.
 type OnlineJudge struct {
-	completer func(ctx context.Context, system, user string) (string, error)
+	completer  func(ctx context.Context, system, user string) (string, error)
 	sampleRate float64
 }
 
@@ -367,13 +367,13 @@ Please judge the quality.`, session.UserRequest, session.FinalAnswer, session.Co
 
 // JudgeSession holds the data needed for quality evaluation.
 type JudgeSession struct {
-	SessionID    string
-	UserRequest  string
-	FinalAnswer  string
-	Complexity   string
-	DurationMs   int64
-	ToolsUsed    []string
-	ReplanCount  int
+	SessionID   string
+	UserRequest string
+	FinalAnswer string
+	Complexity  string
+	DurationMs  int64
+	ToolsUsed   []string
+	ReplanCount int
 }
 
 // RegressionGuard prevents quality regressions from strategy changes.
@@ -416,5 +416,3 @@ func (rg *RegressionGuard) CheckAfterChange(changeDescription string) (*DriftRep
 func (oj *OnlineJudge) ShouldSample() bool {
 	return true // simplified; in production use sampleRate
 }
-
-

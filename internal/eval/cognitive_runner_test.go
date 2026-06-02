@@ -15,7 +15,7 @@ import (
 func TestRunTask_SkillEvolutionDraftQuality(t *testing.T) {
 	ctx := context.Background()
 	r := &CognitiveAgentRunner{
-		agent: nil,
+		agent:   nil,
 		channel: &EvalChannel{},
 	}
 	res, err := r.RunTask(ctx, TaskCase{
@@ -104,16 +104,16 @@ func TestEvalHook_CapturesEvents(t *testing.T) {
 	hook := NewEvalHook()
 
 	ref := evolution.ReflectionEvent{
-		SessionID:  "sess1",
-		Succeeded:  true,
-		Confidence: 0.85,
-		ToolsUsed:  []string{"bash", "file_write"},
+		SessionID:   "sess1",
+		Succeeded:   true,
+		Confidence:  0.85,
+		ToolsUsed:   []string{"bash", "file_write"},
 		ReplanCount: 1,
 	}
 	ep := evolution.EpisodeEvent{
-		SessionID:  "sess1",
-		Succeeded:  true,
-		DurationMs: 5000,
+		SessionID:   "sess1",
+		Succeeded:   true,
+		DurationMs:  5000,
 		ReplanCount: 1,
 	}
 	tool := evolution.ToolExecEvent{
@@ -335,7 +335,7 @@ func TestMemoryAwareRunner_InjectAndCleanup(t *testing.T) {
 
 	// Wire the mock store directly; no need for a real CognitiveAgent.
 	r := &CognitiveAgentRunner{
-		agent: nil,
+		agent:    nil,
 		channel:  &EvalChannel{},
 		memStore: store,
 	}
@@ -369,7 +369,7 @@ func TestMemoryAwareRunner_InjectAndCleanup(t *testing.T) {
 func TestMemoryAwareRunner_NoStore(t *testing.T) {
 	// memStore is nil — should return error from InjectMemory.
 	r := &CognitiveAgentRunner{
-		agent: nil,
+		agent:   nil,
 		channel: &EvalChannel{},
 	}
 	ctx := context.Background()
@@ -402,7 +402,7 @@ func TestRunSuite_SetupWithRunner(t *testing.T) {
 
 	store := newMockMemoryStore()
 	r := &CognitiveAgentRunner{
-		agent: nil,
+		agent:    nil,
 		channel:  &EvalChannel{},
 		memStore: store,
 	}
@@ -463,7 +463,7 @@ func TestPopulateFromEvolution_EpisodeFallback(t *testing.T) {
 // reads strategy parameter values from a StrategyOptimizer.
 func TestCaptureSnapshot_StrategyParams(t *testing.T) {
 	so := evolution.NewStrategyOptimizer(evolution.OptimizerConfig{
-		UpdateInterval:      10,
+		UpdateInterval:       10,
 		MaxAdjustmentPercent: 10,
 	})
 
@@ -471,12 +471,12 @@ func TestCaptureSnapshot_StrategyParams(t *testing.T) {
 	// We need enough episodes with replans to trigger threshold adjustment.
 	for i := 0; i < 10; i++ {
 		so.OnEpisodeComplete(context.Background(), evolution.EpisodeEvent{
-			SessionID:   "s1",
-			Succeeded:   i%2 == 0,
-			ReplanCount: 2, // all have replans
+			SessionID:    "s1",
+			Succeeded:    i%2 == 0,
+			ReplanCount:  2, // all have replans
 			ToolSequence: []string{"bash"},
-			TotalReward: 0.5,
-			Timestamp:   time.Now(),
+			TotalReward:  0.5,
+			Timestamp:    time.Now(),
 		})
 	}
 
@@ -510,31 +510,29 @@ func TestCaptureSnapshot_StrategyParams(t *testing.T) {
 	}
 }
 
-
-
 // TestEvoSnapshotDiff_StrategyDelta verifies Compare correctly computes
 // strategy parameter deltas between two suite results.
 func TestEvoSnapshotDiff_StrategyDelta(t *testing.T) {
 	before := &SuiteResult{
 		RunID: "run-before",
 		EvoAfter: &EvolutionSnapshot{
-			PreferenceCount:  5,
-			StrategyVersion:  2,
-			SkillDraftCount:  1,
-			TrajectoryCount:  10,
-			ReplanThreshold:  0.30,
-			ToolPriorities:   map[string]float64{"bash": 0.5, "file_write": 0.6},
+			PreferenceCount: 5,
+			StrategyVersion: 2,
+			SkillDraftCount: 1,
+			TrajectoryCount: 10,
+			ReplanThreshold: 0.30,
+			ToolPriorities:  map[string]float64{"bash": 0.5, "file_write": 0.6},
 		},
 	}
 	after := &SuiteResult{
 		RunID: "run-after",
 		EvoAfter: &EvolutionSnapshot{
-			PreferenceCount:  8,
-			StrategyVersion:  3,
-			SkillDraftCount:  2,
-			TrajectoryCount:  15,
-			ReplanThreshold:  0.27,
-			ToolPriorities:   map[string]float64{"bash": 0.55, "file_write": 0.6, "http": 0.4},
+			PreferenceCount: 8,
+			StrategyVersion: 3,
+			SkillDraftCount: 2,
+			TrajectoryCount: 15,
+			ReplanThreshold: 0.27,
+			ToolPriorities:  map[string]float64{"bash": 0.55, "file_write": 0.6, "http": 0.4},
 		},
 	}
 
@@ -556,7 +554,6 @@ func TestEvoSnapshotDiff_StrategyDelta(t *testing.T) {
 	if d := diff.ReplanThresholdDelta - wantReplanDelta; d > 0.001 || d < -0.001 {
 		t.Errorf("ReplanThresholdDelta = %f, want ~%f", diff.ReplanThresholdDelta, wantReplanDelta)
 	}
-
 
 	// Tool priority deltas — only tools present in both snapshots.
 	// "bash" and "file_write" are in both; "http" is only in after.

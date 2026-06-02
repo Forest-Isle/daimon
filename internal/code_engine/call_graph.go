@@ -19,9 +19,9 @@ type CallGraph struct {
 
 // CallNode represents a function in the call graph.
 type CallNode struct {
-	Symbol   *Symbol `json:"symbol"`
-	Callers  []string `json:"callers"`  // function IDs that call this node
-	Callees  []string `json:"callees"`  // function IDs this node calls
+	Symbol  *Symbol  `json:"symbol"`
+	Callers []string `json:"callers"` // function IDs that call this node
+	Callees []string `json:"callees"` // function IDs this node calls
 }
 
 func (n *CallNode) ID() string {
@@ -218,7 +218,6 @@ func extractCalls(fd *ast.FuncDecl, fset *token.FileSet) []string {
 	})
 	return calls
 }
-
 
 // AnalyzeDir recursively analyzes all Go files in a directory.
 func (cg *CallGraph) AnalyzeDir(dirPath string) error {

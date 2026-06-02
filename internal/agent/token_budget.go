@@ -7,9 +7,9 @@ type BudgetAction int
 
 const (
 	BudgetOK             BudgetAction = iota // below all thresholds
-	BudgetCompressLight                       // light compression needed
-	BudgetCompressMedium                      // medium compression needed
-	BudgetCompressHeavy                       // aggressive compression needed
+	BudgetCompressLight                      // light compression needed
+	BudgetCompressMedium                     // medium compression needed
+	BudgetCompressHeavy                      // aggressive compression needed
 )
 
 // String returns a human-readable name for the BudgetAction.

@@ -1,9 +1,9 @@
 package agent
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/util"
 	"context"
 	"fmt"
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
 	"strings"
 
@@ -94,4 +94,3 @@ func CompactHistory(ctx context.Context, provider Provider, sess *session.Sessio
 	slog.Info("history compacted", "session", sess.ID, "old_count", len(oldMessages), "summary_len", len(resp.Text))
 	return nil
 }
-

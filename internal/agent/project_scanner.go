@@ -81,9 +81,9 @@ func (s *ProjectContextScanner) scan(dir string) *ProjectContext {
 // --- manifest scanners ---
 
 var (
-	goModuleRe      = regexp.MustCompile(`(?m)^module\s+(\S+)`)
-	goRequireRe     = regexp.MustCompile(`(?m)^\s+([^\s]+)\s+v([^\s]+)`)
-	goIndirectRe    = regexp.MustCompile(`(?m)^\s+([^\s]+)\s+v([^\s]+)\s+//\s*indirect`)
+	goModuleRe   = regexp.MustCompile(`(?m)^module\s+(\S+)`)
+	goRequireRe  = regexp.MustCompile(`(?m)^\s+([^\s]+)\s+v([^\s]+)`)
+	goIndirectRe = regexp.MustCompile(`(?m)^\s+([^\s]+)\s+v([^\s]+)\s+//\s*indirect`)
 )
 
 func scanGoMod(dir string, pc *ProjectContext) bool {
@@ -116,16 +116,16 @@ func scanGoMod(dir string, pc *ProjectContext) bool {
 	pc.Dependencies = make([]ProjectDependency, 0, len(directDeps)+len(indirectDeps))
 	for mod, ver := range directDeps {
 		pc.Dependencies = append(pc.Dependencies, ProjectDependency{
-			Name:     mod,
-			Version:  ver,
-			Direct:   true,
+			Name:    mod,
+			Version: ver,
+			Direct:  true,
 		})
 	}
 	for mod, ver := range indirectDeps {
 		pc.Dependencies = append(pc.Dependencies, ProjectDependency{
-			Name:     mod,
-			Version:  ver,
-			Direct:   false,
+			Name:    mod,
+			Version: ver,
+			Direct:  false,
 		})
 	}
 

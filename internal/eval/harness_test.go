@@ -258,9 +258,9 @@ func TestCompare_DimensionDeltas(t *testing.T) {
 
 func TestEvalResult_NewFields(t *testing.T) {
 	result := EvalResult{
-		TaskID:    "test",
-		Success:   true,
-		Dimension: DimConversation,
+		TaskID:      "test",
+		Success:     true,
+		Dimension:   DimConversation,
 		AgentOutput: "The answer is 42.",
 		VerifyResult: &VerifyResult{
 			Passed: true,

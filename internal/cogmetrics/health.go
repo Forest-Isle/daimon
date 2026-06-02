@@ -7,9 +7,9 @@ import (
 
 // HealthStatus represents the overall cognitive health assessment.
 type HealthStatus struct {
-	Score       float64            `json:"score"`        // 0.0 (critical) to 1.0 (healthy)
-	Indicators  map[string]float64 `json:"indicators"`   // per-metric values
-	Violations  []Violation        `json:"violations"`   // active threshold violations
+	Score       float64            `json:"score"`      // 0.0 (critical) to 1.0 (healthy)
+	Indicators  map[string]float64 `json:"indicators"` // per-metric values
+	Violations  []Violation        `json:"violations"` // active threshold violations
 	LastChecked time.Time          `json:"last_checked"`
 }
 

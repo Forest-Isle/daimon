@@ -29,8 +29,8 @@ func NewHTTPTool(timeout time.Duration, requiresApproval bool) *HTTPTool {
 	}
 }
 
-func (h *HTTPTool) Name() string        { return "http" }
-func (h *HTTPTool) Description() string  { return "Make HTTP requests to external APIs." }
+func (h *HTTPTool) Name() string           { return "http" }
+func (h *HTTPTool) Description() string    { return "Make HTTP requests to external APIs." }
 func (h *HTTPTool) RequiresApproval() bool { return h.approval }
 
 // IsReadOnly returns false because HTTP tool can make POST/PUT/DELETE requests.

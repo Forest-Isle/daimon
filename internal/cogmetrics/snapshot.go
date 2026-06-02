@@ -4,16 +4,16 @@ import "time"
 
 // HealthReport is a point-in-time snapshot of cognitive agent health metrics.
 type HealthReport struct {
-	Timestamp        time.Time            `json:"timestamp"`
-	Uptime           time.Duration        `json:"uptime_ms"`
-	TotalEpisodes    int64                `json:"total_episodes"`
-	TotalReflections int64                `json:"total_reflections"`
-	StrategyVersion  int                  `json:"strategy_version"`
+	Timestamp        time.Time     `json:"timestamp"`
+	Uptime           time.Duration `json:"uptime_ms"`
+	TotalEpisodes    int64         `json:"total_episodes"`
+	TotalReflections int64         `json:"total_reflections"`
+	StrategyVersion  int           `json:"strategy_version"`
 
-	AssertionPassRate MetricValue          `json:"assertion_pass_rate"`
-	ReplanRate        MetricValue          `json:"replan_rate"`
-	ReplanEfficiency  ReplanEfficiency     `json:"replan_efficiency"`
-	AvgConfidence     MetricValue          `json:"avg_confidence"`
+	AssertionPassRate MetricValue            `json:"assertion_pass_rate"`
+	ReplanRate        MetricValue            `json:"replan_rate"`
+	ReplanEfficiency  ReplanEfficiency       `json:"replan_efficiency"`
+	AvgConfidence     MetricValue            `json:"avg_confidence"`
 	ToolReliability   map[string]MetricValue `json:"tool_reliability"`
 	ComplexitySuccess map[string]MetricValue `json:"complexity_success"`
 }

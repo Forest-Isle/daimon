@@ -1,17 +1,17 @@
 package tool
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/util"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"os"
 	"os/exec"
 	"time"
 )
 
-const maxOutputSize = 64 * 1024      // 64KB
+const maxOutputSize = 64 * 1024       // 64KB
 const largeOutputThreshold = 8 * 1024 // 8KB
 
 type bashOutput struct {
@@ -23,7 +23,6 @@ type bashOutput struct {
 	Status     string `json:"status"`
 	FilePath   string `json:"file_path,omitempty"`
 }
-
 
 type BashTool struct {
 	timeout  time.Duration
@@ -39,8 +38,8 @@ func NewBashTool(timeout time.Duration, requiresApproval bool, policy *Policy) *
 	return &BashTool{timeout: timeout, approval: requiresApproval, policy: policy}
 }
 
-func (b *BashTool) Name() string          { return "bash" }
-func (b *BashTool) Description() string   { return "Execute a shell command and return its output." }
+func (b *BashTool) Name() string           { return "bash" }
+func (b *BashTool) Description() string    { return "Execute a shell command and return its output." }
 func (b *BashTool) RequiresApproval() bool { return b.approval }
 
 // Available checks whether the bash shell executable can be found on the host.

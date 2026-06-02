@@ -66,15 +66,15 @@ type Entry struct {
 
 // SearchQuery defines parameters for memory search.
 type SearchQuery struct {
-	Text       string
-	Embedding  []float32
-	Limit      int
-	SessionID  string        // optional: scope to session
-	UserID     string        // optional: scope to user
-	Scopes     []MemoryScope // optional: filter by scope(s)
-	TypeFilter   string        // optional: filter by memory type (e.g., "summary")
-	ExcludeTypes []string      // optional: exclude memory types (e.g., "profile")
-		IncludeHistorical bool    // when true, include superseded/expired facts (valid_to IS NOT NULL)
+	Text              string
+	Embedding         []float32
+	Limit             int
+	SessionID         string        // optional: scope to session
+	UserID            string        // optional: scope to user
+	Scopes            []MemoryScope // optional: filter by scope(s)
+	TypeFilter        string        // optional: filter by memory type (e.g., "summary")
+	ExcludeTypes      []string      // optional: exclude memory types (e.g., "profile")
+	IncludeHistorical bool          // when true, include superseded/expired facts (valid_to IS NOT NULL)
 }
 
 // SearchResult is a memory entry with a relevance score.

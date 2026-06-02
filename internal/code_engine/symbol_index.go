@@ -28,22 +28,22 @@ const (
 
 // Symbol represents a named code entity.
 type Symbol struct {
-	Name       string     `json:"name"`
-	Kind       SymbolKind `json:"kind"`
-	FilePath   string     `json:"file_path"`
-	LineStart  int        `json:"line_start"`
-	LineEnd    int        `json:"line_end"`
-	Package    string     `json:"package"`
-	Signature  string     `json:"signature"`
-	Exported   bool       `json:"exported"`
-	Language   string     `json:"language"`
+	Name      string     `json:"name"`
+	Kind      SymbolKind `json:"kind"`
+	FilePath  string     `json:"file_path"`
+	LineStart int        `json:"line_start"`
+	LineEnd   int        `json:"line_end"`
+	Package   string     `json:"package"`
+	Signature string     `json:"signature"`
+	Exported  bool       `json:"exported"`
+	Language  string     `json:"language"`
 }
 
 // SymbolIndex indexes code symbols for fast search.
 type SymbolIndex struct {
-	symbols  map[string][]*Symbol // filePath → symbols
-	byName   map[string][]*Symbol // name → symbols
-	mu       sync.RWMutex
+	symbols map[string][]*Symbol // filePath → symbols
+	byName  map[string][]*Symbol // name → symbols
+	mu      sync.RWMutex
 }
 
 // NewSymbolIndex creates an empty symbol index.

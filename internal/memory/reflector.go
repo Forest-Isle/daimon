@@ -44,11 +44,11 @@ type trackedFact struct {
 // ReflectionTracker monitors incoming facts and triggers L1/L2 reflections
 // based on count thresholds and topic drift detection.
 type ReflectionTracker struct {
-	store     Store
-	completer Completer
-	embedder  EmbeddingProvider
-	cfg       MemoryConfig
-	db        *sql.DB
+	store      Store
+	completer  Completer
+	embedder   EmbeddingProvider
+	cfg        MemoryConfig
+	db         *sql.DB
 	profilerCB ProfilerCallback
 
 	mu                    sync.Mutex

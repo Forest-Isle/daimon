@@ -228,9 +228,9 @@ func (so *StrategyOptimizer) computeStats() optimizeStats {
 	s.toolTotal = make(map[string]int)
 
 	var (
-		successCount       int
-		withReplanSuccess  int
-		noReplanSuccess    int
+		successCount      int
+		withReplanSuccess int
+		noReplanSuccess   int
 	)
 
 	for _, ep := range so.episodes {

@@ -221,11 +221,13 @@ type dummyTool struct {
 	name string
 }
 
-func (d *dummyTool) Name() string                                             { return d.name }
-func (d *dummyTool) Description() string                                      { return "dummy" }
-func (d *dummyTool) InputSchema() map[string]any                              { return nil }
-func (d *dummyTool) Execute(_ context.Context, _ []byte) (tool.Result, error) { return tool.Result{}, nil }
-func (d *dummyTool) RequiresApproval() bool                                   { return false }
+func (d *dummyTool) Name() string                { return d.name }
+func (d *dummyTool) Description() string         { return "dummy" }
+func (d *dummyTool) InputSchema() map[string]any { return nil }
+func (d *dummyTool) Execute(_ context.Context, _ []byte) (tool.Result, error) {
+	return tool.Result{}, nil
+}
+func (d *dummyTool) RequiresApproval() bool { return false }
 
 func toolNames(r *tool.Registry) []string {
 	var names []string

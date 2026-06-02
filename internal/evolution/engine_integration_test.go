@@ -1,8 +1,8 @@
 package evolution
 
 import (
-	"math"
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -243,6 +243,7 @@ func TestEngineIntegration_RewardFromTrajectory(t *testing.T) {
 		t.Errorf("compute reward from trajectory = %.10f, want 0.7", reward)
 	}
 }
+
 // TestEngineIntegration_HardControlPipeline verifies that when hard control
 // is enabled, the optimizer's GetReplanThreshold returns a usable value after
 // the optimization cycle runs.

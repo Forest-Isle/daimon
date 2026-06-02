@@ -62,10 +62,10 @@ func TestCacheMetrics_Record(t *testing.T) {
 func TestCacheMetrics_HitRate(t *testing.T) {
 	m := NewCacheMetrics(10)
 
-	m.Record(100, 50, 0, 0)   // miss
-	m.Record(100, 50, 80, 0)  // hit
-	m.Record(100, 50, 60, 0)  // hit
-	m.Record(100, 50, 0, 0)   // miss
+	m.Record(100, 50, 0, 0)  // miss
+	m.Record(100, 50, 80, 0) // hit
+	m.Record(100, 50, 60, 0) // hit
+	m.Record(100, 50, 0, 0)  // miss
 
 	got := m.HitRate()
 	want := 0.5
@@ -87,9 +87,9 @@ func TestCacheMetrics_RecentHitRate(t *testing.T) {
 	}
 
 	// Add hits that push misses out of window
-	m.Record(100, 50, 80, 0)  // hit — window: [miss, miss, hit]
-	m.Record(100, 50, 60, 0)  // hit — window: [miss, hit, hit]
-	m.Record(100, 50, 40, 0)  // hit — window: [hit, hit, hit]
+	m.Record(100, 50, 80, 0) // hit — window: [miss, miss, hit]
+	m.Record(100, 50, 60, 0) // hit — window: [miss, hit, hit]
+	m.Record(100, 50, 40, 0) // hit — window: [hit, hit, hit]
 
 	if got := m.RecentHitRate(); got != 1.0 {
 		t.Errorf("RecentHitRate all hits in window: got %f, want 1.0", got)

@@ -240,4 +240,3 @@ type reflectJSON struct {
 // Channels that do not implement FeedbackSender yield 0 (neutral).
 // Errors (e.g., timeout, network issue) also yield 0 (neutral).
 type FeedbackCollector func(ctx context.Context, ch channel.Channel, target channel.MessageTarget) float64
-

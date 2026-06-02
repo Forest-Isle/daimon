@@ -14,7 +14,7 @@ type SubprocessRequest struct {
 	AgentID      string            `json:"agent_id"`
 	Task         string            `json:"task"`
 	TaskContext  string            `json:"task_context,omitempty"`
-	SystemPrompt string           `json:"system_prompt,omitempty"`
+	SystemPrompt string            `json:"system_prompt,omitempty"`
 	Model        string            `json:"model,omitempty"`
 	MaxTokens    int               `json:"max_tokens,omitempty"`
 	MaxIter      int               `json:"max_iterations"`

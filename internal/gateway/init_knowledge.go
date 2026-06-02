@@ -84,8 +84,8 @@ func (gw *Gateway) initKnowledgeSystem() error {
 		}()
 
 		if gw.cognitiveLoop != nil {
-				gw.cognitiveLoop.SetKnowledgeGraph(kg)
-				gw.cognitiveLoop.SetEntityExtractor(extractor)
+			gw.cognitiveLoop.SetKnowledgeGraph(kg)
+			gw.cognitiveLoop.SetEntityExtractor(extractor)
 		}
 
 		// Wire GraphSync to lifecycle manager for memory->graph synchronization

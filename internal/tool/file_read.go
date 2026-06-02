@@ -13,8 +13,10 @@ type FileReadTool struct{}
 
 func NewFileReadTool() *FileReadTool { return &FileReadTool{} }
 
-func (t *FileReadTool) Name() string        { return "file_read" }
-func (t *FileReadTool) Description() string { return "Read the contents of a file. Returns line-numbered output." }
+func (t *FileReadTool) Name() string { return "file_read" }
+func (t *FileReadTool) Description() string {
+	return "Read the contents of a file. Returns line-numbered output."
+}
 func (t *FileReadTool) RequiresApproval() bool { return false }
 func (t *FileReadTool) IsReadOnly() bool       { return true }
 

@@ -25,7 +25,7 @@ func NewBubblewrap(cfg Config) *Bubblewrap {
 	}
 }
 
-func (b *Bubblewrap) Name() string   { return "bubblewrap" }
+func (b *Bubblewrap) Name() string    { return "bubblewrap" }
 func (b *Bubblewrap) Available() bool { return b.available }
 
 // Exec runs a command inside a bubblewrap sandbox with filesystem and network isolation.

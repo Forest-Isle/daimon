@@ -11,8 +11,8 @@ type FileListTool struct{}
 
 func NewFileListTool() *FileListTool { return &FileListTool{} }
 
-func (t *FileListTool) Name() string        { return "file_list" }
-func (t *FileListTool) Description() string { return "List files and directories in a given path." }
+func (t *FileListTool) Name() string           { return "file_list" }
+func (t *FileListTool) Description() string    { return "List files and directories in a given path." }
 func (t *FileListTool) RequiresApproval() bool { return false }
 func (t *FileListTool) IsReadOnly() bool       { return true }
 

@@ -108,7 +108,7 @@ func (c *KnowledgeSearchCache) evictOldest() {
 
 // KBVSSIndexer manages sqlite-vss HNSW indexes for kb_chunks.
 type KBVSSIndexer struct {
-	db        interface {
+	db interface {
 		ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error)
 		QueryContext(ctx context.Context, query string, args ...interface{}) (interface{}, error)
 		QueryRow(query string, args ...interface{}) interface{}

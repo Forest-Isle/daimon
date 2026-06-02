@@ -82,7 +82,7 @@ func (c *BenchmarkComparison) SaveJSON(path string) error {
 func AllBenchmarkAdapters() map[string]BenchmarkAdapter {
 	return map[string]BenchmarkAdapter{
 		"swe-bench": &SWEBenchAdapter{},
-		"humaneval":  &HumanEvalAdapter{},
-		"gaia":       &GAIAAdapter{},
+		"humaneval": &HumanEvalAdapter{},
+		"gaia":      &GAIAAdapter{},
 	}
 }

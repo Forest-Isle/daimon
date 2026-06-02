@@ -11,17 +11,17 @@ import (
 
 // StrategyGene encodes a complete cognitive strategy as a genome.
 type StrategyGene struct {
-	ID               string  `json:"id"`
-	Generation       int     `json:"generation"`
+	ID         string `json:"id"`
+	Generation int    `json:"generation"`
 
 	// Tunable parameters
-	MCTSSearchDepth    int     `json:"mcts_search_depth"`     // [10, 100]
-	MCTSExplorationC   float64 `json:"mcts_exploration_c"`    // [0.5, 2.0]
-	TreeExpansionWidth int     `json:"tree_expansion_width"`  // [3, 10]
-	PlannerTemperature float64 `json:"planner_temperature"`   // [0.1, 2.0]
-	MaxParallelTools   int     `json:"max_parallel_tools"`    // [1, 10]
-	ReplanThreshold    float64 `json:"replan_threshold"`      // [0.3, 0.9]
-	ContextBudgetPct   float64 `json:"context_budget_pct"`    // [0.5, 0.95]
+	MCTSSearchDepth    int     `json:"mcts_search_depth"`    // [10, 100]
+	MCTSExplorationC   float64 `json:"mcts_exploration_c"`   // [0.5, 2.0]
+	TreeExpansionWidth int     `json:"tree_expansion_width"` // [3, 10]
+	PlannerTemperature float64 `json:"planner_temperature"`  // [0.1, 2.0]
+	MaxParallelTools   int     `json:"max_parallel_tools"`   // [1, 10]
+	ReplanThreshold    float64 `json:"replan_threshold"`     // [0.3, 0.9]
+	ContextBudgetPct   float64 `json:"context_budget_pct"`   // [0.5, 0.95]
 
 	// Fitness
 	Fitness *GeneFitness `json:"fitness,omitempty"`
@@ -314,4 +314,3 @@ func clampFloat(v, min, max float64) float64 {
 func randomID(prefix string) string {
 	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano()+int64(rand.Intn(10000)))
 }
-

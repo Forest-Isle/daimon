@@ -15,8 +15,8 @@ type httpError struct {
 	statusCode int
 }
 
-func (e *httpError) Error() string       { return fmt.Sprintf("HTTP %d", e.statusCode) }
-func (e *httpError) StatusCode() int     { return e.statusCode }
+func (e *httpError) Error() string   { return fmt.Sprintf("HTTP %d", e.statusCode) }
+func (e *httpError) StatusCode() int { return e.statusCode }
 
 // mockProvider is a test double for Provider.
 type mockProvider struct {

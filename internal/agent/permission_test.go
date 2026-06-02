@@ -129,8 +129,8 @@ func TestIsDangerousOperation(t *testing.T) {
 		{"bash", `{"command": "ls -la"}`, false},
 		{"bash", `{"command": "cat file.txt"}`, false},
 		{"bash", `{"command": "go build ./..."}`, false},
-		{"file_write", `{"path": "/tmp/test"}`, false},  // not bash
-		{"file_read", `rm -rf /`, false},                 // not bash
+		{"file_write", `{"path": "/tmp/test"}`, false}, // not bash
+		{"file_read", `rm -rf /`, false},               // not bash
 		{"bash", `{"command": "iptables -F"}`, true},
 	}
 

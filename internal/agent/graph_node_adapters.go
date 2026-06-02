@@ -340,7 +340,7 @@ func NewReplanNodeWithDeps(deps NodeDeps) *FuncNode {
 
 		return NodeResult{
 			NextNode: NodePlan,
-			Output: payloadToSnapshot(payload),
+			Output:   payloadToSnapshot(payload),
 		}, nil
 	})
 }

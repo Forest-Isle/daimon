@@ -90,8 +90,8 @@ func NewDockerSandbox(cfg DockerSessionConfig) *DockerSandbox {
 	return &DockerSandbox{mgr: mgr, sessionID: "default"}
 }
 
-func (d *DockerSandbox) Name() string      { return "docker" }
-func (d *DockerSandbox) Available() bool    { return d.mgr.Available() }
+func (d *DockerSandbox) Name() string    { return "docker" }
+func (d *DockerSandbox) Available() bool { return d.mgr.Available() }
 
 func (d *DockerSandbox) Exec(ctx context.Context, command string, workDir string, opts ExecOptions) (*ExecResult, error) {
 	if opts.Timeout > 0 {

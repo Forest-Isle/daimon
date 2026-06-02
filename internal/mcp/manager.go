@@ -7,18 +7,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/logging"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 const (
 	// Retry parameters for MCP server connections.
-	maxRetryAttempts = 5
-	initialBackoff   = 1 * time.Second
-	maxBackoff       = 30 * time.Second
+	maxRetryAttempts  = 5
+	initialBackoff    = 1 * time.Second
+	maxBackoff        = 30 * time.Second
 	backoffMultiplier = 2.0
 )
 

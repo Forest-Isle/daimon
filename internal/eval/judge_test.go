@@ -95,7 +95,7 @@ func TestLLMJudge_Judge_NilRubric(t *testing.T) {
 func TestLLMJudge_BuildPrompt(t *testing.T) {
 	judge := NewLLMJudge(nil)
 	task := TaskCase{
-		Goal: "Explain channels in Go",
+		Goal:      "Explain channels in Go",
 		Reference: &Reference{Answer: "Channels are typed conduits"},
 		Rubric: &Rubric{
 			Criteria: []JudgeCriterion{

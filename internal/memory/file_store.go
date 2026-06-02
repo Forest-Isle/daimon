@@ -275,7 +275,6 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 		}
 	}
 
-
 	// Temporal filtering: by default, only return currently-valid facts (valid_to IS NULL).
 	// IncludeHistorical=true includes superseded/expired facts for audit or trend analysis.
 	if !query.IncludeHistorical {

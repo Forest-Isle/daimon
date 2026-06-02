@@ -67,28 +67,28 @@ const (
 
 // AgentSpec defines a specialized sub-agent that can be registered as a tool.
 type AgentSpec struct {
-	Name          string   `yaml:"name"`
-	Description   string   `yaml:"description"`
-	SystemPrompt  string   `yaml:"system_prompt"`
-	Model         string   `yaml:"model"`           // optional LLM model override
-	MaxTokens     int      `yaml:"max_tokens"`      // optional max_tokens override
-	MaxIterations int      `yaml:"max_iterations"`  // default 5
-	Tools         []string `yaml:"tools"`           // tool whitelist (empty = all, agent_* always excluded)
-	Tags          []string `yaml:"tags"`            // routing tags for semantic matching
-	Mode          string   `yaml:"mode"`            // "simple" (default) | "cognitive"
-	Timeout       duration `yaml:"timeout"`         // execution timeout, default 120s
-	RequiresApproval bool  `yaml:"requires_approval"` // require user approval before execution
-	MaxRetries    int      `yaml:"max_retries"`     // retry count on failure, default 0
+	Name             string   `yaml:"name"`
+	Description      string   `yaml:"description"`
+	SystemPrompt     string   `yaml:"system_prompt"`
+	Model            string   `yaml:"model"`             // optional LLM model override
+	MaxTokens        int      `yaml:"max_tokens"`        // optional max_tokens override
+	MaxIterations    int      `yaml:"max_iterations"`    // default 5
+	Tools            []string `yaml:"tools"`             // tool whitelist (empty = all, agent_* always excluded)
+	Tags             []string `yaml:"tags"`              // routing tags for semantic matching
+	Mode             string   `yaml:"mode"`              // "simple" (default) | "cognitive"
+	Timeout          duration `yaml:"timeout"`           // execution timeout, default 120s
+	RequiresApproval bool     `yaml:"requires_approval"` // require user approval before execution
+	MaxRetries       int      `yaml:"max_retries"`       // retry count on failure, default 0
 
-	ExecutionMode   ExecutionMode  `yaml:"execution_mode"`    // "spawn" (default) | "fork" | "background"
-	PermissionMode  PermissionMode `yaml:"permission_mode"`   // "" | "bubble" | "accept_edits" | "bypass"
+	ExecutionMode   ExecutionMode   `yaml:"execution_mode"`    // "spawn" (default) | "fork" | "background"
+	PermissionMode  PermissionMode  `yaml:"permission_mode"`   // "" | "bubble" | "accept_edits" | "bypass"
 	FailureStrategy FailureStrategy `yaml:"failure_strategy"`  // "best_effort" (default) | "fail_fast"
-	InheritContext  bool           `yaml:"inherit_context"`   // fork mode: inherit parent context
-	MaxOutputTokens int            `yaml:"max_output_tokens"` // limit output tokens (0 = no limit)
+	InheritContext  bool            `yaml:"inherit_context"`   // fork mode: inherit parent context
+	MaxOutputTokens int             `yaml:"max_output_tokens"` // limit output tokens (0 = no limit)
 
-	Backend    BackendType      `yaml:"backend"`      // "in_process" (default) | "subprocess" | "docker"
-	Hooks      AgentHookConfig  `yaml:"hooks"`        // lifecycle hooks
-	MCPServers []AgentMCPConfig `yaml:"mcp_servers"`  // per-agent MCP servers
+	Backend    BackendType      `yaml:"backend"`     // "in_process" (default) | "subprocess" | "docker"
+	Hooks      AgentHookConfig  `yaml:"hooks"`       // lifecycle hooks
+	MCPServers []AgentMCPConfig `yaml:"mcp_servers"` // per-agent MCP servers
 
 	// Phase 3: A2A remote agent support (reserved, not implemented)
 	Remote *RemoteAgentConfig `yaml:"remote,omitempty"`

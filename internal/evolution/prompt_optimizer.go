@@ -14,39 +14,39 @@ import (
 type PromptRole string
 
 const (
-	RolePlan     PromptRole = "plan"
-	RoleReflect  PromptRole = "reflect"
-	RoleAct      PromptRole = "act"
+	RolePlan    PromptRole = "plan"
+	RoleReflect PromptRole = "reflect"
+	RoleAct     PromptRole = "act"
 )
 
 // PromptCandidate is a single prompt template variant under evaluation.
 type PromptCandidate struct {
-	ID       string        `json:"id"`
-	Role     PromptRole    `json:"role"`
-	Template string        `json:"template"`
-	Version  int           `json:"version"`
-	Metrics  PromptMetrics `json:"metrics"`
-	Active   bool          `json:"active"`
-	CreatedAt time.Time    `json:"created_at"`
+	ID        string        `json:"id"`
+	Role      PromptRole    `json:"role"`
+	Template  string        `json:"template"`
+	Version   int           `json:"version"`
+	Metrics   PromptMetrics `json:"metrics"`
+	Active    bool          `json:"active"`
+	CreatedAt time.Time     `json:"created_at"`
 }
 
 // PromptMetrics tracks A/B test performance for a prompt variant.
 type PromptMetrics struct {
-	Impressions    int     `json:"impressions"`
-	Successes      int     `json:"successes"`
-	AvgConfidence  float64 `json:"avg_confidence"`
-	AvgUserRating  float64 `json:"avg_user_rating"`
-	AvgLatencyMs   int64   `json:"avg_latency_ms"`
-	LastUsed       time.Time `json:"last_used"`
+	Impressions   int       `json:"impressions"`
+	Successes     int       `json:"successes"`
+	AvgConfidence float64   `json:"avg_confidence"`
+	AvgUserRating float64   `json:"avg_user_rating"`
+	AvgLatencyMs  int64     `json:"avg_latency_ms"`
+	LastUsed      time.Time `json:"last_used"`
 }
 
 // PromptOptimizer manages prompt template evolution using Thompson Sampling.
 type PromptOptimizer struct {
-	candidates map[PromptRole][]*PromptCandidate
-	mu         sync.RWMutex
-	compiler   *PromptCompiler
-	minImpressions int  // minimum impressions before a candidate can be pruned
-	maxCandidates  int  // max candidates per role
+	candidates     map[PromptRole][]*PromptCandidate
+	mu             sync.RWMutex
+	compiler       *PromptCompiler
+	minImpressions int // minimum impressions before a candidate can be pruned
+	maxCandidates  int // max candidates per role
 }
 
 // NewPromptOptimizer creates a new prompt optimizer.
@@ -69,12 +69,12 @@ func (po *PromptOptimizer) RegisterBaseline(role PromptRole, template string) {
 	}
 
 	po.candidates[role] = []*PromptCandidate{{
-		ID:       fmt.Sprintf("%s_baseline", role),
-		Role:     role,
-		Template: template,
-		Version:  1,
-		Active:   true,
-		Metrics:  PromptMetrics{},
+		ID:        fmt.Sprintf("%s_baseline", role),
+		Role:      role,
+		Template:  template,
+		Version:   1,
+		Active:    true,
+		Metrics:   PromptMetrics{},
 		CreatedAt: time.Now(),
 	}}
 }
@@ -173,12 +173,12 @@ func (po *PromptOptimizer) MutateAndAdd(ctx context.Context, role PromptRole, co
 	defer po.mu.Unlock()
 
 	newCandidate := &PromptCandidate{
-		ID:       fmt.Sprintf("%s_v%d_%d", role, worst.Version+1, time.Now().UnixNano()),
-		Role:     role,
-		Template: newTemplate,
-		Version:  worst.Version + 1,
-		Active:   true,
-		Metrics:  PromptMetrics{},
+		ID:        fmt.Sprintf("%s_v%d_%d", role, worst.Version+1, time.Now().UnixNano()),
+		Role:      role,
+		Template:  newTemplate,
+		Version:   worst.Version + 1,
+		Active:    true,
+		Metrics:   PromptMetrics{},
 		CreatedAt: time.Now(),
 	}
 

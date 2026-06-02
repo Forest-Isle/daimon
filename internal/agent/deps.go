@@ -103,13 +103,13 @@ type MultiAgentDeps struct {
 	SkillMgr     *skill.Manager
 	AgentMgr     *AgentManager
 	Orchestrator *AgentOrchestrator
-	SubAgentMgr  *SubAgentManager         // nil = no sub-agents
+	SubAgentMgr  *SubAgentManager // nil = no sub-agents
 	AgentMCP     *AgentMCPManager
 	ResultStore  *tool.ResultStore
-	TaskLedger   taskledger.TaskLedger    // default: taskledger.NoopTaskLedger()
-	Speculative  *SpeculativeExecutor     // nil = disabled
-	PromptCache  *PromptCache             // nil = disabled
-	BgManager    *BackgroundManager       // nil = disabled
+	TaskLedger   taskledger.TaskLedger // default: taskledger.NoopTaskLedger()
+	Speculative  *SpeculativeExecutor  // nil = disabled
+	PromptCache  *PromptCache          // nil = disabled
+	BgManager    *BackgroundManager    // nil = disabled
 }
 
 // WithDefaults returns a copy of MultiAgentDeps with nil interface fields filled.

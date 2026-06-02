@@ -94,4 +94,3 @@ func (tc *TaskContext) BuildContextForTask(taskID string, plan *TaskPlan) string
 
 	return sb.String()
 }
-

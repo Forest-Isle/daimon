@@ -31,17 +31,17 @@ type EmergentRole struct {
 
 // Role labels map categories to human-readable role names.
 var roleLabels = map[string]string{
-	"coding":      "Code Architect",
-	"analysis":    "Data Analyst",
-	"debate":      "Devil's Advocate",
-	"review":      "Quality Guardian",
-	"browser":     "Web Explorer",
-	"writing":     "Content Writer",
-	"planning":    "Strategic Planner",
-	"research":    "Research Specialist",
-	"simple":      "Quick Task Handler",
-	"moderate":    "General Problem Solver",
-	"complex":     "Complex System Architect",
+	"coding":   "Code Architect",
+	"analysis": "Data Analyst",
+	"debate":   "Devil's Advocate",
+	"review":   "Quality Guardian",
+	"browser":  "Web Explorer",
+	"writing":  "Content Writer",
+	"planning": "Strategic Planner",
+	"research": "Research Specialist",
+	"simple":   "Quick Task Handler",
+	"moderate": "General Problem Solver",
+	"complex":  "Complex System Architect",
 }
 
 // DetectRoles analyzes all agents and detects emergent specializations.

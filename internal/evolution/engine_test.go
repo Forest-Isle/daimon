@@ -10,14 +10,14 @@ import (
 
 // testHook implements Hook for testing.
 type testHook struct {
-	name              string
-	reflections       atomic.Int32
-	episodes          atomic.Int32
-	tools             atomic.Int32
-	lastReflection    ReflectionEvent
-	lastEpisode       EpisodeEvent
-	lastTool          ToolExecEvent
-	mu                sync.Mutex
+	name           string
+	reflections    atomic.Int32
+	episodes       atomic.Int32
+	tools          atomic.Int32
+	lastReflection ReflectionEvent
+	lastEpisode    EpisodeEvent
+	lastTool       ToolExecEvent
+	mu             sync.Mutex
 }
 
 func (h *testHook) Name() string { return h.name }

@@ -10,9 +10,9 @@ import (
 
 // knownProviders lists the supported LLM provider values.
 var knownProviders = map[string]bool{
-	"claude":             true,
-	"openai":             true,
-	"openai-compatible":  true,
+	"claude":            true,
+	"openai":            true,
+	"openai-compatible": true,
 }
 
 // knownTopLevelKeys is the set of valid top-level YAML keys in the Config struct.

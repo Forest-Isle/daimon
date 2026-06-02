@@ -117,7 +117,6 @@ func (s *SQLiteExecutionEventStore) GetLatestState(ctx context.Context, sessionI
 		Events:        events,
 		CreatedAt:     first.Timestamp,
 		UpdatedAt:     last.Timestamp,
-
 	}, nil
 }
 

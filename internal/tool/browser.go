@@ -34,8 +34,10 @@ func NewBrowserTool(timeout time.Duration, requiresApproval bool) *BrowserTool {
 	}
 }
 
-func (b *BrowserTool) Name() string          { return "browser" }
-func (b *BrowserTool) Description() string   { return "Fetch and return the content of a URL via HTTP GET." }
+func (b *BrowserTool) Name() string { return "browser" }
+func (b *BrowserTool) Description() string {
+	return "Fetch and return the content of a URL via HTTP GET."
+}
 func (b *BrowserTool) RequiresApproval() bool { return b.approval }
 func (b *BrowserTool) IsReadOnly() bool       { return true }
 

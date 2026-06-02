@@ -236,7 +236,7 @@ func TestSynthesizer_AcceptanceHeuristic(t *testing.T) {
 		Enabled:          true,
 		PatternThreshold: 3,
 		RewardThreshold:  0.5,
-		MinUniqueTools:     2,
+		MinUniqueTools:   2,
 		DraftsDir:        dir,
 		LLMEnabled:       false,
 	})

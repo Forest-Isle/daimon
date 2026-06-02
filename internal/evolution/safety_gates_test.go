@@ -206,7 +206,7 @@ func TestRunGates_AllPass(t *testing.T) {
 
 func TestRunGates_StopsAtFirstFailure(t *testing.T) {
 	draft := SkillDraft{
-		OccurrenceCount: 1, // fails frequency
+		OccurrenceCount: 1,   // fails frequency
 		AvgReward:       0.1, // also fails reward
 	}
 	gates := DefaultGates()

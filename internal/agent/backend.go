@@ -13,9 +13,9 @@ var ErrBackendNotImplemented = fmt.Errorf("backend not yet implemented (reserved
 type BackendType string
 
 const (
-	BackendInProcess  BackendType = "in_process"  // goroutine (default)
-	BackendSubprocess BackendType = "subprocess"  // os/exec child process
-	BackendDocker     BackendType = "docker"      // container execution
+	BackendInProcess  BackendType = "in_process" // goroutine (default)
+	BackendSubprocess BackendType = "subprocess" // os/exec child process
+	BackendDocker     BackendType = "docker"     // container execution
 )
 
 // BackendConfig holds everything an execution backend needs to run an agent.

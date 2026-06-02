@@ -16,7 +16,7 @@ func TestRatioTokenizer_Count(t *testing.T) {
 		expected int
 	}{
 		{"empty", "", 0},
-		{"short", "hello", 1},        // 5 * 0.25 = 1
+		{"short", "hello", 1},          // 5 * 0.25 = 1
 		{"medium", "hello world!!", 3}, // 13 * 0.25 = 3
 	}
 	for _, tt := range tests {

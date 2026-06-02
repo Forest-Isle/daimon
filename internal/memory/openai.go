@@ -11,16 +11,16 @@ import (
 
 const (
 	defaultOpenAIEmbeddingURL = "https://api.openai.com/v1/embeddings"
-	openAIDefaultModel = "text-embedding-3-small"
-	openAIDimensions   = 1536
+	openAIDefaultModel        = "text-embedding-3-small"
+	openAIDimensions          = 1536
 )
 
 // OpenAIEmbedding implements EmbeddingProvider using the OpenAI Embeddings API.
 type OpenAIEmbedding struct {
-	apiKey string
-	model  string
+	apiKey  string
+	model   string
 	baseURL string
-	client *http.Client
+	client  *http.Client
 }
 
 func NewOpenAIEmbedding(apiKey, model string) *OpenAIEmbedding {
@@ -35,10 +35,10 @@ func NewOpenAIEmbeddingWithURL(apiKey, model, baseURL string) *OpenAIEmbedding {
 		baseURL = defaultOpenAIEmbeddingURL
 	}
 	return &OpenAIEmbedding{
-		apiKey:   apiKey,
-		model:    model,
-		baseURL:  baseURL,
-		client:   &http.Client{Timeout: 30 * time.Second},
+		apiKey:  apiKey,
+		model:   model,
+		baseURL: baseURL,
+		client:  &http.Client{Timeout: 30 * time.Second},
 	}
 }
 

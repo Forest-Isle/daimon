@@ -20,7 +20,7 @@ import (
 type SkillSynthesizer struct {
 	cfg            SynthesizerConfig
 	tracker        *PatternTracker
-	generated      map[string]bool    // tracks pattern keys that already have a draft
+	generated      map[string]bool // tracks pattern keys that already have a draft
 	proposer       SkillProposer
 	activator      *SkillActivator    // optional: auto-promote drafts through safety gates
 	toolPriorities map[string]float64 // advisory priorities from StrategyOptimizer (set by Brain)

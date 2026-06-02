@@ -137,7 +137,7 @@ func (m *DockerSessionManager) Remove(sessionID string) {
 	if ok {
 		// Cleanup uses background context -- there is no request scope at
 		// shutdown, and the container must be removed regardless.
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = m.removeContainer(ctx, s.containerID)
 	}

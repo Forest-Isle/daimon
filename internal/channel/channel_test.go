@@ -7,7 +7,7 @@ import (
 
 // Compile-time interface satisfaction checks
 var (
-	_ Channel    = (*mockChannel)(nil)
+	_ Channel       = (*mockChannel)(nil)
 	_ StreamUpdater = (*mockStreamUpdater)(nil)
 )
 
@@ -15,9 +15,9 @@ type mockChannel struct {
 	name string
 }
 
-func (m *mockChannel) Name() string                                { return m.name }
+func (m *mockChannel) Name() string                                            { return m.name }
 func (m *mockChannel) Start(ctx context.Context, handler InboundHandler) error { return nil }
-func (m *mockChannel) Send(ctx context.Context, msg OutboundMessage) error    { return nil }
+func (m *mockChannel) Send(ctx context.Context, msg OutboundMessage) error     { return nil }
 func (m *mockChannel) SendStreaming(ctx context.Context, target MessageTarget) (StreamUpdater, error) {
 	return &mockStreamUpdater{}, nil
 }

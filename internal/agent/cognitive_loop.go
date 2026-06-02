@@ -23,6 +23,7 @@ import (
 )
 
 const MaxReplanAttempts = 3
+
 // CognitiveLoop implements the structured PERCEIVE->PLAN->ACT->OBSERVE->REFLECT loop
 // as a LoopStrategy. It is a self-contained 5-phase agent loop that handles complex
 // multi-step tasks with replanning support.
@@ -35,17 +36,17 @@ type CognitiveLoop struct {
 	reflector *Reflector
 
 	// Optional advanced planners (nil = disabled)
-	mctsPlanner  *MCTSPlanner
-	treePlanner  *StrategicTreePlanner
+	mctsPlanner   *MCTSPlanner
+	treePlanner   *StrategicTreePlanner
 	codebaseIndex *CodebaseIndex
-	cortex       *cortex.UnifiedRetriever
+	cortex        *cortex.UnifiedRetriever
 
 	// Config
-	debateCfg      config.DebateSettings
+	debateCfg       config.DebateSettings
 	entityExtractor *graph.LLMEntityExtractor
-	evoEngine      *evolution.Engine
+	evoEngine       *evolution.Engine
 	checkpointStore CheckpointStore
-	planMode       *PlanMode
+	planMode        *PlanMode
 
 	// Transient
 	approvalFunc        ApprovalFunc
@@ -246,9 +247,9 @@ func (cl *CognitiveLoop) Execute(ctx context.Context, a *Agent, ch channel.Chann
 	plan, mctsCandidates, mctsActive, treePlanner := cl.runPrePlanSearch(ctx, a, sess, state)
 
 	var (
-		finalAnswer      string
-		obsResult        *ObservationResult
-		reflection       *Reflection
+		finalAnswer string
+		obsResult   *ObservationResult
+		reflection  *Reflection
 	)
 	cogCfg := a.deps.Core.Cfg.Cognitive
 	confidenceThreshold := cl.resolveConfidenceThreshold(cogCfg, a)
@@ -363,8 +364,9 @@ func (cl *CognitiveLoop) Execute(ctx context.Context, a *Agent, ch channel.Chann
 	cl.finalizeCognitiveSession(ctx, a, ch, sess, target, msg, state, plan, obsResult, reflection,
 		sessionStart, cognitiveTurnStart)
 	return nil
-	}
-	// ────────────────────────────── Phase Runners ──────────────────────────────
+}
+
+// ────────────────────────────── Phase Runners ──────────────────────────────
 // runPerceivePhase executes the PERCEIVE phase: parse goal, retrieve memories, assess complexity.
 func (cl *CognitiveLoop) runPerceivePhase(
 	ctx context.Context,
@@ -710,6 +712,7 @@ func (cl *CognitiveLoop) finalizeCognitiveSession(
 		cl.evoEngine.WaitPending()
 	}
 }
+
 // ────────────────────────────── Delegate to Runtime ──────────────────────────────
 
 // delegateToRuntime hands off simple tasks to the basic Runtime loop.
@@ -975,7 +978,7 @@ func (cl *CognitiveLoop) dispatchEvolutionEvents(
 	})
 }
 
-	// computeSimpleEpisodeReward computes a basic reward score for the episode.
+// computeSimpleEpisodeReward computes a basic reward score for the episode.
 func computeSimpleEpisodeReward(reflection *Reflection, obsResult *ObservationResult, durationMs int64, replanCount int, userFeedback float64) float64 {
 	succeeded := reflection != nil && reflection.Succeeded
 	progress := 0.0
@@ -994,6 +997,7 @@ func computeSimpleEpisodeReward(reflection *Reflection, obsResult *ObservationRe
 	slog.Debug("cognitive: episode reward computed", "reward", reward, "succeeded", succeeded, "progress", progress, "user_feedback", userFeedback)
 	return reward
 }
+
 // registerSubtask records a cognitive subtask in the task ledger and returns
 // a function that marks it completed. If the ledger is unavailable the
 // returned function is a no-op.

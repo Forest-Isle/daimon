@@ -8,13 +8,13 @@ import (
 type EventType string
 
 const (
-	EventPhaseStart    EventType = "phase.start"
-	EventPhaseEnd      EventType = "phase.end"
-	EventToolStart     EventType = "tool.start"
-	EventToolEnd       EventType = "tool.end"
-	EventPlanGenerated EventType = "plan.generated"
-	EventReplanStart   EventType = "replan.start"
-	EventTaskUpdate    EventType = "task.update"
+	EventPhaseStart        EventType = "phase.start"
+	EventPhaseEnd          EventType = "phase.end"
+	EventToolStart         EventType = "tool.start"
+	EventToolEnd           EventType = "tool.end"
+	EventPlanGenerated     EventType = "plan.generated"
+	EventReplanStart       EventType = "replan.start"
+	EventTaskUpdate        EventType = "task.update"
 	EventObservationResult EventType = "observation.result"
 	EventSessionStart      EventType = "session.start"
 	EventSessionEnd        EventType = "session.end"

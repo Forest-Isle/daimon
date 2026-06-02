@@ -19,7 +19,7 @@ type ReputationRecord struct {
 
 // ReputationSystem tracks agent reputation with time decay and category specialization.
 type ReputationSystem struct {
-	records   map[string][]*ReputationRecord // agentID → records
+	records   map[string][]*ReputationRecord            // agentID → records
 	category  map[string]map[string][]*ReputationRecord // agentID → category → records
 	decayRate float64
 	mu        sync.RWMutex
@@ -207,12 +207,12 @@ func (rs *ReputationSystem) GetAgentStats(agentID string) *AgentStats {
 
 	total := float64(successes + failures)
 	return &AgentStats{
-		AgentID:        agentID,
-		TotalTasks:     successes + failures,
-		SuccessRate:    float64(successes) / total,
-		AvgQuality:     totalQuality / float64(successes),
-		Reputation:     rs.GetReputation(agentID),
-		TopCategories:  rs.GetTopCategories(agentID, 3),
+		AgentID:       agentID,
+		TotalTasks:    successes + failures,
+		SuccessRate:   float64(successes) / total,
+		AvgQuality:    totalQuality / float64(successes),
+		Reputation:    rs.GetReputation(agentID),
+		TopCategories: rs.GetTopCategories(agentID, 3),
 	}
 }
 

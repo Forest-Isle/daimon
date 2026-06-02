@@ -106,12 +106,16 @@ type GatewayOptions struct {
 
 func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw := &Gateway{
-		cfg:         cfg,
-		stopCh:      make(chan struct{}),
+		cfg:    cfg,
+		stopCh: make(chan struct{}),
 	}
 	var rb rollbackStack
 	var err error
-	defer func() { if err != nil { rb.run() } }()
+	defer func() {
+		if err != nil {
+			rb.run()
+		}
+	}()
 
 	// Initialize subsystems with their zero values — fields will be populated
 	// by the init* methods below.
@@ -444,7 +448,6 @@ func (gw *Gateway) Start(ctx context.Context) error {
 			slog.Warn("gateway: stale detector start failed", "err", err)
 		}
 	}
-
 
 	// Start evolution engine only when feature is enabled
 	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {

@@ -16,8 +16,8 @@ type TrainingFormat string
 
 const (
 	FormatReward TrainingFormat = "reward" // Reward-labeled pairs (from evolution trajectories, not RL)
-	FormatDPO  TrainingFormat = "dpo"  // Direct Preference Optimization pairs
-	FormatSFT  TrainingFormat = "sft"  // Supervised Fine-Tuning (successful only)
+	FormatDPO    TrainingFormat = "dpo"    // Direct Preference Optimization pairs
+	FormatSFT    TrainingFormat = "sft"    // Supervised Fine-Tuning (successful only)
 )
 
 // TrajectoryRecord mirrors evolution.TrajectoryRecord for decoupled import.

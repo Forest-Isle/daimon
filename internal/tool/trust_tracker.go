@@ -52,10 +52,10 @@ const (
 
 // ToolTrustStats tracks per-tool trust metrics.
 type ToolTrustStats struct {
-	ApproveCount   int       `json:"approve_count"`
-	RejectCount    int       `json:"reject_count"`
-	ConsecutiveOK  int       `json:"consecutive_ok"`
-	LastApprovedAt time.Time `json:"last_approved_at"`
+	ApproveCount   int        `json:"approve_count"`
+	RejectCount    int        `json:"reject_count"`
+	ConsecutiveOK  int        `json:"consecutive_ok"`
+	LastApprovedAt time.Time  `json:"last_approved_at"`
 	CurrentLevel   TrustLevel `json:"current_level"`
 }
 

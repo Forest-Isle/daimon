@@ -43,9 +43,9 @@ func NewBrowserSearchTool(timeout time.Duration, requiresApproval bool) *Browser
 	}
 }
 
-func (b *BrowserSearchTool) Name() string        { return "browser_search" }
+func (b *BrowserSearchTool) Name() string           { return "browser_search" }
 func (b *BrowserSearchTool) RequiresApproval() bool { return b.approval }
-func (b *BrowserSearchTool) IsReadOnly() bool     { return true }
+func (b *BrowserSearchTool) IsReadOnly() bool       { return true }
 
 func (b *BrowserSearchTool) Description() string {
 	return "Search the web and return structured results with title, URL, and snippet."

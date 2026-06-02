@@ -49,25 +49,25 @@ const (
 type DiscoveryStatus string
 
 const (
-	DiscoveryStatusNew       DiscoveryStatus = "new"
-	DiscoveryStatusClaimed   DiscoveryStatus = "claimed"
+	DiscoveryStatusNew        DiscoveryStatus = "new"
+	DiscoveryStatusClaimed    DiscoveryStatus = "claimed"
 	DiscoveryStatusInProgress DiscoveryStatus = "in_progress"
-	DiscoveryStatusCompleted DiscoveryStatus = "completed"
-	DiscoveryStatusDismissed DiscoveryStatus = "dismissed"
+	DiscoveryStatusCompleted  DiscoveryStatus = "completed"
+	DiscoveryStatusDismissed  DiscoveryStatus = "dismissed"
 )
 
 // DiscoveryConfig tunes the autonomous discovery loop behavior.
 type DiscoveryConfig struct {
-	Enabled            bool              `yaml:"enabled"`
-	ScanInterval       time.Duration     `yaml:"scan_interval"`        // how often to scan (default: 5m)
-	MaxConcurrentFixes int               `yaml:"max_concurrent_fixes"` // max parallel fix attempts (default: 2)
-	ScanDirs           []string          `yaml:"scan_dirs"`            // directories to scan (default: ["."])
-	ExcludeDirs        []string          `yaml:"exclude_dirs"`         // directories to skip
-	Categories         []DiscoveryCategory `yaml:"categories"`         // which categories to scan for
-	MinSeverity        float64           `yaml:"min_severity"`         // minimum severity to auto-fix (default: 0.5)
-	AutoFix            bool              `yaml:"auto_fix"`             // automatically dispatch fixes (default: false)
-	MaxAutoFixesPerDay int               `yaml:"max_auto_fixes_per_day"` // safety cap
-	RequireTests       bool              `yaml:"require_tests"`        // require test verification after fix
+	Enabled            bool                `yaml:"enabled"`
+	ScanInterval       time.Duration       `yaml:"scan_interval"`          // how often to scan (default: 5m)
+	MaxConcurrentFixes int                 `yaml:"max_concurrent_fixes"`   // max parallel fix attempts (default: 2)
+	ScanDirs           []string            `yaml:"scan_dirs"`              // directories to scan (default: ["."])
+	ExcludeDirs        []string            `yaml:"exclude_dirs"`           // directories to skip
+	Categories         []DiscoveryCategory `yaml:"categories"`             // which categories to scan for
+	MinSeverity        float64             `yaml:"min_severity"`           // minimum severity to auto-fix (default: 0.5)
+	AutoFix            bool                `yaml:"auto_fix"`               // automatically dispatch fixes (default: false)
+	MaxAutoFixesPerDay int                 `yaml:"max_auto_fixes_per_day"` // safety cap
+	RequireTests       bool                `yaml:"require_tests"`          // require test verification after fix
 }
 
 // DefaultDiscoveryConfig returns sensible defaults.
@@ -105,9 +105,9 @@ type AutonomousDiscoveryLoop struct {
 	wg     sync.WaitGroup
 
 	// Callbacks for integration
-	onDiscover  func(opp *DiscoveryOpportunity)
-	onFixStart  func(opp *DiscoveryOpportunity)
-	onFixDone   func(opp *DiscoveryOpportunity, err error)
+	onDiscover func(opp *DiscoveryOpportunity)
+	onFixStart func(opp *DiscoveryOpportunity)
+	onFixDone  func(opp *DiscoveryOpportunity, err error)
 }
 
 // NewAutonomousDiscoveryLoop creates a new discovery loop.
@@ -535,8 +535,8 @@ func isSourceFile(filename string) bool {
 	// Also check for files like Dockerfile, Makefile, etc.
 	base := filepath.Base(filename)
 	sourceBases := map[string]bool{
-		"Dockerfile":   true,
-		"Makefile":     true,
+		"Dockerfile":     true,
+		"Makefile":       true,
 		"CMakeLists.txt": true,
 	}
 	return sourceBases[base]

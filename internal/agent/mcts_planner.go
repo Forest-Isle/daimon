@@ -30,27 +30,27 @@ type MCTSNode struct {
 
 // MCTSConfig tunes the Monte Carlo Tree Search behavior.
 type MCTSConfig struct {
-	MaxIterations   int     // max MCTS iterations per search (default: 100)
-	MaxDepth        int     // max tree depth (default: 5)
-	ExplorationC    float64 // UCB1 exploration constant (default: 1.414)
-	TimeBudget      time.Duration // time-budgeted search (0 = unlimited)
-	RolloutDepth    int     // max steps in a rollout simulation (default: 3)
-	ProgressiveWidth int    // max children per node before progressive widening (default: 5)
-	MinVisits       int     // minimum visits before a node can be selected as best (default: 10)
-	Temperature     float64 // softmax temperature for final policy (default: 0.5)
+	MaxIterations    int           // max MCTS iterations per search (default: 100)
+	MaxDepth         int           // max tree depth (default: 5)
+	ExplorationC     float64       // UCB1 exploration constant (default: 1.414)
+	TimeBudget       time.Duration // time-budgeted search (0 = unlimited)
+	RolloutDepth     int           // max steps in a rollout simulation (default: 3)
+	ProgressiveWidth int           // max children per node before progressive widening (default: 5)
+	MinVisits        int           // minimum visits before a node can be selected as best (default: 10)
+	Temperature      float64       // softmax temperature for final policy (default: 0.5)
 }
 
 // DefaultMCTSConfig returns sensible defaults.
 func DefaultMCTSConfig() MCTSConfig {
 	return MCTSConfig{
-		MaxIterations:   100,
-		MaxDepth:        5,
-		ExplorationC:    1.414,
-		TimeBudget:      30 * time.Second,
-		RolloutDepth:    3,
+		MaxIterations:    100,
+		MaxDepth:         5,
+		ExplorationC:     1.414,
+		TimeBudget:       30 * time.Second,
+		RolloutDepth:     3,
 		ProgressiveWidth: 5,
-		MinVisits:       10,
-		Temperature:     0.5,
+		MinVisits:        10,
+		Temperature:      0.5,
 	}
 }
 
@@ -62,9 +62,9 @@ type MCTSPlanner struct {
 	llmModel string
 	cfg      MCTSConfig
 
-	root       *MCTSNode
-	nodesByID  map[string]*MCTSNode // plan hash → node
-	mu         sync.RWMutex
+	root      *MCTSNode
+	nodesByID map[string]*MCTSNode // plan hash → node
+	mu        sync.RWMutex
 }
 
 // NewMCTSPlanner creates a full MCTS planner.

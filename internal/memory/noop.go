@@ -6,7 +6,7 @@ import "context"
 // Used when memory feature is disabled.
 type noopStore struct{}
 
-func (noopStore) Save(_ context.Context, _ Entry) error                          { return nil }
+func (noopStore) Save(_ context.Context, _ Entry) error                           { return nil }
 func (noopStore) Search(_ context.Context, _ SearchQuery) ([]SearchResult, error) { return nil, nil }
 func (noopStore) ListByScope(_ context.Context, _ MemoryScope, _ string) ([]Entry, error) {
 	return nil, nil

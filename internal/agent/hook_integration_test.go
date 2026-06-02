@@ -70,10 +70,10 @@ type hookTestTool struct {
 	execCount atomic.Int32
 }
 
-func (t *hookTestTool) Name() string                                    { return t.name }
-func (t *hookTestTool) Description() string                             { return "test tool for hooks" }
-func (t *hookTestTool) InputSchema() map[string]any                     { return nil }
-func (t *hookTestTool) RequiresApproval() bool                          { return false }
+func (t *hookTestTool) Name() string                { return t.name }
+func (t *hookTestTool) Description() string         { return "test tool for hooks" }
+func (t *hookTestTool) InputSchema() map[string]any { return nil }
+func (t *hookTestTool) RequiresApproval() bool      { return false }
 func (t *hookTestTool) Execute(_ context.Context, _ []byte) (tool.Result, error) {
 	t.execCount.Add(1)
 	return tool.Result{Output: "executed " + t.name}, nil
@@ -167,10 +167,10 @@ type approvalTestTool struct {
 	execCount atomic.Int32
 }
 
-func (t *approvalTestTool) Name() string                                    { return t.name }
-func (t *approvalTestTool) Description() string                             { return "test tool requiring approval" }
-func (t *approvalTestTool) InputSchema() map[string]any                     { return nil }
-func (t *approvalTestTool) RequiresApproval() bool                          { return true }
+func (t *approvalTestTool) Name() string                { return t.name }
+func (t *approvalTestTool) Description() string         { return "test tool requiring approval" }
+func (t *approvalTestTool) InputSchema() map[string]any { return nil }
+func (t *approvalTestTool) RequiresApproval() bool      { return true }
 func (t *approvalTestTool) Execute(_ context.Context, _ []byte) (tool.Result, error) {
 	t.execCount.Add(1)
 	return tool.Result{Output: "executed " + t.name}, nil
@@ -380,9 +380,9 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 
 	rt := NewAgent(AgentDeps{
 		Core: CoreDeps{
-			Tools:    registry,
-			DB:       db,
-			Cfg:      config.AgentConfig{},
+			Tools: registry,
+			DB:    db,
+			Cfg:   config.AgentConfig{},
 			ToolsCfg: config.ToolsConfig{
 				ConcurrentExecution: config.ConcurrentExecutionConfig{
 					Enabled:        true,

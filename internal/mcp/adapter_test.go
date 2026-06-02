@@ -75,7 +75,7 @@ func (m *mockMCPClient) SetLevel(context.Context, mcp.SetLevelRequest) error {
 func (m *mockMCPClient) Complete(context.Context, mcp.CompleteRequest) (*mcp.CompleteResult, error) {
 	panic("unexpected call")
 }
-func (m *mockMCPClient) Close() error                                            { return nil }
+func (m *mockMCPClient) Close() error                                              { return nil }
 func (m *mockMCPClient) OnNotification(func(notification mcp.JSONRPCNotification)) {}
 
 // ---------------------------------------------------------------------------

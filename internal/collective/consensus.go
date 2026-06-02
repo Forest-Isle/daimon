@@ -34,15 +34,15 @@ func NewConsensusEngine(rep *ReputationSystem, quorum int, threshold float64) *C
 
 // ConsensusResult holds the outcome of a consensus vote.
 type ConsensusResult struct {
-	Question       string    `json:"question"`
-	Approved       bool      `json:"approved"`
-	ForWeight      float64   `json:"for_weight"`
-	AgainstWeight  float64   `json:"against_weight"`
-	VoterCount     int       `json:"voter_count"`
-	QuorumMet      bool      `json:"quorum_met"`
-	Votes          []*Vote   `json:"votes"`
-	StartedAt      time.Time `json:"started_at"`
-	CompletedAt    time.Time `json:"completed_at"`
+	Question      string    `json:"question"`
+	Approved      bool      `json:"approved"`
+	ForWeight     float64   `json:"for_weight"`
+	AgainstWeight float64   `json:"against_weight"`
+	VoterCount    int       `json:"voter_count"`
+	QuorumMet     bool      `json:"quorum_met"`
+	Votes         []*Vote   `json:"votes"`
+	StartedAt     time.Time `json:"started_at"`
+	CompletedAt   time.Time `json:"completed_at"`
 }
 
 // Vote is a single agent's decision on a question.
@@ -118,7 +118,7 @@ func (ce *ConsensusEngine) ReachConsensus(
 	}
 
 	result.ForWeight = forWeight
-		result.AgainstWeight = againstWeight
+	result.AgainstWeight = againstWeight
 	result.VoterCount = len(result.Votes)
 	result.QuorumMet = result.VoterCount >= ce.quorum
 

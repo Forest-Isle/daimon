@@ -1,9 +1,9 @@
 package agent
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/util"
 	"encoding/json"
 	"fmt"
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"strings"
 )
 
@@ -401,4 +401,3 @@ func errorOrOK(errMsg string) string {
 	}
 	return util.TruncateStr(errMsg, 200)
 }
-

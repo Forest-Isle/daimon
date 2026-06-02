@@ -18,11 +18,11 @@ type mockReadOnlyTool struct {
 	called  atomic.Int32
 }
 
-func (m *mockReadOnlyTool) Name() string                    { return m.name }
-func (m *mockReadOnlyTool) Description() string             { return "mock read-only tool" }
-func (m *mockReadOnlyTool) InputSchema() map[string]any     { return nil }
-func (m *mockReadOnlyTool) RequiresApproval() bool          { return false }
-func (m *mockReadOnlyTool) IsReadOnly() bool                { return true }
+func (m *mockReadOnlyTool) Name() string                { return m.name }
+func (m *mockReadOnlyTool) Description() string         { return "mock read-only tool" }
+func (m *mockReadOnlyTool) InputSchema() map[string]any { return nil }
+func (m *mockReadOnlyTool) RequiresApproval() bool      { return false }
+func (m *mockReadOnlyTool) IsReadOnly() bool            { return true }
 func (m *mockReadOnlyTool) Execute(ctx context.Context, _ []byte) (tool.Result, error) {
 	m.called.Add(1)
 	if m.delay > 0 {
@@ -43,10 +43,10 @@ type mockWriteTool struct {
 	name string
 }
 
-func (m *mockWriteTool) Name() string                    { return m.name }
-func (m *mockWriteTool) Description() string             { return "mock write tool" }
-func (m *mockWriteTool) InputSchema() map[string]any     { return nil }
-func (m *mockWriteTool) RequiresApproval() bool          { return false }
+func (m *mockWriteTool) Name() string                { return m.name }
+func (m *mockWriteTool) Description() string         { return "mock write tool" }
+func (m *mockWriteTool) InputSchema() map[string]any { return nil }
+func (m *mockWriteTool) RequiresApproval() bool      { return false }
 func (m *mockWriteTool) Execute(_ context.Context, _ []byte) (tool.Result, error) {
 	return tool.Result{Output: "written"}, nil
 }

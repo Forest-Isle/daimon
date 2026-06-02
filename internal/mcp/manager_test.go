@@ -16,9 +16,9 @@ import (
 // ---------------------------------------------------------------------------
 
 type managerMockClient struct {
-	mockMCPClient          // embed adapter mock for interface satisfaction
-	closeCalled atomic.Bool
-	closeErr    error
+	mockMCPClient // embed adapter mock for interface satisfaction
+	closeCalled   atomic.Bool
+	closeErr      error
 }
 
 func (m *managerMockClient) Close() error {

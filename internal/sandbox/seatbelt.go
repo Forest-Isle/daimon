@@ -26,7 +26,7 @@ func NewSeatbelt(cfg Config) *Seatbelt {
 	}
 }
 
-func (s *Seatbelt) Name() string   { return "seatbelt" }
+func (s *Seatbelt) Name() string    { return "seatbelt" }
 func (s *Seatbelt) Available() bool { return s.available }
 
 // Exec runs a command inside a macOS sandbox-exec sandbox with a generated SBPL profile.

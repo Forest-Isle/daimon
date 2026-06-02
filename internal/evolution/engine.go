@@ -9,18 +9,18 @@ import (
 
 // ReflectionEvent carries data from a completed REFLECT phase to evolution hooks.
 type ReflectionEvent struct {
-	SessionID        string
-	UserID           string
-	Goal             string
-	Complexity       string
-	Succeeded        bool
-	Confidence       float64
-	LessonsLearned   []string
-	ToolsUsed        []string // tool names used during this episode
-	ReplanCount      int
-	UserFeedback     float64 // -1 to 1 (from thumbs down/up), 0 if not collected
-	FinalAnswer      string
-	Timestamp        time.Time
+	SessionID      string
+	UserID         string
+	Goal           string
+	Complexity     string
+	Succeeded      bool
+	Confidence     float64
+	LessonsLearned []string
+	ToolsUsed      []string // tool names used during this episode
+	ReplanCount    int
+	UserFeedback   float64 // -1 to 1 (from thumbs down/up), 0 if not collected
+	FinalAnswer    string
+	Timestamp      time.Time
 }
 
 // EpisodeEvent carries data from a completed RL episode recording.
@@ -31,8 +31,8 @@ type EpisodeEvent struct {
 	Complexity     string
 	Succeeded      bool
 	TotalReward    float64
-	ToolSequence   []string   // ordered tool names used
-	LessonsLearned []string   // from REFLECT (cognitive), empty for simple mode
+	ToolSequence   []string // ordered tool names used
+	LessonsLearned []string // from REFLECT (cognitive), empty for simple mode
 	ReplanCount    int
 	DurationMs     int64
 	UserFeedback   float64

@@ -10,17 +10,17 @@ import (
 
 // InsightsReport summarizes patterns from trajectory data.
 type InsightsReport struct {
-	Period          string             `json:"period"`
-	TotalEpisodes   int                `json:"total_episodes"`
-	SuccessRate     float64            `json:"success_rate"`
-	AvgDurationMs   int64              `json:"avg_duration_ms"`
-	AvgReplanCount  float64            `json:"avg_replan_count"`
-	AvgUserFeedback float64            `json:"avg_user_feedback"`
-	TopTools        []ToolInsight      `json:"top_tools"`
-	ComplexityStats []ComplexityStat   `json:"complexity_stats"`
-	FailurePatterns []FailurePattern   `json:"failure_patterns,omitempty"`
-	Recommendations []string           `json:"recommendations,omitempty"`
-	GeneratedAt     time.Time          `json:"generated_at"`
+	Period          string           `json:"period"`
+	TotalEpisodes   int              `json:"total_episodes"`
+	SuccessRate     float64          `json:"success_rate"`
+	AvgDurationMs   int64            `json:"avg_duration_ms"`
+	AvgReplanCount  float64          `json:"avg_replan_count"`
+	AvgUserFeedback float64          `json:"avg_user_feedback"`
+	TopTools        []ToolInsight    `json:"top_tools"`
+	ComplexityStats []ComplexityStat `json:"complexity_stats"`
+	FailurePatterns []FailurePattern `json:"failure_patterns,omitempty"`
+	Recommendations []string         `json:"recommendations,omitempty"`
+	GeneratedAt     time.Time        `json:"generated_at"`
 }
 
 // ToolInsight tracks per-tool statistics.

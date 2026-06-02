@@ -48,32 +48,32 @@ func TestRRFScore(t *testing.T) {
 		tolerance float64
 	}{
 		{
-			name:     "both present rank 0",
-			vRank:    0, bRank: 0,
+			name:  "both present rank 0",
+			vRank: 0, bRank: 0,
 			vWeight: 0.6, bWeight: 0.4,
 			expected: 0.6/61.0 + 0.4/61.0, // 0.6/(60+0+1) + 0.4/(60+0+1)
 		},
 		{
-			name:     "only vector",
-			vRank:    0, bRank: -1,
+			name:  "only vector",
+			vRank: 0, bRank: -1,
 			vWeight: 0.6, bWeight: 0.4,
 			expected: 0.6 / 61.0,
 		},
 		{
-			name:     "only bm25",
-			vRank:    -1, bRank: 0,
+			name:  "only bm25",
+			vRank: -1, bRank: 0,
 			vWeight: 0.6, bWeight: 0.4,
 			expected: 0.4 / 61.0,
 		},
 		{
-			name:     "deeper ranks",
-			vRank:    9, bRank: 4,
+			name:  "deeper ranks",
+			vRank: 9, bRank: 4,
 			vWeight: 0.6, bWeight: 0.4,
 			expected: 0.6/70.0 + 0.4/65.0,
 		},
 		{
-			name:     "both absent",
-			vRank:    -1, bRank: -1,
+			name:  "both absent",
+			vRank: -1, bRank: -1,
 			expected: 0,
 		},
 	}

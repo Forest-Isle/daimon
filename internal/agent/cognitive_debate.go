@@ -85,4 +85,3 @@ func (cl *CognitiveLoop) handleDebate(
 	}
 	return cl.streamFinalAnswer(ctx, ch, target, sess, finalAnswer)
 }
-

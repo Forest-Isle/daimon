@@ -92,7 +92,7 @@ type PerKeyLimiter struct {
 }
 
 type bucketEntry struct {
-	bucket    *TokenBucket
+	bucket     *TokenBucket
 	lastAccess time.Time
 }
 

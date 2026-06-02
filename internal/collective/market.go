@@ -12,16 +12,16 @@ import (
 
 // MarketTask is a task posted to the agent market for bidding.
 type MarketTask struct {
-	ID            string    `json:"id"`
-	Description   string    `json:"description"`
-	RequiredSkills []string  `json:"required_skills"`
-	Complexity    string    `json:"complexity"` // simple, moderate, complex
-	Budget        float64   `json:"budget"`
-	Deadline      time.Time `json:"deadline"`
-	Bids          []*Bid    `json:"bids"`
-	AwardedTo     string    `json:"awarded_to"`
-	Status        TaskStatus `json:"status"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID             string     `json:"id"`
+	Description    string     `json:"description"`
+	RequiredSkills []string   `json:"required_skills"`
+	Complexity     string     `json:"complexity"` // simple, moderate, complex
+	Budget         float64    `json:"budget"`
+	Deadline       time.Time  `json:"deadline"`
+	Bids           []*Bid     `json:"bids"`
+	AwardedTo      string     `json:"awarded_to"`
+	Status         TaskStatus `json:"status"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 // TaskStatus tracks the lifecycle of a market task.
@@ -50,12 +50,12 @@ type Bid struct {
 
 // AgentMarket manages task bidding and award among agents.
 type AgentMarket struct {
-	board      *TaskBoard
-	registry   *AgentRegistry
-	reputation *ReputationSystem
-	settlement *SettlementEngine
+	board          *TaskBoard
+	registry       *AgentRegistry
+	reputation     *ReputationSystem
+	settlement     *SettlementEngine
 	auctionTimeout time.Duration
-	mu         sync.RWMutex
+	mu             sync.RWMutex
 }
 
 // NewAgentMarket creates a new agent market.

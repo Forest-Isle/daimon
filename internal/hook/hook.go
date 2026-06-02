@@ -17,7 +17,7 @@ type PreToolUseEvent struct {
 
 // PreToolUseResult is the outcome of a PreToolUse handler.
 type PreToolUseResult struct {
-	Action   string           // "allow", "deny", "ask", "passthrough"
+	Action   string // "allow", "deny", "ask", "passthrough"
 	Reason   string
 	Modified *json.RawMessage // optionally modify tool input
 }

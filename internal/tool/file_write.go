@@ -16,8 +16,10 @@ func NewFileWriteTool(requiresApproval bool) *FileWriteTool {
 	return &FileWriteTool{approval: requiresApproval}
 }
 
-func (t *FileWriteTool) Name() string        { return "file_write" }
-func (t *FileWriteTool) Description() string { return "Create or overwrite a file with the given content." }
+func (t *FileWriteTool) Name() string { return "file_write" }
+func (t *FileWriteTool) Description() string {
+	return "Create or overwrite a file with the given content."
+}
 func (t *FileWriteTool) RequiresApproval() bool { return t.approval }
 func (t *FileWriteTool) IsReadOnly() bool       { return false }
 

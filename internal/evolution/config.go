@@ -50,9 +50,9 @@ type SynthesizerConfig struct {
 	// LLMEnabled uses SkillPropose (injected from gateway) to turn statistics + last goal/sequence
 	// into a real procedure-style SKILL.md, similar to Hermes skill_learner.
 	LLMEnabled bool   `yaml:"llm_enabled"`
-	LLMModel   string `yaml:"llm_model"` // empty = same as top-level llm.model
+	LLMModel   string `yaml:"llm_model"`   // empty = same as top-level llm.model
 	DraftsDir  string `yaml:"drafts_dir"`  // relative to ~/.IronClaw/skills/
-	AutoNotify bool   `yaml:"auto_notify"`  // notify user on next session start
+	AutoNotify bool   `yaml:"auto_notify"` // notify user on next session start
 }
 
 // OptimizerConfig controls Loop 3: tuning cognitive agent parameters.
@@ -68,11 +68,11 @@ type OptimizerConfig struct {
 // DefaultConfig returns sensible defaults with the engine disabled.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:            false,
-		HookTimeout:        10 * time.Second,
-		PreferenceFile:     "preferences.yaml",
-		SandboxValidation:  true,
-		Router:             DefaultRouterConfig(),
+		Enabled:           false,
+		HookTimeout:       10 * time.Second,
+		PreferenceFile:    "preferences.yaml",
+		SandboxValidation: true,
+		Router:            DefaultRouterConfig(),
 		Preference: PreferenceConfig{
 			Enabled:        true,
 			MaxPreferences: 100,

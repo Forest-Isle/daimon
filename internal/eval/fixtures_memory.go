@@ -104,13 +104,13 @@ func MemorySuite() []TaskCase {
 
 	return []TaskCase{
 		{
-			ID:                "mem-store-recall",
-			Goal:              "What is my cat's name?",
-			Complexity:        "simple",
-			Tags:              []string{"memory", "recall"},
-			Dimension:         DimMemory,
-			VerifyMethod:      VerifyHybrid,
-			Reference:         &Reference{MustContain: []string{"Muffin"}},
+			ID:           "mem-store-recall",
+			Goal:         "What is my cat's name?",
+			Complexity:   "simple",
+			Tags:         []string{"memory", "recall"},
+			Dimension:    DimMemory,
+			VerifyMethod: VerifyHybrid,
+			Reference:    &Reference{MustContain: []string{"Muffin"}},
 			Rubric: &Rubric{Criteria: []JudgeCriterion{
 				{Name: "accuracy", Description: "Did the agent correctly recall the cat's name as Muffin?", Weight: 1.0},
 			}},
