@@ -413,6 +413,12 @@ func (it *claudeStreamIterator) finish(err error) {
 			attribute.String("operation", "stream"),
 		))
 	if it.span != nil {
+		if it.accum.Usage.InputTokens > 0 || it.accum.Usage.OutputTokens > 0 {
+			it.span.SetAttributes(
+				attribute.Int("gen_ai.usage.input_tokens", int(it.accum.Usage.InputTokens)),
+				attribute.Int("gen_ai.usage.output_tokens", int(it.accum.Usage.OutputTokens)),
+			)
+		}
 		it.span.End()
 	}
 }

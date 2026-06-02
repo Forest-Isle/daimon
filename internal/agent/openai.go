@@ -192,6 +192,12 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*
 
 	p.trackUsage(&resp)
 	recordOpenAITokenMetrics(ctx, model, resp.Usage)
+	if resp.Usage != nil {
+		span.SetAttributes(
+			attribute.Int("gen_ai.usage.input_tokens", resp.Usage.PromptTokens),
+			attribute.Int("gen_ai.usage.output_tokens", resp.Usage.CompletionTokens),
+		)
+	}
 	return p.parseChoice(resp.Choices[0]), nil
 }
 
@@ -466,9 +472,17 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 		}
 		if len(chunk.Choices) == 0 {
 			// Usage-only chunk (final streaming chunk with stream_options.include_usage)
-			if chunk.Usage != nil && it.provider != nil {
-				it.provider.trackUsage(&chunk)
+			if chunk.Usage != nil {
+				if it.provider != nil {
+					it.provider.trackUsage(&chunk)
+				}
 				recordOpenAITokenMetrics(it.ctx, it.model, chunk.Usage)
+				if it.span != nil {
+					it.span.SetAttributes(
+						attribute.Int("gen_ai.usage.input_tokens", chunk.Usage.PromptTokens),
+						attribute.Int("gen_ai.usage.output_tokens", chunk.Usage.CompletionTokens),
+					)
+				}
 			}
 			continue
 		}
