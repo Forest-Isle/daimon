@@ -166,7 +166,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 	gw.sandbox.trustTracker = tool.NewTrustTracker()
 
 	interceptors := []tool.ToolInterceptor{
-		tool.NewPermissionInterceptor(gw.permEngine, nil, nil, gw.trustTracker),
+		tool.NewPermissionInterceptor(gw.permEngine, NewGatewayToolNotifier(), NewGatewayToolApprover(gw.sessions, gw.channels), gw.trustTracker),
 		tool.NewHookInterceptor(gw.hookMgr),
 		newUserHookInterceptor(gw.userHookMgr),
 		tool.NewSandboxInterceptor(gw.sandbox.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),

@@ -43,7 +43,7 @@ func (p *PermissionInterceptor) Intercept(ctx context.Context, call *ToolCall, n
 	// Apply trust-based relaxation: accumulated trust can never override a
 	// hard Deny, but can relax Approve → Notify → None.
 	if p.tracker != nil && action == PermissionApprove {
-		trustAction := TrustLevelToPermission(p.tracker.SuggestedLevel(call.ToolName))
+		trustAction := TrustLevelToPermission(p.tracker.SuggestedLevelForInput(call.ToolName, call.Input))
 		if trustAction == PermissionNotify || trustAction == PermissionNone {
 			action = trustAction
 		}
@@ -51,44 +51,44 @@ func (p *PermissionInterceptor) Intercept(ctx context.Context, call *ToolCall, n
 
 	switch action {
 	case PermissionNone:
-		_ = p.recordIfTracking(call.ToolName, true)
+		_ = p.recordIfTracking(call.ToolName, call.Input, true)
 		return next(ctx, call)
 	case PermissionNotify:
 		if p.notifier != nil {
 			_ = p.notifier.NotifyToolExecution(ctx, call)
 		}
-		_ = p.recordIfTracking(call.ToolName, true)
+		_ = p.recordIfTracking(call.ToolName, call.Input, true)
 		return next(ctx, call)
 	case PermissionApprove:
 		if p.approver != nil {
 			approved, err := p.approver.RequestApproval(ctx, call)
 			if err != nil || !approved {
-				_ = p.recordIfTracking(call.ToolName, false)
+				_ = p.recordIfTracking(call.ToolName, call.Input, false)
 				return &ToolResult{Error: "execution denied by user"}, nil
 			}
 		}
-		_ = p.recordIfTracking(call.ToolName, true)
+		_ = p.recordIfTracking(call.ToolName, call.Input, true)
 		return next(ctx, call)
 	case PermissionDeny:
 		reason := result.Reason
 		if reason == "" {
 			reason = "policy"
 		}
-		_ = p.recordIfTracking(call.ToolName, false)
+		_ = p.recordIfTracking(call.ToolName, call.Input, false)
 		return &ToolResult{Error: fmt.Sprintf("tool %s denied by %s", call.ToolName, reason)}, nil
 	}
 
 	return next(ctx, call)
 }
 
-func (p *PermissionInterceptor) recordIfTracking(toolName string, approved bool) error {
+func (p *PermissionInterceptor) recordIfTracking(toolName, input string, approved bool) error {
 	if p.tracker == nil {
 		return nil
 	}
 	if approved {
-		p.tracker.RecordApproval(toolName)
+		p.tracker.RecordApprovalWithInput(toolName, input)
 	} else {
-		p.tracker.RecordRejection(toolName)
+		p.tracker.RecordRejectionWithInput(toolName, input)
 	}
 	return nil
 }
