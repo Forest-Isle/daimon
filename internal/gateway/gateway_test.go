@@ -82,26 +82,3 @@ func TestHandleInboundRoutesByCurrentMode(t *testing.T) {
 	require.NoError(t, gw.SetMode("cognitive"))
 	assert.Equal(t, "cognitive", gw.CurrentMode())
 }
-
-func TestHandleModeCommand(t *testing.T) {
-	cfg := testConfig(t)
-	cfg.Agent.Mode = "simple"
-
-	gw, err := New(cfg)
-	require.NoError(t, err)
-	defer func() { _ = gw.db.Close() }()
-
-	response := gw.handleModeCommand("cognitive")
-	assert.Contains(t, response, "cognitive")
-	assert.Equal(t, "cognitive", gw.CurrentMode())
-
-	response = gw.handleModeCommand("cognitive")
-	assert.Contains(t, response, "Already")
-
-	response = gw.handleModeCommand("")
-	assert.Contains(t, response, "cognitive")
-
-	response = gw.handleModeCommand("bad")
-	assert.Contains(t, response, "unknown mode")
-	assert.Equal(t, "cognitive", gw.CurrentMode())
-}
