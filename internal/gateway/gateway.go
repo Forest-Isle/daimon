@@ -684,13 +684,6 @@ func (gw *Gateway) handleApproval(ctx context.Context, ch channel.Channel, targe
 // sendMemoryNotification sends a lightweight memory operation summary via the channel.
 // Channels that implement channel.NotificationSender get the notification;
 // all others silently skip it.
-func (gw *Gateway) sendMemoryNotification(ctx context.Context, ch channel.Channel, target channel.MessageTarget, summary string) {
-	if sender, ok := ch.(channel.NotificationSender); ok {
-		if err := sender.SendNotification(ctx, target, summary); err != nil {
-			slog.Warn("gateway: memory notification failed", "err", err)
-		}
-	}
-}
 
 // completerAdapter bridges agent.Provider to memory.Completer.
 type completerAdapter struct {
@@ -800,142 +793,11 @@ func defToSpec(def config.AgentDefinition) *agent.AgentSpec {
 }
 
 // handleTasksCommand lists running and pending tasks from the task ledger.
-func (gw *Gateway) handleTasksCommand(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) {
-	target := channel.OutboundMessage{Channel: msg.Channel, ChannelID: msg.ChannelID}
-
-	if gw.tasks.TaskLedger() == nil {
-		target.Text = "Task ledger not available."
-		if err := ch.Send(ctx, target); err != nil {
-			slog.Warn("failed to send message", "err", err)
-		}
-		return
-	}
-
-	running := taskledger.TaskStateRunning
-	runningTasks, err := gw.tasks.TaskLedger().List(ctx, taskledger.TaskFilter{State: &running})
-	if err != nil {
-		target.Text = "Error: failed to list tasks: " + err.Error()
-		if err := ch.Send(ctx, target); err != nil {
-			slog.Warn("failed to send message", "err", err)
-		}
-		return
-	}
-
-	pending := taskledger.TaskStatePending
-	pendingTasks, err := gw.tasks.TaskLedger().List(ctx, taskledger.TaskFilter{State: &pending})
-	if err != nil {
-		target.Text = "Error: failed to list tasks: " + err.Error()
-		if err := ch.Send(ctx, target); err != nil {
-			slog.Warn("failed to send message", "err", err)
-		}
-		return
-	}
-
-	var b strings.Builder
-	b.WriteString("**Task Ledger**\n\n")
-
-	if len(runningTasks) == 0 && len(pendingTasks) == 0 {
-		b.WriteString("No active tasks.")
-	} else {
-		if len(runningTasks) > 0 {
-			fmt.Fprintf(&b, "Running (%d):\n", len(runningTasks))
-			for _, t := range runningTasks {
-				age := time.Since(t.CreatedAt).Truncate(time.Second)
-				fmt.Fprintf(&b, "  ▶ [%s] %s (%s ago)\n", t.Kind, t.Title, age)
-			}
-		}
-		if len(pendingTasks) > 0 {
-			if len(runningTasks) > 0 {
-				b.WriteString("\n")
-			}
-			fmt.Fprintf(&b, "Pending (%d):\n", len(pendingTasks))
-			for _, t := range pendingTasks {
-				fmt.Fprintf(&b, "  ○ [%s] %s\n", t.Kind, t.Title)
-			}
-		}
-	}
-
-	target.Text = b.String()
-	if err := ch.Send(ctx, target); err != nil {
-		slog.Warn("failed to send message", "err", err)
-	}
-}
 
 // handleTeamCommand breaks a goal into parallel tasks using the LLM and executes them.
-func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
-	if gw.tasks.TeamCoordinator() == nil {
-		return "Team mode is not enabled. Set agent.team.enabled: true in config."
-	}
-
-	cfg := gw.Config()
-	prompt := fmt.Sprintf(taskledger.TeamPlanPrompt, goal)
-	req := agent.CompletionRequest{
-		Model:     gw.agent.Model(),
-		System:    "You are a task planning assistant. Output only valid JSON.",
-		Messages:  []agent.CompletionMessage{{Role: "user", Content: prompt}},
-		MaxTokens: cfg.LLM.MaxTokens,
-	}
-	resp, err := gw.provider.Complete(ctx, req)
-	if err != nil {
-		return fmt.Sprintf("Failed to generate plan: %v", err)
-	}
-
-	rootID := fmt.Sprintf("team_%d", time.Now().UnixNano())
-	rootTask := taskledger.Task{
-		ID:    rootID,
-		Kind:  taskledger.TaskKindTeamTask,
-		State: taskledger.TaskStateRunning,
-		Title: util.TruncateStr(goal, 100),
-	}
-	if err := gw.tasks.TaskLedger().Register(ctx, rootTask); err != nil {
-		return fmt.Sprintf("Failed to register root task: %v", err)
-	}
-
-	tasks, err := taskledger.ParseTaskPlan(resp.Text, rootID)
-	if err != nil {
-		return fmt.Sprintf("Failed to parse plan: %v", err)
-	}
-
-	for _, t := range tasks {
-		if err := gw.tasks.TeamCoordinator().AddTask(ctx, t); err != nil {
-			return fmt.Sprintf("Failed to add task %s: %v", t.ID, err)
-		}
-	}
-
-	result, err := gw.tasks.TeamCoordinator().RunWithExecutor(ctx)
-	if err != nil {
-		return fmt.Sprintf("Team execution failed: %v", err)
-	}
-
-	now := time.Now().UTC()
-	rootTask.State = taskledger.TaskStateCompleted
-	rootTask.CompletedAt = &now
-	rootTask.Result = result.Summary
-	if err := gw.tasks.TaskLedger().Update(ctx, rootTask); err != nil {
-		slog.Warn("gateway: failed to update root task", "err", err)
-	}
-
-	return fmt.Sprintf("Team completed: %d tasks done, %d failed", result.TasksCompleted, result.TasksFailed)
-}
 
 // handleModeCommand processes the /mode command argument.
 // arg="" means query-only; arg="simple"|"cognitive" switches mode.
-func (gw *Gateway) handleModeCommand(arg string) string {
-	current := gw.CurrentMode()
-	if arg == "" {
-		return fmt.Sprintf("Mode: %s", current)
-	}
-	if arg != "simple" && arg != "cognitive" {
-		return fmt.Sprintf("Error: unknown mode %q. Valid modes: simple, cognitive", arg)
-	}
-	if arg == current {
-		return fmt.Sprintf("Already in %s mode", current)
-	}
-	if err := gw.SetMode(arg); err != nil {
-		slog.Warn("gateway: set mode failed", "mode", arg, "err", err)
-	}
-	return fmt.Sprintf("Mode switched to %s (was: %s)", arg, current)
-}
 
 // executeTeamTask runs a single team task by creating a temporary session
 // and routing through the main agent runtime.
