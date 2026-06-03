@@ -97,7 +97,6 @@ type Model struct {
 	toolHistory []toolHistoryEntry
 	toolCount   int // total tools executed this session
 	metrics     metricsState
-	phase       string // current cognitive phase (empty in simple mode)
 	showStats   bool   // toggle for detailed stats panel
 
 	// Compression tracking for stats panel

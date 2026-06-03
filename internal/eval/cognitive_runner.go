@@ -117,17 +117,17 @@ func (r *CognitiveAgentRunner) CaptureCogHealth() *cogmetrics.HealthReport {
 	return &h
 }
 
-// CompressionEmitter returns a DashboardEmitter that routes context compression
+// CompressionEmitter returns an ObservabilityEmitter that routes context compression
 // events into the eval hook. The gateway wires this into the context manager so
 // that compression events are tracked even when the dashboard is disabled.
-func (r *CognitiveAgentRunner) CompressionEmitter() agent.DashboardEmitter {
+func (r *CognitiveAgentRunner) CompressionEmitter() agent.ObservabilityEmitter {
 	if r.hook == nil {
 		return nil
 	}
 	return &compressionAdapter{hook: r.hook}
 }
 
-// compressionAdapter is a thin agent.DashboardEmitter whose only live method is
+// compressionAdapter is a thin agent.ObservabilityEmitter whose only live method is
 // EmitContextCompress; all others are no-ops. This keeps EvalHook focused on
 // evolution.Hook responsibility while still satisfying the full interface.
 type compressionAdapter struct {
@@ -138,17 +138,8 @@ func (a *compressionAdapter) EmitContextCompress(sessionID, reason string, layer
 	a.hook.RecordCompression(sessionID, reason, layersRun, beforePct, afterPct)
 }
 
-func (a *compressionAdapter) EmitPhaseStart(_ string, _ string)                        {}
-func (a *compressionAdapter) EmitPhaseEnd(_ string, _ string, _ int64)                 {}
 func (a *compressionAdapter) EmitToolStart(_ string, _ string, _ string)               {}
 func (a *compressionAdapter) EmitToolEnd(_ string, _ string, _ bool, _ int64)          {}
-func (a *compressionAdapter) EmitSessionStart(_ string, _ string)                      {}
-func (a *compressionAdapter) EmitSessionEnd(_ string, _ bool, _ int64)                 {}
-func (a *compressionAdapter) EmitMetricsUpdate(_ string, _, _ int, _ float64, _, _, _, _ int64, _, _ string) {
-}
-func (a *compressionAdapter) EmitPlanGenerated(_ string, _ int, _ string, _ bool)      {}
-func (a *compressionAdapter) EmitReplanStart(_ string, _ int, _ string)                {}
-func (a *compressionAdapter) EmitObservationResult(_ string, _, _, _ int, _ float64)   {}
 func (a *compressionAdapter) EmitSubAgentSpawn(_ string, _ string, _ string, _ string) {}
 func (a *compressionAdapter) EmitSubAgentComplete(_ string, _ string, _ bool, _ int64) {}
 

@@ -86,11 +86,6 @@ func (m Model) renderStatusBar() string {
 		}
 	}
 
-	// Cognitive phase
-	if m.phase != "" {
-		parts = append(parts, statusPhaseStyle.Render("⟨"+m.phase+"⟩"))
-	}
-
 	// Context utilization
 	if m.metrics.utilization > 0 {
 		pct := int(m.metrics.utilization * 100)

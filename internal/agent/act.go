@@ -27,7 +27,7 @@ type Executor struct {
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
 	interceptorChain *tool.InterceptorChain
-	dashEmitter      DashboardEmitter
+	dashEmitter      ObservabilityEmitter
 	planMode         *PlanMode // optional plan->approve->execute flow
 }
 
@@ -56,8 +56,8 @@ func (e *Executor) SetInterceptorChain(chain *tool.InterceptorChain) {
 	e.interceptorChain = chain
 }
 
-// SetDashboardEmitter injects a dashboard event emitter for tool execution tracking.
-func (e *Executor) SetDashboardEmitter(em DashboardEmitter) {
+// SetObservabilityEmitter injects an observability event emitter for tool execution tracking.
+func (e *Executor) SetObservabilityEmitter(em ObservabilityEmitter) {
 	e.dashEmitter = em
 }
 

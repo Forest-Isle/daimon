@@ -1,19 +1,11 @@
 package agent
 
-// DashboardEmitter emits agent lifecycle events for the web dashboard.
-// Implementations must be safe for concurrent use. All methods are no-ops
-// when the receiver is nil, so callers need not nil-check.
-type DashboardEmitter interface {
-	EmitPhaseStart(sessionID, phase string)
-	EmitPhaseEnd(sessionID, phase string, durationMs int64)
+// ObservabilityEmitter emits agent lifecycle events for observability consumers
+// (web dashboard, TUI, eval harness). Implementations must be safe for concurrent
+// use. All methods are no-ops when the receiver is nil, so callers need not nil-check.
+type ObservabilityEmitter interface {
 	EmitToolStart(sessionID, toolName, input string)
 	EmitToolEnd(sessionID, toolName string, succeeded bool, durationMs int64)
-	EmitSessionStart(sessionID, channel string)
-	EmitSessionEnd(sessionID string, succeeded bool, durationMs int64)
-	EmitMetricsUpdate(sessionID string, iteration, maxIter int, utilization float64, inputTokens, outputTokens, cacheCreate, cacheRead int64, model, provider string)
-	EmitPlanGenerated(sessionID string, taskCount int, complexity string, hasDirectReply bool)
-	EmitReplanStart(sessionID string, attempt int, reason string)
-	EmitObservationResult(sessionID string, passed, failed, total int, overallProgress float64)
 	EmitSubAgentSpawn(sessionID, parentSessionID, agentName, task string)
 	EmitSubAgentComplete(sessionID, agentName string, succeeded bool, durationMs int64)
 	EmitContextCompress(sessionID, reason string, layersRun int, beforePct, afterPct float64)
@@ -38,16 +30,16 @@ type MetricsEmitter interface {
 	SendMetrics(m RuntimeMetrics)
 }
 
-// multiEmitter fans out DashboardEmitter calls to multiple backends,
+// multiEmitter fans out ObservabilityEmitter calls to multiple backends,
 // allowing the web dashboard and TUI to receive events simultaneously.
 type multiEmitter struct {
-	targets []DashboardEmitter
+	targets []ObservabilityEmitter
 }
 
-// NewMultiEmitter combines multiple DashboardEmitter instances into one.
+// NewMultiEmitter combines multiple ObservabilityEmitter instances into one.
 // Nil entries are silently dropped.
-func NewMultiEmitter(emitters ...DashboardEmitter) DashboardEmitter {
-	var live []DashboardEmitter
+func NewMultiEmitter(emitters ...ObservabilityEmitter) ObservabilityEmitter {
+	var live []ObservabilityEmitter
 	for _, e := range emitters {
 		if e == nil {
 			continue
@@ -68,18 +60,6 @@ func NewMultiEmitter(emitters ...DashboardEmitter) DashboardEmitter {
 	}
 }
 
-func (m *multiEmitter) EmitPhaseStart(sessionID, phase string) {
-	for _, t := range m.targets {
-		t.EmitPhaseStart(sessionID, phase)
-	}
-}
-
-func (m *multiEmitter) EmitPhaseEnd(sessionID, phase string, durationMs int64) {
-	for _, t := range m.targets {
-		t.EmitPhaseEnd(sessionID, phase, durationMs)
-	}
-}
-
 func (m *multiEmitter) EmitToolStart(sessionID, toolName, input string) {
 	for _, t := range m.targets {
 		t.EmitToolStart(sessionID, toolName, input)
@@ -89,42 +69,6 @@ func (m *multiEmitter) EmitToolStart(sessionID, toolName, input string) {
 func (m *multiEmitter) EmitToolEnd(sessionID, toolName string, succeeded bool, durationMs int64) {
 	for _, t := range m.targets {
 		t.EmitToolEnd(sessionID, toolName, succeeded, durationMs)
-	}
-}
-
-func (m *multiEmitter) EmitSessionStart(sessionID, channel string) {
-	for _, t := range m.targets {
-		t.EmitSessionStart(sessionID, channel)
-	}
-}
-
-func (m *multiEmitter) EmitSessionEnd(sessionID string, succeeded bool, durationMs int64) {
-	for _, t := range m.targets {
-		t.EmitSessionEnd(sessionID, succeeded, durationMs)
-	}
-}
-
-func (m *multiEmitter) EmitMetricsUpdate(sessionID string, iteration, maxIter int, utilization float64, inputTokens, outputTokens, cacheCreate, cacheRead int64, model, provider string) {
-	for _, t := range m.targets {
-		t.EmitMetricsUpdate(sessionID, iteration, maxIter, utilization, inputTokens, outputTokens, cacheCreate, cacheRead, model, provider)
-	}
-}
-
-func (m *multiEmitter) EmitPlanGenerated(sessionID string, taskCount int, complexity string, hasDirectReply bool) {
-	for _, t := range m.targets {
-		t.EmitPlanGenerated(sessionID, taskCount, complexity, hasDirectReply)
-	}
-}
-
-func (m *multiEmitter) EmitReplanStart(sessionID string, attempt int, reason string) {
-	for _, t := range m.targets {
-		t.EmitReplanStart(sessionID, attempt, reason)
-	}
-}
-
-func (m *multiEmitter) EmitObservationResult(sessionID string, passed, failed, total int, overallProgress float64) {
-	for _, t := range m.targets {
-		t.EmitObservationResult(sessionID, passed, failed, total, overallProgress)
 	}
 }
 

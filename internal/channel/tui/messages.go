@@ -76,17 +76,6 @@ type toolEndMsg struct {
 	durationMs int64
 }
 
-// phaseStartMsg signals a cognitive agent phase has started.
-type phaseStartMsg struct {
-	phase string
-}
-
-// phaseEndMsg signals a cognitive agent phase has ended.
-type phaseEndMsg struct {
-	phase      string
-	durationMs int64
-}
-
 // metricsUpdateMsg carries periodic runtime metrics.
 type metricsUpdateMsg struct {
 	iteration    int

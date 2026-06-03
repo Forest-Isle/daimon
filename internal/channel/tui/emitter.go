@@ -5,7 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// TUIEmitter implements agent.DashboardEmitter by forwarding events as
+// TUIEmitter implements agent.ObservabilityEmitter by forwarding events as
 // Bubble Tea messages. Safe for concurrent use (tea.Program.Send is goroutine-safe).
 type TUIEmitter struct {
 	program *tea.Program
@@ -13,20 +13,6 @@ type TUIEmitter struct {
 
 func NewTUIEmitter(p *tea.Program) *TUIEmitter {
 	return &TUIEmitter{program: p}
-}
-
-func (e *TUIEmitter) EmitPhaseStart(_, phase string) {
-	if e == nil || e.program == nil {
-		return
-	}
-	e.program.Send(phaseStartMsg{phase: phase})
-}
-
-func (e *TUIEmitter) EmitPhaseEnd(_, phase string, durationMs int64) {
-	if e == nil || e.program == nil {
-		return
-	}
-	e.program.Send(phaseEndMsg{phase: phase, durationMs: durationMs})
 }
 
 func (e *TUIEmitter) EmitToolStart(_, toolName, input string) {
@@ -42,17 +28,6 @@ func (e *TUIEmitter) EmitToolEnd(_, toolName string, succeeded bool, durationMs 
 	}
 	e.program.Send(toolEndMsg{toolName: toolName, succeeded: succeeded, durationMs: durationMs})
 }
-
-func (e *TUIEmitter) EmitSessionStart(_, _ string) {}
-
-func (e *TUIEmitter) EmitSessionEnd(_ string, _ bool, _ int64) {}
-
-func (e *TUIEmitter) EmitMetricsUpdate(string, int, int, float64, int64, int64, int64, int64, string, string) {
-}
-
-func (e *TUIEmitter) EmitPlanGenerated(string, int, string, bool)          {}
-func (e *TUIEmitter) EmitReplanStart(string, int, string)                  {}
-func (e *TUIEmitter) EmitObservationResult(string, int, int, int, float64) {}
 
 func (e *TUIEmitter) EmitSubAgentSpawn(_, _, _, _ string) {}
 

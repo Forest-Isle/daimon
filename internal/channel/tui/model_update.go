@@ -138,14 +138,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case phaseStartMsg:
-		m.phase = msg.phase
-		return m, nil
-
-	case phaseEndMsg:
-		m.phase = ""
-		return m, nil
-
 	case metricsUpdateMsg:
 		m.metrics = metricsState(msg)
 		return m, nil

@@ -464,22 +464,22 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	return nil
 }
 
-// SetDashboardEmitter replaces the current DashboardEmitter on the agent deps
-// and context manager. Prefer AddDashboardEmitter when multiple consumers must
+// SetObservabilityEmitter replaces the current ObservabilityEmitter on the agent deps
+// and context manager. Prefer AddObservabilityEmitter when multiple consumers must
 // coexist (e.g. web dashboard + TUI).
-func (gw *Gateway) SetDashboardEmitter(e agent.DashboardEmitter) {
+func (gw *Gateway) SetObservabilityEmitter(e agent.ObservabilityEmitter) {
 	gw.dashboard.emitter = e
 	gw.agentDeps.Observability.Emitter = e
 	if gw.contextMgr != nil {
-		gw.contextMgr.SetDashboardEmitter(e)
+		gw.contextMgr.SetObservabilityEmitter(e)
 	}
 }
 
-// AddDashboardEmitter merges e with the existing emitter so both the web
+// AddObservabilityEmitter merges e with the existing emitter so both the web
 // dashboard and channel-specific consumers (e.g. TUI status bar) receive events.
-func (gw *Gateway) AddDashboardEmitter(e agent.DashboardEmitter) {
+func (gw *Gateway) AddObservabilityEmitter(e agent.ObservabilityEmitter) {
 	merged := agent.NewMultiEmitter(gw.dashboard.Emitter(), e)
-	gw.SetDashboardEmitter(merged)
+	gw.SetObservabilityEmitter(merged)
 }
 
 // SetMetricsEmitter sets a MetricsEmitter on the agent deps for TUI status reporting.
@@ -569,7 +569,7 @@ func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
 	// Route context compression events through the eval hook so they appear
 	// in EvalResult.CompressionEvents even when the dashboard is disabled.
 	if gw.contextMgr != nil {
-		gw.contextMgr.SetDashboardEmitter(
+		gw.contextMgr.SetObservabilityEmitter(
 			agent.NewMultiEmitter(gw.dashboard.Emitter(), r.CompressionEmitter()),
 		)
 	}

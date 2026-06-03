@@ -41,7 +41,7 @@ func (gw *Gateway) setupDashboard() error {
 	gw.dashboard.emitter = emitter
 	gw.agentDeps.Observability.Emitter = emitter
 	if gw.contextMgr != nil {
-		gw.contextMgr.SetDashboardEmitter(emitter)
+		gw.contextMgr.SetObservabilityEmitter(emitter)
 	}
 
 	gw.dashboard.hub = dashboard.NewHub(gw.dashboard.bus)

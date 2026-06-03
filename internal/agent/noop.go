@@ -6,21 +6,12 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/session"
 )
 
-// discardEmitter is the zero-value DashboardEmitter. All methods are no-ops.
+// discardEmitter is the zero-value ObservabilityEmitter. All methods are no-ops.
 // Used when no dashboard or TUI emitter is configured.
 type discardEmitter struct{}
 
-func (discardEmitter) EmitPhaseStart(string, string)           {}
-func (discardEmitter) EmitPhaseEnd(string, string, int64)      {}
 func (discardEmitter) EmitToolStart(string, string, string)    {}
 func (discardEmitter) EmitToolEnd(string, string, bool, int64) {}
-func (discardEmitter) EmitSessionStart(string, string)         {}
-func (discardEmitter) EmitSessionEnd(string, bool, int64)      {}
-func (discardEmitter) EmitMetricsUpdate(string, int, int, float64, int64, int64, int64, int64, string, string) {
-}
-func (discardEmitter) EmitPlanGenerated(string, int, string, bool)               {}
-func (discardEmitter) EmitReplanStart(string, int, string)                       {}
-func (discardEmitter) EmitObservationResult(string, int, int, int, float64)      {}
 func (discardEmitter) EmitSubAgentSpawn(string, string, string, string)          {}
 func (discardEmitter) EmitSubAgentComplete(string, string, bool, int64)          {}
 func (discardEmitter) EmitContextCompress(string, string, int, float64, float64) {}
@@ -43,6 +34,6 @@ func (noopContextManager) Utilization(_ *session.Session, _ string) float64 { re
 func (noopContextManager) SplitSystemPrompt(full string) (string, string)   { return full, "" }
 
 // Compile-time interface checks
-var _ DashboardEmitter = discardEmitter{}
+var _ ObservabilityEmitter = discardEmitter{}
 var _ MetricsEmitter = discardMetrics{}
 var _ ContextManager = noopContextManager{}

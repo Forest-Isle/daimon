@@ -80,7 +80,7 @@ func (d SecurityDeps) WithDefaults() SecurityDeps {
 
 // ObservabilityDeps holds optional observability subsystem dependencies.
 type ObservabilityDeps struct {
-	Emitter        DashboardEmitter // default: discardEmitter{}
+	Emitter        ObservabilityEmitter // default: discardEmitter{}
 	MetricsEmitter MetricsEmitter   // default: discardMetrics{}
 }
 

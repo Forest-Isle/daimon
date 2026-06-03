@@ -77,7 +77,7 @@ func runTUI(configPath string) error {
 
 	// Wire TUI emitter alongside (not replacing) the web dashboard emitter.
 	if em := tuiAdapter.Emitter(); em != nil {
-		gw.AddDashboardEmitter(em)
+		gw.AddObservabilityEmitter(em)
 		gw.SetMetricsEmitter(em)
 	}
 

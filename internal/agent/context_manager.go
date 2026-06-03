@@ -37,12 +37,12 @@ type PipelineContextManager struct {
 	contextWindow   int
 	ratio           float64
 	minThresholdPct int // pre-computed from pipeline layers
-	dashEmitter     DashboardEmitter
+	dashEmitter     ObservabilityEmitter
 	tokenizer       Tokenizer
 }
 
-// SetDashboardEmitter attaches a dashboard emitter for context compression events.
-func (cm *PipelineContextManager) SetDashboardEmitter(e DashboardEmitter) { cm.dashEmitter = e }
+// SetObservabilityEmitter attaches an observability emitter for context compression events.
+func (cm *PipelineContextManager) SetObservabilityEmitter(e ObservabilityEmitter) { cm.dashEmitter = e }
 
 // NewPipelineContextManager creates a PipelineContextManager. If cfg is non-nil
 // and has a "layered" strategy, a CompressionPipeline is built internally.

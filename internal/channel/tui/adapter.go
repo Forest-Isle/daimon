@@ -119,7 +119,7 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 	return nil
 }
 
-// Emitter returns the TUIEmitter that satisfies agent.DashboardEmitter.
+// Emitter returns the TUIEmitter that satisfies agent.ObservabilityEmitter.
 // Returns nil before Start() is called.
 func (a *Adapter) Emitter() *TUIEmitter {
 	return a.emitter

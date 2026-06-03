@@ -16,7 +16,7 @@ type DashboardSubsystem struct {
 	hub          *dashboard.Hub
 	srv          *http.Server
 	stateTracker *dashboard.AgentStateTracker
-	emitter      agent.DashboardEmitter
+	emitter      agent.ObservabilityEmitter
 }
 
 func (ds *DashboardSubsystem) Name() string { return "dashboard" }
@@ -63,4 +63,4 @@ func (ds *DashboardSubsystem) Server() *http.Server { return ds.srv }
 func (ds *DashboardSubsystem) StateTracker() *dashboard.AgentStateTracker { return ds.stateTracker }
 
 // Emitter returns the dashboard emitter, or nil.
-func (ds *DashboardSubsystem) Emitter() agent.DashboardEmitter { return ds.emitter }
+func (ds *DashboardSubsystem) Emitter() agent.ObservabilityEmitter { return ds.emitter }

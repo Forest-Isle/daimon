@@ -37,17 +37,6 @@ type ToolExecuted struct {
 
 func (ToolExecuted) EventType() string { return "tool.executed" }
 
-// ──────────────────────── Phase Events ────────────────────────
-
-// PhaseChanged is emitted when the agent enters or exits a phase.
-type PhaseChanged struct {
-	SessionID string
-	Phase     string
-	IsStart   bool // true = entering phase, false = exiting
-}
-
-func (PhaseChanged) EventType() string { return "phase.changed" }
-
 // ──────────────────────── Context Events ────────────────────────
 
 // ContextCompressed is emitted after context compression runs.
@@ -60,40 +49,6 @@ type ContextCompressed struct {
 }
 
 func (ContextCompressed) EventType() string { return "context.compressed" }
-
-// ──────────────────────── Plan Events ────────────────────────
-
-// PlanGenerated is emitted after the PLAN phase produces a task plan.
-type PlanGenerated struct {
-	SessionID      string
-	TaskCount      int
-	Complexity     string
-	HasDirectReply bool
-}
-
-func (PlanGenerated) EventType() string { return "plan.generated" }
-
-// ReplanStarted is emitted when a replan is triggered.
-type ReplanStarted struct {
-	SessionID string
-	Attempt   int
-	Reason    string
-}
-
-func (ReplanStarted) EventType() string { return "replan.started" }
-
-// ──────────────────────── Observation Events ────────────────────────
-
-// ObservationCompleted is emitted after the OBSERVE phase.
-type ObservationCompleted struct {
-	SessionID       string
-	Passed          int
-	Failed          int
-	Total           int
-	OverallProgress float64
-}
-
-func (ObservationCompleted) EventType() string { return "observation.completed" }
 
 // ──────────────────────── Sub-Agent Events ────────────────────────
 
