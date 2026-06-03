@@ -8,6 +8,7 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
@@ -15,6 +16,7 @@ import (
 const (
 	dynamicContextMarker = "<!-- DYNAMIC_CONTEXT -->"
 	cacheBoundaryMarker  = "<!-- CACHE_BOUNDARY -->"
+	compactionThreshold  = 40 // Trigger compaction when history exceeds this
 )
 
 // ContextManager abstracts context compression and utilization tracking.
@@ -226,4 +228,87 @@ func (cm *PipelineContextManager) aboveMinThreshold(utilization float64) bool {
 		return false
 	}
 	return utilization >= float64(cm.minThresholdPct)/100.0
+}
+
+// CompactHistory summarizes old messages to keep context manageable.
+func CompactHistory(ctx context.Context, provider Provider, sess *session.Session, model string) error {
+	history := sess.History()
+	if len(history) <= compactionThreshold {
+		return nil
+	}
+
+	// Take the older half of messages for summarization.
+	// Find a safe cutoff that doesn't split tool_use/tool_result pairs.
+	cutoff := len(history) / 2
+
+	// Collect tool_use IDs in the portion we want to keep (cutoff onward)
+	keepToolUseIDs := make(map[string]bool)
+	for _, m := range history[cutoff:] {
+		if m.Role == "tool_use" {
+			keepToolUseIDs[m.ID] = true
+		}
+	}
+
+	// Move cutoff forward to include any tool_result whose tool_use is in the kept portion,
+	// and skip any orphaned tool_result at the boundary.
+	for cutoff < len(history) {
+		m := history[cutoff]
+		if m.Role == "tool_result" && !keepToolUseIDs[m.ToolName] {
+			// This tool_result's tool_use is in the old portion — include it in the summary
+			cutoff++
+			continue
+		}
+		break
+	}
+
+	oldMessages := history[:cutoff]
+
+	// Build summarization prompt, incorporating previous summary for incremental updates
+	var sb strings.Builder
+	if prevSummary := sess.GetPreviousSummary(); prevSummary != "" {
+		_, _ = fmt.Fprintf(&sb, "Here is the previous summary:\n%s\n\nPlease update it with the following new turns:\n", prevSummary)
+	} else {
+		sb.WriteString("Please summarize the following conversation turns:\n")
+	}
+	for _, m := range oldMessages {
+		_, _ = fmt.Fprintf(&sb, "[%s]: %s\n", m.Role, util.TruncateStr(m.Content, 500))
+	}
+
+	req := CompletionRequest{
+		Model:  model,
+		System: "Summarize the following conversation history concisely, preserving key facts, decisions, and context needed for continuing the conversation. If a previous summary is provided, update it incrementally rather than rewriting from scratch.",
+		Messages: []CompletionMessage{
+			{Role: "user", Content: sb.String()},
+		},
+		MaxTokens: 1024,
+	}
+
+	resp, err := provider.Complete(ctx, req)
+	if err != nil {
+		return fmt.Errorf("compaction llm call: %w", err)
+	}
+
+	// Replace old messages with a single summary message
+	sess.TrimHistory(len(history) - cutoff)
+
+	// Prepend summary as a system-like user message
+	summary := session.Message{
+		ID:      fmt.Sprintf("compact_%d", cutoff),
+		Role:    "user",
+		Content: "[Previous conversation summary]: " + resp.Text,
+	}
+
+	// We need to insert at the beginning — rebuild
+	remaining := sess.History()
+	sess.TrimHistory(0) // clear
+	sess.AddMessage(summary)
+	for _, m := range remaining {
+		sess.AddMessage(m)
+	}
+
+	// Persist summary for future incremental updates
+	sess.SetPreviousSummary(resp.Text)
+
+	slog.Info("history compacted", "session", sess.ID, "old_count", len(oldMessages), "summary_len", len(resp.Text))
+	return nil
 }

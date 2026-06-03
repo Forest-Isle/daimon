@@ -16,9 +16,6 @@ func TestContextBudgetAllocator_Simple(t *testing.T) {
 	if budget.KBLimit != 0 {
 		t.Errorf("KBLimit = %d, want 0", budget.KBLimit)
 	}
-	if budget.IncludeGraph {
-		t.Error("IncludeGraph = true, want false")
-	}
 	if !budget.IncludeProjectContext {
 		t.Error("IncludeProjectContext = false, want true")
 	}
@@ -37,9 +34,6 @@ func TestContextBudgetAllocator_Moderate(t *testing.T) {
 	if budget.KBLimit != 3 {
 		t.Errorf("KBLimit = %d, want 3", budget.KBLimit)
 	}
-	if budget.IncludeGraph {
-		t.Error("IncludeGraph = true, want false")
-	}
 	if !budget.IncludeProjectContext {
 		t.Error("IncludeProjectContext = false, want true")
 	}
@@ -57,9 +51,6 @@ func TestContextBudgetAllocator_Complex(t *testing.T) {
 	}
 	if budget.KBLimit != 5 {
 		t.Errorf("KBLimit = %d, want 5", budget.KBLimit)
-	}
-	if !budget.IncludeGraph {
-		t.Error("IncludeGraph = false, want true")
 	}
 	if !budget.IncludeProjectContext {
 		t.Error("IncludeProjectContext = false, want true")
@@ -96,7 +87,6 @@ func TestApplyBudget_TruncatesMemories(t *testing.T) {
 		Goal:             Goal{Complexity: ComplexitySimple},
 		RelevantMemories: memories,
 		KnowledgeContext: kb,
-		GraphContext:     []string{"rel1", "rel2"},
 		ProjectCtx:       &ProjectContext{Name: "proj"},
 		GitState:         &GitState{Branch: "main"},
 	}
@@ -108,9 +98,6 @@ func TestApplyBudget_TruncatesMemories(t *testing.T) {
 	}
 	if len(state.KnowledgeContext) != 0 {
 		t.Errorf("KnowledgeContext len = %d, want 0", len(state.KnowledgeContext))
-	}
-	if state.GraphContext != nil {
-		t.Error("GraphContext should be nil for simple complexity")
 	}
 	if state.ProjectCtx == nil {
 		t.Error("ProjectCtx should be preserved for simple complexity")
@@ -132,7 +119,6 @@ func TestApplyBudget_ComplexPreservesAll(t *testing.T) {
 		Goal:             Goal{Complexity: ComplexityComplex},
 		RelevantMemories: memories,
 		KnowledgeContext: []string{"a", "b", "c"},
-		GraphContext:     []string{"rel1"},
 		ProjectCtx:       &ProjectContext{Name: "proj"},
 		GitState:         &GitState{Branch: "main"},
 	}
@@ -144,9 +130,6 @@ func TestApplyBudget_ComplexPreservesAll(t *testing.T) {
 	}
 	if len(state.KnowledgeContext) != 3 {
 		t.Errorf("KnowledgeContext len = %d, want 3 (under limit of 5)", len(state.KnowledgeContext))
-	}
-	if state.GraphContext == nil {
-		t.Error("GraphContext should be preserved for complex complexity")
 	}
 	if state.ProjectCtx == nil {
 		t.Error("ProjectCtx should be preserved for complex complexity")

@@ -399,6 +399,73 @@ func (l *ToolOutputPrePruneLayer) Compress(_ context.Context, sess *session.Sess
 //
 // The ToolName field on tool_result messages stores the ID of the corresponding
 // tool_use message, which is how pairing is determined.
+// --- Context Budget Allocation ---
+
+// ContextBudget defines per-complexity limits for context items injected into the cognitive state.
+type ContextBudget struct {
+	MemoryLimit           int
+	KBLimit               int
+	IncludeProjectContext bool
+	IncludeGitState       bool
+}
+
+// ContextBudgetAllocator allocates context limits based on task complexity.
+type ContextBudgetAllocator struct{}
+
+// NewContextBudgetAllocator creates a new ContextBudgetAllocator.
+func NewContextBudgetAllocator() *ContextBudgetAllocator {
+	return &ContextBudgetAllocator{}
+}
+
+// Allocate returns the context budget for the given task complexity.
+func (a *ContextBudgetAllocator) Allocate(complexity TaskComplexity) ContextBudget {
+	switch complexity {
+	case ComplexitySimple:
+		return ContextBudget{
+			MemoryLimit:           3,
+			KBLimit:               0,
+			IncludeProjectContext: true,
+			IncludeGitState:       false,
+		}
+	case ComplexityComplex:
+		return ContextBudget{
+			MemoryLimit:           10,
+			KBLimit:               5,
+			IncludeProjectContext: true,
+			IncludeGitState:       true,
+		}
+	default:
+		return ContextBudget{
+			MemoryLimit:           5,
+			KBLimit:               3,
+			IncludeProjectContext: true,
+			IncludeGitState:       false,
+		}
+	}
+}
+
+// Apply truncates and prunes the cognitive state according to the budget
+// derived from state.Goal.Complexity.
+func (a *ContextBudgetAllocator) Apply(state *CognitiveState) {
+	budget := a.Allocate(state.Goal.Complexity)
+
+	if len(state.RelevantMemories) > budget.MemoryLimit {
+		state.RelevantMemories = state.RelevantMemories[:budget.MemoryLimit]
+	}
+
+	if len(state.KnowledgeContext) > budget.KBLimit {
+		state.KnowledgeContext = state.KnowledgeContext[:budget.KBLimit]
+	}
+
+	if !budget.IncludeProjectContext {
+		state.ProjectCtx = nil
+	}
+
+	if !budget.IncludeGitState {
+		state.GitState = nil
+	}
+}
+
 func ensureToolPairing(sess *session.Session) {
 	history := sess.History()
 	if len(history) == 0 {
