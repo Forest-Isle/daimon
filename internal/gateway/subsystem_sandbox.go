@@ -14,6 +14,7 @@ type SandboxSubsystem struct {
 	dockerSessionMgr *sandbox.DockerSessionManager
 	interceptorChain *tool.InterceptorChain
 	trustTracker     *tool.TrustTracker
+	httpTool         *tool.HTTPTool // stored for redirect-check injection after network policy init
 }
 
 func (ss *SandboxSubsystem) Name() string { return "sandbox" }

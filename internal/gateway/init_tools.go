@@ -36,7 +36,9 @@ func (gw *Gateway) initToolsAndHooks() error {
 		gw.tools.Register(tool.NewListImportsTool("."))
 	}
 	if cfg.Tools.HTTP.Enabled {
-		gw.tools.Register(tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval))
+		httpTool := tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval)
+		gw.tools.Register(httpTool)
+		gw.sandbox.httpTool = httpTool // stored for redirect-check injection after network policy is created
 	}
 	if cfg.Tools.Browser.Enabled {
 		gw.tools.Register(tool.NewBrowserTool(cfg.Tools.Browser.Timeout, cfg.Tools.Browser.RequiresApproval))
@@ -137,6 +139,12 @@ func (gw *Gateway) initToolsAndHooks() error {
 			cfg.Sandbox.Network.Whitelist,
 			cfg.Sandbox.Network.Blacklist,
 		)
+
+	// Inject redirect validation into HTTP tool so that HTTP redirects
+	// are re-checked against the network policy (SSRF protection).
+	if gw.sandbox.httpTool != nil && networkPolicy != nil {
+		gw.sandbox.httpTool.SetCheckRedirect(networkPolicy.CheckURL)
+	}
 		if cfg.Sandbox.Bash.Backend == "docker" {
 			sandbox.CleanupOrphans(gw.initCtx)
 			available := sandbox.ProbeDocker(gw.initCtx)
