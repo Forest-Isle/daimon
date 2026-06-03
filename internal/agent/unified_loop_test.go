@@ -103,7 +103,7 @@ func TestUnifiedLoop_SingleToolCall(t *testing.T) {
 		toolCalls: []ToolUseBlock{{ID: "call_1", Name: "read", Input: `{"path":"/tmp/test"}`}},
 	}
 
-	a := NewAgent(deps, &UnifiedLoop{}, NewEventBus())
+	a := NewAgent(&deps, &UnifiedLoop{}, NewEventBus())
 	ch := &testChannel{}
 
 	loop := &UnifiedLoop{}
@@ -130,7 +130,7 @@ func TestUnifiedLoop_NoToolCall(t *testing.T) {
 	deps.Core.Cfg.MaxIterations = 3
 	deps.Core.Provider = &testProvider{text: "Hello, how can I help?"}
 
-	a := NewAgent(deps, &UnifiedLoop{}, NewEventBus())
+	a := NewAgent(&deps, &UnifiedLoop{}, NewEventBus())
 	ch := &testChannel{}
 
 	loop := &UnifiedLoop{}
@@ -163,7 +163,7 @@ func TestUnifiedLoop_ParallelDispatch(t *testing.T) {
 		},
 	}
 
-	a := NewAgent(deps, &UnifiedLoop{}, NewEventBus())
+	a := NewAgent(&deps, &UnifiedLoop{}, NewEventBus())
 	ch := &testChannel{}
 
 	loop := &UnifiedLoop{}
@@ -203,7 +203,7 @@ func TestSimpleLoop_EvolutionBridgeCalls(t *testing.T) {
 		toolCalls: []ToolUseBlock{{ID: "c1", Name: "read", Input: `{"path":"/tmp/x"}`}},
 	}
 
-	a := NewAgent(deps, &SimpleLoop{}, NewEventBus())
+	a := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
 	// Set a no-op bridge to verify the calls don't panic
 	a.SetEvolutionBridge(&EvolutionBridge{}) // nil engine = no-op
 	ch := &testChannel{}

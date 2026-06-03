@@ -37,8 +37,13 @@ func AgentFromContext(ctx context.Context) *Agent {
 
 // Agent is the unified agent runtime. All execution modes (simple, cognitive, graph)
 // are implemented as LoopStrategy implementations.
+//
+// deps is a pointer so the gateway can wire subsystems (ContextManager,
+// MemoryStore, ObservabilityEmitter) after agent construction — the agent
+// reads from the pointer on every access, so late-bound dependencies are
+// immediately visible without a by-value copy staleness problem.
 type Agent struct {
-	deps            AgentDeps
+	deps            *AgentDeps
 	strategy        LoopStrategy
 	approvalFn      ApprovalFunc
 	eventBus        EventBus
@@ -46,7 +51,9 @@ type Agent struct {
 }
 
 // NewAgent creates a new Agent with the given dependencies, strategy, and event bus.
-func NewAgent(deps AgentDeps, strategy LoopStrategy, bus EventBus) *Agent {
+// deps must be a pointer — the agent dereferences it on every access so the
+// gateway can safely update fields after construction.
+func NewAgent(deps *AgentDeps, strategy LoopStrategy, bus EventBus) *Agent {
 	return &Agent{
 		deps:     deps,
 		strategy: strategy,

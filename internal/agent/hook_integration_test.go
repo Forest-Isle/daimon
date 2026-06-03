@@ -89,7 +89,7 @@ func TestPreToolUseDenyPreventsExecution(t *testing.T) {
 	hookMgr := hook.NewManager()
 	hookMgr.RegisterPreToolUse(&denyHookHandler{reason: "blocked by test"})
 
-	rt := NewAgent(AgentDeps{
+	deps := AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -98,7 +98,8 @@ func TestPreToolUseDenyPreventsExecution(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	}.WithDefaults()
+	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
@@ -137,7 +138,7 @@ func TestPreToolUseAllowSkipsApproval(t *testing.T) {
 		return false, nil
 	}
 
-	rt := NewAgent(AgentDeps{
+	deps := AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -146,7 +147,8 @@ func TestPreToolUseAllowSkipsApproval(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	}.WithDefaults()
+	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
 	rt.SetApprovalFunc(denyApproval)
 
 	sess := concurrentTestSession()
@@ -187,7 +189,7 @@ func TestPostToolUseAuditHandlerCalled(t *testing.T) {
 	hookMgr := hook.NewManager()
 	hookMgr.RegisterPostToolUse(tracker)
 
-	rt := NewAgent(AgentDeps{
+	deps := AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -196,7 +198,8 @@ func TestPostToolUseAuditHandlerCalled(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	}.WithDefaults()
+	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "audited_tool", Input: `{"cmd":"test"}`}
@@ -237,7 +240,7 @@ func TestOnUserMessageContextInjection(t *testing.T) {
 		context: "Current time: 2026-04-02T12:00:00Z",
 	})
 
-	rt := NewAgent(AgentDeps{
+	deps := AgentDeps{
 		Core: CoreDeps{
 			Cfg: config.AgentConfig{
 				SystemPrompt: "You are a helpful assistant.",
@@ -246,7 +249,8 @@ func TestOnUserMessageContextInjection(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	}.WithDefaults()
+	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
 
 	// Build system prompt
 	ctx := context.Background()
@@ -290,7 +294,7 @@ func TestPermissionEngineDenyPreventsExecution(t *testing.T) {
 	}
 	permEngine := tool.NewPermissionEngine(rules, "ask", nil)
 
-	rt := NewAgent(AgentDeps{
+	deps := AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -299,7 +303,8 @@ func TestPermissionEngineDenyPreventsExecution(t *testing.T) {
 		Security: SecurityDeps{
 			PermEngine: permEngine,
 		},
-	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	}.WithDefaults()
+	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "bash", Input: `{"command":"rm -rf /tmp/test"}`}
@@ -337,7 +342,7 @@ func TestHookAndPermissionEngineIntegration(t *testing.T) {
 	// Permission engine allows all by default
 	permEngine := tool.NewPermissionEngine(nil, "allow", nil)
 
-	rt := NewAgent(AgentDeps{
+	deps := AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -347,7 +352,8 @@ func TestHookAndPermissionEngineIntegration(t *testing.T) {
 			HookMgr:    hookMgr,
 			PermEngine: permEngine,
 		},
-	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	}.WithDefaults()
+	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
@@ -378,7 +384,7 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 	hookMgr := hook.NewManager()
 	hookMgr.RegisterPostToolUse(tracker)
 
-	rt := NewAgent(AgentDeps{
+	deps := AgentDeps{
 		Core: CoreDeps{
 			Tools: registry,
 			DB:    db,
@@ -393,7 +399,8 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 		Security: SecurityDeps{
 			HookMgr: hookMgr,
 		},
-	}.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	}.WithDefaults()
+	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	toolCalls := []ToolUseBlock{

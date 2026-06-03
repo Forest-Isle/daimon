@@ -133,7 +133,7 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 		deps.MultiAgent.ResultStore = rs
 	}
 
-	h.agent = agent.NewAgent(deps.WithDefaults(), &agent.SimpleLoop{}, agent.NewEventBus())
+	h.agent = agent.NewAgent(&deps, &agent.SimpleLoop{}, agent.NewEventBus())
 
 	slog.Info("headless gateway initialized")
 	return h, nil

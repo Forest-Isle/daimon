@@ -86,7 +86,8 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 	subDeps.Core.LLMCfg = subLLMCfg
 	subDeps.Core.AgentID = agentID
 
-	subAgent := NewAgent(subDeps.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	subDeps = subDeps.WithDefaults()
+	subAgent := NewAgent(&subDeps, &SimpleLoop{}, NewEventBus())
 
 	chainID := req.ChainID
 	if chainID == "" {

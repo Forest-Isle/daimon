@@ -42,7 +42,8 @@ func TestAgentContext_RoundTrip(t *testing.T) {
 		t.Error("expected nil agent from empty context")
 	}
 
-	agent := NewAgent(AgentDeps{Core: CoreDeps{AgentID: "test-123"}}.WithDefaults(), &SimpleLoop{}, NewEventBus())
+	deps := AgentDeps{Core: CoreDeps{AgentID: "test-123"}}.WithDefaults()
+	agent := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
 	ctx = AgentToContext(ctx, agent)
 
 	a := AgentFromContext(ctx)

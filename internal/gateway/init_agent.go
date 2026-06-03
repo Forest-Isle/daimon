@@ -83,8 +83,12 @@ func (gw *Gateway) initAgentRuntime() error {
 		)
 	}
 
-	gw.agentDeps = deps
-	gw.agent = agent.NewAgent(deps.WithDefaults(), &agent.UnifiedLoop{}, agent.NewEventBus())
+	// Apply defaults once to gw.agentDeps, then pass a pointer to the Agent.
+	// Because Agent holds *AgentDeps (not a by-value copy), later wiring —
+	// Memory.Store, ContextMgr, Observability.Emitter, etc. — is immediately
+	// visible to the Agent.
+	gw.agentDeps = deps.WithDefaults()
+	gw.agent = agent.NewAgent(&gw.agentDeps, &agent.UnifiedLoop{}, agent.NewEventBus())
 	gw.agent.SetApprovalFunc(gw.handleApproval)
 
 	// Register plan_task tool for LLM-driven task decomposition
