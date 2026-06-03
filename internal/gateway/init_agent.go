@@ -57,7 +57,6 @@ func (gw *Gateway) initAgentRuntime() error {
 		Observability: agent.ObservabilityDeps{
 			Emitter:        gw.dashboard.Emitter(),
 			MetricsEmitter: nil,
-			ReplayRecorder: gw.replayRecorder,
 		}.WithDefaults(),
 		MultiAgent: agent.MultiAgentDeps{
 			ResultStore: gw.resultStore,

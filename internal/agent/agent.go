@@ -107,17 +107,6 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 		return fmt.Errorf("get session: %w", err)
 	}
 
-	// Replay recording
-	replaySucceeded := false
-	if a.deps.Observability.ReplayRecorder != nil {
-		_ = a.deps.Observability.ReplayRecorder.RecordSessionStart(ctx, sess.ID, msg.Channel, "agent", a.deps.Core.LLMCfg.Model)
-		defer func() {
-			if a.deps.Observability.ReplayRecorder != nil {
-				a.deps.Observability.ReplayRecorder.RecordSessionEnd(ctx, "", replaySucceeded, len(sess.History()))
-			}
-		}()
-	}
-
 	start := time.Now()
 	a.eventBus.Publish(SessionStarted{SessionID: sess.ID, Channel: msg.Channel})
 
@@ -175,7 +164,6 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 	}
 
 	a.eventBus.Publish(SessionEnded{SessionID: sess.ID, Succeeded: err == nil, DurationMs: time.Since(start).Milliseconds()})
-	replaySucceeded = (err == nil)
 	return err
 }
 

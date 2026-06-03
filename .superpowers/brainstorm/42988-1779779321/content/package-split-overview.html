@@ -1,0 +1,107 @@
+<h2>Agent 包拆分方案：从庞然大物到 12 个子包</h2>
+<p class="subtitle">当前 internal/agent/ — 50+ 文件，23,621 行 → 拆为 1 个编排层 + 11 个领域子包</p>
+
+<div class="split">
+  <div class="mockup" style="flex:1">
+    <div class="mockup-header">现状：单一块</div>
+    <div class="mockup-body" style="font-size:13px; line-height:1.6">
+      <span class="label">internal/agent/</span>
+      <div style="background:#2a1a2e; border-radius:8px; padding:12px; margin-top:8px; border:1px solid #6b3fa0;">
+        <div style="color:#c4a0e0">cognitive.go (990)</div>
+        <div style="color:#c4a0e0">runtime.go (827)</div>
+        <div style="color:#c4a0e0">act.go (693)</div>
+        <div style="color:#c4a0e0">auto_heal.go (624)</div>
+        <div style="color:#c4a0e0">openai.go (606)</div>
+        <div style="color:#c4a0e0">planner_tree.go (582)</div>
+        <div style="color:#c4a0e0">reflect.go (544)</div>
+        <div style="color:#c4a0e0">assertion.go (404)</div>
+        <div style="color:#c4a0e0">perceive.go (438)</div>
+        <div style="color:#c4a0e0">subagent.go (414)</div>
+        <div style="color:#c4a0e0">plan.go (326)</div>
+        <div style="color:#c4a0e0">recorder.go (260)</div>
+        <div style="color:#c4a0e0">replayer.go (170)</div>
+        <div style="color:#c4a0e0; opacity:0.5">... 35+ more files</div>
+      </div>
+      <div style="margin-top:12px; padding:8px; background:#1a1a2e; border-radius:6px; border:1px solid #c0392b;">
+        <span style="color:#e74c3c; font-size:12px;">⚠ 循环依赖风险、测试隔离差、改动影响面大</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup" style="flex:2.5">
+    <div class="mockup-header">方案 B：领域拆分</div>
+    <div class="mockup-body" style="font-size:12px; line-height:1.5">
+      <span class="label">internal/agent/ — 编排层</span>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:8px;">
+        <div style="background:#1a2e1a; border-radius:6px; padding:8px; border:1px solid #27ae60;">
+          <div style="color:#2ecc71; font-weight:600; font-size:11px;">planning/</div>
+          <div style="color:#a0d0a0; font-size:10px;">Planner</div>
+          <div style="color:#a0d0a0; font-size:10px;">TaskPlan types</div>
+          <div style="color:#a0d0a0; font-size:10px;">MCTS TreePlanner</div>
+        </div>
+        <div style="background:#1a2e2a; border-radius:6px; padding:8px; border:1px solid #2e86c1;">
+          <div style="color:#3498db; font-weight:600; font-size:11px;">execution/</div>
+          <div style="color:#a0c8e0; font-size:10px;">Executor</div>
+          <div style="color:#a0c8e0; font-size:10px;">并发工具调度</div>
+          <div style="color:#a0c8e0; font-size:10px;">拦截器路由</div>
+        </div>
+        <div style="background:#2e1a1a; border-radius:6px; padding:8px; border:1px solid #e74c3c;">
+          <div style="color:#e74c3c; font-weight:600; font-size:11px;">healing/</div>
+          <div style="color:#e0a0a0; font-size:10px;">AutoHealer</div>
+          <div style="color:#e0a0a0; font-size:10px;">错误模式匹配</div>
+          <div style="color:#e0a0a0; font-size:10px;">修复策略引擎</div>
+        </div>
+        <div style="background:#2e2a1a; border-radius:6px; padding:8px; border:1px solid #f39c12;">
+          <div style="color:#f39c12; font-weight:600; font-size:11px;">perception/</div>
+          <div style="color:#e0d0a0; font-size:10px;">Perceiver</div>
+          <div style="color:#e0d0a0; font-size:10px;">Project/Git scanner</div>
+          <div style="color:#e0d0a0; font-size:10px;">Context budget</div>
+          <div style="color:#e0d0a0; font-size:10px;">Failure context</div>
+        </div>
+        <div style="background:#1a2e2a; border-radius:6px; padding:8px; border:1px solid #1abc9c;">
+          <div style="color:#1abc9c; font-weight:600; font-size:11px;">observation/</div>
+          <div style="color:#a0e0d0; font-size:10px;">Observer</div>
+          <div style="color:#a0e0d0; font-size:10px;">Assertion 引擎</div>
+          <div style="color:#a0e0d0; font-size:10px;">Obs/Assert 类型</div>
+        </div>
+        <div style="background:#1a1a2e; border-radius:6px; padding:8px; border:1px solid #9b59b6;">
+          <div style="color:#9b59b6; font-weight:600; font-size:11px;">reflection/</div>
+          <div style="color:#c0a0e0; font-size:10px;">Reflector</div>
+          <div style="color:#c0a0e0; font-size:10px;">反思提示词</div>
+        </div>
+        <div style="background:#2e1a2e; border-radius:6px; padding:8px; border:1px solid #e91e63;">
+          <div style="color:#e91e63; font-weight:600; font-size:11px;">recording/</div>
+          <div style="color:#e0a0c0; font-size:10px;">Recorder</div>
+          <div style="color:#e0a0c0; font-size:10px;">Replayer</div>
+          <div style="color:#e0a0c0; font-size:10px;">SessionDiff</div>
+        </div>
+        <div style="background:#2a1a2e; border-radius:6px; padding:8px; border:1px solid #8e44ad;">
+          <div style="color:#8e44ad; font-weight:600; font-size:11px;">runtime/</div>
+          <div style="color:#c0a0e0; font-size:10px;">Runtime（简单模式）</div>
+          <div style="color:#c0a0e0; font-size:10px;">Streaming</div>
+          <div style="color:#c0a0e0; font-size:10px;">Compression</div>
+          <div style="color:#c0a0e0; font-size:10px;">ContextManager</div>
+        </div>
+        <div style="background:#1a2e2e; border-radius:6px; padding:8px; border:1px solid #00bcd4;">
+          <div style="color:#00bcd4; font-weight:600; font-size:11px;">provider/</div>
+          <div style="color:#a0d8e0; font-size:10px;">Provider 接口</div>
+          <div style="color:#a0d8e0; font-size:10px;">Claude / OpenAI</div>
+          <div style="color:#a0d8e0; font-size:10px;">RetryProvider</div>
+        </div>
+        <div style="background:#2e2e1a; border-radius:6px; padding:8px; border:1px solid #cddc39;">
+          <div style="color:#cddc39; font-weight:600; font-size:11px;">subagent/</div>
+          <div style="color:#e0e0a0; font-size:10px;">SubAgentManager</div>
+          <div style="color:#e0e0a0; font-size:10px;">AgentTool</div>
+          <div style="color:#e0e0a0; font-size:10px;">TeamCoordinator</div>
+        </div>
+        <div style="background:#2e1e1a; border-radius:6px; padding:8px; border:1px solid #ff5722;">
+          <div style="color:#ff5722; font-weight:600; font-size:11px;">checkpoint/</div>
+          <div style="color:#e0b0a0; font-size:10px;">SQLite 检查点</div>
+        </div>
+      </div>
+      <div style="margin-top:12px; padding:8px; background:#1a1a2e; border-radius:6px; border:1px solid #27ae60;">
+        <span style="color:#2ecc71; font-size:12px;">✓ 每个子包 &lt;1000 行 · 接口清晰 · 独立测试 · 单向依赖</span>
+      </div>
+    </div>
+  </div>
+</div>

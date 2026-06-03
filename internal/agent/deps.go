@@ -81,7 +81,6 @@ func (d SecurityDeps) WithDefaults() SecurityDeps {
 type ObservabilityDeps struct {
 	Emitter        DashboardEmitter // default: discardEmitter{}
 	MetricsEmitter MetricsEmitter   // default: discardMetrics{}
-	ReplayRecorder *ReplayRecorder  // nil = no recording
 }
 
 // WithDefaults returns a copy of ObservabilityDeps with nil interface fields filled.

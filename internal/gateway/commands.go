@@ -127,8 +127,8 @@ func (gw *Gateway) handleMode(ctx context.Context, _ channel.Channel, msg channe
 	if arg == "" {
 		return fmt.Sprintf("Mode: %s", current), nil
 	}
-	if arg != "simple" && arg != "cognitive" && arg != "graph" {
-		return fmt.Sprintf("Error: unknown mode %q. Valid modes: simple, cognitive, graph", arg), nil
+	if arg != "simple" && arg != "cognitive" {
+		return fmt.Sprintf("Error: unknown mode %q. Valid modes: simple, cognitive", arg), nil
 	}
 	if arg == current {
 		return fmt.Sprintf("Already in %s mode", current), nil

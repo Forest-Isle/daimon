@@ -35,14 +35,10 @@ type CognitiveLoop struct {
 	observer  *Observer
 	reflector *Reflector
 
-	// Optional advanced planners (nil = disabled)
-	mctsPlanner   *MCTSPlanner
-	treePlanner   *StrategicTreePlanner
 	codebaseIndex *CodebaseIndex
 	cortex        *cortex.UnifiedRetriever
 
 	// Config
-	debateCfg       config.DebateSettings
 	entityExtractor *graph.LLMEntityExtractor
 	evoEngine       *evolution.Engine
 	checkpointStore CheckpointStore
@@ -91,10 +87,6 @@ func NewCognitiveLoop(deps AgentDeps, opts *CognitiveAgentOptions) *CognitiveLoo
 	if deps.Memory.LifecycleMgr != nil {
 		cl.reflector.SetLifecycleManager(deps.Memory.LifecycleMgr)
 	}
-	if deps.Observability.ReplayRecorder != nil {
-		cl.executor.SetReplayRecorder(deps.Observability.ReplayRecorder)
-	}
-
 	cl.applyOptions(opts)
 
 	// Wire observation callback from opts
@@ -129,14 +121,6 @@ func (cl *CognitiveLoop) SetApprovalFunc(fn ApprovalFunc) {
 	}
 }
 
-// BuildNodeDeps creates NodeDeps for graph node execution.
-func (cl *CognitiveLoop) BuildNodeDeps(ch channel.Channel) NodeDeps {
-	return NodeDeps{
-		Executor: cl.executor,
-		Channel:  ch,
-	}
-}
-
 // SetKnowledgeSearcher injects a knowledge searcher.
 func (cl *CognitiveLoop) SetKnowledgeSearcher(s knowledge.Searcher) {
 	cl.perceiver.SetKnowledgeSearcher(s)
@@ -151,11 +135,6 @@ func (cl *CognitiveLoop) SetKnowledgeGraph(g graph.Graph) {
 func (cl *CognitiveLoop) SetEntityExtractor(ee *graph.LLMEntityExtractor) {
 	cl.entityExtractor = ee
 	cl.reflector.SetEntityExtractor(ee)
-}
-
-// SetDebateConfig sets the debate configuration.
-func (cl *CognitiveLoop) SetDebateConfig(cfg config.DebateSettings) {
-	cl.debateCfg = cfg
 }
 
 func (cl *CognitiveLoop) applyOptions(opts *CognitiveAgentOptions) {
@@ -174,12 +153,6 @@ func (cl *CognitiveLoop) applyOptions(opts *CognitiveAgentOptions) {
 	if opts.EntityExtractor != nil {
 		cl.entityExtractor = opts.EntityExtractor
 		cl.reflector.SetEntityExtractor(opts.EntityExtractor)
-	}
-	if opts.TreePlanner != nil {
-		cl.treePlanner = opts.TreePlanner
-	}
-	if opts.MCTSPlanner != nil {
-		cl.mctsPlanner = opts.MCTSPlanner
 	}
 	if opts.EvolutionEngine != nil {
 		cl.evoEngine = opts.EvolutionEngine
@@ -206,9 +179,6 @@ func (cl *CognitiveLoop) applyOptions(opts *CognitiveAgentOptions) {
 	if opts.CortexRetriever != nil {
 		cl.cortex = opts.CortexRetriever
 		cl.perceiver.SetCortexRetriever(opts.CortexRetriever)
-	}
-	if opts.DebateConfig != (config.DebateSettings{}) {
-		cl.debateCfg = opts.DebateConfig
 	}
 }
 
@@ -237,14 +207,9 @@ func (cl *CognitiveLoop) Execute(ctx context.Context, a *Agent, ch channel.Chann
 		return cl.delegateToRuntime(ctx, a, ch, msg, sess)
 	}
 
-	// Debate mode for comparison/decision tasks
-	if cl.shouldDebate(a, state) {
-		return cl.handleDebate(ctx, a, ch, msg, sess, state, target)
-	}
-
 	// Phase 2-5: PLAN -> ACT -> OBSERVE -> REFLECT loop with replan support
 	cognitiveTurnStart := time.Now()
-	plan, mctsCandidates, mctsActive, treePlanner := cl.runPrePlanSearch(ctx, a, sess, state)
+	plan := cl.runPrePlanSearch(ctx, a, sess, state)
 
 	var (
 		finalAnswer string
@@ -273,7 +238,7 @@ func (cl *CognitiveLoop) Execute(ctx context.Context, a *Agent, ch channel.Chann
 		}
 
 		// Phase 2: PLAN
-		plan, err = cl.runPlanPhase(ctx, a, sess, target, state, plan, mctsCandidates, mctsActive, treePlanner, attempt, parentTaskID)
+		plan, err = cl.runPlanPhase(ctx, a, sess, state, attempt, parentTaskID)
 		if err != nil {
 			return fmt.Errorf("plan: %w", err)
 		}
@@ -438,73 +403,16 @@ func (cl *CognitiveLoop) runPlanPhase(
 	ctx context.Context,
 	a *Agent,
 	sess *session.Session,
-	target channel.MessageTarget,
 	state *CognitiveState,
-	plan *TaskPlan,
-	mctsCandidates []PlanCandidate,
-	mctsActive bool,
-	treePlanner *StrategicTreePlanner,
 	attempt int,
 	parentTaskID string,
 ) (*TaskPlan, error) {
-	// MCTS active path
-	if mctsActive {
-		if attempt > 0 && len(mctsCandidates) > 1 {
-			nextIdx := attempt - 1
-			if nextIdx < len(mctsCandidates) {
-				plan = mctsCandidates[nextIdx].Plan
-				slog.Info("mcts: replan from candidate tree",
-					"attempt", attempt,
-					"candidate_idx", nextIdx,
-					"strategy", mctsCandidates[nextIdx].Strategy,
-					"score", mctsCandidates[nextIdx].LLMScore,
-				)
-			}
-		}
-		slog.Info("cognitive: using MCTS plan", "attempt", attempt, "plan_steps", len(plan.SubTasks))
-		return plan, nil
-	}
-
-	// Tree planner path
 	if emitter := a.deps.Observability.Emitter; emitter != nil {
 		emitter.EmitPhaseStart(sess.ID, "PLAN")
 	}
 	planStart := time.Now()
 	donePlan := cl.registerSubtask(ctx, a, parentTaskID, fmt.Sprintf("PLAN phase (attempt %d)", attempt))
-
-	var err error
-	if treePlanner != nil {
-		plan = treePlanner.Select()
-		if plan == nil {
-			// Expand tree with failure context from previous attempt
-			failureSummary := buildTreeFailureSummary(nil, nil) // first attempt
-			if expandErr := treePlanner.Expand(ctx, failureSummary); expandErr != nil {
-				donePlan()
-				if emitter := a.deps.Observability.Emitter; emitter != nil {
-					emitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
-				}
-				observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
-					metric.WithAttributes(attribute.String("phase", "plan")))
-				return nil, fmt.Errorf("tree-planner expand: %w", expandErr)
-			}
-			plan = treePlanner.Select()
-			if plan == nil {
-				donePlan()
-				if emitter := a.deps.Observability.Emitter; emitter != nil {
-					emitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
-				}
-				observability.CognitivePhasesDuration.Record(ctx, time.Since(planStart).Milliseconds(),
-					metric.WithAttributes(attribute.String("phase", "plan")))
-				return nil, fmt.Errorf("tree-planner select: no plan available after expand")
-			}
-		}
-		slog.Info("tree-planner: selected plan",
-			"strategy", treePlanner.currentNode.Candidates[treePlanner.currentIdx].Strategy,
-			"score", treePlanner.currentNode.Candidates[treePlanner.currentIdx].LLMScore,
-			"depth", treePlanner.currentNode.Depth)
-	} else {
-		plan, err = cl.planner.Run(ctx, state)
-	}
+	plan, err := cl.planner.Run(ctx, state)
 	donePlan()
 	if emitter := a.deps.Observability.Emitter; emitter != nil {
 		emitter.EmitPhaseEnd(sess.ID, "PLAN", time.Since(planStart).Milliseconds())
@@ -618,46 +526,14 @@ func (cl *CognitiveLoop) runReflectPhase(
 
 // ────────────────────────────── Pre-Plan Search ──────────────────────────────
 
-// runPrePlanSearch runs MCTS or tree-planning search before the main loop.
+// runPrePlanSearch runs pre-planning search before the main loop.
 func (cl *CognitiveLoop) runPrePlanSearch(
 	ctx context.Context,
 	a *Agent,
 	sess *session.Session,
 	state *CognitiveState,
-) (*TaskPlan, []PlanCandidate, bool, *StrategicTreePlanner) {
-	var (
-		plan           *TaskPlan
-		mctsCandidates []PlanCandidate
-		mctsActive     bool
-	)
-	treePlanner := cl.treePlanner
-	mctsPlanner := cl.mctsPlanner
-
-	if mctsPlanner != nil {
-		slog.Info("cognitive: running MCTS search", "session", sess.ID)
-		mctsPlan, candidates, err := mctsPlanner.Search(ctx, state)
-		if err != nil {
-			slog.Warn("mcts: search failed, falling back", "err", err)
-		} else {
-			plan = mctsPlan
-			mctsCandidates = candidates
-			mctsActive = true
-			slog.Info("mcts: search complete",
-				"plan_steps", len(plan.SubTasks),
-				"candidates", len(candidates),
-				"tree_stats", mctsPlanner.TreeStats(),
-			)
-		}
-	}
-
-	if !mctsActive && treePlanner != nil {
-		if err := treePlanner.GenerateCandidates(ctx, state); err != nil {
-			slog.Warn("tree-planner: generate candidates failed, falling back to linear", "err", err)
-			treePlanner = nil
-		}
-	}
-
-	return plan, mctsCandidates, mctsActive, treePlanner
+) *TaskPlan {
+	return nil
 }
 
 // ────────────────────────────── Finalization ──────────────────────────────

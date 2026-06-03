@@ -14,7 +14,6 @@ import (
 
 	"net/http"
 
-	"github.com/Forest-Isle/IronClaw/internal/a2a"
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
@@ -35,7 +34,6 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"github.com/Forest-Isle/IronClaw/internal/userdir"
-	"github.com/Forest-Isle/IronClaw/internal/wasm"
 )
 
 // Gateway is the central coordinator that wires all modules together.
@@ -48,15 +46,12 @@ type Gateway struct {
 	provider         agent.Provider // stored for completerAdapter use
 	agent            *agent.Agent
 	cognitiveLoop    *agent.CognitiveLoop
-	graphEventStore  agent.ExecutionEventStore
-	heartbeat        *agent.HeartbeatScheduler
 	tools            *tool.Registry
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
 	skillMgr         *skill.Manager
 	resultStore      *tool.ResultStore
 	mcpManager       *mcp.Manager
-	wasmHost         *wasm.PluginHost
 	userHookMgr      *hook.UserHookManager // user-configurable hook scripts
 	planMode         *agent.PlanMode       // plan->approve->execute flow
 	contextMgr       *agent.PipelineContextManager
@@ -64,11 +59,7 @@ type Gateway struct {
 	featureStatePath string // path to ~/.IronClaw/feature_state.json
 	healthRegistry   *health.Registry
 	healthSrv        *http.Server
-	currentMode      atomic.Value // stores string: "simple" | "cognitive" | "graph"
-	replayRecorder   *agent.ReplayRecorder
-	selfHealEngine   *agent.SelfHealEngine
-	treePlanner      *agent.StrategicTreePlanner
-	mctsPlanner      *agent.MCTSPlanner
+	currentMode      atomic.Value // stores string: "simple" | "cognitive"
 	codebaseIndex    *agent.CodebaseIndex
 	stopCh           chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce         sync.Once     // ensures stopCh is closed exactly once
@@ -83,7 +74,6 @@ type Gateway struct {
 	evolution     *EvolutionSubsystem
 	tasks         *TaskSubsystem
 	observability *ObservabilitySubsystem
-	a2a           *A2ASubsystem
 
 	agentDeps agent.AgentDeps // shared dependency bundle
 	cmdTable  commandTable    // slash command routing table
@@ -128,8 +118,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.observability = &ObservabilitySubsystem{
 		obsShutdown: func(context.Context) {},
 	}
-	gw.a2a = &A2ASubsystem{}
-
 	gw.currentMode.Store(cfg.Agent.Mode)
 	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
 
@@ -218,9 +206,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	if err = gw.initCognitiveAgent(); err != nil {
 		return nil, fmt.Errorf("cognitive: %w", err)
 	}
-	if err = gw.initGraphEngine(); err != nil {
-		return nil, fmt.Errorf("graph: %w", err)
-	}
 	if err = gw.initKnowledgeSystem(); err != nil {
 		return nil, fmt.Errorf("knowledge: %w", err)
 	}
@@ -232,11 +217,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		}
 	}
 
-	// WASM plugin host — load .wasm tools from ~/.IronClaw/plugins/
-	if gw.features.IsEnabled("wasm_plugins") {
-		wasm.DefaultPluginTimeout = gw.cfg.Tools.WASM.DefaultTimeout
-		gw.loadWasmPlugins(context.Background())
-	}
 	if err = gw.initSkillManager(); err != nil {
 		return nil, fmt.Errorf("skills: %w", err)
 	}
@@ -341,7 +321,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		gw.tasks,
 		gw.channels,
 		gw.dashboard,
-		gw.a2a,
 	}
 
 	gw.bindFeatureLifecycleHooks()
@@ -488,10 +467,6 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 
 	_ = gw.mcpManager.Close()
 
-	if gw.wasmHost != nil {
-		_ = gw.wasmHost.Close(ctx)
-	}
-
 	// Persist evolution state and stop engine (only when feature was enabled)
 	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {
 		prefPath := ""
@@ -522,16 +497,16 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	return nil
 }
 
-// CurrentMode returns the active agent mode ("simple", "cognitive", or "graph").
+// CurrentMode returns the active agent mode ("simple" or "cognitive").
 func (gw *Gateway) CurrentMode() string {
 	return gw.currentMode.Load().(string)
 }
 
 // SetMode atomically switches the active agent mode and strategy.
-// Returns an error if mode is not "simple", "cognitive", or "graph".
+// Returns an error if mode is not "simple" or "cognitive".
 func (gw *Gateway) SetMode(mode string) error {
-	if mode != "simple" && mode != "cognitive" && mode != "graph" {
-		return fmt.Errorf("unknown mode %q: valid modes are simple, cognitive, graph", mode)
+	if mode != "simple" && mode != "cognitive" {
+		return fmt.Errorf("unknown mode %q: valid modes are simple, cognitive", mode)
 	}
 	switch mode {
 	case "cognitive":
@@ -655,20 +630,6 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	}
 
 	slog.Info("message received", "channel", msg.Channel, "user", msg.UserName, "text_len", len(msg.Text))
-
-	if gw.currentMode.Load().(string) == "graph" {
-		if err := gw.handleGraphMessage(ctx, ch, msg); err != nil {
-			slog.Error("graph engine error", "err", err)
-			if err := ch.Send(ctx, channel.OutboundMessage{
-				Channel:   msg.Channel,
-				ChannelID: msg.ChannelID,
-				Text:      "Error: " + err.Error(),
-			}); err != nil {
-				slog.Warn("failed to send message", "err", err)
-			}
-		}
-		return
-	}
 
 	if err := gw.agent.HandleMessage(ctx, ch, msg); err != nil {
 		slog.Error("agent error", "err", err)
@@ -907,14 +868,14 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 }
 
 // handleModeCommand processes the /mode command argument.
-// arg="" means query-only; arg="simple"|"cognitive"|"graph" switches mode.
+// arg="" means query-only; arg="simple"|"cognitive" switches mode.
 func (gw *Gateway) handleModeCommand(arg string) string {
 	current := gw.CurrentMode()
 	if arg == "" {
 		return fmt.Sprintf("Mode: %s", current)
 	}
-	if arg != "simple" && arg != "cognitive" && arg != "graph" {
-		return fmt.Sprintf("Error: unknown mode %q. Valid modes: simple, cognitive, graph", arg)
+	if arg != "simple" && arg != "cognitive" {
+		return fmt.Sprintf("Error: unknown mode %q. Valid modes: simple, cognitive", arg)
 	}
 	if arg == current {
 		return fmt.Sprintf("Already in %s mode", current)
@@ -972,130 +933,3 @@ func (gw *Gateway) RateLimiter() ratelimit.Limiter {
 	return gw.observability.RateLimiter()
 }
 
-// startA2AServer creates and starts the A2A protocol server.
-func (gw *Gateway) startA2AServer() error {
-	a2aAddr := gw.cfg.Server.A2AServerAddr
-	if a2aAddr == "" {
-		a2aAddr = ":9191"
-	}
-	card := a2a.AgentCard{
-		Name:        "IronClaw",
-		Description: "IronClaw — local-first self-evolving AI agent runtime",
-		URL:         "http://localhost" + a2aAddr,
-		Version:     "1.0",
-		Capabilities: a2a.Capabilities{
-			Streaming:         true,
-			PushNotifications: false,
-		},
-		Skills: []a2a.AgentSkill{
-			{
-				Name:        "agent_task",
-				Description: "Execute a task using the IronClaw agent runtime",
-				InputSchema: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"message": map[string]any{"type": "string"},
-					},
-				},
-			},
-		},
-	}
-
-	handler := func(ctx context.Context, task *a2a.Task) (*a2a.TaskOutput, error) {
-		ch, ok := gw.channels.Channels()["tui"]
-		if !ok {
-			for _, c := range gw.channels.Channels() {
-				ch = c
-				break
-			}
-		}
-		if ch != nil {
-			if err := ch.Send(ctx, channel.OutboundMessage{
-				Channel:   ch.Name(),
-				ChannelID: task.ID,
-				Text:      task.Input.Message,
-			}); err != nil {
-				slog.Warn("failed to send message", "err", err)
-			}
-		}
-		return &a2a.TaskOutput{
-			Text: "Task dispatched to IronClaw agent runtime",
-		}, nil
-	}
-
-	gw.a2a.server = a2a.NewServer(card, handler)
-	go func() {
-		if err := gw.a2a.server.Start(a2aAddr); err != nil {
-			slog.Error("a2a: server failed", "err", err)
-		}
-	}()
-	slog.Info("a2a: server started", "addr", a2aAddr)
-	return nil
-}
-
-// stopA2AServer gracefully shuts down the A2A server.
-func (gw *Gateway) stopA2AServer() error {
-	if gw.a2a.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := gw.a2a.server.Stop(ctx); err != nil {
-			slog.Warn("a2a: server stop error", "err", err)
-			return err
-		}
-	}
-	slog.Info("a2a: server stopped")
-	return nil
-}
-
-// loadWasmPlugins scans ~/.IronClaw/plugins/ and loads all .wasm tools.
-func (gw *Gateway) loadWasmPlugins(ctx context.Context) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		slog.Warn("wasm: cannot find home dir", "err", err)
-		return
-	}
-	pluginsDir := filepath.Join(home, ".IronClaw", "plugins")
-	entries, err := os.ReadDir(pluginsDir)
-	if err != nil {
-		slog.Debug("wasm: plugins dir not found, skipping", "path", pluginsDir)
-		return
-	}
-
-	gw.wasmHost = wasm.NewPluginHost(ctx)
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		manifestPath := filepath.Join(pluginsDir, entry.Name(), "plugin.yaml")
-		if _, err := os.Stat(manifestPath); err != nil {
-			continue
-		}
-		plugin, err := gw.wasmHost.LoadPlugin(ctx, manifestPath)
-		if err != nil {
-			slog.Warn("wasm: failed to load plugin", "name", entry.Name(), "err", err)
-			continue
-		}
-		wasmTool := wasm.NewWasmTool(plugin)
-		gw.tools.Register(wasmTool)
-		slog.Info("wasm: plugin loaded as tool", "name", plugin.Manifest.Name, "version", plugin.Manifest.Version)
-	}
-}
-
-// unloadWasmPlugins shuts down all WASM plugins and the host runtime.
-func (gw *Gateway) unloadWasmPlugins(ctx context.Context) {
-	if gw.wasmHost == nil {
-		return
-	}
-	// Unregister WASM tools (ListPlugins returns plugin names, used as tool names).
-	for _, name := range gw.wasmHost.ListPlugins() {
-		removed := gw.tools.UnregisterByPrefix(name)
-		if len(removed) > 0 {
-			slog.Debug("wasm: unregistered tool(s)", "names", removed)
-		}
-	}
-	if err := gw.wasmHost.Close(ctx); err != nil {
-		slog.Warn("wasm: host close error", "err", err)
-	}
-	gw.wasmHost = nil
-}

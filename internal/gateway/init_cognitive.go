@@ -42,12 +42,6 @@ func (gw *Gateway) initCognitiveAgent() error {
 		opts.EvolutionEngine = gw.evolution.Engine()
 	}
 
-	if gw.treePlanner != nil {
-		opts.TreePlanner = gw.treePlanner
-	}
-
-	opts.DebateConfig = gw.cfg.Agents.Debate
-
 	// Create CognitiveLoop strategy and set it on the shared Agent
 	gw.cognitiveLoop = agent.NewCognitiveLoop(gw.agentDeps, opts)
 	if gw.cognitiveLoop != nil {

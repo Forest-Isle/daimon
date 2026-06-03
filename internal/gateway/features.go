@@ -141,21 +141,6 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 		Phase:       feature.PhaseConstruct,
 	})
 
-	r.Register(feature.Feature{
-		Name:          "wasm_plugins",
-		Description:   "WASM plugin system — load tools as .wasm modules with capability security",
-		Default:       false,
-		Phase:         feature.PhaseConstruct,
-		HotReloadable: true,
-	})
-
-	r.Register(feature.Feature{
-		Name:          "a2a",
-		Description:   "A2A (Agent-to-Agent) protocol server for agent interoperability",
-		Default:       false,
-		Phase:         feature.PhaseStart,
-		HotReloadable: true,
-	})
 	// MCP servers — each configured server gets its own hot-reloadable feature
 	for name, srv := range cfg.Tools.MCP.Servers {
 		name := name // capture loop variable
@@ -226,23 +211,6 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 		slog.Warn("gateway: SetOnDisable hook failed", "feature", "scheduler", "err", err)
 	}
 
-	// WASM plugin host lifecycle
-	_ = gw.features.SetOnEnable("wasm_plugins", func(ctx context.Context) error {
-		gw.loadWasmPlugins(ctx)
-		return nil
-	})
-	_ = gw.features.SetOnDisable("wasm_plugins", func(ctx context.Context) error {
-		gw.unloadWasmPlugins(ctx)
-		return nil
-	})
-
-	// A2A server lifecycle
-	_ = gw.features.SetOnEnable("a2a", func(ctx context.Context) error {
-		return gw.startA2AServer()
-	})
-	_ = gw.features.SetOnDisable("a2a", func(ctx context.Context) error {
-		return gw.stopA2AServer()
-	})
 	// MCP servers — bind start/stop hooks for each registered mcp_* feature
 	for _, srv := range gw.features.List() {
 		if !strings.HasPrefix(srv.Name, "mcp_") {

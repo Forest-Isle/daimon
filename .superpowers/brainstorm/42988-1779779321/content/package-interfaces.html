@@ -1,0 +1,197 @@
+<h2>包间依赖图 & 接口契约</h2>
+<p class="subtitle">核心原则：所有子包只依赖外部包（tool/、store/、config/），不互相依赖。顶层 agent/ 是唯一的编排者和接口定义者。</p>
+
+<div style="margin-bottom:20px">
+  <span class="label">依赖层次</span>
+  <div style="display:flex; gap:8px; margin-top:8px; font-size:12px">
+    <div style="flex:1; background:#0d1b0d; padding:12px; border-radius:8px; border:1px solid #27ae60">
+      <div style="color:#2ecc71; font-weight:bold; margin-bottom:6px">Layer 0 — 外部依赖（不动）</div>
+      <div style="color:#a0d0a0">tool/, store/, config/, session/, memory/, channel/, hook/, knowledge/</div>
+    </div>
+    <div style="flex:1; background:#0d0d1b; padding:12px; border-radius:8px; border:1px solid #9b59b6">
+      <div style="color:#9b59b6; font-weight:bold; margin-bottom:6px">Layer 1 — 领域子包（11个，互不依赖）</div>
+      <div style="color:#c0a0e0">planning/ execution/ healing/ perception/ observation/ reflection/ recording/ runtime/ provider/ subagent/ checkpoint/</div>
+    </div>
+    <div style="flex:1; background:#1b0d0d; padding:12px; border-radius:8px; border:1px solid #e74c3c">
+      <div style="color:#e74c3c; font-weight:bold; margin-bottom:6px">Layer 2 — 编排层 agent/</div>
+      <div style="color:#e0a0a0">CognitiveAgent + 接口定义 + 依赖注入</div>
+    </div>
+  </div>
+</div>
+
+<h3>各包接口契约</h3>
+
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:12px; line-height:1.5">
+
+  <!-- planning -->
+  <div style="background:#0d1b0d; border-radius:8px; padding:12px; border-left:3px solid #27ae60">
+    <div style="color:#2ecc71; font-weight:bold; margin-bottom:4px">planning/</div>
+    <div style="color:#8a8; margin-bottom:4px">Exports</div>
+    <div style="color:#a0d0a0; font-family:monospace; font-size:11px">
+      type TaskPlan<br>
+      type SubTask<br>
+      type Planner struct<br>
+      type TreePlanner struct<br>
+      Planner.Generate(ctx, state) → *TaskPlan<br>
+      TreePlanner.Search(ctx, state, plan) → *PlanTreeNode
+    </div>
+    <div style="color:#8a8; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#a0d0a0; font-size:11px">agent.Provider, tool/, config/</div>
+  </div>
+
+  <!-- execution -->
+  <div style="background:#0d1b1d; border-radius:8px; padding:12px; border-left:3px solid #3498db">
+    <div style="color:#3498db; font-weight:bold; margin-bottom:4px">execution/</div>
+    <div style="color:#688; margin-bottom:4px">Exports</div>
+    <div style="color:#a0c8e0; font-family:monospace; font-size:11px">
+      type Executor struct<br>
+      type ToolExecutor interface<br>
+      Executor.Run(ctx, ch, sess, plan) → []Obs<br>
+      Executor.RunWithContext(...) → []Obs
+    </div>
+    <div style="color:#688; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#a0c8e0; font-size:11px">tool/, store/, session/, hook/, channel/</div>
+    <div style="color:#e74c3c; font-size:10px; margin-top:4px">← healing/ 通过 ToolExecutor 接口注入</div>
+  </div>
+
+  <!-- healing -->
+  <div style="background:#1b0d0d; border-radius:8px; padding:12px; border-left:3px solid #e74c3c">
+    <div style="color:#e74c3c; font-weight:bold; margin-bottom:4px">healing/</div>
+    <div style="color:#a88; margin-bottom:4px">Exports</div>
+    <div style="color:#e0a0a0; font-family:monospace; font-size:11px">
+      type AutoHealer struct<br>
+      type AutoHealResult<br>
+      AutoHealer.Diagnose(obs, failures) → *Result<br>
+      AutoHealer.ApplyFix(ctx, diag, executor) → *Result<br>
+      AutoHealer.Heal(ctx, obs, failures, executor) → *Result
+    </div>
+    <div style="color:#a88; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#e0a0a0; font-size:11px">tool/ (仅 ToolCall 类型)</div>
+    <div style="color:#2ecc71; font-size:10px; margin-top:4px">✓ 零 agent 内部依赖，纯函数式</div>
+  </div>
+
+  <!-- perception -->
+  <div style="background:#1b1b0d; border-radius:8px; padding:12px; border-left:3px solid #f39c12">
+    <div style="color:#f39c12; font-weight:bold; margin-bottom:4px">perception/</div>
+    <div style="color:#a88; margin-bottom:4px">Exports</div>
+    <div style="color:#e0d0a0; font-family:monospace; font-size:11px">
+      type Perceiver struct<br>
+      type CognitiveState<br>
+      type ProjectContextScanner<br>
+      type GitContextProvider<br>
+      type ContextBudgetAllocator<br>
+      Perceiver.Perceive(ctx, msg) → CognitiveState
+    </div>
+    <div style="color:#a88; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#e0d0a0; font-size:11px">memory/, knowledge/, knowledge/graph/</div>
+  </div>
+
+  <!-- observation -->
+  <div style="background:#0d1b1b; border-radius:8px; padding:12px; border-left:3px solid #1abc9c">
+    <div style="color:#1abc9c; font-weight:bold; margin-bottom:4px">observation/</div>
+    <div style="color:#688; margin-bottom:4px">Exports</div>
+    <div style="color:#a0e0d0; font-family:monospace; font-size:11px">
+      type Observation<br>
+      type AssertionResult<br>
+      type Observer struct<br>
+      Observer.Observe(execResults) → []Obs<br>
+      GenerateAssertions(obs) → []AssertionResult
+    </div>
+    <div style="color:#688; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#a0e0d0; font-size:11px">（纯逻辑，零外部依赖）</div>
+    <div style="color:#2ecc71; font-size:10px; margin-top:4px">✓ 最干净的包</div>
+  </div>
+
+  <!-- reflection -->
+  <div style="background:#0d0d1b; border-radius:8px; padding:12px; border-left:3px solid #8e44ad">
+    <div style="color:#8e44ad; font-weight:bold; margin-bottom:4px">reflection/</div>
+    <div style="color:#888; margin-bottom:4px">Exports</div>
+    <div style="color:#c0a0e0; font-family:monospace; font-size:11px">
+      type Reflector struct<br>
+      type ReflectionResult<br>
+      Reflector.Reflect(ctx, obs, state) → ReflectionResult
+    </div>
+    <div style="color:#888; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#c0a0e0; font-size:11px">agent.Provider, memory/</div>
+  </div>
+
+  <!-- recording -->
+  <div style="background:#1b0d1b; border-radius:8px; padding:12px; border-left:3px solid #e91e63">
+    <div style="color:#e91e63; font-weight:bold; margin-bottom:4px">recording/</div>
+    <div style="color:#a88; margin-bottom:4px">Exports</div>
+    <div style="color:#e0a0c0; font-family:monospace; font-size:11px">
+      type SessionRecorder<br>
+      type SessionReplayer<br>
+      type RecordingEvent<br>
+      type SessionDiff<br>
+      Recorder.RecordEvent(ctx, event)<br>
+      Replayer.ReplaySession(ctx, id, handler)<br>
+      Replayer.DiffSessions(a, b) → *SessionDiff
+    </div>
+    <div style="color:#a88; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#e0a0c0; font-size:11px">store/ (仅 DB 句柄)</div>
+  </div>
+
+  <!-- runtime -->
+  <div style="background:#0d1b1b; border-radius:8px; padding:12px; border-left:3px solid #00bcd4">
+    <div style="color:#00bcd4; font-weight:bold; margin-bottom:4px">runtime/</div>
+    <div style="color:#688; margin-bottom:4px">Exports</div>
+    <div style="color:#a0d8e0; font-family:monospace; font-size:11px">
+      type Runtime struct<br>
+      type ContextManager interface<br>
+      type PipelineContextManager<br>
+      Runtime.Run(ctx, ch, sess, msg) → response<br>
+      ContextManager.Compress(...)<br>
+      ContextManager.ReactiveCompress(...)
+    </div>
+    <div style="color:#688; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#a0d8e0; font-size:11px">agent.Provider, tool/, session/, store/</div>
+  </div>
+
+  <!-- provider -->
+  <div style="background:#0d1b1b; border-radius:8px; padding:12px; border-left:3px solid #2e86c1">
+    <div style="color:#3498db; font-weight:bold; margin-bottom:4px">provider/</div>
+    <div style="color:#688; margin-bottom:4px">Exports</div>
+    <div style="color:#a0c8e0; font-family:monospace; font-size:11px">
+      type Provider interface<br>
+      type ClaudeProvider struct<br>
+      type OpenAIProvider struct<br>
+      type RetryProvider struct<br>
+      Provider.Complete(ctx, req) → Response<br>
+      Provider.Stream(ctx, req) → Stream
+    </div>
+    <div style="color:#688; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#a0c8e0; font-size:11px">anthropics-sdk-go, net/http</div>
+    <div style="color:#2ecc71; font-size:10px; margin-top:4px">✓ 零 IronClaw 内部依赖</div>
+  </div>
+
+  <!-- subagent -->
+  <div style="background:#1b1b0d; border-radius:8px; padding:12px; border-left:3px solid #cddc39">
+    <div style="color:#cddc39; font-weight:bold; margin-bottom:4px">subagent/</div>
+    <div style="color:#a88; margin-bottom:4px">Exports</div>
+    <div style="color:#e0e0a0; font-family:monospace; font-size:11px">
+      type SubAgentManager<br>
+      type AgentManager<br>
+      type TeamCoordinator<br>
+      SubAgentManager.Spawn(...) → Result<br>
+      SubAgentManager.SpawnParallel(...) → []Result
+    </div>
+    <div style="color:#a88; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#e0e0a0; font-size:11px">runtime/, tool/, session/, store/</div>
+  </div>
+
+  <!-- checkpoint -->
+  <div style="background:#1b0d0d; border-radius:8px; padding:12px; border-left:3px solid #ff5722">
+    <div style="color:#ff5722; font-weight:bold; margin-bottom:4px">checkpoint/</div>
+    <div style="color:#a88; margin-bottom:4px">Exports</div>
+    <div style="color:#e0b0a0; font-family:monospace; font-size:11px">
+      type SQLiteCheckpointStore<br>
+      Save(sessionID, state) error<br>
+      Load(sessionID) → *CognitiveState<br>
+      Delete(sessionID) error
+    </div>
+    <div style="color:#a88; margin-top:6px; margin-bottom:4px">Imports</div>
+    <div style="color:#e0b0a0; font-size:11px">store/ (仅 DB 句柄)</div>
+  </div>
+
+</div>
