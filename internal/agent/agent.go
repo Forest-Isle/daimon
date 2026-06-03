@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
@@ -330,6 +331,27 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 	if budgetWarning != "" {
 		sess.UpdateLastToolResult(budgetWarning)
 	}
+}
+
+// dispatchToolsParallel executes multiple independent tool calls concurrently.
+// Each call goes through the full executeToolCall pipeline.
+func (a *Agent) dispatchToolsParallel(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, calls []ToolUseBlock, budgetWarning string) {
+	if len(calls) == 0 {
+		return
+	}
+	if len(calls) == 1 {
+		a.executeToolCall(ctx, ch, sess, target, calls[0], budgetWarning)
+		return
+	}
+	var wg sync.WaitGroup
+	for i := range calls {
+		wg.Add(1)
+		go func(tc ToolUseBlock) {
+			defer wg.Done()
+			a.executeToolCall(ctx, ch, sess, target, tc, budgetWarning)
+		}(calls[i])
+	}
+	wg.Wait()
 }
 
 // extractFacts runs fact extraction and lifecycle management in the background.
