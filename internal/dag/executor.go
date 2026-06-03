@@ -59,13 +59,15 @@ type taskState struct {
 
 // Execute runs tasks with topological scheduling and parallel execution.
 //
-//Tasks with no dependencies are executed first. After each task completes,
+// Tasks with no dependencies are executed first. After each task completes,
 // any pending tasks whose dependencies are all satisfied become ready.
 // Failed tasks cause all downstream (transitively dependent) tasks to be
 // skipped with StatusSkipped.
 //
 // Tasks that depend on IDs not present in the task set are marked as skipped
-// (they can never become ready).
+// (they can never become ready). Cyclic dependencies are detected before
+// execution begins — if a cycle is found, Execute returns a single Result
+// with StatusFailed and an error describing the cycle.
 //
 // maxParallel controls the maximum number of concurrently executing tasks.
 // If maxParallel <= 0, it defaults to 1.
@@ -79,6 +81,15 @@ func Execute(ctx context.Context, tasks []Task, exec ExecuteFunc, maxParallel in
 	total := len(tasks)
 	if total == 0 {
 		return nil
+	}
+
+	// Detect cyclic dependencies before starting workers.
+	if cycle := detectCycle(tasks); cycle != "" {
+		return []Result{{
+			TaskID: "dag",
+			Status: StatusFailed,
+			Error:  fmt.Sprintf("cyclic dependency detected: %s", cycle),
+		}}
 	}
 
 	var (
