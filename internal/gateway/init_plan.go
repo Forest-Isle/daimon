@@ -30,6 +30,17 @@ func (gw *Gateway) initPlanAndEvolution() error {
 		gw.registerEvolutionHooks()
 	}
 
+	// Wire evolution bridge: subscribes agent EventBus -> evolution engine.
+	// ToolExecuted events published by executeToolCall are forwarded to
+	// DispatchToolExec, and loop/episode completion calls from UnifiedLoop/
+	// SimpleLoop are forwarded to DispatchReflection/DispatchEpisode.
+	if gw.agent != nil && gw.evolution.Engine() != nil {
+		bridge := agent.NewEvolutionBridge(gw.evolution.Engine())
+		bridge.Subscribe(gw.agent.EventBus())
+		gw.agent.SetEvolutionBridge(bridge)
+		slog.Info("evolution bridge wired: agent EventBus -> evolution engine")
+	}
+
 	return nil
 }
 

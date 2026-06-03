@@ -23,6 +23,8 @@ func (UnifiedLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, ms
 		maxIter = 20
 	}
 
+	startTime := time.Now()
+
 	for iteration := 0; iteration < maxIter; iteration++ {
 		slog.Info("unified loop iteration", "iteration", iteration, "session", sess.ID)
 
@@ -81,6 +83,7 @@ func (UnifiedLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, ms
 		}
 		if streamErr != nil {
 			_ = updater.Finish("Error: " + streamErr.Error())
+			notifyEpisodeComplete(a, sess, iteration, false, startTime)
 			return fmt.Errorf("llm stream: %w", streamErr)
 		}
 
@@ -93,6 +96,7 @@ func (UnifiedLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, ms
 			if deltaErr != nil {
 				stream.Close()
 				_ = updater.Finish("Error: " + deltaErr.Error())
+				notifyEpisodeComplete(a, sess, iteration, false, startTime)
 				return fmt.Errorf("stream next: %w", deltaErr)
 			}
 
@@ -128,6 +132,7 @@ func (UnifiedLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, ms
 			resp, completeErr := a.deps.Core.Provider.Complete(ctx, req)
 			if completeErr != nil {
 				_ = updater.Finish("Error: " + completeErr.Error())
+				notifyEpisodeComplete(a, sess, iteration, false, startTime)
 				return completeErr
 			}
 			fullText = resp.Text
@@ -158,6 +163,7 @@ func (UnifiedLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, ms
 		// If no tool calls, we're done
 		if len(toolCalls) == 0 {
 			_ = updater.Finish(fullText)
+			notifyEpisodeComplete(a, sess, iteration, true, startTime)
 			return nil
 		}
 
@@ -170,13 +176,18 @@ func (UnifiedLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, ms
 
 		// Execute tools in parallel
 		a.dispatchToolsParallel(ctx, ch, sess, target, toolCalls, budgetWarning)
+
+		// Notify evolution engine of loop completion (per-iteration reflection)
+		notifyLoopIteration(a, sess, toolCalls, iteration)
 	}
 
+	notifyEpisodeComplete(a, sess, maxIter, true, startTime)
 	return nil
 }
 
 // unifiedNonStreaming handles the non-streaming fallback path.
 func unifiedNonStreaming(ctx context.Context, a *Agent, ch channel.Channel, sess *session.Session, target channel.MessageTarget, systemPrompt string, maxIter int) error {
+	startTime := time.Now()
 	for iteration := 0; iteration < maxIter; iteration++ {
 		budgetWarning := computeBudgetPressure(iteration, maxIter, sess, systemPrompt, a.deps.Memory.ContextMgr)
 
@@ -199,6 +210,7 @@ func unifiedNonStreaming(ctx context.Context, a *Agent, ch channel.Channel, sess
 			}
 		}
 		if err != nil {
+			notifyEpisodeComplete(a, sess, iteration, false, startTime)
 			return err
 		}
 
@@ -219,11 +231,16 @@ func unifiedNonStreaming(ctx context.Context, a *Agent, ch channel.Channel, sess
 			}); sendErr != nil {
 				slog.Warn("failed to send message", "err", sendErr)
 			}
+			notifyEpisodeComplete(a, sess, iteration, true, startTime)
 			return nil
 		}
 
 		// Execute tools in parallel
 		a.dispatchToolsParallel(ctx, ch, sess, target, resp.ToolCalls, budgetWarning)
+
+		// Notify evolution engine of loop completion (per-iteration reflection)
+		notifyLoopIteration(a, sess, resp.ToolCalls, iteration)
 	}
+	notifyEpisodeComplete(a, sess, maxIter, true, startTime)
 	return nil
 }
