@@ -49,9 +49,6 @@ func (gw *Gateway) initKnowledgeSystem() error {
 		}
 	}
 
-	if gw.cognitiveLoop != nil {
-		gw.cognitiveLoop.SetKnowledgeSearcher(retriever)
-	}
 
 	// Knowledge graph (Phase 3)
 	if gw.featureEnabled("knowledge_graph") {
@@ -83,10 +80,6 @@ func (gw *Gateway) initKnowledgeSystem() error {
 			slog.Info("gateway: initial graph entity extraction complete")
 		}()
 
-		if gw.cognitiveLoop != nil {
-			gw.cognitiveLoop.SetKnowledgeGraph(kg)
-			gw.cognitiveLoop.SetEntityExtractor(extractor)
-		}
 
 		// Wire GraphSync to lifecycle manager for memory->graph synchronization
 		if gw.memory.lifecycleMgr != nil {

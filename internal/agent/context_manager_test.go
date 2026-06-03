@@ -24,9 +24,8 @@ func TestPipelineContextManager_Compress_BelowThreshold(t *testing.T) {
 	cfg := &config.CompressionConfig{
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
-			ToolEvictionPct: 30,
+			ToolOutputReducePct: 30,
 			SummarizePct:    50,
-			SlimPromptPct:   70,
 			EmergencyPct:    90,
 		},
 		TokenEstimateRatio: 0.25,
@@ -50,9 +49,8 @@ func TestPipelineContextManager_Compress_AboveThreshold(t *testing.T) {
 	cfg := &config.CompressionConfig{
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
-			ToolEvictionPct: 1, // very low threshold — always triggers
+			ToolOutputReducePct: 1, // very low threshold — always triggers
 			SummarizePct:    99,
-			SlimPromptPct:   99,
 			EmergencyPct:    99,
 		},
 		TokenEstimateRatio: 0.25,
@@ -258,9 +256,8 @@ func TestPipelineContextManager_ReactiveCompress_WithPipeline(t *testing.T) {
 	cfg := &config.CompressionConfig{
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
-			ToolEvictionPct: 99,
+			ToolOutputReducePct: 99,
 			SummarizePct:    99,
-			SlimPromptPct:   99,
 			EmergencyPct:    99,
 		},
 		TokenEstimateRatio: 0.25,
@@ -351,9 +348,8 @@ func TestPipelineContextManager_ReactiveCompressWithRetry_Level1Success(t *testi
 	cfg := &config.CompressionConfig{
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
-			ToolEvictionPct: 1,
+			ToolOutputReducePct: 1,
 			SummarizePct:    99,
-			SlimPromptPct:   99,
 			EmergencyPct:    99,
 		},
 		TokenEstimateRatio: 0.25,
@@ -383,9 +379,8 @@ func TestPipelineContextManager_ReactiveCompressWithRetry_Level2Success(t *testi
 	cfg := &config.CompressionConfig{
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
-			ToolEvictionPct: 1,
+			ToolOutputReducePct: 1,
 			SummarizePct:    99,
-			SlimPromptPct:   99,
 			EmergencyPct:    99,
 		},
 		TokenEstimateRatio: 0.25,
@@ -422,9 +417,8 @@ func TestPipelineContextManager_ReactiveCompressWithRetry_AllFail(t *testing.T) 
 	cfg := &config.CompressionConfig{
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
-			ToolEvictionPct: 1,
+			ToolOutputReducePct: 1,
 			SummarizePct:    99,
-			SlimPromptPct:   99,
 			EmergencyPct:    99,
 		},
 		TokenEstimateRatio: 0.25,

@@ -90,18 +90,18 @@ func (gw *Gateway) initMultiAgent() error {
 
 		tokenBudget := agent.NewTokenBudget(
 			contextWindow,
-			float64(cfg.Agent.Compression.Layers.ToolEvictionPct)/100.0,
+			float64(cfg.Agent.Compression.Layers.ToolOutputReducePct)/100.0,
 			float64(cfg.Agent.Compression.Layers.SummarizePct)/100.0,
-			float64(cfg.Agent.Compression.Layers.SlimPromptPct)/100.0,
+			float64(cfg.Agent.Compression.Layers.EmergencyPct)/100.0,
 			cfg.Agent.Compression.TokenEstimateRatio,
 		)
 		_ = tokenBudget
 		slog.Info("token budget monitor enabled",
 			"model", cfg.LLM.Model,
 			"model_limit", contextWindow,
-			"light_pct", cfg.Agent.Compression.Layers.ToolEvictionPct,
+			"light_pct", cfg.Agent.Compression.Layers.ToolOutputReducePct,
 			"medium_pct", cfg.Agent.Compression.Layers.SummarizePct,
-			"heavy_pct", cfg.Agent.Compression.Layers.SlimPromptPct,
+			"heavy_pct", cfg.Agent.Compression.Layers.EmergencyPct,
 		)
 	}
 

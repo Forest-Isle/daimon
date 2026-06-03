@@ -74,7 +74,7 @@ func (UnifiedLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, ms
 			if compErr := a.deps.Memory.ContextMgr.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
 				slog.Warn("reactive compress failed", "err", compErr)
 			} else {
-				a.eventBus.Publish(ContextCompressed{SessionID: sess.ID, Reason: "413_retry", LayersRun: 5})
+				a.eventBus.Publish(ContextCompressed{SessionID: sess.ID, Reason: "413_retry", LayersRun: 3})
 				req.Messages = BuildMessages(sess)
 				stream, streamErr = a.deps.Core.Provider.Stream(ctx, req)
 			}
@@ -193,7 +193,7 @@ func unifiedNonStreaming(ctx context.Context, a *Agent, ch channel.Channel, sess
 			if compErr := a.deps.Memory.ContextMgr.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
 				slog.Warn("reactive compress failed", "err", compErr)
 			} else {
-				a.eventBus.Publish(ContextCompressed{SessionID: sess.ID, Reason: "413_retry", LayersRun: 5})
+				a.eventBus.Publish(ContextCompressed{SessionID: sess.ID, Reason: "413_retry", LayersRun: 3})
 				req.Messages = BuildMessages(sess)
 				resp, err = a.deps.Core.Provider.Complete(ctx, req)
 			}

@@ -35,10 +35,9 @@ type CompressionConfig struct {
 
 // CompressionLayers defines thresholds for each compression layer.
 type CompressionLayers struct {
-	ToolEvictionPct int `yaml:"tool_eviction_pct"`
-	SummarizePct    int `yaml:"summarize_pct"`
-	SlimPromptPct   int `yaml:"slim_prompt_pct"`
-	EmergencyPct    int `yaml:"emergency_pct"`
+	ToolOutputReducePct int `yaml:"tool_output_reduce_pct"`
+	SummarizePct        int `yaml:"summarize_pct"`
+	EmergencyPct        int `yaml:"emergency_pct"`
 }
 
 // CognitiveConfig holds configuration for the five-step cognitive agent loop.

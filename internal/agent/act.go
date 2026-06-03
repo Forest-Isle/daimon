@@ -26,7 +26,6 @@ type Executor struct {
 	cfg              config.CognitiveConfig
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
-	cache            *ToolResultCache
 	interceptorChain *tool.InterceptorChain
 	dashEmitter      DashboardEmitter
 	planMode         *PlanMode // optional plan->approve->execute flow
@@ -50,11 +49,6 @@ func (e *Executor) SetHookManager(mgr *hook.Manager) {
 // SetPermissionEngine injects a permission engine for rule-based access control.
 func (e *Executor) SetPermissionEngine(pe *tool.PermissionEngine) {
 	e.permEngine = pe
-}
-
-// SetToolCache injects a tool result cache for read-only tool deduplication.
-func (e *Executor) SetToolCache(cache *ToolResultCache) {
-	e.cache = cache
 }
 
 // SetInterceptorChain attaches an interceptor chain for sandbox-aware tool execution.
@@ -250,16 +244,6 @@ func (e *Executor) executeSubTask(
 		return obs
 	}
 
-	// -- Cache lookup for read-only tools --------------------------------------------
-	if e.cache != nil && tool.IsToolReadOnly(t) {
-		if cached, ok := e.cache.Get(subtask.ToolName, subtask.ToolInput); ok {
-			subtask.Status = SubTaskDone
-			obs.Output = cached.Output
-			slog.Info("subtask cache hit", "id", subtask.ID, "tool", subtask.ToolName)
-			return obs
-		}
-	}
-
 	// Route through interceptor chain when configured (e.g. sandbox enforcement)
 	if e.interceptorChain != nil {
 		return e.executeSubTaskViaChain(ctx, ch, sess, target, subtask, allTasks, taskCtx, plan, t)
@@ -411,19 +395,6 @@ func (e *Executor) executeSubTask(
 		return obs
 	}
 
-	// -- Cache update ---------------------------------------------------------------
-	if e.cache != nil {
-		if tool.IsToolReadOnly(t) {
-			e.cache.Put(subtask.ToolName, subtask.ToolInput, result)
-		} else if pst, ok := t.(tool.PathScopedTool); ok {
-			if paths, pathErr := pst.ExtractPaths([]byte(subtask.ToolInput)); pathErr == nil {
-				for _, p := range paths {
-					e.cache.InvalidatePath(p)
-				}
-			}
-		}
-	}
-
 	// Store result in TaskContext if available
 	if taskCtx != nil && strings.HasPrefix(subtask.ToolName, "agent_") {
 		taskCtx.SetResult(subtask.ID, SubAgentResult{
@@ -561,19 +532,6 @@ func (e *Executor) executeSubTaskViaChain(
 		})
 		if postResult.ModifiedOutput != nil {
 			obs.Output = *postResult.ModifiedOutput
-		}
-	}
-
-	// Cache update
-	if e.cache != nil {
-		if tool.IsToolReadOnly(t) {
-			e.cache.Put(subtask.ToolName, subtask.ToolInput, tool.Result{Output: res.Output})
-		} else if pst, ok := t.(tool.PathScopedTool); ok {
-			if paths, pathErr := pst.ExtractPaths([]byte(subtask.ToolInput)); pathErr == nil {
-				for _, p := range paths {
-					e.cache.InvalidatePath(p)
-				}
-			}
 		}
 	}
 

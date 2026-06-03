@@ -180,9 +180,6 @@ func (gw *Gateway) handleModelCommand(ctx context.Context, ch channel.Channel, m
 
 	old := gw.agent.Model()
 	gw.agent.SetModel(args)
-	if gw.cognitiveLoop != nil {
-		gw.cognitiveLoop.SetModel(args)
-	}
 	gw.sendReply(ctx, ch, msg, fmt.Sprintf("Model switched: %s → %s", old, args))
 }
 

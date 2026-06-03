@@ -43,7 +43,6 @@ func TestCognitiveAgentAlwaysInitialized(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = gw.db.Close() }()
 
-	assert.NotNil(t, gw.cognitiveLoop, "cognitiveLoop must be initialized even when mode=simple")
 	assert.NotNil(t, gw.agent, "agent must be initialized")
 }
 
@@ -79,7 +78,6 @@ func TestHandleInboundRoutesByCurrentMode(t *testing.T) {
 	defer func() { _ = gw.db.Close() }()
 
 	assert.Equal(t, "simple", gw.CurrentMode())
-	assert.NotNil(t, gw.cognitiveLoop)
 
 	require.NoError(t, gw.SetMode("cognitive"))
 	assert.Equal(t, "cognitive", gw.CurrentMode())

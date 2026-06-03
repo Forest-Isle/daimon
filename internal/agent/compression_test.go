@@ -42,9 +42,8 @@ func newTestSession() *session.Session {
 	}
 }
 
-func TestEmergencyTruncation(t *testing.T) {
+func TestEmergencyTruncator_HardCut(t *testing.T) {
 	sess := newTestSession()
-	// Add 30 messages
 	for i := 0; i < 30; i++ {
 		sess.AddMessage(session.Message{
 			ID:      fmt.Sprintf("msg_%d", i),
@@ -53,71 +52,92 @@ func TestEmergencyTruncation(t *testing.T) {
 		})
 	}
 
-	layer := &EmergencyTruncationLayer{keepLastTurns: 5}
+	// 30 messages > SoftKeepTurns*4 (20) -> hard cut: keep HardKeepTurns*2=6 + 1 notice = 7
+	layer := NewEmergencyTruncator(EmergencyTruncateConfig{SoftKeepTurns: 5, HardKeepTurns: 3})
 	err := layer.Compress(context.Background(), sess, "")
 	if err != nil {
 		t.Fatalf("Compress() error: %v", err)
 	}
 
-	// Should keep 10 messages + 1 notice = 11
 	history := sess.History()
 	if len(history) > 12 {
 		t.Errorf("expected <= 12 messages after truncation, got %d", len(history))
 	}
-
-	// First message should be the truncation notice
-	if !strings.Contains(history[0].Content, "truncated") {
+	if !strings.Contains(history[0].Content, "trimmed") {
 		t.Error("first message should be truncation notice")
 	}
 }
 
-func TestToolEvictionLayer(t *testing.T) {
+func TestToolOutputReducer_Large(t *testing.T) {
 	sess := newTestSession()
-	// Add a large tool result
 	bigContent := strings.Repeat("x", 10000)
-	sess.AddMessage(session.Message{
-		ID:      "tool_1",
-		Role:    "tool_result",
-		Content: bigContent,
-	})
+	sess.AddMessage(session.Message{ID: "tool_1", Role: "tool_result", Content: bigContent})
+	for i := 0; i < 8; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		sess.AddMessage(session.Message{
+			ID:      fmt.Sprintf("recent_%d", i),
+			Role:    role,
+			Content: fmt.Sprintf("recent message %d", i),
+		})
+	}
 
-	layer := &ToolEvictionLayer{thresholdBytes: 5000}
+	layer := NewToolOutputReducer(nil, ToolOutputReduceConfig{
+		TruncateChars: 2000,
+		EvictBytes:    5000,
+		KeepLastTurns: 4,
+	})
 	err := layer.Compress(context.Background(), sess, "")
 	if err != nil {
 		t.Fatalf("Compress() error: %v", err)
 	}
 
 	history := sess.History()
-	if len(history[0].Content) >= len(bigContent) {
-		t.Error("tool result should have been truncated")
-	}
-	if !strings.Contains(history[0].Content, "TRUNCATED") {
-		t.Error("truncated result should contain TRUNCATED marker")
+	for _, m := range history {
+		if m.ID == "tool_1" {
+			if len(m.Content) >= len(bigContent) {
+				t.Error("tool result should have been truncated")
+			}
+			if !strings.Contains(m.Content, "truncated") {
+				t.Error("truncated result should contain truncation marker")
+			}
+		}
 	}
 }
 
-func TestToolEvictionLayerSkipsSmall(t *testing.T) {
+func TestToolOutputReducer_Small(t *testing.T) {
 	sess := newTestSession()
 	smallContent := "short result"
-	sess.AddMessage(session.Message{
-		ID:      "tool_1",
-		Role:    "tool_result",
-		Content: smallContent,
-	})
+	sess.AddMessage(session.Message{ID: "tool_1", Role: "tool_result", Content: smallContent})
+	for i := 0; i < 8; i++ {
+		sess.AddMessage(session.Message{
+			ID:      fmt.Sprintf("recent_%d", i),
+			Role:    "user",
+			Content: fmt.Sprintf("recent message %d", i),
+		})
+	}
 
-	layer := &ToolEvictionLayer{thresholdBytes: 5000}
+	layer := NewToolOutputReducer(nil, ToolOutputReduceConfig{
+		TruncateChars: 2000,
+		EvictBytes:    5000,
+		KeepLastTurns: 4,
+	})
 	err := layer.Compress(context.Background(), sess, "")
 	if err != nil {
 		t.Fatalf("Compress() error: %v", err)
 	}
 
 	history := sess.History()
-	if history[0].Content != smallContent {
-		t.Error("small tool result should not be modified")
+	for _, m := range history {
+		if m.ID == "tool_1" && m.Content != smallContent {
+			t.Error("small tool result should not be modified")
+		}
 	}
 }
 
-func TestOldContextRemoval(t *testing.T) {
+func TestEmergencyTruncator_SoftTrim(t *testing.T) {
 	sess := newTestSession()
 	for i := 0; i < 12; i++ {
 		sess.AddMessage(session.Message{
@@ -127,72 +147,23 @@ func TestOldContextRemoval(t *testing.T) {
 		})
 	}
 
-	layer := &OldContextRemovalLayer{}
+	// 12 messages <= SoftKeepTurns*4 (12), so soft: keep SoftKeepTurns*2=6 + 1 = 7
+	layer := NewEmergencyTruncator(EmergencyTruncateConfig{SoftKeepTurns: 3, HardKeepTurns: 2})
 	err := layer.Compress(context.Background(), sess, "")
 	if err != nil {
 		t.Fatalf("Compress() error: %v", err)
 	}
 
 	history := sess.History()
-	// 12 messages, remove 4 (12/3), add 1 notice = 9
-	if len(history) != 9 {
-		t.Errorf("expected 9 messages, got %d", len(history))
+	if len(history) != 7 {
+		t.Errorf("expected 7 messages, got %d", len(history))
 	}
 	if !strings.Contains(history[0].Content, "trimmed") {
 		t.Error("first message should be trim notice")
 	}
 }
 
-func TestOldContextRemovalSkipsShort(t *testing.T) {
-	sess := newTestSession()
-	for i := 0; i < 4; i++ {
-		sess.AddMessage(session.Message{
-			ID:      fmt.Sprintf("msg_%d", i),
-			Role:    "user",
-			Content: fmt.Sprintf("message %d", i),
-		})
-	}
-
-	layer := &OldContextRemovalLayer{}
-	err := layer.Compress(context.Background(), sess, "")
-	if err != nil {
-		t.Fatalf("Compress() error: %v", err)
-	}
-
-	// Should not modify — 4 <= 6
-	history := sess.History()
-	if len(history) != 4 {
-		t.Errorf("expected 4 messages unchanged, got %d", len(history))
-	}
-}
-
-// TestPipelineEarlyExit verifies that the pipeline stops when utilization drops below threshold.
-func TestPipelineEarlyExit(t *testing.T) {
-	cfg := config.CompressionConfig{
-		Strategy: "layered",
-		Layers: config.CompressionLayers{
-			ToolEvictionPct: 1,  // very low threshold — always runs
-			SummarizePct:    99, // very high — should not run
-			SlimPromptPct:   99,
-			EmergencyPct:    99,
-		},
-		TokenEstimateRatio: 0.25,
-	}
-
-	pipeline := NewCompressionPipeline(nil, "test", cfg, nil, 200000)
-
-	sess := newTestSession()
-	sess.AddMessage(session.Message{ID: "1", Role: "user", Content: "hello"})
-
-	// This should not panic or error even though provider is nil
-	// because layer 2 (which needs LLM) should be skipped due to high threshold
-	err := pipeline.Run(context.Background(), sess, "short prompt")
-	if err != nil {
-		t.Fatalf("Pipeline.Run() error: %v", err)
-	}
-}
-
-func TestEmergencyTruncationSkipsShort(t *testing.T) {
+func TestEmergencyTruncator_SkipsShort(t *testing.T) {
 	sess := newTestSession()
 	for i := 0; i < 5; i++ {
 		sess.AddMessage(session.Message{
@@ -202,23 +173,42 @@ func TestEmergencyTruncationSkipsShort(t *testing.T) {
 		})
 	}
 
-	layer := &EmergencyTruncationLayer{keepLastTurns: 5}
+	layer := NewEmergencyTruncator(EmergencyTruncateConfig{SoftKeepTurns: 5, HardKeepTurns: 3})
 	err := layer.Compress(context.Background(), sess, "")
 	if err != nil {
 		t.Fatalf("Compress() error: %v", err)
 	}
 
-	// 5 messages <= 10 (5*2), should not truncate
 	history := sess.History()
 	if len(history) != 5 {
 		t.Errorf("expected 5 messages unchanged, got %d", len(history))
 	}
 }
 
+func TestPipelineEarlyExit(t *testing.T) {
+	cfg := config.CompressionConfig{
+		Strategy: "layered",
+		Layers: config.CompressionLayers{
+			ToolOutputReducePct: 1,  // very low threshold — always runs
+			SummarizePct:        99, // very high — should not run
+			EmergencyPct:        99,
+		},
+		TokenEstimateRatio: 0.25,
+	}
+
+	pipeline := NewCompressionPipeline(nil, "test", cfg, nil, 200000)
+	sess := newTestSession()
+	sess.AddMessage(session.Message{ID: "1", Role: "user", Content: "hello"})
+
+	err := pipeline.Run(context.Background(), sess, "short prompt")
+	if err != nil {
+		t.Fatalf("Pipeline.Run() error: %v", err)
+	}
+}
+
 func TestEnsureToolPairing_OrphanResult(t *testing.T) {
 	sess := newTestSession()
 	sess.AddMessage(session.Message{ID: "msg_1", Role: "user", Content: "hello"})
-	// tool_result without a matching tool_use — orphan
 	sess.AddMessage(session.Message{ID: "result_1", Role: "tool_result", Content: "output", ToolName: "missing_use_id"})
 	sess.AddMessage(session.Message{ID: "msg_2", Role: "assistant", Content: "done"})
 
@@ -238,14 +228,12 @@ func TestEnsureToolPairing_OrphanResult(t *testing.T) {
 func TestEnsureToolPairing_MissingResult(t *testing.T) {
 	sess := newTestSession()
 	sess.AddMessage(session.Message{ID: "msg_1", Role: "user", Content: "hello"})
-	// tool_use without a matching tool_result
 	sess.AddMessage(session.Message{ID: "use_1", Role: "tool_use", ToolName: "bash", ToolInput: `{"command":"ls"}`})
 	sess.AddMessage(session.Message{ID: "msg_2", Role: "assistant", Content: "done"})
 
 	ensureToolPairing(sess)
 
 	history := sess.History()
-	// Should now have: user, tool_use, tool_result (stub), assistant = 4
 	if len(history) != 4 {
 		t.Fatalf("expected 4 messages after stub insertion, got %d", len(history))
 	}
@@ -279,11 +267,9 @@ func TestEnsureToolPairing_NoChange(t *testing.T) {
 func TestEnsureToolPairing_ConsecutiveToolUses(t *testing.T) {
 	sess := newTestSession()
 	sess.AddMessage(session.Message{ID: "msg_1", Role: "user", Content: "hello"})
-	// Two consecutive tool_uses (parallel execution), only first has a result
 	sess.AddMessage(session.Message{ID: "use_1", Role: "tool_use", ToolName: "bash"})
 	sess.AddMessage(session.Message{ID: "use_2", Role: "tool_use", ToolName: "file_read"})
 	sess.AddMessage(session.Message{ID: "result_1", Role: "tool_result", Content: "output1", ToolName: "use_1"})
-	// use_2 has no result (lost during compression)
 
 	ensureToolPairing(sess)
 
@@ -302,16 +288,14 @@ func TestEnsureToolPairing_ConsecutiveToolUses(t *testing.T) {
 	}
 }
 
-func TestToolOutputPrePruneLayer(t *testing.T) {
+func TestToolOutputReducer_OldToolOutput(t *testing.T) {
 	sess := newTestSession()
-	// Add old messages with large tool output
 	sess.AddMessage(session.Message{ID: "msg_1", Role: "user", Content: "do something"})
 	sess.AddMessage(session.Message{ID: "use_1", Role: "tool_use", ToolName: "bash"})
 	bigOutput := strings.Repeat("x", 3000)
 	sess.AddMessage(session.Message{ID: "result_1", Role: "tool_result", Content: bigOutput, ToolName: "use_1"})
 	sess.AddMessage(session.Message{ID: "msg_2", Role: "assistant", Content: "here's the result"})
-	// Add recent messages that should be protected
-	for i := 0; i < 16; i++ { // 4 turns * 4 messages
+	for i := 0; i < 16; i++ {
 		sess.AddMessage(session.Message{
 			ID:      fmt.Sprintf("recent_%d", i),
 			Role:    "user",
@@ -319,7 +303,11 @@ func TestToolOutputPrePruneLayer(t *testing.T) {
 		})
 	}
 
-	layer := &ToolOutputPrePruneLayer{thresholdChars: 2000, keepRecentTurns: 4, previewChars: 500}
+	layer := NewToolOutputReducer(nil, ToolOutputReduceConfig{
+		TruncateChars: 2000,
+		EvictBytes:    5000,
+		KeepLastTurns: 4,
+	})
 	err := layer.Compress(context.Background(), sess, "")
 	if err != nil {
 		t.Fatalf("Compress() error: %v", err)
@@ -336,9 +324,6 @@ func TestToolOutputPrePruneLayer(t *testing.T) {
 			if !strings.Contains(m.Content, "truncated") {
 				t.Error("truncated content should contain truncation marker")
 			}
-			if !strings.Contains(m.Content, "3000") {
-				t.Error("truncation marker should include original size")
-			}
 		}
 	}
 	if !found {
@@ -350,10 +335,9 @@ func TestCompressionPipeline_RunForced(t *testing.T) {
 	cfg := config.CompressionConfig{
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
-			ToolEvictionPct: 99,
-			SummarizePct:    99,
-			SlimPromptPct:   99,
-			EmergencyPct:    99,
+			ToolOutputReducePct: 99,
+			SummarizePct:        99,
+			EmergencyPct:        99,
 		},
 		TokenEstimateRatio: 0.25,
 	}
@@ -372,17 +356,14 @@ func TestCompressionPipeline_RunForced(t *testing.T) {
 			Content: fmt.Sprintf("message %d content", i),
 		})
 	}
-	// Add an orphan tool_use (no matching tool_result) to verify ensureToolPairing.
 	sess.AddMessage(session.Message{ID: "orphan_use", Role: "tool_use", ToolName: "bash", ToolInput: `{"command":"ls"}`})
 
-	// Normal Run should NOT compress — utilization is far below 99% thresholds.
 	beforeRun := len(sess.History())
 	_ = pipeline.Run(context.Background(), sess, "prompt")
 	if len(sess.History()) < beforeRun {
 		t.Fatal("Run() should not have compressed with 99% thresholds and huge context window")
 	}
 
-	// RunForced should compress unconditionally.
 	err := pipeline.RunForced(context.Background(), sess, "prompt")
 	if err != nil {
 		t.Fatalf("RunForced() error: %v", err)
@@ -393,7 +374,6 @@ func TestCompressionPipeline_RunForced(t *testing.T) {
 		t.Errorf("RunForced() should have reduced history, still has %d messages", len(history))
 	}
 
-	// Verify ensureToolPairing: orphan tool_use should now have a stub tool_result.
 	for _, m := range history {
 		if m.Role == "tool_use" && m.ID == "orphan_use" {
 			found := false
@@ -410,14 +390,17 @@ func TestCompressionPipeline_RunForced(t *testing.T) {
 	}
 }
 
-func TestToolOutputPrePruneLayer_ProtectsRecent(t *testing.T) {
+func TestToolOutputReducer_ProtectsRecent(t *testing.T) {
 	sess := newTestSession()
-	// Only recent messages — all should be protected
 	bigOutput := strings.Repeat("y", 3000)
 	sess.AddMessage(session.Message{ID: "msg_1", Role: "user", Content: "recent"})
 	sess.AddMessage(session.Message{ID: "result_1", Role: "tool_result", Content: bigOutput, ToolName: "use_1"})
 
-	layer := &ToolOutputPrePruneLayer{thresholdChars: 2000, keepRecentTurns: 4, previewChars: 500}
+	layer := NewToolOutputReducer(nil, ToolOutputReduceConfig{
+		TruncateChars: 2000,
+		EvictBytes:    5000,
+		KeepLastTurns: 4,
+	})
 	err := layer.Compress(context.Background(), sess, "")
 	if err != nil {
 		t.Fatalf("Compress() error: %v", err)

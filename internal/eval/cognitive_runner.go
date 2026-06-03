@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
@@ -23,43 +22,29 @@ type indexRebuilder interface {
 	RebuildIndex(ctx context.Context) error
 }
 
-// CognitiveAgentRunner implements AgentRunner by driving a real Agent with
-// CognitiveLoop strategy. Each task gets a fresh session and an EvalChannel
-// that auto-approves tools.
+// CognitiveAgentRunner implements AgentRunner by driving a real Agent.
+// Each task gets a fresh session and an EvalChannel that auto-approves tools.
 type CognitiveAgentRunner struct {
 	agent        *agent.Agent
 	hook         *EvalHook
 	channel      *EvalChannel
 	cogCollector *cogmetrics.Collector
 	memStore     memory.Store // the agent's active store, wired by gateway.NewEvalRunner
-
-	mu              sync.Mutex
-	lastObservation *agent.ObservationResult
+	evoEngine    *evolution.Engine
 }
 
 // NewCognitiveAgentRunner creates a runner that drives the given Agent.
-// If the agent has CognitiveLoop strategy with an evolution engine configured,
-// an EvalHook is registered to capture reflection/episode metrics.
-func NewCognitiveAgentRunner(a *agent.Agent) *CognitiveAgentRunner {
+// The evolution engine provides hooks for capturing reflection/episode/metrics data.
+func NewCognitiveAgentRunner(a *agent.Agent, evo *evolution.Engine) *CognitiveAgentRunner {
 	r := &CognitiveAgentRunner{
-		agent:   a,
-		channel: &EvalChannel{},
+		agent:     a,
+		channel:   &EvalChannel{},
+		evoEngine: evo,
 	}
 
-	// Access CognitiveLoop strategy methods via type assertion.
-	if cl, ok := a.Strategy().(*agent.CognitiveLoop); ok {
-		// Register observation callback to capture assertion stats.
-		cl.SetObservationCallback(func(result *agent.ObservationResult) {
-			r.mu.Lock()
-			r.lastObservation = result
-			r.mu.Unlock()
-		})
-
-		// Register eval hook on evolution engine if available.
-		if evo := cl.EvolutionEngine(); evo != nil {
-			r.hook = NewEvalHook()
-			evo.RegisterHook(r.hook)
-		}
+	if evo != nil {
+		r.hook = NewEvalHook()
+		evo.RegisterHook(r.hook)
 	}
 
 	return r
@@ -75,24 +60,15 @@ type MemoryAwareRunner interface {
 	CleanupMemory(ctx context.Context, ids ...string) error
 }
 
-// evoEngine returns the evolution engine from the CognitiveLoop strategy.
-// Returns nil when the strategy is not CognitiveLoop or no engine is configured.
-func (r *CognitiveAgentRunner) evoEngine() *evolution.Engine {
-	if cl, ok := r.agent.Strategy().(*agent.CognitiveLoop); ok {
-		return cl.EvolutionEngine()
-	}
-	return nil
-}
-
 // SetMemoryStore attaches the gateway's memory store so that InjectMemory and
 // CleanupMemory can write test fixtures directly into the store the agent reads
-// from during the PERCEIVE phase. Called by gateway.NewEvalRunner.
+// from. Called by gateway.NewEvalRunner.
 func (r *CognitiveAgentRunner) SetMemoryStore(s memory.Store) { r.memStore = s }
 
 // InjectMemory writes entries into the agent's active memory store.
 // Returns an error when no store is wired (memory disabled in eval gateway).
 // After saving all entries it rebuilds the FTS5 index (when the store supports
-// it) so that PERCEIVE-phase searches can find the injected entries immediately.
+// it) so that searches can find the injected entries immediately.
 func (r *CognitiveAgentRunner) InjectMemory(ctx context.Context, entries ...memory.Entry) error {
 	if r.memStore == nil {
 		return fmt.Errorf("eval runner: memory store not available (memory disabled?)")
@@ -102,9 +78,7 @@ func (r *CognitiveAgentRunner) InjectMemory(ctx context.Context, entries ...memo
 			return fmt.Errorf("eval runner: inject memory entry %q: %w", e.ID, err)
 		}
 	}
-	// Force index rebuild so PERCEIVE FTS5 search can find injected entries
-	// immediately. Stores that don't support explicit rebuilds (e.g. mocks)
-	// simply skip this step via the type assertion.
+	// Force index rebuild so FTS5 search can find injected entries immediately.
 	if rebuilder, ok := r.memStore.(indexRebuilder); ok {
 		if err := rebuilder.RebuildIndex(ctx); err != nil {
 			slog.Warn("eval: rebuild memory index after inject", "err", err)
@@ -164,12 +138,12 @@ func (a *compressionAdapter) EmitContextCompress(sessionID, reason string, layer
 	a.hook.RecordCompression(sessionID, reason, layersRun, beforePct, afterPct)
 }
 
-func (a *compressionAdapter) EmitPhaseStart(_ string, _ string)               {}
-func (a *compressionAdapter) EmitPhaseEnd(_ string, _ string, _ int64)        {}
-func (a *compressionAdapter) EmitToolStart(_ string, _ string, _ string)      {}
-func (a *compressionAdapter) EmitToolEnd(_ string, _ string, _ bool, _ int64) {}
-func (a *compressionAdapter) EmitSessionStart(_ string, _ string)             {}
-func (a *compressionAdapter) EmitSessionEnd(_ string, _ bool, _ int64)        {}
+func (a *compressionAdapter) EmitPhaseStart(_ string, _ string)                        {}
+func (a *compressionAdapter) EmitPhaseEnd(_ string, _ string, _ int64)                 {}
+func (a *compressionAdapter) EmitToolStart(_ string, _ string, _ string)               {}
+func (a *compressionAdapter) EmitToolEnd(_ string, _ string, _ bool, _ int64)          {}
+func (a *compressionAdapter) EmitSessionStart(_ string, _ string)                      {}
+func (a *compressionAdapter) EmitSessionEnd(_ string, _ bool, _ int64)                 {}
 func (a *compressionAdapter) EmitMetricsUpdate(_ string, _, _ int, _ float64, _, _, _, _ int64, _, _ string) {
 }
 func (a *compressionAdapter) EmitPlanGenerated(_ string, _ int, _ string, _ bool)      {}
@@ -178,7 +152,7 @@ func (a *compressionAdapter) EmitObservationResult(_ string, _, _, _ int, _ floa
 func (a *compressionAdapter) EmitSubAgentSpawn(_ string, _ string, _ string, _ string) {}
 func (a *compressionAdapter) EmitSubAgentComplete(_ string, _ string, _ bool, _ int64) {}
 
-// RunTask executes a single evaluation task against the cognitive agent.
+// RunTask executes a single evaluation task against the agent.
 func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*EvalResult, error) {
 	if task.ID == TaskIDSkillEvolutionDraftQuality {
 		return RunSkillEvolutionDimensionCheck(ctx, task)
@@ -186,13 +160,10 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 
 	sessions := r.agent.Sessions()
 	if sessions == nil {
-		return nil, fmt.Errorf("cognitive agent has no session manager")
+		return nil, fmt.Errorf("agent has no session manager")
 	}
 
 	r.channel.Reset()
-	r.mu.Lock()
-	r.lastObservation = nil
-	r.mu.Unlock()
 
 	// Each eval task gets a unique channel ID to isolate sessions.
 	evalChannelID := fmt.Sprintf("eval_%s_%d", task.ID, time.Now().UnixNano())
@@ -219,8 +190,8 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 	duration := time.Since(start)
 
 	// Wait for all async evolution hooks to finish before reading their state.
-	if evo := r.evoEngine(); evo != nil {
-		evo.WaitPending()
+	if r.evoEngine != nil {
+		r.evoEngine.WaitPending()
 	}
 
 	result := &EvalResult{
@@ -232,8 +203,8 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 	}
 
 	// Capture routing decision for this task's complexity level.
-	if evo := r.evoEngine(); evo != nil {
-		if rr := evo.Router().SelectModel(task.Complexity); rr.Routed {
+	if r.evoEngine != nil {
+		if rr := r.evoEngine.Router().SelectModel(task.Complexity); rr.Routed {
 			result.RoutedModel = rr.Model
 		}
 	}
@@ -245,7 +216,6 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 
 	result.AgentOutput = r.channel.LastMessage()
 
-	r.populateFromObservation(result)
 	r.populateFromEvolution(result, sess.ID)
 
 	// Override episode reward to include simulated user feedback when set.
@@ -275,61 +245,27 @@ func (r *CognitiveAgentRunner) RunTask(ctx context.Context, task TaskCase) (*Eva
 	return result, nil
 }
 
-func (r *CognitiveAgentRunner) populateFromObservation(result *EvalResult) {
-	r.mu.Lock()
-	obs := r.lastObservation
-	r.mu.Unlock()
-
-	if obs == nil {
-		return
-	}
-
-	result.AssertionTotal = len(obs.Assertions)
-	passed := 0
-	for _, a := range obs.Assertions {
-		if a.Passed {
-			passed++
-		}
-	}
-	result.AssertionPassed = passed
-	if result.AssertionTotal > 0 {
-		result.AssertionPassRate = float64(passed) / float64(result.AssertionTotal)
-	}
-
-	var tools []string
-	seen := make(map[string]bool)
-	for _, o := range obs.Observations {
-		if !seen[o.ToolName] {
-			tools = append(tools, o.ToolName)
-			seen[o.ToolName] = true
-		}
-	}
-	result.ToolsUsed = tools
-}
-
 // RunInsightsCycle implements InsightsTrigger. It triggers the evolution
 // engine's insights feedback loop immediately, bypassing the 6-hour timer.
 // Returns whether the cycle ran and a human-readable reason.
 func (r *CognitiveAgentRunner) RunInsightsCycle() (ran bool, reason string) {
-	evo := r.evoEngine()
-	if evo == nil {
+	if r.evoEngine == nil {
 		return false, "evolution engine not configured"
 	}
-	if !evo.IsEnabled() {
+	if !r.evoEngine.IsEnabled() {
 		return false, "evolution engine disabled"
 	}
-	evo.RunInsightsCycle()
+	r.evoEngine.RunInsightsCycle()
 	return true, "insights cycle completed"
 }
 
 // TrajectoryCount implements InsightsTrigger. Returns the number of trajectory
 // records written in the last 7 days by the evolution engine.
 func (r *CognitiveAgentRunner) TrajectoryCount() int {
-	evo := r.evoEngine()
-	if evo == nil {
+	if r.evoEngine == nil {
 		return 0
 	}
-	dir := evo.TrajectoryDir()
+	dir := r.evoEngine.TrajectoryDir()
 	if dir == "" {
 		return 0
 	}
@@ -345,15 +281,14 @@ func (r *CognitiveAgentRunner) TrajectoryCount() int {
 // Returns a zero-valued snapshot when no evolution engine is configured.
 func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 	snap := &EvolutionSnapshot{}
-	evo := r.evoEngine()
-	if evo == nil {
+	if r.evoEngine == nil {
 		return snap
 	}
-	if pl := evo.PreferenceLearnerHook(); pl != nil {
+	if pl := r.evoEngine.PreferenceLearnerHook(); pl != nil {
 		snap.PreferenceCount = pl.EntryCount()
 		populatePreferenceQuality(snap, pl)
 	}
-	if so := evo.StrategyOptimizerHook(); so != nil {
+	if so := r.evoEngine.StrategyOptimizerHook(); so != nil {
 		strategy := so.GetStrategy()
 		snap.StrategyVersion = strategy.Version
 		snap.ReplanThreshold = strategy.ReplanThreshold.Value
@@ -367,10 +302,10 @@ func (r *CognitiveAgentRunner) CaptureSnapshot() *EvolutionSnapshot {
 			snap.ToolPriorities = tp
 		}
 	}
-	if ss := evo.SkillSynthesizerHook(); ss != nil {
+	if ss := r.evoEngine.SkillSynthesizerHook(); ss != nil {
 		snap.SkillDraftCount = ss.DraftCount()
 	}
-	if tr := evo.TrajectoryRecorderHook(); tr != nil {
+	if tr := r.evoEngine.TrajectoryRecorderHook(); tr != nil {
 		dir := tr.Dir()
 		if dir != "" {
 			since := time.Now().Add(-7 * 24 * time.Hour)
@@ -390,28 +325,17 @@ func (r *CognitiveAgentRunner) populateSuccessFallback(result *EvalResult) {
 		return // evolution hook already populated success data
 	}
 
-	r.mu.Lock()
-	obs := r.lastObservation
-	r.mu.Unlock()
-
 	if result.Error != "" {
-		return // hard error — leave Success=false
+		return // hard error -- leave Success=false
 	}
 
-	if obs != nil && result.AssertionTotal > 0 {
-		result.Success = result.AssertionPassRate >= 0.8
-		result.Confidence = result.AssertionPassRate
-		return
-	}
-
-	// No assertions and no error — treat as success with moderate confidence.
+	// No evolution data and no error -- treat as success with moderate confidence.
 	result.Success = true
 	result.Confidence = 0.5
 }
 
 func (r *CognitiveAgentRunner) populateFromEvolution(result *EvalResult, sessionID string) {
-	// Always compute episode reward — it only depends on result fields already
-	// populated by populateFromObservation, not on the evolution hook.
+	// Always compute episode reward -- it only depends on result fields.
 	defer func() {
 		result.EpisodeReward = evolution.ComputeReward(evolution.RewardInput{
 			Succeeded:   result.Success,

@@ -12,17 +12,10 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 )
 
-func (gw *Gateway) initCognitiveAgent() error {
-	opts := &agent.CognitiveAgentOptions{}
-
-	// Codebase index (optional)
-	if gw.codebaseIndex != nil {
-		opts.CodebaseIndex = gw.codebaseIndex
-	}
-
-	// Memory notification callback
-	opts.MemoryNotifyFunc = gw.sendMemoryNotification
-
+// initPlanAndEvolution sets up plan mode and registers evolution hooks.
+// Replaces the deleted init_cognitive.go — all cognitive-loop-specific
+// logic has been removed; only plan mode and evolution wiring remain.
+func (gw *Gateway) initPlanAndEvolution() error {
 	// Plan Mode: plan->approve->execute flow for write tools.
 	if gw.provider != nil {
 		gw.planMode = agent.NewPlanMode(
@@ -30,24 +23,10 @@ func (gw *Gateway) initCognitiveAgent() error {
 			gw.handleApproval,
 			false,
 		)
-		opts.PlanMode = gw.planMode
-		slog.Info("plan mode wired into cognitive agent")
+		slog.Info("plan mode wired into agent")
 	}
-
-	// Checkpoint store for task resume
-	checkpointStore := agent.NewSQLiteCheckpointStore(gw.db)
-	opts.CheckpointStore = checkpointStore
 
 	if gw.evolution.Engine() != nil {
-		opts.EvolutionEngine = gw.evolution.Engine()
-	}
-
-	// Create CognitiveLoop strategy and set it on the shared Agent
-	gw.cognitiveLoop = agent.NewCognitiveLoop(gw.agentDeps, opts)
-	if gw.cognitiveLoop != nil {
-		gw.agent.SetStrategy(gw.cognitiveLoop)
-	}
-	if gw.cognitiveLoop != nil && gw.evolution.Engine() != nil {
 		gw.registerEvolutionHooks()
 	}
 

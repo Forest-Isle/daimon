@@ -296,9 +296,6 @@ func (gw *Gateway) handleModel(ctx context.Context, _ channel.Channel, msg chann
 
 	old := gw.agent.Model()
 	gw.agent.SetModel(args)
-	if gw.cognitiveLoop != nil {
-		gw.cognitiveLoop.SetModel(args)
-	}
 	return fmt.Sprintf("Model switched: %s → %s", old, args), nil
 }
 

@@ -111,10 +111,9 @@ func defaultConfig() Config {
 			Compression: CompressionConfig{
 				Strategy: "layered",
 				Layers: CompressionLayers{
-					ToolEvictionPct: 30,
-					SummarizePct:    50,
-					SlimPromptPct:   70,
-					EmergencyPct:    90,
+					ToolOutputReducePct: 30,
+					SummarizePct:        50,
+					EmergencyPct:        90,
 				},
 				TokenEstimateRatio: 0.25,
 			},

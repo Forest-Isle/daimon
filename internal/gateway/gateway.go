@@ -47,7 +47,6 @@ type Gateway struct {
 	sessions         *session.Manager
 	provider         agent.Provider // stored for completerAdapter use
 	agent            *agent.Agent
-	cognitiveLoop    *agent.CognitiveLoop
 	tools            *tool.Registry
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
@@ -206,8 +205,8 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	// Evolution engine must exist before cognitive agent registers hooks.
 	gw.evolution.engine = evolution.NewEngine(cfg.Evolution)
-	if err = gw.initCognitiveAgent(); err != nil {
-		return nil, fmt.Errorf("cognitive: %w", err)
+	if err = gw.initPlanAndEvolution(); err != nil {
+		return nil, fmt.Errorf("plan/evolution: %w", err)
 	}
 	if err = gw.initKnowledgeSystem(); err != nil {
 		return nil, fmt.Errorf("knowledge: %w", err)
@@ -215,9 +214,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	if gw.memory.Store() != nil {
 		procedural := memory.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
 		gw.memory.cortex = memory.NewUnifiedRetriever(gw.memory.Store(), gw.memory.KBSearcher(), gw.memory.GraphStore(), procedural, gw.memory.Embedder())
-		if gw.cognitiveLoop != nil {
-			gw.cognitiveLoop.SetCortexRetriever(gw.memory.Cortex())
-		}
 		// Register core_memory tool so the LLM can actively manage its own
 		// persistent memory (Mem0/Letta pattern — agentic memory writes).
 		gw.tools.Register(tool.NewCoreMemoryTool(gw.memory.Store(), gw.memory.LifecycleManager()))
@@ -288,9 +284,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	// Approval wiring
 	gw.agent.SetApprovalFunc(gw.handleApproval)
-	if gw.cognitiveLoop != nil {
-		gw.cognitiveLoop.SetApprovalFunc(gw.handleApproval)
-	}
 
 	// Scheduler handler
 	sched := gw.channels.Scheduler()
@@ -544,8 +537,8 @@ func (gw *Gateway) SetMode(mode string) error {
 	}
 	switch mode {
 	case "cognitive":
-		if gw.agent != nil && gw.cognitiveLoop != nil {
-			gw.agent.SetStrategy(gw.cognitiveLoop)
+		if gw.agent != nil {
+			gw.agent.SetStrategy(&agent.UnifiedLoop{})
 		}
 	default:
 		if gw.agent != nil {
@@ -570,7 +563,7 @@ func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
 	if gw.agent == nil { // defensive: should not happen after init
 		return nil
 	}
-	r := eval.NewCognitiveAgentRunner(gw.agent)
+	r := eval.NewCognitiveAgentRunner(gw.agent, gw.evolution.Engine())
 	r.SetCogCollector(gw.evolution.Collector())
 	r.SetMemoryStore(gw.memory.Store())
 	// Route context compression events through the eval hook so they appear
