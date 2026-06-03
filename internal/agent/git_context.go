@@ -26,6 +26,8 @@ func NewGitContextProvider() *GitContextProvider {
 // Collect gathers branch, uncommitted files, and recent commits from
 // the git repo at dir. Returns nil if dir is not inside a git repository.
 func (g *GitContextProvider) Collect(dir string) *GitState {
+	// TODO: Accept a context.Context parameter from the caller (PERCEIVE phase)
+	// instead of using context.Background(), to preserve tracing and cancellation.
 	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
 	defer cancel()
 

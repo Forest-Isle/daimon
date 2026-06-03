@@ -86,22 +86,28 @@ func (pe *PermissionEvaluator) bubbleToParent(ctx context.Context, toolName, inp
 	}
 
 	// Send request to parent
+	sendTimer := time.NewTimer(5 * time.Second)
 	select {
 	case pe.parentCh <- req:
+		sendTimer.Stop()
 		// OK, request sent
 	case <-ctx.Done():
+		sendTimer.Stop()
 		return false, "bubble: context cancelled while sending request"
-	case <-time.After(5 * time.Second):
+	case <-sendTimer.C:
 		return false, "bubble: timeout sending request to parent"
 	}
 
 	// Wait for response
+	respTimer := time.NewTimer(30 * time.Second)
 	select {
 	case resp := <-req.ResponseCh:
+		respTimer.Stop()
 		return resp.Allowed, resp.Reason
 	case <-ctx.Done():
+		respTimer.Stop()
 		return false, "bubble: context cancelled while waiting for response"
-	case <-time.After(30 * time.Second):
+	case <-respTimer.C:
 		return false, "bubble: timeout waiting for parent response"
 	}
 }

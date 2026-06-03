@@ -179,14 +179,14 @@ const memoryWriteTimeout = 30 * time.Second
 // saveExperience extracts facts and uses lifecycle management if available.
 // It runs asynchronously with a timeout-bounded confirmation so that failures
 // are logged rather than silently dropped. The incoming ctx is intentionally
-// not forwarded; a fresh background context with a 30s timeout is used so the
+// not forwarded; a derived context (WithoutCancel + 30s timeout) is used so the
 // write is not cancelled when the request context expires.
-func (r *Reflector) saveExperience(_ context.Context, ch channel.Channel, target channel.MessageTarget, state *CognitiveState, plan *TaskPlan, reflection *Reflection) {
+func (r *Reflector) saveExperience(ctx context.Context, ch channel.Channel, target channel.MessageTarget, state *CognitiveState, plan *TaskPlan, reflection *Reflection) {
 	if r.memStore == nil {
 		return
 	}
 
-	writeCtx, cancel := context.WithTimeout(context.Background(), memoryWriteTimeout)
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), memoryWriteTimeout)
 
 	done := make(chan error, 1)
 	go func() {

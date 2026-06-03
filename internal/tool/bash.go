@@ -172,7 +172,10 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	}
 
 	if truncated {
-		fullJSON, _ := json.Marshal(out)
+		fullJSON, marshalErr := json.Marshal(out)
+		if marshalErr != nil {
+			return Result{Error: fmt.Sprintf("failed to marshal bash output for temp file: %v", marshalErr)}, nil
+		}
 		tmpFile, err := os.CreateTemp("", "ironclaw-bash-*.json")
 		if err != nil {
 			return Result{Error: fmt.Sprintf("failed to create temp file: %v", err)}, nil
@@ -192,7 +195,10 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 		result.IsPartial = true
 	}
 
-	outputJSON, _ := json.Marshal(out)
+	outputJSON, err := json.Marshal(out)
+	if err != nil {
+		return Result{Error: fmt.Sprintf("failed to marshal bash output: %v", err)}, nil
+	}
 	result.Output = string(outputJSON)
 
 	if exitCode != 0 {

@@ -45,7 +45,14 @@ func NewOpenAIProvider(apiKey, model, baseURL string) *OpenAIProvider {
 		apiKey:       apiKey,
 		model:        model,
 		baseURL:      baseURL,
-		client:       &http.Client{},
+		client: &http.Client{
+			Timeout: 120 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        10,
+				IdleConnTimeout:     90 * time.Second,
+				DisableCompression:  false,
+			},
+		},
 		cacheMetrics: NewCacheMetrics(100),
 	}
 }
@@ -371,7 +378,10 @@ func (p *OpenAIProvider) doRequest(ctx context.Context, oaiReq oaiRequest) (io.R
 
 	if resp.StatusCode >= 400 {
 		defer func() { _ = resp.Body.Close() }()
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("HTTP %d: failed to read error body: %w", resp.StatusCode, readErr)
+		}
 		err := fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 		switch resp.StatusCode {
 		case 429:

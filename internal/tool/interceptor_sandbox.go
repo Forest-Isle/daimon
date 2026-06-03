@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Forest-Isle/IronClaw/internal/sandbox"
@@ -116,6 +117,10 @@ func formatBashSandboxResult(stdout, stderr string, exitCode int, durationMs int
 	if exitCode != 0 {
 		result["status"] = "error"
 	}
-	b, _ := json.Marshal(result)
+	b, err := json.Marshal(result)
+	if err != nil {
+		slog.Warn("sandbox: failed to marshal bash result", "err", err)
+		return `{"error":"marshal failed","status":"error","sandbox":true}`
+	}
 	return string(b)
 }

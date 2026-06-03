@@ -162,7 +162,10 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 			}
 			for _, tc := range m.ToolBlocks {
 				var input any
-				_ = json.Unmarshal([]byte(tc.Input), &input)
+				if err := json.Unmarshal([]byte(tc.Input), &input); err != nil {
+					slog.Warn("claude: failed to unmarshal tool input for message building", "tool", tc.Name, "err", err)
+					input = tc.Input // fall back to raw string
+				}
 				blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
 			}
 			messages = append(messages, anthropic.NewAssistantMessage(blocks...))
@@ -276,7 +279,11 @@ func (c *ClaudeProvider) parseResponse(resp *anthropic.Message) *CompletionRespo
 		case anthropic.TextBlock:
 			result.Text += v.Text
 		case anthropic.ToolUseBlock:
-			inputBytes, _ := json.Marshal(v.Input)
+			inputBytes, err := json.Marshal(v.Input)
+			if err != nil {
+				slog.Warn("claude: failed to marshal tool use input", "tool", v.Name, "err", err)
+				inputBytes = []byte("{}")
+			}
 			result.ToolCalls = append(result.ToolCalls, ToolUseBlock{
 				ID:    v.ID,
 				Name:  v.Name,
@@ -330,7 +337,11 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 			if int(e.Index) < len(it.accum.Content) {
 				block := it.accum.Content[e.Index]
 				if v, ok := block.AsAny().(anthropic.ToolUseBlock); ok {
-					inputBytes, _ := json.Marshal(v.Input)
+					inputBytes, err := json.Marshal(v.Input)
+					if err != nil {
+						slog.Warn("claude: failed to marshal tool use input", "tool", v.Name, "err", err)
+						inputBytes = []byte("{}")
+					}
 					it.pendingToolBlocks = append(it.pendingToolBlocks, PendingToolBlock{
 						ToolUseID: v.ID,
 						ToolName:  v.Name,
@@ -432,7 +443,11 @@ func parseStreamedMessage(msg *anthropic.Message) *CompletionResponse {
 		case anthropic.TextBlock:
 			result.Text += v.Text
 		case anthropic.ToolUseBlock:
-			inputBytes, _ := json.Marshal(v.Input)
+			inputBytes, err := json.Marshal(v.Input)
+			if err != nil {
+				slog.Warn("claude: failed to marshal tool use input", "tool", v.Name, "err", err)
+				inputBytes = []byte("{}")
+			}
 			result.ToolCalls = append(result.ToolCalls, ToolUseBlock{
 				ID:    v.ID,
 				Name:  v.Name,

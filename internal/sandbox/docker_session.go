@@ -50,6 +50,9 @@ func NewDockerSessionManager(cfg DockerSessionConfig, dockerAvailable bool) *Doc
 		available: dockerAvailable,
 		stopCh:    make(chan struct{}),
 	}
+	if m.config.IdleTimeout <= 0 {
+		m.config.IdleTimeout = 30 * time.Minute
+	}
 	if dockerAvailable {
 		go m.idleReaper()
 	}

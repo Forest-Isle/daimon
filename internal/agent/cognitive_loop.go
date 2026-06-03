@@ -694,8 +694,18 @@ func (cl *CognitiveLoop) handleResume(
 	}
 
 	newObsResult := cl.observer.Run(observations, &plan)
-	resumeState, _ := cl.perceiver.Run(ctx, sess, "Resume execution from checkpoint", msg.UserID)
-	if resumeState != nil {
+	resumeState, perceiveErr := cl.perceiver.Run(ctx, sess, "Resume execution from checkpoint", msg.UserID)
+	if perceiveErr != nil {
+		slog.Warn("cognitive: resume perceive failed", "err", perceiveErr)
+	}
+	if resumeState == nil {
+		resumeState = &CognitiveState{
+			SessionID:   sess.ID,
+			UserID:      msg.UserID,
+			UserMessage: "Resume execution from checkpoint",
+			Goal:        Goal{Complexity: ComplexityModerate},
+		}
+	} else {
 		resumeState.Personality = a.deps.Core.Cfg.Personality
 		resumeState.PersistentRules = a.deps.Core.Cfg.PersistentRules
 	}
@@ -922,8 +932,16 @@ func (cl *CognitiveLoop) registerParentTask(ctx context.Context, a *Agent, msg c
 }
 
 func (cl *CognitiveLoop) saveCheckpoint(ctx context.Context, sessionID string, plan *TaskPlan, obsResult *ObservationResult, attempt int) {
-	obsJSON, _ := json.Marshal(obsResult)
-	planJSON, _ := json.Marshal(plan)
+	obsJSON, err := json.Marshal(obsResult)
+	if err != nil {
+		slog.Error("cognitive: failed to marshal observations for checkpoint", "session", sessionID, "err", err)
+		return
+	}
+	planJSON, err := json.Marshal(plan)
+	if err != nil {
+		slog.Error("cognitive: failed to marshal plan for checkpoint", "session", sessionID, "err", err)
+		return
+	}
 	cp := &TaskCheckpoint{
 		ID:               fmt.Sprintf("cp-%s-%d", sessionID, attempt),
 		SessionID:        sessionID,

@@ -38,7 +38,7 @@ Output JSON using exactly this shape:
 }`
 
 type PlanMode struct {
-	mu            sync.Mutex
+	mu            sync.RWMutex
 	activePlan    *Plan
 	planProvider  Provider
 	approvalFunc  ApprovalFunc
@@ -191,8 +191,8 @@ func (pm *PlanMode) RequestApproval(ctx context.Context, plan *Plan, ch channel.
 }
 
 func (pm *PlanMode) CheckTool(toolName string) bool {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
 	return pm.checkToolLocked(toolName)
 }
 

@@ -25,6 +25,8 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+const maxClients = 100
+
 type client struct {
 	conn *websocket.Conn
 	send chan []byte
@@ -111,6 +113,10 @@ func (h *Hub) ClientCount() int {
 }
 
 func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
+	if h.ClientCount() >= maxClients {
+		http.Error(w, "too many connections", http.StatusServiceUnavailable)
+		return
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		slog.Warn("dashboard: ws upgrade failed", "err", err)

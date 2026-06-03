@@ -115,7 +115,9 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 		m.deps.Observability.Emitter.EmitSubAgentComplete(sessionID, req.Spec.Name, execErr == nil, durationMs)
 	}
 
-	_ = m.deps.Core.Sessions.Delete(ctx, "subagent", sessionID)
+	if err := m.deps.Core.Sessions.Delete(ctx, "subagent", sessionID); err != nil {
+		slog.Warn("subagent: failed to delete session", "session", sessionID, "err", err)
+	}
 
 	result, err := m.buildResult(ctx, req.Spec.Name, capture, start, execErr)
 
@@ -262,7 +264,7 @@ func (m *SubAgentManager) buildSubConfig(spec *AgentSpec) (config.AgentConfig, c
 }
 
 func (m *SubAgentManager) buildResult(ctx context.Context, name string, capture *subagentCapture, start time.Time, execErr error) (*SubAgentResult, error) {
-	raw := capture.Collect()
+	raw := capture.LastMessage()
 	dur := time.Since(start)
 
 	if execErr != nil {
@@ -360,7 +362,7 @@ func (c *subagentCapture) SendStreaming(_ context.Context, _ channel.MessageTarg
 
 func (c *subagentCapture) Stop(_ context.Context) error { return nil }
 
-func (c *subagentCapture) Collect() string {
+func (c *subagentCapture) LastMessage() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.messages) == 0 {
