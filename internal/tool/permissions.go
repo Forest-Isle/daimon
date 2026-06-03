@@ -14,10 +14,6 @@ const (
 	PermissionNotify  PermissionAction = "notify"
 	PermissionApprove PermissionAction = "approve"
 	PermissionDeny    PermissionAction = "deny"
-
-	// Deprecated aliases for backward compatibility
-	PermissionAllow PermissionAction = "none"
-	PermissionAsk   PermissionAction = "approve"
 )
 
 // parseAction normalizes a permission action string, accepting both new and legacy names.

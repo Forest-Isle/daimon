@@ -4,9 +4,10 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/memorywire"
 )
 
 // MemorySubsystem manages memory store, knowledge searcher, knowledge graph,
@@ -23,6 +24,7 @@ type MemorySubsystem struct {
 	kbSearcher    knowledge.Searcher
 	graphStore    graph.Graph
 	cortex        *memory.UnifiedRetriever
+	ampAdapter    *memorywire.Adapter
 	memoryDir     string
 }
 
@@ -71,3 +73,6 @@ func (ms *MemorySubsystem) Cortex() *memory.UnifiedRetriever { return ms.cortex 
 
 // MemoryDir returns the file-based memory storage directory.
 func (ms *MemorySubsystem) MemoryDir() string { return ms.memoryDir }
+
+// AMPAdapter returns the Memorywire protocol adapter, or nil if memory is disabled.
+func (ms *MemorySubsystem) AMPAdapter() *memorywire.Adapter { return ms.ampAdapter }

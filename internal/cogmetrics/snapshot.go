@@ -32,8 +32,8 @@ type ReplanEfficiency struct {
 
 // Snapshot captures the current state of all metrics. Thread-safe.
 func (c *Collector) Snapshot() HealthReport {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	report := HealthReport{
 		Timestamp:        time.Now(),

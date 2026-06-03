@@ -19,6 +19,7 @@ type UnifiedRetriever struct {
 	graphStore    graph.Graph
 	procedural    *ProceduralStore
 	fusionWeights *FusionWeights
+	embedder      EmbeddingProvider
 }
 
 func NewUnifiedRetriever(
@@ -26,6 +27,7 @@ func NewUnifiedRetriever(
 	kbSearcher knowledge.Searcher,
 	graphStore graph.Graph,
 	procedural *ProceduralStore,
+	embedder EmbeddingProvider,
 ) *UnifiedRetriever {
 	return &UnifiedRetriever{
 		memStore:      memStore,
@@ -33,6 +35,7 @@ func NewUnifiedRetriever(
 		graphStore:    graphStore,
 		procedural:    procedural,
 		fusionWeights: DefaultFusionWeights(),
+		embedder:      embedder,
 	}
 }
 
@@ -93,8 +96,19 @@ func (ur *UnifiedRetriever) Search(
 		if ur.memStore == nil {
 			return
 		}
+		// Embed the query for hybrid BM25+vector search
+		var queryEmbedding []float32
+		if ur.embedder != nil {
+			emb, err := ur.embedder.Embed(ctx, query)
+			if err != nil {
+				slog.Debug("memory: failed to embed query, falling back to text-only", "err", err)
+			} else {
+				queryEmbedding = emb
+			}
+		}
 		results, err := ur.memStore.Search(ctx, SearchQuery{
 			Text:         query,
+			Embedding:    queryEmbedding,
 			Limit:        opts.Limit,
 			SessionID:    opts.SessionID,
 			UserID:       opts.UserID,
@@ -147,7 +161,7 @@ func (ur *UnifiedRetriever) Search(
 		if ur.graphStore == nil {
 			return
 		}
-		candidates := extractEntityCandidates(query)
+		candidates := ExtractEntityCandidates(query)
 		graphEntities = append(graphEntities, candidates...)
 		if len(candidates) == 0 {
 			return
@@ -284,7 +298,7 @@ func boostMemoriesByGraphConnectivity(memories []*UnifiedMemory, graphEntities [
 
 	for i := 0; i < limit; i++ {
 		matches := 0
-		for _, candidate := range extractEntityCandidates(memories[i].Content) {
+		for _, candidate := range ExtractEntityCandidates(memories[i].Content) {
 			if _, ok := entitySet[candidate]; ok {
 				matches++
 			}
@@ -343,10 +357,19 @@ func contentSimilarity(a, b string) float64 {
 	return float64(matches) / float64(len([]rune(shorter)))
 }
 
-func extractEntityCandidates(text string) []string {
-	words := strings.Fields(text)
-	candidates := make([]string, 0, len(words))
+// ExtractEntityCandidates extracts candidate entity names from text for graph lookups.
+// Detects multi-word proper nouns, CamelCase identifiers, hyphenated terms, and single words (>3 chars).
+func ExtractEntityCandidates(text string) []string {
+	candidates := make([]string, 0, 32)
 	seen := make(map[string]bool)
+
+	// Phase 1: multi-word noun phrase detection — catches proper nouns,
+	// CamelCase identifiers, hyphenated terms, and dot-separated names
+	// using character-level scanning (no regexp dependency).
+	multiWordByScan(text, seen, &candidates)
+
+	// Phase 2: single-word extraction (existing logic, fallback)
+	words := strings.Fields(text)
 	for _, word := range words {
 		clean := strings.Trim(strings.ToLower(word), ".,!?;:\"'()[]{}。，！？")
 		if len(clean) <= 3 || isStopWord(clean) || seen[clean] {
@@ -356,6 +379,102 @@ func extractEntityCandidates(text string) []string {
 		candidates = append(candidates, clean)
 	}
 	return candidates
+}
+
+// multiWordByScan detects compound entities in text without regexp.
+// It identifies: CamelCase tokens, hyphenated terms, and consecutive
+// capitalized word sequences (proper nouns).
+func multiWordByScan(text string, seen map[string]bool, candidates *[]string) {
+	// Scan for CamelCase and hyphenated tokens
+	for i := 0; i < len(text); i++ {
+		// CamelCase: starts lowercase, contains uppercase — "reactNative"
+		if isLower(text[i]) {
+			j := i + 1
+			hasUpper := false
+			for j < len(text) && (isLetter(text[j]) || isDigit(text[j])) {
+				if isUpper(text[j]) {
+					hasUpper = true
+				}
+				j++
+			}
+			if hasUpper && j-i >= 4 {
+				addIfNew(strings.ToLower(text[i:j]), seen, candidates)
+			}
+			i = j - 1
+			continue
+		}
+		// Consecutive capitalized words: "Visual Studio Code"
+		if isUpper(text[i]) {
+			start := i
+			wordCount := 0
+			for i < len(text) {
+				// Skip leading non-letters
+				for i < len(text) && !isLetter(text[i]) {
+					if text[i] == '.' || text[i] == ',' || text[i] == ';' {
+						goto endSeq
+					}
+					i++
+				}
+				if i >= len(text) || !isUpper(text[i]) {
+					break
+				}
+				j := i
+				for j < len(text) && isLower(text[j]) {
+					j++
+				}
+				if j > i {
+					wordCount++
+				}
+				i = j
+				// Skip spaces
+				for i < len(text) && text[i] == ' ' {
+					i++
+				}
+			}
+		endSeq:
+			if wordCount >= 2 && i-start >= 5 {
+				addIfNew(strings.ToLower(text[start:i]), seen, candidates)
+			}
+			continue
+		}
+	}
+	// Scan for hyphenated terms: "state-of-the-art"
+	for i := 0; i < len(text)-3; i++ {
+		if isLetter(text[i]) && text[i+1] == '-' && isLetter(text[i+2]) {
+			start := i
+			j := i + 3
+			for j < len(text) && (isLetter(text[j]) || (text[j] == '-' && j+1 < len(text) && isLetter(text[j+1]))) {
+				j++
+			}
+			if j-start >= 5 {
+				addIfNew(strings.ToLower(text[start:j]), seen, candidates)
+			}
+			i = j - 1
+		}
+	}
+}
+
+func isLetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func isLower(c byte) bool {
+	return c >= 'a' && c <= 'z'
+}
+
+func isUpper(c byte) bool {
+	return c >= 'A' && c <= 'Z'
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+func addIfNew(s string, seen map[string]bool, candidates *[]string) {
+	if len(s) > 3 && !isStopWord(s) && !seen[s] {
+		seen[s] = true
+		*candidates = append(*candidates, s)
+	}
 }
 
 var stopWords = map[string]bool{

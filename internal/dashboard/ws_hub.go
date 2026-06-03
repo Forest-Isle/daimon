@@ -134,6 +134,7 @@ func (h *Hub) writePump(c *client) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
 		ticker.Stop()
+		h.unregister <- c
 		_ = c.conn.Close()
 	}()
 

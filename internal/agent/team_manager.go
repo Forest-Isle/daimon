@@ -106,10 +106,11 @@ func (tm *TeamManager) SpawnTeam(ctx context.Context, req SpawnTeamRequest) (*Ma
 			MaxIterations: 20,
 		}
 		spawnReqs[i] = SpawnRequest{
-			Spec:     spec,
-			Task:     m.Task,
-			ParentID: req.LeadID,
-			ChainID:  teamName,
+			Spec:            spec,
+			Task:            m.Task,
+			ParentID:        req.LeadID,
+			ChainID:         teamName,
+			SharedChannelID: teamName, // enable inter-agent messaging within the team
 		}
 	}
 

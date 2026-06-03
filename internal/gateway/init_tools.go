@@ -117,6 +117,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 		}
 	}
 	gw.permEngine = tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
+	gw.trustTracker = tool.NewTrustTracker()
 
 	// Sandbox components
 	var fileGuard *sandbox.FileGuard
@@ -165,7 +166,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 	gw.sandbox.trustTracker = tool.NewTrustTracker()
 
 	interceptors := []tool.ToolInterceptor{
-		tool.NewPermissionInterceptor(gw.permEngine, nil, nil),
+		tool.NewPermissionInterceptor(gw.permEngine, nil, nil, gw.trustTracker),
 		tool.NewHookInterceptor(gw.hookMgr),
 		newUserHookInterceptor(gw.userHookMgr),
 		tool.NewSandboxInterceptor(gw.sandbox.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),

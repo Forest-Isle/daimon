@@ -1,7 +1,6 @@
 package knowledge
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"sync"
@@ -103,27 +102,5 @@ func (c *KnowledgeSearchCache) evictOldest() {
 				break
 			}
 		}
-	}
-}
-
-// KBVSSIndexer manages sqlite-vss HNSW indexes for kb_chunks.
-type KBVSSIndexer struct {
-	db interface {
-		ExecContext(ctx context.Context, query string, args ...interface{}) (interface{}, error)
-		QueryContext(ctx context.Context, query string, args ...interface{}) (interface{}, error)
-		QueryRow(query string, args ...interface{}) interface{}
-	}
-	available bool
-	dimension int
-}
-
-// NewKBVSSIndexer creates a VSS indexer for knowledge base.
-func NewKBVSSIndexer(db interface{}, dimension int) *KBVSSIndexer {
-	// Type assertion would be needed here in real implementation
-	// For now, this is a placeholder structure
-	return &KBVSSIndexer{
-		db:        nil,
-		available: false,
-		dimension: dimension,
 	}
 }

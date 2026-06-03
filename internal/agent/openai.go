@@ -424,19 +424,20 @@ func (p *OpenAIProvider) parseChoice(choice oaiChoice) *CompletionResponse {
 // ── Streaming ──
 
 type openaiStreamIterator struct {
-	reader     *bufio.Reader
-	body       io.ReadCloser
-	mu         sync.Mutex
-	toolCalls  map[int]*oaiToolCall // index → accumulated call
-	textBuf    strings.Builder
-	done       bool
-	stopReason StopReason
-	provider   *OpenAIProvider // back-reference for tracking cache usage
-	ctx        context.Context
-	span       trace.Span
-	start      time.Time
-	model      string
-	finalized  bool
+	reader        *bufio.Reader
+	body          io.ReadCloser
+	mu            sync.Mutex
+	toolCalls     map[int]*oaiToolCall // index → accumulated call
+	textBuf       strings.Builder
+	done          bool
+	stopReason    StopReason
+	provider      *OpenAIProvider // back-reference for tracking cache usage
+	ctx           context.Context
+	span          trace.Span
+	start         time.Time
+	model         string
+	finalized     bool
+	pendingBlocks []PendingToolBlock // tool blocks ready for speculative execution
 }
 
 func (it *openaiStreamIterator) Next() (StreamDelta, error) {
@@ -572,7 +573,31 @@ func (it *openaiStreamIterator) buildFinalDelta() StreamDelta {
 	}
 	d.StopReason = it.stopReason
 
+	// Populate pending blocks for speculative execution — exposes completed
+	// tool calls so the speculative executor can launch read-only tools
+	// concurrently while the runtime dispatches the final delta.
+	if len(calls) > 0 {
+		it.pendingBlocks = make([]PendingToolBlock, len(calls))
+		for i, tc := range calls {
+			it.pendingBlocks[i] = PendingToolBlock{
+				ToolUseID: tc.ID,
+				ToolName:  tc.Name,
+				Input:     tc.Input,
+			}
+		}
+	}
+
 	return d
+}
+
+// PendingToolBlocks implements PendingToolBlockSource for speculative execution.
+// Returns tool blocks that completed during the final stream delta and clears them.
+func (it *openaiStreamIterator) PendingToolBlocks() []PendingToolBlock {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+	blocks := it.pendingBlocks
+	it.pendingBlocks = nil
+	return blocks
 }
 
 func (it *openaiStreamIterator) Close() {

@@ -5,10 +5,11 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
-func startHTTPServer(addr string, db *store.DB) {
+func startHTTPServer(addr string, db *store.DB, memStore memory.Store) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -44,6 +45,15 @@ func startHTTPServer(addr string, db *store.DB) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(sessions)
 	})
+
+	// Memorywire protocol endpoint for vendor-neutral agent memory operations
+	// (remember, recall, forget, merge, expire). Available via POST /memorywire
+	// when the memory store is available.
+	if memStore != nil {
+		mwh := memory.NewMemorywireHandler(memStore)
+		mux.Handle("/memorywire", mwh)
+		slog.Info("http admin server: memorywire endpoint registered", "path", "/memorywire")
+	}
 
 	slog.Info("http admin server starting", "addr", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {

@@ -219,76 +219,9 @@ type CogHealthCaptor interface {
 }
 
 // RunSuite executes all tasks against the given runner and collects results.
+// RunSuite delegates to RunSuiteWithOptions with nil options.
 func RunSuite(ctx context.Context, runID string, tasks []TaskCase, runner AgentRunner) (*SuiteResult, error) {
-	if len(tasks) == 0 {
-		return nil, fmt.Errorf("no tasks to evaluate")
-	}
-
-	suite := &SuiteResult{
-		RunID:     runID,
-		Results:   make([]EvalResult, 0, len(tasks)),
-		StartedAt: time.Now(),
-	}
-
-	if sc, ok := runner.(SnapshotCaptor); ok {
-		suite.EvoBefore = sc.CaptureSnapshot()
-	}
-
-	for i, task := range tasks {
-		select {
-		case <-ctx.Done():
-			return suite, ctx.Err()
-		default:
-		}
-
-		if setupErr := runSetup(ctx, task, runner); setupErr != nil {
-			suite.Results = append(suite.Results, EvalResult{
-				TaskID:    task.ID,
-				Goal:      task.Goal,
-				Error:     fmt.Sprintf("setup failed: %v", setupErr),
-				Dimension: DefaultDimension(task.Dimension),
-				Timestamp: time.Now(),
-			})
-			continue
-		}
-
-		result, err := runner.RunTask(ctx, task)
-
-		// SuccessFunc must run BEFORE cleanup so it can inspect files written by the agent.
-		if err == nil && task.SuccessFunc != nil {
-			result.Success = task.SuccessFunc(result)
-		}
-
-		runCleanup(ctx, task, runner)
-
-		if err != nil {
-			suite.Results = append(suite.Results, EvalResult{
-				TaskID:    task.ID,
-				Goal:      task.Goal,
-				Error:     err.Error(),
-				Timestamp: time.Now(),
-			})
-			continue
-		}
-
-		suite.Results = append(suite.Results, *result)
-
-		fmt.Printf("  [%d/%d] %s — %s (%.1fs)\n",
-			i+1, len(tasks), task.ID, statusLabel(result.Success), result.Duration.Seconds())
-	}
-
-	if sc, ok := runner.(SnapshotCaptor); ok {
-		suite.EvoAfter = sc.CaptureSnapshot()
-	}
-	if suite.EvoAfter != nil {
-		suite.EvoAfter.RouterDecisions = aggregateRouterDecisions(suite.Results)
-	}
-	if chc, ok := runner.(CogHealthCaptor); ok {
-		suite.CogHealth = chc.CaptureCogHealth()
-	}
-
-	suite.Duration = time.Since(suite.StartedAt)
-	return suite, nil
+	return RunSuiteWithOptions(ctx, runID, tasks, runner, nil)
 }
 
 // runSetup executes a task's setup, preferring SetupWithRunner when available.

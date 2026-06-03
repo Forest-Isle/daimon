@@ -11,7 +11,7 @@ import (
 // Collector implements evolution.Hook and accumulates cognitive health
 // metrics from the event stream. All methods are safe for concurrent use.
 type Collector struct {
-	mu sync.Mutex
+	mu sync.RWMutex
 
 	assertionPassRate RollingAvg
 	replanRate        RollingAvg

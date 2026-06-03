@@ -343,7 +343,7 @@ func assessAmbiguity(lower string, words []string) float64 {
 // queryGraphWithEntities extracts key terms from the user message, queries the knowledge
 // graph, and returns both the formatted triples and the extracted entity candidates.
 func (p *Perceiver) queryGraphWithEntities(ctx context.Context, userMsg string) ([]string, []string) {
-	candidates := extractEntityCandidates(userMsg)
+	candidates := memory.ExtractEntityCandidates(userMsg)
 	if len(candidates) == 0 {
 		return nil, nil
 	}
@@ -396,7 +396,7 @@ func (p *Perceiver) boostByGraphConnectivity(ctx context.Context, results []memo
 
 	for i := 0; i < limit; i++ {
 		content := results[i].Entry.Content
-		memEntities := extractEntityCandidates(content)
+		memEntities := memory.ExtractEntityCandidates(content)
 		if len(memEntities) == 0 {
 			continue
 		}
@@ -440,36 +440,4 @@ func (p *Perceiver) boostByGraphConnectivity(ctx context.Context, results []memo
 	})
 
 	return results
-}
-
-// extractEntityCandidates extracts significant words (>3 chars, non-stopwords) from text
-// as candidate entity names for graph lookup.
-func extractEntityCandidates(text string) []string {
-	words := strings.Fields(text)
-	var candidates []string
-	seen := make(map[string]bool)
-	for _, w := range words {
-		clean := strings.Trim(strings.ToLower(w), ".,!?;:\"'()[]{}。，！？")
-		if len(clean) > 3 && !isStopWord(clean) && !seen[clean] {
-			seen[clean] = true
-			candidates = append(candidates, clean)
-		}
-	}
-	return candidates
-}
-
-var stopWords = map[string]bool{
-	"the": true, "and": true, "for": true, "are": true, "but": true,
-	"not": true, "you": true, "all": true, "can": true, "had": true,
-	"her": true, "was": true, "one": true, "our": true, "out": true,
-	"has": true, "have": true, "from": true, "this": true, "that": true,
-	"with": true, "what": true, "when": true, "where": true, "which": true,
-	"will": true, "would": true, "there": true, "their": true, "about": true,
-	"them": true, "then": true, "than": true, "been": true, "some": true,
-	"could": true, "other": true, "into": true, "more": true, "very": true,
-	"just": true, "also": true, "know": true, "how": true, "please": true,
-}
-
-func isStopWord(w string) bool {
-	return stopWords[w]
 }

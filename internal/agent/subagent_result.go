@@ -32,13 +32,17 @@ type SubAgentResult struct {
 
 const subagentOutputInstruction = `
 
-When you have completed the task, output your final response in this format:
+When you have completed the task, output your final response as a JSON block:
 
-<result>
-<status>success|error</status>
-<summary>One paragraph summary of what was accomplished</summary>
-<artifacts>Comma-separated list of file paths, URLs, or key outputs (if any)</artifacts>
-</result>
+` + "```json" + `
+{
+  "status": "success",
+  "summary": "One paragraph summary of what was accomplished",
+  "artifacts": ["file1.txt", "https://example.com/result"]
+}
+` + "```" + `
+
+status must be "success" or "error".
 `
 
 var (
@@ -46,10 +50,76 @@ var (
 	statusRe      = regexp.MustCompile(`(?s)<status>\s*(.*?)\s*</status>`)
 	summaryRe     = regexp.MustCompile(`(?s)<summary>\s*(.*?)\s*</summary>`)
 	artifactsRe   = regexp.MustCompile(`(?s)<artifacts>\s*(.*?)\s*</artifacts>`)
+	// markdown fence patterns that LLMs often wrap structured output in
+	mdFencePatterns = []*regexp.Regexp{
+		regexp.MustCompile("(?s)`{3,}(?:xml|json)?\\s*\\n?(.*?)\\n?`{3,}"),
+		regexp.MustCompile("(?s)~~~(?:xml|json)?\\s*\\n?(.*?)\\n?~~~"),
+	}
+	// jsonBlockRe extracts a JSON object from text, handling nested braces
+	subAgentJSONRe = regexp.MustCompile(`(?s)\{\s*"status"[\s\S]*"artifacts"\s*:\s*\[[\s\S]*?\][\s\S]*?\}`)
 )
 
 func extractStructuredResult(raw string) *SubAgentResult {
-	block := resultBlockRe.FindStringSubmatch(raw)
+	// Stage 0: strip markdown code fences
+	cleaned := raw
+	for _, pattern := range mdFencePatterns {
+		if m := pattern.FindStringSubmatch(cleaned); len(m) >= 2 {
+			cleaned = strings.TrimSpace(m[1])
+			break
+		}
+	}
+
+	// Stage 1: try JSON parsing (primary format — much more reliable than XML)
+	if result := extractJSONResult(cleaned); result != nil {
+		return result
+	}
+
+	// Stage 2: fall back to legacy XML regex parsing
+	if result := extractXMLResult(cleaned); result != nil {
+		return result
+	}
+
+	// Stage 3: try JSON in the original raw text (without fence stripping)
+	if cleaned != raw {
+		if result := extractJSONResult(raw); result != nil {
+			return result
+		}
+	}
+
+	return nil
+}
+
+// extractJSONResult attempts to parse a JSON-format sub-agent result.
+func extractJSONResult(text string) *SubAgentResult {
+	m := subAgentJSONRe.FindString(text)
+	if m == "" {
+		return nil
+	}
+	var parsed struct {
+		Status    string   `json:"status"`
+		Summary   string   `json:"summary"`
+		Artifacts []string `json:"artifacts"`
+	}
+	if err := json.Unmarshal([]byte(m), &parsed); err != nil {
+		return nil
+	}
+	if parsed.Status == "" {
+		return nil
+	}
+	status := StatusSuccess
+	if parsed.Status == "error" {
+		status = StatusError
+	}
+	return &SubAgentResult{
+		Status:    status,
+		Summary:   parsed.Summary,
+		Artifacts: parsed.Artifacts,
+	}
+}
+
+// extractXMLResult parses legacy <result> XML format.
+func extractXMLResult(cleaned string) *SubAgentResult {
+	block := resultBlockRe.FindStringSubmatch(cleaned)
 	if len(block) < 2 {
 		return nil
 	}

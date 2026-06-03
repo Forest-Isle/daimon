@@ -19,8 +19,9 @@ type HeadlessGateway struct {
 	db         *store.DB
 	sessions   *session.Manager
 	tools      *tool.Registry
-	permEngine *tool.PermissionEngine
-	hookMgr    *hook.Manager
+	permEngine   *tool.PermissionEngine
+	trustTracker *tool.TrustTracker
+	hookMgr      *hook.Manager
 	provider   agent.Provider
 	agent      *agent.Agent
 	cfg        *config.Config
@@ -91,6 +92,7 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 		}
 	}
 	h.permEngine = tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
+	h.trustTracker = tool.NewTrustTracker()
 
 	// 4. LLM provider
 	var provider agent.Provider = agent.NewClaudeProvider(cfg.LLM.APIKey, cfg.LLM.Model, cfg.LLM.BaseURL)
@@ -112,9 +114,10 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 			ToolsCfg: cfg.Tools,
 		},
 		Security: agent.SecurityDeps{
-			Interceptor: tool.NewInterceptorChain(nil),
-			HookMgr:     h.hookMgr,
-			PermEngine:  h.permEngine,
+			Interceptor:  tool.NewInterceptorChain(nil),
+			HookMgr:      h.hookMgr,
+			PermEngine:   h.permEngine,
+			TrustTracker: h.trustTracker,
 		}.WithDefaults(),
 		Observability: agent.ObservabilityDeps{}.WithDefaults(),
 		MultiAgent:    agent.MultiAgentDeps{}.WithDefaults(),

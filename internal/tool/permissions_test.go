@@ -49,10 +49,10 @@ func TestPermissionEngineEvaluate(t *testing.T) {
 		caps     ToolCapabilities
 		expected PermissionAction
 	}{
-		{"git allowed", "bash", `{"command":"git commit -m fix"}`, ToolCapabilities{}, PermissionAllow},
+		{"git auto-allowed", "bash", `{"command":"git commit -m fix"}`, ToolCapabilities{}, PermissionNone},
 		{"rm denied", "bash", `{"command":"rm -rf /home"}`, ToolCapabilities{}, PermissionDeny},
 		{"etc denied", "file", `{"path":"/etc/passwd","action":"write"}`, ToolCapabilities{}, PermissionDeny},
-		{"other asks", "http", `{}`, ToolCapabilities{}, PermissionAsk},
+		{"other approved", "http", `{}`, ToolCapabilities{}, PermissionApprove},
 	}
 
 	for _, tt := range tests {

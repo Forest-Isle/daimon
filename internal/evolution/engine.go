@@ -69,15 +69,16 @@ type Hook interface {
 // Engine manages the self-evolution lifecycle and dispatches events to hooks.
 // It is safe for concurrent use.
 type Engine struct {
-	cfg     Config
-	hooks   []Hook
-	router  *ModelRouter
-	brain   *Brain // unified cross-loop coordinator (nil until wired by gateway)
-	trajDir string // trajectory directory for insights loop (empty = disabled)
-	mu      sync.RWMutex
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
+	cfg      Config
+	hooks    []Hook
+	router   *ModelRouter
+	brain    *Brain      // unified cross-loop coordinator (nil until wired by gateway)
+	skillOpt *LLMSkillOpt // SkillOpt text-space optimizer (nil until wired)
+	trajDir  string      // trajectory directory for insights loop (empty = disabled)
+	mu       sync.RWMutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 }
 
 // NewEngine creates a new evolution engine. Call Start() to begin processing.
@@ -111,6 +112,22 @@ func (e *Engine) Brain() *Brain {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.brain
+}
+
+// SetSkillOpt wires the SkillOpt text-space optimizer into the engine.
+// When set, skill optimization can be triggered via the engine's API.
+func (e *Engine) SetSkillOpt(opt *LLMSkillOpt) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.skillOpt = opt
+	slog.Info("evolution: SkillOpt wired into engine")
+}
+
+// SkillOpt returns the SkillOpt optimizer, or nil if not wired.
+func (e *Engine) SkillOpt() *LLMSkillOpt {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.skillOpt
 }
 
 // SetTrajectoryDir sets the trajectory directory for the insights feedback

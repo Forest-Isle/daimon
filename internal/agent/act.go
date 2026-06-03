@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
@@ -85,6 +86,9 @@ func (e *Executor) Run(
 }
 
 // RunWithContext executes the ACT phase with an optional TaskContext for multi-agent collaboration.
+// Uses channel-driven concurrent execution: workers pull tasks as they become ready
+// (dependencies satisfied) rather than batch-await-batch. This eliminates idle time
+// from straggler tasks blocking the next batch.
 func (e *Executor) RunWithContext(
 	ctx context.Context,
 	ch channel.Channel,
@@ -99,79 +103,119 @@ func (e *Executor) RunWithContext(
 	}
 
 	total := len(plan.SubTasks)
-	var observations []Observation
-	var obsMu sync.Mutex
+	if total == 0 {
+		return nil, nil
+	}
 
-	// Build task index
+	var (
+		observations []Observation
+		obsMu        sync.Mutex
+		doneCount    int32
+	)
+
+	// Build task index for dependency resolution
 	taskIndex := make(map[string]*SubTask, total)
 	for _, st := range plan.SubTasks {
 		taskIndex[st.ID] = st
 	}
 
-	doneCount := 0
+	// readyCh feeds workers as task dependencies are satisfied.
+	readyCh := make(chan *SubTask, total)
+	// semaphore limits concurrent tool execution to maxParallel.
+	sem := make(chan struct{}, maxParallel)
 
-	for {
-		// Collect all pending tasks whose dependencies are all Done
-		ready := collectReady(plan.SubTasks, taskIndex)
-		if len(ready) == 0 {
-			break
-		}
+	// Seed initial ready tasks (no dependencies)
+	seedReady(plan.SubTasks, readyCh)
 
-		// Check if any running tasks (shouldn't happen in serial rounds, but safety)
-		anyRunning := false
-		for _, st := range plan.SubTasks {
-			if st.Status == SubTaskRunning {
-				anyRunning = true
-				break
+	var wg sync.WaitGroup
+	workerCount := maxParallel
+	if workerCount > total {
+		workerCount = total
+	}
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case subtask, ok := <-readyCh:
+					if !ok {
+						return
+					}
+					// Acquire semaphore
+					select {
+					case sem <- struct{}{}:
+					case <-ctx.Done():
+						return
+					}
+
+					subtask.Status = SubTaskRunning
+					obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks, taskCtx, plan)
+
+					<-sem // Release semaphore
+
+					obsMu.Lock()
+					observations = append(observations, obs)
+					n := int(atomic.AddInt32(&doneCount, 1))
+					obsMu.Unlock()
+
+					progressMsg := fmt.Sprintf("[%d/%d] %s... %s",
+						n, total, subtask.Description, statusEmoji(subtask.Status))
+					sendProgress(ctx, ch, target, progressMsg)
+
+					// Feed newly-unblocked tasks to the ready channel
+					feedReady(plan.SubTasks, readyCh, taskIndex)
+				}
 			}
-		}
-		if anyRunning {
-			break
-		}
-
-		// Batch into maxParallel
-		if len(ready) > maxParallel {
-			ready = ready[:maxParallel]
-		}
-
-		// Mark as running
-		for _, st := range ready {
-			st.Status = SubTaskRunning
-		}
-
-		var wg sync.WaitGroup
-		for _, st := range ready {
-			wg.Add(1)
-			go func(subtask *SubTask) {
-				defer wg.Done()
-				obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks, taskCtx, plan)
-				obsMu.Lock()
-				observations = append(observations, obs)
-				doneCount++
-				obsMu.Unlock()
-
-				// Stream progress to user
-				progressMsg := fmt.Sprintf("[%d/%d] %s... %s",
-					doneCount, total, subtask.Description, statusEmoji(subtask.Status))
-				sendProgress(ctx, ch, target, progressMsg)
-			}(st)
-		}
-		wg.Wait()
-
-		// Check if all remaining tasks are stuck (failed with no ready tasks)
-		allDone := true
-		for _, st := range plan.SubTasks {
-			if st.Status == SubTaskPending || st.Status == SubTaskRunning {
-				allDone = false
-				break
-			}
-		}
-		if allDone {
-			break
-		}
+		}()
 	}
 
+	wg.Wait()
+	close(readyCh)
+
 	return observations, nil
+}
+
+// seedReady pushes tasks with no unsatisfied dependencies into the ready channel.
+func seedReady(tasks []*SubTask, readyCh chan<- *SubTask) {
+	for _, st := range tasks {
+		if st.Status != SubTaskPending {
+			continue
+		}
+		if len(st.DependsOn) == 0 {
+			readyCh <- st
+		}
+	}
+}
+
+// feedReady checks all pending tasks and pushes those whose dependencies
+// are now satisfied into the ready channel.
+func feedReady(tasks []*SubTask, readyCh chan<- *SubTask, taskIndex map[string]*SubTask) {
+	for _, st := range tasks {
+		if st.Status != SubTaskPending {
+			continue
+		}
+		if len(st.DependsOn) == 0 {
+			continue // already seeded
+		}
+		allSatisfied := true
+		for _, depID := range st.DependsOn {
+			dep, ok := taskIndex[depID]
+			if !ok || (dep.Status != SubTaskDone && dep.Status != SubTaskSkipped) {
+				allSatisfied = false
+				break
+			}
+		}
+		if allSatisfied {
+			select {
+			case readyCh <- st:
+			default:
+				// Channel buffer full — worker will pick up on next iteration
+			}
+		}
+	}
 }
 
 // executeSubTask runs a single subtask and returns its observation.
@@ -263,7 +307,7 @@ func (e *Executor) executeSubTask(
 			obs.Error = "denied by permission engine: " + permResult.Reason
 			session.LogToolExecution(ctx, e.db, sess.ID, subtask.ToolName, subtask.ToolInput, obs.Error, "denied", 0)
 			return obs
-		case tool.PermissionAllow:
+		case tool.PermissionNone:
 			skipApproval = true
 			permAction = "allow"
 			permReason = "rule_match"
@@ -566,28 +610,6 @@ func (e *Executor) executeSubTaskViaChain(
 	slog.Info("subtask done (chain)", "id", subtask.ID, "tool", subtask.ToolName, "duration_ms", durationMs)
 
 	return obs
-}
-
-// collectReady returns pending tasks whose all dependencies are Done.
-func collectReady(tasks []*SubTask, index map[string]*SubTask) []*SubTask {
-	var ready []*SubTask
-	for _, st := range tasks {
-		if st.Status != SubTaskPending {
-			continue
-		}
-		depsOK := true
-		for _, depID := range st.DependsOn {
-			dep, ok := index[depID]
-			if !ok || dep.Status != SubTaskDone {
-				depsOK = false
-				break
-			}
-		}
-		if depsOK {
-			ready = append(ready, st)
-		}
-	}
-	return ready
 }
 
 // markDownstreamSkipped marks all tasks that directly/indirectly depend on failedID as Skipped.

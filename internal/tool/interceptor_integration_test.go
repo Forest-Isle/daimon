@@ -20,7 +20,7 @@ func TestInterceptorChain_FullPipeline(t *testing.T) {
 	np := sandbox.NewNetworkPolicy("blacklist", nil, []string{"evil.com"})
 
 	chain := NewInterceptorChain([]ToolInterceptor{
-		NewPermissionInterceptor(pe, &mockNotifier{}, &mockApprover{approve: true}),
+		NewPermissionInterceptor(pe, &mockNotifier{}, &mockApprover{approve: true}, nil),
 		NewHookInterceptor(nil),
 		NewSandboxInterceptor(nil, fg, np, true),
 	})

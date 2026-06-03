@@ -6,9 +6,8 @@ import "context"
 type Phase int
 
 const (
-	PhaseConstruct  Phase = iota // initialized during object construction
-	PhaseStart                   // initialized when the gateway starts
-	PhaseBackground              // initialized in background after startup
+	PhaseConstruct Phase = iota // initialized during object construction
+	PhaseStart                  // initialized when the gateway starts
 )
 
 func (p Phase) String() string {
@@ -17,8 +16,6 @@ func (p Phase) String() string {
 		return "construct"
 	case PhaseStart:
 		return "start"
-	case PhaseBackground:
-		return "background"
 	default:
 		return "unknown"
 	}

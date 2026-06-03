@@ -19,6 +19,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/memorywire"
 	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
@@ -50,6 +51,7 @@ type Gateway struct {
 	tools            *tool.Registry
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
+	trustTracker     *tool.TrustTracker
 	skillMgr         *skill.Manager
 	resultStore      *tool.ResultStore
 	mcpManager       *mcp.Manager
@@ -212,10 +214,20 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	}
 	if gw.memory.Store() != nil {
 		procedural := memory.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
-		gw.memory.cortex = memory.NewUnifiedRetriever(gw.memory.Store(), gw.memory.KBSearcher(), gw.memory.GraphStore(), procedural)
+		gw.memory.cortex = memory.NewUnifiedRetriever(gw.memory.Store(), gw.memory.KBSearcher(), gw.memory.GraphStore(), procedural, gw.memory.Embedder())
 		if gw.cognitiveLoop != nil {
 			gw.cognitiveLoop.SetCortexRetriever(gw.memory.Cortex())
 		}
+		// Register core_memory tool so the LLM can actively manage its own
+		// persistent memory (Mem0/Letta pattern — agentic memory writes).
+		gw.tools.Register(tool.NewCoreMemoryTool(gw.memory.Store(), gw.memory.LifecycleManager()))
+
+		// Initialize AMP (Agent Memory Protocol) adapter for standards-compliant
+		// memory operations (Memorywire: remember/recall/forget/merge/expire).
+		gw.memory.ampAdapter = memorywire.NewAdapter(gw.memory.Store(), gw.memory.Embedder())
+
+		// Register AMP memory tool so the LLM can use standardized AMP operations.
+		gw.tools.Register(tool.NewAMPMemoryTool(gw.memory.ampAdapter))
 	}
 
 	if err = gw.initSkillManager(); err != nil {
@@ -431,7 +443,7 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 	// Start HTTP admin server if enabled (standalone only — dashboard has its own server)
 	if gw.features.IsEnabled("server") && !gw.featureEnabled("dashboard") {
-		go startHTTPServer(gw.Config().Server.Addr, gw.db)
+		go startHTTPServer(gw.Config().Server.Addr, gw.db, gw.memory.Store())
 	}
 
 	// Start stale task detector
@@ -444,6 +456,15 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	// Start evolution engine only when feature is enabled
 	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {
 		gw.evolution.Engine().Start()
+
+		// Wire SkillOpt text-space optimizer into the evolution engine.
+		// Uses the gateway's LLM provider for candidate generation.
+		if gw.provider != nil {
+			skillCompleter := newSkillOptCompleter(gw.provider)
+			skillOpt := evolution.NewLLMSkillOpt(0.3, skillCompleter)
+			gw.evolution.Engine().SetSkillOpt(skillOpt)
+			slog.Info("gateway: SkillOpt optimizer wired")
+		}
 	}
 
 	slog.Info("gateway started")
@@ -690,6 +711,28 @@ func (a *completerAdapter) Complete(ctx context.Context, systemPrompt, userMessa
 		System:    systemPrompt,
 		Messages:  []agent.CompletionMessage{{Role: "user", Content: userMessage}},
 		MaxTokens: 512,
+	}
+	resp, err := a.provider.Complete(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return resp.Text, nil
+}
+
+// skillOptCompleter bridges agent.Provider to evolution.Completer for SkillOpt.
+type skillOptCompleter struct {
+	provider agent.Provider
+}
+
+func newSkillOptCompleter(provider agent.Provider) *skillOptCompleter {
+	return &skillOptCompleter{provider: provider}
+}
+
+func (a *skillOptCompleter) Complete(ctx context.Context, systemPrompt, userMessage string) (string, error) {
+	req := agent.CompletionRequest{
+		System:    systemPrompt,
+		Messages:  []agent.CompletionMessage{{Role: "user", Content: userMessage}},
+		MaxTokens: 256,
 	}
 	resp, err := a.provider.Complete(ctx, req)
 	if err != nil {

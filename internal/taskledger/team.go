@@ -28,11 +28,12 @@ type TeamResult struct {
 type TaskExecutor func(ctx context.Context, task Task) (string, error)
 
 type TeamCoordinator struct {
-	ledger     TaskLedger
-	maxWorkers int
-	executor   TaskExecutor
-	notifyCh   chan Notification
-	mu         sync.Mutex
+	ledger       TaskLedger
+	maxWorkers   int
+	executor     TaskExecutor
+	notifyCh     chan Notification
+	completionCh chan struct{} // fired when any task completes/fails/cancels — wakes blocked workers
+	mu           sync.Mutex
 }
 
 func NewTeamCoordinator(ledger TaskLedger, maxWorkers int) *TeamCoordinator {
@@ -40,9 +41,10 @@ func NewTeamCoordinator(ledger TaskLedger, maxWorkers int) *TeamCoordinator {
 		maxWorkers = 1
 	}
 	return &TeamCoordinator{
-		ledger:     ledger,
-		maxWorkers: maxWorkers,
-		notifyCh:   make(chan Notification, 64),
+		ledger:       ledger,
+		maxWorkers:   maxWorkers,
+		notifyCh:     make(chan Notification, 64),
+		completionCh: make(chan struct{}, 64),
 	}
 }
 
@@ -113,8 +115,6 @@ type teamWorkerStats struct {
 }
 
 func (tc *TeamCoordinator) runWorker(ctx context.Context, workerID string, exec TaskExecutor, stats *teamWorkerStats) {
-	const retryDelay = 50 * time.Millisecond
-
 	for {
 		if ctx.Err() != nil {
 			return
@@ -134,10 +134,13 @@ func (tc *TeamCoordinator) runWorker(ctx context.Context, workerID string, exec 
 		}
 		if blocked {
 			tc.putBack(ctx, task)
+			// Event-driven: wait for any task completion signal instead of polling.
+			// Falls back to a 5s heartbeat to guard against lost signals.
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(retryDelay):
+			case <-tc.completionCh:
+			case <-time.After(5 * time.Second):
 			}
 			continue
 		}
@@ -148,9 +151,6 @@ func (tc *TeamCoordinator) runWorker(ctx context.Context, workerID string, exec 
 			stats.failed++
 			tc.Notify(Notification{FromTaskID: task.ID, Type: "failed", Message: execErr.Error()})
 		} else {
-			// Replace empty sub-agent output with an explicit failure marker so
-			// downstream tasks and merge steps can detect the missing result
-			// rather than silently treating it as successful completion.
 			if strings.TrimSpace(result) == "" {
 				slog.Warn("team: sub-agent returned empty result, task may be incomplete",
 					"task_id", task.ID, "title", task.Title, "assignee", task.Assignee)
@@ -198,6 +198,7 @@ func (tc *TeamCoordinator) completeTask(ctx context.Context, task *Task, result 
 	task.CompletedAt = &now
 	task.Result = result
 	_ = tc.ledger.Update(ctx, *task)
+	tc.signalCompletion()
 }
 
 func (tc *TeamCoordinator) failTask(ctx context.Context, task *Task, reason string) {
@@ -206,8 +207,18 @@ func (tc *TeamCoordinator) failTask(ctx context.Context, task *Task, reason stri
 	task.CompletedAt = &now
 	task.Result = reason
 	_ = tc.ledger.Update(ctx, *task)
+	tc.signalCompletion()
 }
 
 func (tc *TeamCoordinator) cancelTask(ctx context.Context, task *Task, reason string) {
 	_ = tc.ledger.Cancel(ctx, task.ID, reason)
+	tc.signalCompletion()
+}
+
+// signalCompletion wakes blocked workers waiting for dependency resolution.
+func (tc *TeamCoordinator) signalCompletion() {
+	select {
+	case tc.completionCh <- struct{}{}:
+	default:
+	}
 }

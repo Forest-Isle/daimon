@@ -27,6 +27,7 @@ type SessionState struct {
 	ObservationPassed int       `json:"observation_passed,omitempty"`
 	ObservationFailed int       `json:"observation_failed,omitempty"`
 	OverallProgress   float64   `json:"overall_progress,omitempty"`
+	LastEventAt       time.Time `json:"-"`
 }
 
 type StateSnapshot struct {
@@ -44,6 +45,7 @@ type SubAgentState struct {
 	AgentName       string    `json:"agent_name"`
 	Task            string    `json:"task,omitempty"`
 	StartedAt       time.Time `json:"started_at"`
+	LastEventAt     time.Time `json:"-"`
 }
 
 type AgentStateTracker struct {
@@ -69,11 +71,22 @@ func NewAgentStateTracker(bus *Bus) *AgentStateTracker {
 	}
 }
 
+const (
+	sessionStaleTimeout   = 30 * time.Minute
+	subagentStaleTimeout  = 60 * time.Minute
+	gcInterval            = 5 * time.Minute
+)
+
 func (t *AgentStateTracker) Run() {
+	gcTicker := time.NewTicker(gcInterval)
+	defer gcTicker.Stop()
+
 	for {
 		select {
 		case ev := <-t.eventCh:
 			t.handleEvent(ev)
+		case <-gcTicker.C:
+			t.collectGarbage()
 		case <-t.stopCh:
 			t.bus.Unsubscribe(t.eventCh)
 			return
@@ -101,12 +114,14 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 	switch ev.Type {
 	case EventSessionStart:
 		ss := t.getOrCreate(sid)
+		ss.LastEventAt = ev.Timestamp
 		if ch, ok := ev.Data["channel"].(string); ok {
 			ss.Channel = ch
 		}
 
 	case EventPhaseStart:
 		ss := t.getOrCreate(sid)
+		ss.LastEventAt = ev.Timestamp
 		if phase, ok := ev.Data["phase"].(string); ok {
 			ss.CurrentPhase = phase
 		}
@@ -115,11 +130,13 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 	case EventPhaseEnd:
 		if ev.Data["source"] != "evolution" {
 			ss := t.getOrCreate(sid)
+			ss.LastEventAt = ev.Timestamp
 			ss.CurrentPhase = ""
 		}
 
 	case EventToolStart:
 		ss := t.getOrCreate(sid)
+		ss.LastEventAt = ev.Timestamp
 		if name, ok := ev.Data["tool_name"].(string); ok {
 			ss.CurrentTool = name
 		}
@@ -127,12 +144,14 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 	case EventToolEnd:
 		if ev.Data["source"] != "evolution" {
 			ss := t.getOrCreate(sid)
+			ss.LastEventAt = ev.Timestamp
 			ss.CurrentTool = ""
 			ss.ToolsExecuted++
 		}
 
 	case EventPlanGenerated:
 		ss := t.getOrCreate(sid)
+		ss.LastEventAt = ev.Timestamp
 		if tc, ok := ev.Data["task_count"].(int); ok {
 			ss.PlanTaskCount = tc
 		}
@@ -142,10 +161,12 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 
 	case EventReplanStart:
 		ss := t.getOrCreate(sid)
+		ss.LastEventAt = ev.Timestamp
 		ss.ReplanCount++
 
 	case EventMetricsUpdate:
 		ss := t.getOrCreate(sid)
+		ss.LastEventAt = ev.Timestamp
 		if v, ok := ev.Data["iteration"].(int); ok {
 			ss.Iteration = v
 		}
@@ -176,6 +197,7 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 
 	case EventObservationResult:
 		ss := t.getOrCreate(sid)
+		ss.LastEventAt = ev.Timestamp
 		if p, ok := ev.Data["passed"].(int); ok {
 			ss.ObservationPassed = p
 		}
@@ -194,8 +216,9 @@ func (t *AgentStateTracker) handleEvent(ev Event) {
 
 	case EventSubAgentSpawn:
 		sa := &SubAgentState{
-			SessionID: sid,
-			StartedAt: ev.Timestamp,
+			SessionID:   sid,
+			StartedAt:   ev.Timestamp,
+			LastEventAt: ev.Timestamp,
 		}
 		if v, ok := ev.Data["parent_session_id"].(string); ok {
 			sa.ParentSessionID = v
@@ -223,6 +246,34 @@ func (t *AgentStateTracker) getOrCreate(sessionID string) *SessionState {
 		t.activeSessions[sessionID] = ss
 	}
 	return ss
+}
+
+// collectGarbage removes session and sub-agent state that has been
+// inactive beyond the configured staleness thresholds. Prevents unbounded
+// memory growth when EventSessionEnd is never received (crashes, network
+// issues, session manager bugs).
+func (t *AgentStateTracker) collectGarbage() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now()
+
+	for sid, ss := range t.activeSessions {
+		if ss.LastEventAt.IsZero() {
+			// Freshly created but never received an event — keep
+			continue
+		}
+		if now.Sub(ss.LastEventAt) > sessionStaleTimeout {
+			delete(t.activeSessions, sid)
+			t.totalToday++
+		}
+	}
+
+	for sid, sa := range t.activeSubAgents {
+		if now.Sub(sa.LastEventAt) > subagentStaleTimeout {
+			delete(t.activeSubAgents, sid)
+		}
+	}
 }
 
 func (t *AgentStateTracker) Snapshot() StateSnapshot {
