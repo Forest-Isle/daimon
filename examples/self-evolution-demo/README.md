@@ -1,83 +1,29 @@
 # Self-Evolution Demo
 
-This demo shows IronClaw's self-evolution loop in action: run tasks, generate insights, let the strategy optimizer tune parameters, re-run the same tasks, and measure the difference.
+This example directory is reserved for demonstrating the self-evolution pipeline: trajectory collection, insights, preference learning, skill draft synthesis, and training export.
 
-## Prerequisites
+The current production code for these capabilities lives in:
 
-```bash
-# Build IronClaw
-make build
-```
+- `internal/evolution`
+- `internal/eval`
+- `cmd/ironclaw/insights.go`
+- `cmd/ironclaw/training.go`
 
-## Quick Start
-
-Run the full demo with one command:
+Typical commands:
 
 ```bash
-./demo.sh
+./bin/ironclaw insights report --days 7
+./bin/ironclaw insights health --days 7
+./bin/ironclaw training export --format reward --days 30
+./bin/ironclaw training export --format dpo --days 30
+./bin/ironclaw training export --format sft --days 30
 ```
 
-This will:
-1. Run the built-in evaluation suite (baseline)
-2. Simulate trajectory data from the baseline
-3. Trigger the insights cycle to generate strategy adjustments
-4. Re-run the same evaluation suite (comparison)
-5. Print a side-by-side comparison report
+Evolution is opt-in. Enable it in config when running live agent sessions that should produce trajectory and preference data:
 
-## Manual Steps
-
-### Step 1: Run baseline evaluation
-
-```bash
-ironclaw eval run --suite builtin --output baseline.json
+```yaml
+evolution:
+  enabled: true
 ```
 
-### Step 2: Check available tasks
-
-```bash
-ironclaw eval list
-```
-
-### Step 3: Generate insights from trajectory data
-
-```bash
-ironclaw insights report --days 7
-```
-
-### Step 4: View cognitive health metrics
-
-```bash
-ironclaw insights health --days 7
-```
-
-### Step 5: Run comparison evaluation (after evolution cycle)
-
-```bash
-ironclaw eval run --suite builtin --output after.json
-```
-
-### Step 6: Compare results
-
-```bash
-ironclaw eval compare --before baseline.json --after after.json
-```
-
-## What to Expect
-
-The comparison report shows deltas in:
-- **Success Rate** — percentage of tasks completed successfully
-- **Assertion Pass Rate** — structured verification pass rate
-- **Avg Confidence** — agent's self-assessed confidence
-- **Avg Replan Count** — number of replans needed (lower is better)
-- **Duration** — total execution time (lower is better)
-
-A healthy evolution cycle should show:
-- Higher or equal success rate
-- Fewer replans (the agent learned better strategies)
-- Stable or improved assertion pass rates
-
-## Notes
-
-- The `--suite builtin` uses deterministic tasks that don't require network access
-- For real evolution data, enable `evolution.enabled: true` in your config and use IronClaw in cognitive mode for several sessions
-- The `ironclaw insights health` command works offline from stored trajectory JSONL files
+Generated trajectories and training exports may contain prompts, tool outputs, and private runtime context. Keep them out of version control unless deliberately creating sanitized fixtures.

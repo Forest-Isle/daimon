@@ -1,44 +1,66 @@
-# Security Policy
+# Security
 
-## Reporting a Vulnerability
+IronClaw can execute tools, read and write files, call HTTP endpoints, run external MCP servers, and delegate work to sub-agents. Treat every runtime deployment as a privileged local agent and configure approvals, sandboxing, and network policy intentionally.
 
-If you discover a security vulnerability in IronClaw, please report it responsibly.
+## Security Model
 
-**Do NOT open a public GitHub issue for security vulnerabilities.**
+Tool execution flows through this chain when Gateway initializes all security components:
 
-Instead, please send an email to **[INSERT SECURITY EMAIL]** with:
+```mermaid
+flowchart LR
+    Call[Tool call] --> Permission[PermissionInterceptor]
+    Permission --> Hook[HookInterceptor]
+    Hook --> UserHooks[User hook scripts]
+    UserHooks --> Sandbox[SandboxInterceptor]
+    Sandbox --> Verify[VerifyInterceptor]
+    Verify --> Audit[AuditInterceptor]
+    Audit --> Tool[Tool implementation]
+```
 
-1. A description of the vulnerability
-2. Steps to reproduce the issue
-3. Potential impact assessment
-4. Any suggested fixes (optional)
+The chain is configured in `internal/gateway/init_tools.go`.
 
-## Response Timeline
+## Permissions
 
-- **Acknowledgment**: Within 48 hours of receiving the report
-- **Initial Assessment**: Within 7 days
-- **Fix & Disclosure**: We aim to release a fix within 30 days of confirmation
+Permission rules live under `permissions` in YAML config. Actions are:
 
-## Scope
+- `none`: allow silently.
+- `notify`: allow and notify/log.
+- `approve`: require user approval.
+- `deny`: block.
 
-The following are in scope:
+Legacy aliases are accepted: `allow` maps to `none`, and `ask` maps to `approve`.
 
-- IronClaw core runtime (`cmd/`, `internal/`)
-- Tool execution security (bash, file, http)
-- Configuration handling and secret management
-- SQLite storage security
+Rules are evaluated top-to-bottom. If no rule matches, destructive tool capabilities force approval; otherwise the configured default action applies.
 
-The following are out of scope:
+## Sandbox
 
-- Third-party dependencies (please report to the respective maintainers)
-- Issues in user-provided configuration or system prompts
+Sandbox behavior is controlled by `sandbox` config:
 
-## Supported Versions
+- File policy can restrict allowed directories and read-only directories.
+- Network policy supports blacklist and whitelist modes.
+- Bash can run on host or through a Docker session backend.
+- HTTP redirects are checked against the network policy when sandbox network policy is active.
 
-| Version | Supported |
-|---------|-----------|
-| latest  | Yes       |
+The `sandbox` feature defaults to enabled in the Feature Registry but auto-detects Docker availability. The example config sets `sandbox.enabled: false`, which overrides the feature default.
 
-## Disclosure Policy
+## Secrets
 
-We follow coordinated disclosure. We will credit reporters in the release notes unless they prefer to remain anonymous.
+- Prefer environment expansion with `${VAR}` in YAML rather than hard-coded tokens.
+- MCP server responses are passed through redaction before returning to the agent.
+- Do not commit local `configs/ironclaw.yaml`, `.ironclaw/local.yaml`, database files, tool result caches, or generated trajectory exports containing private prompts.
+
+## Reporting
+
+For private vulnerability reports, use the repository maintainer contact configured in the GitHub project or open a private advisory if available. Include:
+
+- Affected commit or version.
+- Configuration required to trigger the issue.
+- Minimal reproduction.
+- Whether the issue needs external network, Docker, MCP, dashboard token, or channel credentials.
+
+## Maintainer Checklist
+
+- New tools must declare capabilities through `Capabilities()` when side effects, network, or parallel safety matter.
+- New routes must be covered by dashboard token auth if they expose private runtime data.
+- New config fields that affect security must be included in `configs/ironclaw.example.yaml`.
+- Gateway wiring changes must preserve interceptor order unless intentionally redesigned and documented.

@@ -1,83 +1,89 @@
 # Contributing to IronClaw
 
-Thank you for your interest in contributing to IronClaw! This guide will help you get started.
+This repository is a Go-first agent runtime with two frontend workspaces. Keep changes small, source-derived, and verified.
 
-## Getting Started
+## Local Setup
 
-1. Fork the repository
-2. Clone your fork:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/ironclaw.git
-   cd ironclaw
-   ```
-3. Create a branch for your changes:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+Required tools:
 
-## Development Setup
-
-### Prerequisites
-
-- Go 1.23 or later
-- GCC (CGO is required for SQLite)
-- golangci-lint (optional, for linting)
-
-### Build & Test
+- Go 1.25.9 or compatible newer patch release.
+- CGO-enabled toolchain for `github.com/mattn/go-sqlite3`.
+- Node.js and npm for `web/` and `web/studio/`.
+- Git, because worktree tools and developer workflows depend on it.
 
 ```bash
-# Build
-make build
+cp configs/ironclaw.example.yaml configs/ironclaw.yaml
+make build-bin
+make test-short
+```
 
-# Run tests
+## Worktree Workflow
+
+For non-trivial changes, use an isolated worktree:
+
+```bash
+git worktree add .worktrees/<task-name> -b <branch-name>
+cd .worktrees/<task-name>
+```
+
+Before merging, check all untracked and unstaged files:
+
+```bash
+git status --short
+git diff main..HEAD
+```
+
+Generated frontend build output should not be committed unless it is the embedded dashboard output expected by the repo. In particular, remove accidental `web/studio/dist/` output unless intentionally changing Studio distribution policy.
+
+## Verification Matrix
+
+Run the narrowest command that proves your change, then broaden when touching shared wiring:
+
+```bash
+make build-bin
+make vet
+make test-short
+```
+
+For Gateway, tool, memory, knowledge, session, store, provider, or concurrency changes:
+
+```bash
 make test
-
-# Lint
-make lint
-
-# Format code
-make fmt
 ```
 
-## Making Changes
+For embedded dashboard changes:
 
-### Code Style
-
-- Follow standard Go conventions (`gofmt`, `go vet`)
-- Keep functions focused and small
-- Add comments for exported types and functions
-- Write tests for new functionality
-
-### Commit Messages
-
-Use clear, descriptive commit messages:
-
-```
-feat: add Discord channel adapter
-fix: handle empty response from Claude API
-docs: update configuration examples
-refactor: simplify session manager logic
+```bash
+cd web
+npm ci
+npm run build
 ```
 
-Prefixes: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`
+For Studio changes:
 
-### Pull Requests
+```bash
+cd web/studio
+npm ci
+npm run build
+```
 
-1. Ensure your code passes `make test` and `make lint`
-2. Update documentation if your changes affect user-facing behavior
-3. Keep PRs focused — one feature or fix per PR
-4. Fill out the PR template completely
+## Code Style
 
-## Reporting Issues
+- Match existing package patterns before adding new abstractions.
+- Keep Gateway wiring explicit. It is the composition root, so hidden side effects make the system harder to audit.
+- Prefer structured parsers and typed config over ad hoc string manipulation.
+- Keep tool side effects behind the permission, hook, sandbox, verify, and audit chain.
+- Add tests close to the module you change. Use broader integration tests when changing cross-package contracts.
 
-- Use the [Bug Report](https://github.com/Forest-Isle/IronClaw/issues/new?template=bug_report.md) template for bugs
-- Use the [Feature Request](https://github.com/Forest-Isle/IronClaw/issues/new?template=feature_request.md) template for new ideas
-- Search existing issues before creating a new one
+## Documentation
 
-## Code of Conduct
+Update the numbered docs under `docs/` whenever behavior, config, wiring, or public developer workflow changes. Do not copy old plans into current-state docs. If a feature is prototype-only, future-only, or environment-dependent, document it as such.
 
-This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+## Pull Request Checklist
 
-## License
-
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+- The change has a focused purpose.
+- `git status --short` has no accidental generated files.
+- Relevant Go and frontend verification commands have passed.
+- Config keys added in code are represented in `configs/ironclaw.example.yaml` or documented as internal.
+- New tools declare capabilities and approval behavior.
+- New Gateway features are registered in `internal/gateway/features.go` and documented in `docs/03-gateway-feature-lifecycle.md`.

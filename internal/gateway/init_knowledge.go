@@ -26,7 +26,11 @@ func (gw *Gateway) initKnowledgeSystem() error {
 	}
 	var kbEmbedder knowledge.EmbeddingProvider
 	if gw.cfg.Memory.OpenAIAPIKey != "" {
-		kbEmbedder = memory.NewOpenAIEmbedding(gw.cfg.Memory.OpenAIAPIKey, gw.cfg.Memory.EmbeddingModel)
+		kbEmbedder = memory.NewOpenAIEmbeddingWithURL(
+			gw.cfg.Memory.OpenAIAPIKey,
+			gw.cfg.Memory.EmbeddingModel,
+			gw.cfg.Memory.EmbeddingBaseURL,
+		)
 	} else {
 		kbEmbedder = &noopKBEmbedder{}
 	}
@@ -48,7 +52,6 @@ func (gw *Gateway) initKnowledgeSystem() error {
 			slog.Warn("gateway: failed to ingest dir", "dir", dir, "err", err)
 		}
 	}
-
 
 	// Knowledge graph (Phase 3)
 	if gw.featureEnabled("knowledge_graph") {
@@ -79,7 +82,6 @@ func (gw *Gateway) initKnowledgeSystem() error {
 			}
 			slog.Info("gateway: initial graph entity extraction complete")
 		}()
-
 
 		// Wire GraphSync to lifecycle manager for memory->graph synchronization
 		if gw.memory.lifecycleMgr != nil {
