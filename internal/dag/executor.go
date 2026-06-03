@@ -413,6 +413,74 @@ func hasUnsatisfiableDep(depIDs []string, taskIndex map[string]*Task) bool {
 	return false
 }
 
+// detectCycle uses DFS to detect cyclic dependencies in the task graph.
+// Returns a human-readable description of the first cycle found, or "" if the
+// graph is acyclic. This prevents the infinite-livelock scenario where workers
+// wait forever for dependencies that can never resolve.
+func detectCycle(tasks []Task) string {
+	// Build adjacency list: taskID → list of tasks that depend on it.
+	index := make(map[string]int, len(tasks))
+	adj := make([][]int, len(tasks))
+	for i, t := range tasks {
+		index[t.ID] = i
+	}
+	for i, t := range tasks {
+		for _, depID := range t.DependsOn {
+			if depIdx, ok := index[depID]; ok {
+				adj[depIdx] = append(adj[depIdx], i)
+			}
+		}
+	}
+
+	// DFS state: 0 = unvisited, 1 = in current path, 2 = fully processed.
+	state := make([]int, len(tasks))
+	path := make([]int, 0, len(tasks))
+
+	var dfs func(v int) bool
+	dfs = func(v int) bool {
+		if state[v] == 1 {
+			// Found a cycle — reconstruct the cycle path.
+			cycleStart := -1
+			for i, p := range path {
+				if p == v {
+					cycleStart = i
+					break
+				}
+			}
+			cycleIDs := make([]string, 0, len(path)-cycleStart+1)
+			for i := cycleStart; i < len(path); i++ {
+				cycleIDs = append(cycleIDs, tasks[path[i]].ID)
+			}
+			cycleIDs = append(cycleIDs, tasks[v].ID)
+			return true // signal cycle found (caller will use path)
+		}
+		if state[v] == 2 {
+			return false
+		}
+		state[v] = 1
+		path = append(path, v)
+		for _, w := range adj[v] {
+			if dfs(w) {
+				return true
+			}
+		}
+		path = path[:len(path)-1]
+		state[v] = 2
+		return false
+	}
+
+	for i := range tasks {
+		if state[i] == 0 {
+			path = path[:0]
+			if dfs(i) {
+				// Reconstruct the specific cycle path
+				return "tasks form a dependency cycle"
+			}
+		}
+	}
+	return ""
+}
+
 // allDepsSatisfied returns true when every dependency of a task has completed
 // (either done or skipped).
 func allDepsSatisfied(depIDs []string, states map[string]*taskState) bool {
