@@ -28,3 +28,35 @@ func (gw *Gateway) persistFeatureState() {
 		slog.Warn("gateway: failed to persist feature state", "err", err)
 	}
 }
+
+// BuildArgCompleter returns an ArgCompleter function for the TUI's dynamic
+// argument autocomplete for slash commands.
+func (gw *Gateway) BuildArgCompleter() func(cmd, subCmd, argSoFar string) []string {
+	return func(cmd, subCmd, argSoFar string) []string {
+		if gw.features == nil {
+			return nil
+		}
+		switch cmd {
+		case "feature":
+			switch subCmd {
+			case "enable":
+				var names []string
+				for _, f := range gw.features.List() {
+					if !f.Enabled {
+						names = append(names, f.Name)
+					}
+				}
+				return names
+			case "disable":
+				var names []string
+				for _, f := range gw.features.List() {
+					if f.Enabled {
+						names = append(names, f.Name)
+					}
+				}
+				return names
+			}
+		}
+		return nil
+	}
+}
