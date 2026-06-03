@@ -49,7 +49,7 @@ func NewHub(bus *Bus) *Hub {
 		eventCh:    bus.Subscribe(),
 		clients:    make(map[*client]struct{}),
 		register:   make(chan *client),
-		unregister: make(chan *client),
+		unregister: make(chan *client, maxClients), // buffered: prevents writePump/readPump defer blocks after Run() exits
 		stopCh:     make(chan struct{}),
 	}
 }
