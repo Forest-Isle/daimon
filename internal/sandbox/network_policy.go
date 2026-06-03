@@ -37,7 +37,6 @@ var defaultCIDRBlacklist = []string{
 	"fd00::/8",          // IPv6 private
 	"ff00::/8",          // IPv6 multicast
 	"100.64.0.0/10",     // Carrier-grade NAT (RFC 6598)
-	"198.18.0.0/15",     // Benchmarking (RFC 2544)
 }
 
 // NetworkPolicy validates URLs against whitelist/blacklist rules.
