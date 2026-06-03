@@ -152,3 +152,26 @@ func (b *Brain) Optimizer() *StrategyOptimizer { return b.optimizer }
 
 // Synthesizer returns the skill synthesizer (may be nil).
 func (b *Brain) Synthesizer() *SkillSynthesizer { return b.synthesizer }
+
+// ContainsHook returns true if h is one of the hooks already managed by the Brain
+// (preference learner, strategy optimizer, or skill synthesizer). Callers that
+// iterate engine hooks should skip any hook for which ContainsHook returns true
+// when brain.OnEpisodeComplete has already been called — otherwise the hook
+// receives duplicate events.
+func (b *Brain) ContainsHook(h Hook) bool {
+	if b == nil {
+		return false
+	}
+	// Compare interface pointers — these are the exact same instances registered
+	// as hooks AND wired into the brain.
+	if b.preference != nil && h == b.preference {
+		return true
+	}
+	if b.optimizer != nil && h == b.optimizer {
+		return true
+	}
+	if b.synthesizer != nil && h == b.synthesizer {
+		return true
+	}
+	return false
+}

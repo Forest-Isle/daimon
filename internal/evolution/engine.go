@@ -298,7 +298,10 @@ func (e *Engine) DispatchReflection(event ReflectionEvent) {
 }
 
 // DispatchEpisode fires OnEpisodeComplete on all hooks asynchronously.
-// Also routes through the Brain for cross-loop feedback when wired.
+// Also routes through the Brain for unified cross-loop coordination.
+// Hooks that are already managed by the Brain (preference learner, strategy
+// optimizer, skill synthesizer) are skipped in the hooks loop to avoid
+// double-dispatch — the Brain's OnEpisodeComplete already called them.
 func (e *Engine) DispatchEpisode(event EpisodeEvent) {
 	if !e.cfg.Enabled {
 		return
@@ -312,6 +315,10 @@ func (e *Engine) DispatchEpisode(event EpisodeEvent) {
 	}
 
 	for _, h := range e.hooks {
+		// Skip hooks already handled by the Brain to avoid double-dispatch.
+		if e.brain != nil && e.brain.ContainsHook(h) {
+			continue
+		}
 		hook := h
 		e.wg.Add(1)
 		go e.safeDispatch(hook.Name(), func(ctx context.Context) {
