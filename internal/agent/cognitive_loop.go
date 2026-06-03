@@ -10,7 +10,7 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/cortex"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
@@ -36,7 +36,7 @@ type CognitiveLoop struct {
 	reflector *Reflector
 
 	codebaseIndex *CodebaseIndex
-	cortex        *cortex.UnifiedRetriever
+	cortex        *memory.UnifiedRetriever
 
 	// Config
 	entityExtractor *graph.LLMEntityExtractor
@@ -108,7 +108,7 @@ func (cl *CognitiveLoop) EvolutionEngine() *evolution.Engine {
 }
 
 // SetCortexRetriever injects a unified cortex retriever.
-func (cl *CognitiveLoop) SetCortexRetriever(cr *cortex.UnifiedRetriever) {
+func (cl *CognitiveLoop) SetCortexRetriever(cr *memory.UnifiedRetriever) {
 	cl.cortex = cr
 	cl.perceiver.SetCortexRetriever(cr)
 }

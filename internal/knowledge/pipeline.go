@@ -6,13 +6,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/knowledge/ingest"
+	
 )
 
 // IngestPipeline orchestrates document ingestion: parse -> chunk -> embed -> store.
 type IngestPipeline struct {
 	kb       *SQLiteKnowledgeBase
-	registry *ingest.Registry
+	registry *Registry
 	strategy ChunkStrategy
 }
 
@@ -28,7 +28,7 @@ func NewIngestPipeline(kb *SQLiteKnowledgeBase, cfg Config) *IngestPipeline {
 	}
 	return &IngestPipeline{
 		kb:       kb,
-		registry: ingest.NewRegistry(),
+		registry: NewRegistry(),
 		strategy: ChunkStrategy{ChunkSize: size, ChunkOverlap: overlap},
 	}
 }
@@ -36,7 +36,7 @@ func NewIngestPipeline(kb *SQLiteKnowledgeBase, cfg Config) *IngestPipeline {
 // Ingest fetches a URI, splits into chunks, embeds, and stores.
 func (p *IngestPipeline) Ingest(ctx context.Context, uri, sourceType string) error {
 	if sourceType == "" {
-		sourceType = ingest.DetectSourceType(uri)
+		sourceType = DetectSourceType(uri)
 	}
 
 	slog.Info("knowledge: ingesting", "uri", uri, "type", sourceType)
@@ -106,7 +106,7 @@ func (p *IngestPipeline) Ingest(ctx context.Context, uri, sourceType string) err
 
 // IngestDir scans and ingests all files in a directory.
 func (p *IngestPipeline) IngestDir(ctx context.Context, dir string) error {
-	files, err := ingest.ScanDir(dir)
+	files, err := ScanDir(dir)
 	if err != nil {
 		return fmt.Errorf("scan dir %s: %w", dir, err)
 	}

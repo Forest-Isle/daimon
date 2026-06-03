@@ -4,10 +4,9 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/Forest-Isle/IronClaw/internal/cortex"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
 
 // MemorySubsystem manages memory store, knowledge searcher, knowledge graph,
@@ -23,7 +22,7 @@ type MemorySubsystem struct {
 	graphDecay    *graph.GraphDecayTask
 	kbSearcher    knowledge.Searcher
 	graphStore    graph.Graph
-	cortex        *cortex.UnifiedRetriever
+	cortex        *memory.UnifiedRetriever
 	memoryDir     string
 }
 
@@ -68,7 +67,7 @@ func (ms *MemorySubsystem) KBSearcher() knowledge.Searcher { return ms.kbSearche
 func (ms *MemorySubsystem) GraphStore() graph.Graph { return ms.graphStore }
 
 // Cortex returns the unified retriever (cortex), or nil.
-func (ms *MemorySubsystem) Cortex() *cortex.UnifiedRetriever { return ms.cortex }
+func (ms *MemorySubsystem) Cortex() *memory.UnifiedRetriever { return ms.cortex }
 
 // MemoryDir returns the file-based memory storage directory.
 func (ms *MemorySubsystem) MemoryDir() string { return ms.memoryDir }

@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/cortex"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 )
@@ -20,5 +20,5 @@ type CognitiveAgentOptions struct {
 	ObservationCallback func(result *ObservationResult)
 	ApprovalFunc        ApprovalFunc
 	PlanMode            *PlanMode
-	CortexRetriever     *cortex.UnifiedRetriever
+	CortexRetriever     *memory.UnifiedRetriever
 }

@@ -1,4 +1,4 @@
-package cortex
+package memory
 
 import (
 	"context"
@@ -10,12 +10,11 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
 
 // UnifiedRetriever wraps memory, knowledge, graph, and procedural stores.
 type UnifiedRetriever struct {
-	memStore      memory.Store
+	memStore      Store
 	kbSearcher    knowledge.Searcher
 	graphStore    graph.Graph
 	procedural    *ProceduralStore
@@ -23,7 +22,7 @@ type UnifiedRetriever struct {
 }
 
 func NewUnifiedRetriever(
-	memStore memory.Store,
+	memStore Store,
 	kbSearcher knowledge.Searcher,
 	graphStore graph.Graph,
 	procedural *ProceduralStore,
@@ -79,7 +78,7 @@ func (ur *UnifiedRetriever) Search(
 		if err == nil {
 			return
 		}
-		slog.Warn("cortex: source search failed", "source", source, "err", err)
+		slog.Warn("memory: source search failed", "source", source, "err", err)
 		errMu.Lock()
 		if firstErr == nil {
 			firstErr = err
@@ -94,12 +93,12 @@ func (ur *UnifiedRetriever) Search(
 		if ur.memStore == nil {
 			return
 		}
-		results, err := ur.memStore.Search(ctx, memory.SearchQuery{
+		results, err := ur.memStore.Search(ctx, SearchQuery{
 			Text:         query,
 			Limit:        opts.Limit,
 			SessionID:    opts.SessionID,
 			UserID:       opts.UserID,
-			Scopes:       []memory.MemoryScope{memory.ScopeSession, memory.ScopeUser},
+			Scopes:       []MemoryScope{ScopeSession, ScopeUser},
 			ExcludeTypes: []string{"profile", "procedural"},
 		})
 		if err != nil {

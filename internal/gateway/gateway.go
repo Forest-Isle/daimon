@@ -18,7 +18,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/cortex"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
@@ -210,8 +210,8 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		return nil, fmt.Errorf("knowledge: %w", err)
 	}
 	if gw.memory.Store() != nil {
-		procedural := cortex.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
-		gw.memory.cortex = cortex.NewUnifiedRetriever(gw.memory.Store(), gw.memory.KBSearcher(), gw.memory.GraphStore(), procedural)
+		procedural := memory.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
+		gw.memory.cortex = memory.NewUnifiedRetriever(gw.memory.Store(), gw.memory.KBSearcher(), gw.memory.GraphStore(), procedural)
 		if gw.cognitiveLoop != nil {
 			gw.cognitiveLoop.SetCortexRetriever(gw.memory.Cortex())
 		}
@@ -932,4 +932,3 @@ func (gw *Gateway) SetRateLimiter(l ratelimit.Limiter) {
 func (gw *Gateway) RateLimiter() ratelimit.Limiter {
 	return gw.observability.RateLimiter()
 }
-

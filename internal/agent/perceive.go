@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Forest-Isle/IronClaw/internal/cortex"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
@@ -21,7 +20,7 @@ type Perceiver struct {
 	memBaseDir  string             // base directory for memory files (profile loading)
 	searcher    knowledge.Searcher // optional knowledge searcher (KB or HybridRetriever)
 	graph       graph.Graph        // optional knowledge graph
-	cortex      *cortex.UnifiedRetriever
+	cortex      *memory.UnifiedRetriever
 	scanner     *ProjectContextScanner  // optional project context scanner
 	gitProvider *GitContextProvider     // optional git state provider
 	budgetAlloc *ContextBudgetAllocator // optional context budget allocator
@@ -43,7 +42,7 @@ func (p *Perceiver) SetKnowledgeGraph(g graph.Graph) {
 }
 
 // SetCortexRetriever injects the unified cortex retriever.
-func (p *Perceiver) SetCortexRetriever(ur *cortex.UnifiedRetriever) {
+func (p *Perceiver) SetCortexRetriever(ur *memory.UnifiedRetriever) {
 	p.cortex = ur
 }
 
@@ -90,7 +89,7 @@ func (p *Perceiver) Run(ctx context.Context, sess *session.Session, userMsg, use
 	// Memory retrieval — include user and session scopes for richer context.
 	var memories []memory.SearchResult
 	if p.cortex != nil {
-		results, err := p.cortex.Search(ctx, userMsg, cortex.SearchOptions{
+		results, err := p.cortex.Search(ctx, userMsg, memory.SearchOptions{
 			UserID:    userID,
 			SessionID: sess.ID,
 			Limit:     5,

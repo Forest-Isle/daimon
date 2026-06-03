@@ -1,4 +1,4 @@
-package cortex
+package memory
 
 import (
 	"context"
@@ -7,16 +7,15 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/memory"
 )
 
 // ProceduralStore records and retrieves successful task execution strategies.
 type ProceduralStore struct {
-	store    memory.Store
-	embedder memory.EmbeddingProvider
+	store    Store
+	embedder EmbeddingProvider
 }
 
-func NewProceduralStore(store memory.Store, embedder memory.EmbeddingProvider) *ProceduralStore {
+func NewProceduralStore(store Store, embedder EmbeddingProvider) *ProceduralStore {
 	return &ProceduralStore{store: store, embedder: embedder}
 }
 
@@ -48,11 +47,11 @@ func (ps *ProceduralStore) RecordStrategy(
 		return fmt.Errorf("marshal strategy record: %w", err)
 	}
 
-	entry := memory.Entry{
+	entry := Entry{
 		ID:        fmt.Sprintf("strat_%d", time.Now().UnixNano()),
 		SessionID: sessionID,
 		UserID:    userID,
-		Scope:     memory.ScopeUser,
+		Scope:     ScopeUser,
 		Content:   string(content),
 		Metadata: map[string]string{
 			"type":     "procedural",
@@ -64,7 +63,7 @@ func (ps *ProceduralStore) RecordStrategy(
 
 	if ps.embedder != nil {
 		if embedding, embErr := ps.embedder.Embed(ctx, taskDescription); embErr != nil {
-			slog.Debug("cortex: procedural embedding failed", "err", embErr)
+			slog.Debug("memory: procedural embedding failed", "err", embErr)
 		} else {
 			entry.Embedding = embedding
 		}
@@ -74,7 +73,7 @@ func (ps *ProceduralStore) RecordStrategy(
 		return fmt.Errorf("save procedural strategy: %w", err)
 	}
 
-	slog.Debug("cortex: recorded procedural strategy",
+	slog.Debug("memory: recorded procedural strategy",
 		"task", taskDescription,
 		"tools", len(toolsUsed),
 		"user_id", userID,
@@ -96,11 +95,11 @@ func (ps *ProceduralStore) FindSimilar(
 		limit = 3
 	}
 
-	results, err := ps.store.Search(ctx, memory.SearchQuery{
+	results, err := ps.store.Search(ctx, SearchQuery{
 		Text:       taskDescription,
 		Limit:      limit,
 		TypeFilter: "procedural",
-		Scopes:     []memory.MemoryScope{memory.ScopeUser},
+		Scopes:     []MemoryScope{ScopeUser},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search procedural strategies: %w", err)
@@ -110,7 +109,7 @@ func (ps *ProceduralStore) FindSimilar(
 	for _, result := range results {
 		var record StrategyRecord
 		if err := json.Unmarshal([]byte(result.Entry.Content), &record); err != nil {
-			slog.Debug("cortex: skip invalid procedural record", "memory_id", result.Entry.ID, "err", err)
+			slog.Debug("memory: skip invalid procedural record", "memory_id", result.Entry.ID, "err", err)
 			continue
 		}
 		records = append(records, &record)
