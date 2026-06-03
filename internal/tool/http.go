@@ -15,6 +15,21 @@ type HTTPTool struct {
 	approval bool
 }
 
+// SetCheckRedirect injects a redirect validation function. When set, every
+// HTTP redirect target is validated by the function before being followed.
+// The function should return an error if the redirect URL is not allowed.
+func (h *HTTPTool) SetCheckRedirect(checkFn func(string) error) {
+	h.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		if checkFn != nil {
+			return checkFn(req.URL.String())
+		}
+		return nil
+	}
+}
+
 type httpInput struct {
 	Method  string            `json:"method"`
 	URL     string            `json:"url"`
