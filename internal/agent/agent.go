@@ -38,10 +38,11 @@ func AgentFromContext(ctx context.Context) *Agent {
 // Agent is the unified agent runtime. All execution modes (simple, cognitive, graph)
 // are implemented as LoopStrategy implementations.
 type Agent struct {
-	deps       AgentDeps
-	strategy   LoopStrategy
-	approvalFn ApprovalFunc
-	eventBus   EventBus
+	deps            AgentDeps
+	strategy        LoopStrategy
+	approvalFn      ApprovalFunc
+	eventBus        EventBus
+	evolutionBridge *EvolutionBridge // optional, set by gateway for evolution integration
 }
 
 // NewAgent creates a new Agent with the given dependencies, strategy, and event bus.
@@ -58,6 +59,11 @@ func (a *Agent) SetStrategy(s LoopStrategy) { a.strategy = s }
 
 // SetApprovalFunc sets the tool approval callback.
 func (a *Agent) SetApprovalFunc(fn ApprovalFunc) { a.approvalFn = fn }
+
+// SetEvolutionBridge wires an EvolutionBridge for forwarding events to the
+// evolution engine. When nil the bridge is disabled — all evolution notifications
+// become no-ops.
+func (a *Agent) SetEvolutionBridge(bridge *EvolutionBridge) { a.evolutionBridge = bridge }
 
 // SetModel updates the LLM model.
 func (a *Agent) SetModel(model string) { a.deps.Core.LLMCfg.Model = model }
@@ -348,6 +354,11 @@ func (a *Agent) dispatchToolsParallel(ctx context.Context, ch channel.Channel, s
 		wg.Add(1)
 		go func(tc ToolUseBlock) {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("agent: panic in parallel tool dispatch", "tool", tc.Name, "panic", r)
+				}
+			}()
 			a.executeToolCall(ctx, ch, sess, target, tc, budgetWarning)
 		}(calls[i])
 	}

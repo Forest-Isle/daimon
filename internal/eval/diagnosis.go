@@ -187,54 +187,54 @@ var builtinRecommendations = map[FailureCategory]struct {
 	detail    string
 }{
 	FailErrorLoopRetry: {
-		action:    "Reduce maxReplans and improve REFLECT prompt",
-		component: "agent/cognitive.go (REFLECT phase)",
-		detail:    "Check maxReplans configuration; optimize REFLECT prompt to better analyze failure causes and avoid repeating the same strategy",
+		action:    "Reduce maxReplans and improve reflect prompt",
+		component: "agent/unified_loop.go (reflect phase)",
+		detail:    "Check maxReplans configuration; optimize reflect prompt to better analyze failure causes and avoid repeating the same strategy",
 	},
 	FailToolMisuse: {
-		action:    "Enhance tool descriptions in PERCEIVE phase",
-		component: "agent/cognitive.go (PERCEIVE phase), evolution/preference.go",
-		detail:    "Strengthen tool description injection during PERCEIVE; leverage evolution engine's tool preference learning to guide selection",
+		action:    "Enhance tool descriptions in perceive/plan_task phase",
+		component: "agent/unified_loop.go (plan_task), evolution/preference.go",
+		detail:    "Strengthen tool description injection during perceive; leverage evolution engine's tool preference learning to guide selection",
 	},
 	FailHallucination: {
-		action:    "Strengthen OBSERVE assertions and system prompt guardrails",
-		component: "agent/assertion.go, system prompt",
-		detail:    "Enhance OBSERVE phase assertions; add explicit instruction in system prompt: 'When uncertain, say you don't know rather than guessing'",
+		action:    "Strengthen observe assertions and system prompt guardrails",
+		component: "agent/unified_loop.go (observe phase), system prompt",
+		detail:    "Enhance observe phase assertions; add explicit instruction in system prompt: 'When uncertain, say you don't know rather than guessing'",
 	},
 	FailPlanningError: {
-		action:    "Optimize PLAN phase prompt with examples",
-		component: "agent/cognitive.go (PLAN phase), context_budget.go",
-		detail:    "Add structured planning examples to PLAN prompt; adjust ContextBudgetAllocator to allocate more context for complex task decomposition",
+		action:    "Optimize plan_task prompt with examples",
+		component: "agent/unified_loop.go (plan_task), agent/task_context.go",
+		detail:    "Add structured planning examples to plan_task prompt; adjust task context allocation for complex task decomposition",
 	},
 	FailTimeout: {
 		action:    "Review timeout configuration and enable task auto-splitting",
-		component: "config (llm.timeout), agent/cognitive.go",
+		component: "config (llm.timeout), agent/unified_loop.go",
 		detail:    "Increase LLM timeout for complex tasks; consider auto-splitting complex tasks via SubAgentManager",
 	},
 	FailIncompleteAnswer: {
-		action:    "Strengthen REFLECT completeness self-check",
-		component: "agent/cognitive.go (REFLECT phase)",
-		detail:    "Add completeness verification to REFLECT prompt; require agent to check all sub-goals before declaring task complete",
+		action:    "Strengthen reflect completeness self-check",
+		component: "agent/unified_loop.go (reflect phase)",
+		detail:    "Add completeness verification to reflect prompt; require agent to check all sub-goals before declaring task complete",
 	},
 	FailContextLost: {
 		action:    "Tune context compression strategy",
 		component: "agent/context_manager.go",
-		detail:    "Check CompressionPipeline thresholds; increase context budget for multi-turn conversations; consider reducing turn_summarization aggressiveness",
+		detail:    "Check CompressionPipeline thresholds; increase context budget for multi-turn conversations; consider reducing summarize aggressiveness",
 	},
 	FailOverEngineering: {
 		action:    "Add YAGNI guidance to system prompt",
-		component: "system prompt, agent/cognitive.go (PLAN phase)",
-		detail:    "Emphasize simplicity in system prompt and PLAN phase; add 'prefer the simplest approach' instruction",
+		component: "system prompt, agent/unified_loop.go (plan_task)",
+		detail:    "Emphasize simplicity in system prompt and plan_task phase; add 'prefer the simplest approach' instruction",
 	},
 	FailErrorNoRecovery: {
-		action:    "Improve error handling in ACT phase",
-		component: "agent/cognitive.go (ACT phase), tool/interceptor.go",
-		detail:    "Add retry guidance to ACT phase; ensure error messages are propagated clearly for REFLECT to analyze",
+		action:    "Improve error handling in DAG execution",
+		component: "agent/act.go (DAG executor), tool/interceptor.go",
+		detail:    "Add retry guidance to DAG executor; ensure error messages are propagated clearly for reflect to analyze",
 	},
 	FailWrongAnswer: {
 		action:    "Add verification step before final answer",
-		component: "agent/cognitive.go (OBSERVE phase)",
-		detail:    "Add explicit answer verification in OBSERVE; cross-check output against task requirements before declaring success",
+		component: "agent/unified_loop.go (observe phase)",
+		detail:    "Add explicit answer verification in observe; cross-check output against task requirements before declaring success",
 	},
 }
 

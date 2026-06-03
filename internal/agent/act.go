@@ -145,22 +145,28 @@ func (e *Executor) RunWithContext(
 						return
 					}
 
-					subtask.Status = SubTaskRunning
-					obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks, taskCtx, plan)
+					func() {
+						defer func() {
+							<-sem // Always release
+							if r := recover(); r != nil {
+								slog.Error("act: panic in DAG worker", "subtask", subtask.ID, "panic", r)
+							}
+						}()
+						subtask.Status = SubTaskRunning
+						obs := e.executeSubTask(ctx, ch, sess, target, subtask, plan.SubTasks, taskCtx, plan)
 
-					<-sem // Release semaphore
+						obsMu.Lock()
+						observations = append(observations, obs)
+						n := int(atomic.AddInt32(&doneCount, 1))
+						obsMu.Unlock()
 
-					obsMu.Lock()
-					observations = append(observations, obs)
-					n := int(atomic.AddInt32(&doneCount, 1))
-					obsMu.Unlock()
+						progressMsg := fmt.Sprintf("[%d/%d] %s... %s",
+							n, total, subtask.Description, statusEmoji(subtask.Status))
+						sendProgress(ctx, ch, target, progressMsg)
 
-					progressMsg := fmt.Sprintf("[%d/%d] %s... %s",
-						n, total, subtask.Description, statusEmoji(subtask.Status))
-					sendProgress(ctx, ch, target, progressMsg)
-
-					// Feed newly-unblocked tasks to the ready channel
-					feedReady(plan.SubTasks, readyCh, taskIndex)
+						// Feed newly-unblocked tasks to the ready channel
+						feedReady(plan.SubTasks, readyCh, taskIndex)
+					}()
 				}
 			}
 		}()

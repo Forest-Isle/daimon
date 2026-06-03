@@ -61,7 +61,7 @@ type Gateway struct {
 	featureStatePath string // path to ~/.IronClaw/feature_state.json
 	healthRegistry   *health.Registry
 	healthSrv        *http.Server
-	currentMode      atomic.Value // stores string: "simple" | "cognitive"
+	currentMode      atomic.Value // stores string: "simple" | "unified"
 	codebaseIndex    *agent.CodebaseIndex
 	stopCh           chan struct{} // closed in Stop() to signal background goroutines
 	stopOnce         sync.Once     // ensures stopCh is closed exactly once
@@ -524,19 +524,19 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	return nil
 }
 
-// CurrentMode returns the active agent mode ("simple" or "cognitive").
+// CurrentMode returns the active agent mode ("simple" or "unified").
 func (gw *Gateway) CurrentMode() string {
 	return gw.currentMode.Load().(string)
 }
 
 // SetMode atomically switches the active agent mode and strategy.
-// Returns an error if mode is not "simple" or "cognitive".
+// Valid modes: "simple", "unified" (also accepts "cognitive" for backward compat).
 func (gw *Gateway) SetMode(mode string) error {
-	if mode != "simple" && mode != "cognitive" {
-		return fmt.Errorf("unknown mode %q: valid modes are simple, cognitive", mode)
+	if mode != "simple" && mode != "unified" && mode != "cognitive" {
+		return fmt.Errorf("unknown mode %q: valid modes are simple, unified", mode)
 	}
 	switch mode {
-	case "cognitive":
+	case "unified", "cognitive": // "cognitive" kept for backward compat
 		if gw.agent != nil {
 			gw.agent.SetStrategy(&agent.UnifiedLoop{})
 		}

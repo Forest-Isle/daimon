@@ -5,7 +5,7 @@ type AgentConfig struct {
 	SystemPrompt         string                     `yaml:"system_prompt"`
 	Personality          string                     `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
 	PersistentRules      string                     `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
-	Mode                 string                     `yaml:"mode"` // "simple" | "cognitive"
+	Mode                 string                     `yaml:"mode"` // "simple" | "unified" (also accepts "cognitive" for backward compat)
 	Cognitive            CognitiveConfig            `yaml:"cognitive"`
 	Compression          CompressionConfig          `yaml:"compression"`
 	SpeculativeExecution SpeculativeExecutionConfig `yaml:"speculative_execution"`
@@ -40,7 +40,7 @@ type CompressionLayers struct {
 	EmergencyPct        int `yaml:"emergency_pct"`
 }
 
-// CognitiveConfig holds configuration for the five-step cognitive agent loop.
+// CognitiveConfig holds configuration for the unified agent loop.
 type CognitiveConfig struct {
 	PlanModel              string  `yaml:"plan_model"`
 	ReflectModel           string  `yaml:"reflect_model"`

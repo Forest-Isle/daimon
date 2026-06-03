@@ -39,7 +39,7 @@ tui:
 
 agent:
   max_iterations: 20
-  mode: simple   # "simple" | "cognitive"
+  mode: simple   # "simple" | "unified" (also accepts "cognitive" for backward compat)
   cognitive:
     # plan_model: ""          # defaults to llm.model if empty
     # reflect_model: ""       # defaults to llm.model if empty
@@ -54,10 +54,9 @@ agent:
   compression:
     strategy: layered
     layers:
-      tool_eviction_pct: 30   # Layer 1: persist large tool results to disk
-      summarize_pct: 50       # Layer 2: LLM-summarize old conversation turns
-      slim_prompt_pct: 70     # Layer 3: trim low-priority context
-      emergency_pct: 90       # Layer 4: drop oldest messages (no LLM call)
+      tool_output_reduce_pct: 30   # Layer 1: reduce tool outputs (truncate + evict)
+      summarize_pct: 60             # Layer 2: LLM summarize old turns
+      emergency_pct: 85             # Layer 3: emergency truncation (soft then hard)
     token_estimate_ratio: 0.25  # chars-to-tokens ratio (4 chars ≈ 1 token)
   system_prompt: |
     You are IronClaw, a helpful AI assistant with access to tools.
@@ -73,7 +72,7 @@ observability:
   endpoint: "localhost:4317" # OTLP gRPC endpoint（otlp_grpc 时生效）
   sample_rate: 1.0           # 采样率 0.0-1.0
 
-# 自进化引擎（认知模式 cognitive 下生效）：偏好学习、技能草稿合成、策略统计调优
+# 自进化引擎（UnifiedLoop 模式下生效）：偏好学习、技能草稿合成、策略统计调优
 # 草稿目录默认 ~/.IronClaw/skills/drafts/，策略文件默认 ~/.IronClaw/evolution/strategy.yaml
 evolution:
   enabled: false

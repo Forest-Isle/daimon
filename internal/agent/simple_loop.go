@@ -24,6 +24,8 @@ func (SimpleLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 		maxIter = 20
 	}
 
+	startTime := time.Now()
+
 	for iteration := 0; iteration < maxIter; iteration++ {
 		slog.Info("agent iteration", "iteration", iteration, "session", sess.ID)
 
@@ -82,6 +84,7 @@ func (SimpleLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 		}
 		if streamErr != nil {
 			_ = updater.Finish("Error: " + streamErr.Error())
+			notifyEpisodeComplete(a, sess, iteration, false, startTime)
 			return fmt.Errorf("llm stream: %w", streamErr)
 		}
 
@@ -94,6 +97,7 @@ func (SimpleLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 			if deltaErr != nil {
 				stream.Close()
 				_ = updater.Finish("Error: " + deltaErr.Error())
+				notifyEpisodeComplete(a, sess, iteration, false, startTime)
 				return fmt.Errorf("stream next: %w", deltaErr)
 			}
 
@@ -129,6 +133,7 @@ func (SimpleLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 			resp, completeErr := a.deps.Core.Provider.Complete(ctx, req)
 			if completeErr != nil {
 				_ = updater.Finish("Error: " + completeErr.Error())
+				notifyEpisodeComplete(a, sess, iteration, false, startTime)
 				return completeErr
 			}
 			fullText = resp.Text
@@ -159,6 +164,7 @@ func (SimpleLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 		// If no tool calls, we're done
 		if len(toolCalls) == 0 {
 			_ = updater.Finish(fullText)
+			notifyEpisodeComplete(a, sess, iteration, true, startTime)
 			return nil
 		}
 
@@ -173,8 +179,12 @@ func (SimpleLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 		for _, tc := range toolCalls {
 			a.executeToolCall(ctx, ch, sess, target, tc, budgetWarning)
 		}
+
+		// Notify evolution engine of loop completion (per-iteration reflection)
+		notifyLoopIteration(a, sess, toolCalls, iteration)
 	}
 
+	notifyEpisodeComplete(a, sess, maxIter, true, startTime)
 	return nil
 }
 
@@ -195,6 +205,7 @@ func computeBudgetPressure(iteration, maxIter int, sess *session.Session, system
 
 // simpleNonStreaming handles the non-streaming fallback path.
 func simpleNonStreaming(ctx context.Context, a *Agent, ch channel.Channel, sess *session.Session, target channel.MessageTarget, systemPrompt string, maxIter int) error {
+	startTime := time.Now()
 	for iteration := 0; iteration < maxIter; iteration++ {
 		budgetWarning := computeBudgetPressure(iteration, maxIter, sess, systemPrompt, a.deps.Memory.ContextMgr)
 
@@ -217,6 +228,7 @@ func simpleNonStreaming(ctx context.Context, a *Agent, ch channel.Channel, sess 
 			}
 		}
 		if err != nil {
+			notifyEpisodeComplete(a, sess, iteration, false, startTime)
 			return err
 		}
 
@@ -237,13 +249,18 @@ func simpleNonStreaming(ctx context.Context, a *Agent, ch channel.Channel, sess 
 			}); sendErr != nil {
 				slog.Warn("failed to send message", "err", sendErr)
 			}
+			notifyEpisodeComplete(a, sess, iteration, true, startTime)
 			return nil
 		}
 
 		for _, tc := range resp.ToolCalls {
 			a.executeToolCall(ctx, ch, sess, target, tc, budgetWarning)
 		}
+
+		// Notify evolution engine of loop completion (per-iteration reflection)
+		notifyLoopIteration(a, sess, resp.ToolCalls, iteration)
 	}
+	notifyEpisodeComplete(a, sess, maxIter, true, startTime)
 	return nil
 }
 
