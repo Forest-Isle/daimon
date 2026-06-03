@@ -20,6 +20,9 @@ type Planner struct {
 	llmModel string
 }
 
+// SetModel updates the LLM model used for planning.
+func (p *Planner) SetModel(model string) { p.llmModel = model }
+
 // NewPlanner creates a new Planner.
 func NewPlanner(provider Provider, tools *tool.Registry, cfg config.CognitiveConfig, llmModel string) *Planner {
 	model := cfg.PlanModel

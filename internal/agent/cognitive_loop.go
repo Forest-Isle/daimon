@@ -137,6 +137,16 @@ func (cl *CognitiveLoop) SetEntityExtractor(ee *graph.LLMEntityExtractor) {
 	cl.reflector.SetEntityExtractor(ee)
 }
 
+// SetModel updates the LLM model on all cognitive loop components.
+func (cl *CognitiveLoop) SetModel(model string) {
+	if cl.planner != nil {
+		cl.planner.SetModel(model)
+	}
+	if cl.reflector != nil {
+		cl.reflector.SetModel(model)
+	}
+}
+
 func (cl *CognitiveLoop) applyOptions(opts *CognitiveAgentOptions) {
 	if opts == nil {
 		return

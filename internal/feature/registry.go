@@ -235,6 +235,11 @@ func (r *Registry) Enable(ctx context.Context, name string) error {
 	}
 
 	r.mu.Lock()
+	// RE-CHECK: another goroutine may have enabled it while lock was released
+	if st.enabled {
+		r.mu.Unlock()
+		return nil
+	}
 	st.enabled = true
 	st.reason = "enabled at runtime"
 	r.mu.Unlock()
@@ -279,6 +284,11 @@ func (r *Registry) Disable(ctx context.Context, name string) error {
 	}
 
 	r.mu.Lock()
+	// RE-CHECK: another goroutine may have disabled it while lock was released
+	if !st.enabled {
+		r.mu.Unlock()
+		return nil
+	}
 	st.enabled = false
 	st.reason = "disabled at runtime"
 	r.mu.Unlock()

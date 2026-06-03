@@ -212,7 +212,7 @@ func (gw *Gateway) bindFeatureLifecycleHooks() {
 			continue
 		}
 		serverName := strings.TrimPrefix(srv.Name, "mcp_")
-		srvCfg, ok := gw.cfg.Tools.MCP.Servers[serverName]
+		srvCfg, ok := gw.Config().Tools.MCP.Servers[serverName]
 		if !ok {
 			continue
 		}

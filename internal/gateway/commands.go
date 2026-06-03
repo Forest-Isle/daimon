@@ -70,10 +70,10 @@ func (gw *Gateway) handleTeam(ctx context.Context, _ channel.Channel, msg channe
 
 	prompt := fmt.Sprintf(taskledger.TeamPlanPrompt, goal)
 	req := agent.CompletionRequest{
-		Model:     gw.cfg.LLM.Model,
+		Model:     gw.agent.Model(),
 		System:    "You are a task planning assistant. Output only valid JSON.",
 		Messages:  []agent.CompletionMessage{{Role: "user", Content: prompt}},
-		MaxTokens: gw.cfg.LLM.MaxTokens,
+		MaxTokens: gw.Config().LLM.MaxTokens,
 	}
 	resp, err := gw.provider.Complete(ctx, req)
 	if err != nil {
@@ -234,11 +234,12 @@ func (gw *Gateway) featureListString() string {
 func (gw *Gateway) handleConfig(ctx context.Context, _ channel.Channel, _ channel.InboundMessage) (string, error) {
 	var b strings.Builder
 	b.WriteString("**Configuration**\n\n")
-	fmt.Fprintf(&b, "  Provider:       %s\n", gw.cfg.LLM.Provider)
-	fmt.Fprintf(&b, "  Model:          %s\n", gw.cfg.LLM.Model)
-	fmt.Fprintf(&b, "  Max Tokens:     %d\n", gw.cfg.LLM.MaxTokens)
+	cfg := gw.Config()
+	fmt.Fprintf(&b, "  Provider:       %s\n", cfg.LLM.Provider)
+	fmt.Fprintf(&b, "  Model:          %s\n", gw.agent.Model())
+	fmt.Fprintf(&b, "  Max Tokens:     %d\n", cfg.LLM.MaxTokens)
 	fmt.Fprintf(&b, "  Agent Mode:     %s\n", gw.currentMode.Load().(string))
-	fmt.Fprintf(&b, "  Max Iterations: %d\n", gw.cfg.Agent.MaxIterations)
+	fmt.Fprintf(&b, "  Max Iterations: %d\n", cfg.Agent.MaxIterations)
 
 	if gw.features != nil {
 		enabled := 0
@@ -290,14 +291,13 @@ func (gw *Gateway) handleModel(ctx context.Context, _ channel.Channel, msg chann
 	args = strings.TrimSpace(args)
 
 	if args == "" {
-		return fmt.Sprintf("Model: %s (provider: %s)", gw.cfg.LLM.Model, gw.cfg.LLM.Provider), nil
+		return fmt.Sprintf("Model: %s (provider: %s)", gw.agent.Model(), gw.Config().LLM.Provider), nil
 	}
 
-	old := gw.cfg.LLM.Model
-	gw.cfg.LLM.Model = args
+	old := gw.agent.Model()
 	gw.agent.SetModel(args)
 	if gw.cognitiveLoop != nil {
-		gw.agent.SetModel(args)
+		gw.cognitiveLoop.SetModel(args)
 	}
 	return fmt.Sprintf("Model switched: %s → %s", old, args), nil
 }

@@ -96,6 +96,8 @@ func (s *Session) SetParentSessionID(parentID string) {
 
 // ParentSessionIDOrNull returns the parent session ID as sql.NullString for DB operations.
 func (s *Session) ParentSessionIDOrNull() interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if s.ParentSessionID == "" {
 		return nil
 	}

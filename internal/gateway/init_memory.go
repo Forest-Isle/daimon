@@ -17,31 +17,32 @@ func (gw *Gateway) initMemorySystem() error {
 		return nil
 	}
 
+	cfg := gw.Config()
 	var embedder memory.EmbeddingProvider = &memory.NoopEmbedding{}
-	if gw.cfg.Memory.OpenAIAPIKey != "" {
-		baseEmbedder := memory.NewOpenAIEmbeddingWithURL(gw.cfg.Memory.OpenAIAPIKey, gw.cfg.Memory.EmbeddingModel, gw.cfg.Memory.EmbeddingBaseURL)
+	if cfg.Memory.OpenAIAPIKey != "" {
+		baseEmbedder := memory.NewOpenAIEmbeddingWithURL(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel, cfg.Memory.EmbeddingBaseURL)
 		embedder = memory.NewCachedEmbedder(baseEmbedder)
 		slog.Info("memory: cached embedder enabled")
 	}
 	gw.memory.embedder = embedder
 	memCfg := memory.MemoryConfig{
-		FactExtraction:           gw.cfg.Memory.FactExtraction,
-		SimilarityThreshold:      gw.cfg.Memory.SimilarityThreshold,
-		ConsolidationInterval:    gw.cfg.Memory.ConsolidationInterval,
-		BM25Weight:               gw.cfg.Memory.BM25Weight,
-		VectorWeight:             gw.cfg.Memory.VectorWeight,
-		EnableVSS:                gw.cfg.Memory.EnableVSS,
-		VectorDimension:          gw.cfg.Memory.VectorDimension,
-		EnableSearchCache:        gw.cfg.Memory.EnableSearchCache,
-		SearchCacheSize:          gw.cfg.Memory.SearchCacheSize,
-		SearchCacheTTL:           gw.cfg.Memory.SearchCacheTTL,
-		ReflectionCountThreshold: gw.cfg.Memory.ReflectionCountThreshold,
-		ReflectionDriftThreshold: gw.cfg.Memory.ReflectionDriftThreshold,
-		ReflectionL2Trigger:      gw.cfg.Memory.ReflectionL2Trigger,
+		FactExtraction:           cfg.Memory.FactExtraction,
+		SimilarityThreshold:      cfg.Memory.SimilarityThreshold,
+		ConsolidationInterval:    cfg.Memory.ConsolidationInterval,
+		BM25Weight:               cfg.Memory.BM25Weight,
+		VectorWeight:             cfg.Memory.VectorWeight,
+		EnableVSS:                cfg.Memory.EnableVSS,
+		VectorDimension:          cfg.Memory.VectorDimension,
+		EnableSearchCache:        cfg.Memory.EnableSearchCache,
+		SearchCacheSize:          cfg.Memory.SearchCacheSize,
+		SearchCacheTTL:           cfg.Memory.SearchCacheTTL,
+		ReflectionCountThreshold: cfg.Memory.ReflectionCountThreshold,
+		ReflectionDriftThreshold: cfg.Memory.ReflectionDriftThreshold,
+		ReflectionL2Trigger:      cfg.Memory.ReflectionL2Trigger,
 	}
 
 	// File-based storage
-	storageDir := gw.cfg.Memory.StorageDir
+	storageDir := cfg.Memory.StorageDir
 	if storageDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -67,12 +68,12 @@ func (gw *Gateway) initMemorySystem() error {
 	slog.Info("memory: file-based storage enabled", "dir", storageDir)
 
 	// Wrap with search cache if enabled
-	if gw.cfg.Memory.EnableSearchCache {
-		cacheSize := gw.cfg.Memory.SearchCacheSize
+	if cfg.Memory.EnableSearchCache {
+		cacheSize := cfg.Memory.SearchCacheSize
 		if cacheSize <= 0 {
 			cacheSize = 500
 		}
-		cacheTTL := gw.cfg.Memory.SearchCacheTTL
+		cacheTTL := cfg.Memory.SearchCacheTTL
 		if cacheTTL <= 0 {
 			cacheTTL = 5 * time.Minute
 		}
@@ -87,8 +88,8 @@ func (gw *Gateway) initMemorySystem() error {
 	// Initialize forgetting curve manager
 	forgettingCurve := memory.NewForgettingCurveManager(gw.db)
 
-	if gw.cfg.Memory.FactExtraction {
-		completer := &completerAdapter{provider: gw.provider, model: gw.cfg.LLM.Model}
+	if cfg.Memory.FactExtraction {
+		completer := &completerAdapter{provider: gw.provider, model: cfg.LLM.Model}
 		gw.memory.factExtractor = memory.NewLLMFactExtractor(completer, memCfg)
 
 		// Create reflection tracker for automatic L1/L2 reflections
@@ -130,7 +131,7 @@ func (gw *Gateway) initMemorySystem() error {
 	slog.Info("memory: memory_manage tool registered")
 
 	// Start consolidator background task (promotes session facts to user scope)
-	gw.memory.consolidator = memory.NewConsolidator(gw.memory.memStore, gw.db.DB, storageDir, gw.cfg.Memory.ConsolidationInterval)
+	gw.memory.consolidator = memory.NewConsolidator(gw.memory.memStore, gw.db.DB, storageDir, cfg.Memory.ConsolidationInterval)
 	gw.memory.consolidator.Start(gw.initCtx)
 	slog.Info("memory: consolidator enabled")
 

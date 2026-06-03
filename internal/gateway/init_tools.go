@@ -18,29 +18,30 @@ import (
 func (gw *Gateway) initToolsAndHooks() error {
 	// Tool registry
 	gw.tools = tool.NewRegistry()
-	policy := tool.NewPolicy(gw.cfg.Tools.Bash.BlockedCommands)
+	cfg := gw.Config()
+	policy := tool.NewPolicy(cfg.Tools.Bash.BlockedCommands)
 
-	if gw.cfg.Tools.Bash.Enabled {
-		gw.tools.Register(tool.NewBashTool(gw.cfg.Tools.Bash.Timeout, gw.cfg.Tools.Bash.RequiresApproval, policy))
+	if cfg.Tools.Bash.Enabled {
+		gw.tools.Register(tool.NewBashTool(cfg.Tools.Bash.Timeout, cfg.Tools.Bash.RequiresApproval, policy))
 		gw.tools.Register(tool.NewTestRunTool("."))
 	}
-	if gw.cfg.Tools.File.Enabled {
+	if cfg.Tools.File.Enabled {
 		gw.tools.Register(tool.NewFileReadTool())
-		gw.tools.Register(tool.NewFileWriteTool(gw.cfg.Tools.File.RequiresApproval))
-		gw.tools.Register(tool.NewFileEditTool(gw.cfg.Tools.File.RequiresApproval))
+		gw.tools.Register(tool.NewFileWriteTool(cfg.Tools.File.RequiresApproval))
+		gw.tools.Register(tool.NewFileEditTool(cfg.Tools.File.RequiresApproval))
 		gw.tools.Register(tool.NewFilePatchTool("."))
 		gw.tools.Register(tool.NewFileListTool())
 		gw.tools.Register(tool.NewGrepCodeTool("."))
 		gw.tools.Register(tool.NewFindSymbolTool("."))
 		gw.tools.Register(tool.NewListImportsTool("."))
 	}
-	if gw.cfg.Tools.HTTP.Enabled {
-		gw.tools.Register(tool.NewHTTPTool(gw.cfg.Tools.HTTP.Timeout, gw.cfg.Tools.HTTP.RequiresApproval))
+	if cfg.Tools.HTTP.Enabled {
+		gw.tools.Register(tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval))
 	}
-	if gw.cfg.Tools.Browser.Enabled {
-		gw.tools.Register(tool.NewBrowserTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
-		gw.tools.Register(tool.NewBrowserSearchTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
-		gw.tools.Register(tool.NewBrowserExtractTool(gw.cfg.Tools.Browser.Timeout, gw.cfg.Tools.Browser.RequiresApproval))
+	if cfg.Tools.Browser.Enabled {
+		gw.tools.Register(tool.NewBrowserTool(cfg.Tools.Browser.Timeout, cfg.Tools.Browser.RequiresApproval))
+		gw.tools.Register(tool.NewBrowserSearchTool(cfg.Tools.Browser.Timeout, cfg.Tools.Browser.RequiresApproval))
+		gw.tools.Register(tool.NewBrowserExtractTool(cfg.Tools.Browser.Timeout, cfg.Tools.Browser.RequiresApproval))
 	}
 	if gw.codebaseIndex == nil {
 		gw.codebaseIndex = newCodebaseIndexFromConfig(gw)
@@ -80,7 +81,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 		worktree.RegisterTools(gw.tools, ".")
 	}
 	// Hook event system
-	hookCfg := gw.cfg.Hooks
+	hookCfg := cfg.Hooks
 	preToolUseCfg := make([]hook.HandlerConfig, len(hookCfg.PreToolUse))
 	for i, h := range hookCfg.PreToolUse {
 		preToolUseCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
@@ -109,13 +110,13 @@ func (gw *Gateway) initToolsAndHooks() error {
 	}
 
 	// Permission engine
-	permRules := make([]tool.PermissionRule, len(gw.cfg.Permissions.Rules))
-	for i, r := range gw.cfg.Permissions.Rules {
+	permRules := make([]tool.PermissionRule, len(cfg.Permissions.Rules))
+	for i, r := range cfg.Permissions.Rules {
 		permRules[i] = tool.PermissionRule{
 			Tool: r.Tool, Pattern: r.Pattern, PathPattern: r.PathPattern, Action: r.Action,
 		}
 	}
-	gw.permEngine = tool.NewPermissionEngine(permRules, gw.cfg.Permissions.Default, policy)
+	gw.permEngine = tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
 
 	// Sandbox components
 	var fileGuard *sandbox.FileGuard
@@ -123,32 +124,32 @@ func (gw *Gateway) initToolsAndHooks() error {
 	sandboxEnabled := gw.featureEnabled("sandbox")
 
 	if sandboxEnabled {
-		if len(gw.cfg.Sandbox.AllowedDirectories) > 0 {
+		if len(cfg.Sandbox.AllowedDirectories) > 0 {
 			var err error
-			fileGuard, err = sandbox.NewFileGuard(gw.cfg.Sandbox.AllowedDirectories, gw.cfg.Sandbox.ReadonlyDirectories)
+			fileGuard, err = sandbox.NewFileGuard(cfg.Sandbox.AllowedDirectories, cfg.Sandbox.ReadonlyDirectories)
 			if err != nil {
 				slog.Warn("sandbox: FileGuard init failed, disabled", "err", err)
 			}
 		}
 		networkPolicy = sandbox.NewNetworkPolicy(
-			gw.cfg.Sandbox.Network.Mode,
-			gw.cfg.Sandbox.Network.Whitelist,
-			gw.cfg.Sandbox.Network.Blacklist,
+			cfg.Sandbox.Network.Mode,
+			cfg.Sandbox.Network.Whitelist,
+			cfg.Sandbox.Network.Blacklist,
 		)
-		if gw.cfg.Sandbox.Bash.Backend == "docker" {
+		if cfg.Sandbox.Bash.Backend == "docker" {
 			sandbox.CleanupOrphans(gw.initCtx)
 			available := sandbox.ProbeDocker(gw.initCtx)
 			if !available {
 				slog.Warn("sandbox: Docker not available, bash will run on host")
 			}
 			gw.sandbox.dockerSessionMgr = sandbox.NewDockerSessionManager(sandbox.DockerSessionConfig{
-				Image:        gw.cfg.Sandbox.Bash.Docker.Image,
-				NetworkMode:  gw.cfg.Sandbox.Bash.Docker.Network,
-				MemoryLimit:  gw.cfg.Sandbox.Bash.Docker.MemoryLimit,
-				CPULimit:     gw.cfg.Sandbox.Bash.Docker.CPULimit,
-				AllowedDirs:  gw.cfg.Sandbox.AllowedDirectories,
-				ReadonlyDirs: gw.cfg.Sandbox.ReadonlyDirectories,
-				IdleTimeout:  gw.cfg.Sandbox.Bash.Docker.IdleTimeout,
+				Image:        cfg.Sandbox.Bash.Docker.Image,
+				NetworkMode:  cfg.Sandbox.Bash.Docker.Network,
+				MemoryLimit:  cfg.Sandbox.Bash.Docker.MemoryLimit,
+				CPULimit:     cfg.Sandbox.Bash.Docker.CPULimit,
+				AllowedDirs:  cfg.Sandbox.AllowedDirectories,
+				ReadonlyDirs: cfg.Sandbox.ReadonlyDirectories,
+				IdleTimeout:  cfg.Sandbox.Bash.Docker.IdleTimeout,
 			}, available)
 		}
 	}
@@ -169,7 +170,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 		newUserHookInterceptor(gw.userHookMgr),
 		tool.NewSandboxInterceptor(gw.sandbox.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
 	}
-	if gw.cfg.Tools.Verify.Enabled {
+	if cfg.Tools.Verify.Enabled {
 		interceptors = append(interceptors, verifyInterceptor)
 	}
 	if auditInterceptor != nil {
@@ -202,22 +203,23 @@ func (a memoryEmbeddingAdapter) Embed(ctx context.Context, text string) ([]float
 }
 
 func newCodebaseIndexFromConfig(gw *Gateway) *agent.CodebaseIndex {
-	if gw.cfg.Memory.OpenAIAPIKey == "" {
+	cfg := gw.Config()
+	if cfg.Memory.OpenAIAPIKey == "" {
 		return agent.NewCodebaseIndex(nil, agent.IndexConfig{
 			ChunkSize:      50,
 			Overlap:        10,
-			EmbeddingModel: gw.cfg.Memory.EmbeddingModel,
+			EmbeddingModel: cfg.Memory.EmbeddingModel,
 		})
 	}
 	provider := memory.NewCachedEmbedder(memory.NewOpenAIEmbeddingWithURL(
-		gw.cfg.Memory.OpenAIAPIKey,
-		gw.cfg.Memory.EmbeddingModel,
-		gw.cfg.Memory.EmbeddingBaseURL,
+		cfg.Memory.OpenAIAPIKey,
+		cfg.Memory.EmbeddingModel,
+		cfg.Memory.EmbeddingBaseURL,
 	))
 	return agent.NewCodebaseIndex(memoryEmbeddingAdapter{provider: provider}, agent.IndexConfig{
 		ChunkSize:      50,
 		Overlap:        10,
-		EmbeddingModel: gw.cfg.Memory.EmbeddingModel,
+		EmbeddingModel: cfg.Memory.EmbeddingModel,
 	})
 }
 

@@ -18,7 +18,7 @@ func (gw *Gateway) startHealthServer() {
 		return
 	}
 
-	port := gw.cfg.Health.Port
+	port := gw.Config().Health.Port
 	if port <= 0 {
 		port = 9090
 	}

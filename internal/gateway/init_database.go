@@ -8,7 +8,7 @@ import (
 )
 
 func (gw *Gateway) initDatabase() error {
-	db, err := store.Open(gw.cfg.Store.Path)
+	db, err := store.Open(gw.Config().Store.Path)
 	if err != nil {
 		return ierrors.Wrap(err, ierrors.KindUnavailable, "failed to open database")
 	}

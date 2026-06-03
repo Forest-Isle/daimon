@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
@@ -31,7 +32,7 @@ type Adapter struct {
 	approvalTimeoutSecs int
 
 	// autoApprove, when true, skips interactive approval for all subsequent requests.
-	autoApprove bool
+	autoApprove atomic.Bool
 }
 
 func New(token string, allowedUserIDs []int64, timeoutSecs ...int) (*Adapter, error) {
@@ -187,7 +188,7 @@ func (a *Adapter) handleCallback(data string) {
 
 	// Handle always-approve: set flag and approve current request
 	if action == "always_approve" {
-		a.autoApprove = true
+		a.autoApprove.Store(true)
 		if v, ok := a.pendingApprovals.Load(key); ok {
 			ch := v.(chan bool)
 			select {
@@ -259,7 +260,7 @@ func (a *Adapter) Stop(_ context.Context) error {
 // SendApprovalRequest sends a Telegram inline keyboard for tool approval and
 // blocks until the user responds or the timeout expires.
 func (a *Adapter) SendApprovalRequest(ctx context.Context, target channel.MessageTarget, toolName string, input string) (bool, error) {
-	if a.autoApprove {
+	if a.autoApprove.Load() {
 		return true, nil
 	}
 

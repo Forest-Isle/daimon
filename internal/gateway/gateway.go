@@ -39,6 +39,7 @@ import (
 // Gateway is the central coordinator that wires all modules together.
 type Gateway struct {
 	cfg              *config.Config
+	cfgMu            sync.RWMutex // protects cfg reads/writes (hot-reload swaps the pointer)
 	cfgPath          string
 	configWatcher    *config.ConfigWatcher
 	db               *store.DB
@@ -249,8 +250,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 				SystemPrompt:  "You are an agent executing a specific task. Be concise and focused.",
 				MaxIterations: 10,
 			}
-			if gw.cfg.Agent.Team.Model != "" {
-				spec.Model = gw.cfg.Agent.Team.Model
+			cfg := gw.Config()
+			if cfg.Agent.Team.Model != "" {
+				spec.Model = cfg.Agent.Team.Model
 			}
 			_ = spec.Validate()
 			result, err := gw.tasks.SubAgentManager().Spawn(ctx, agent.SpawnRequest{
@@ -329,7 +331,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	if gw.configWatcher != nil {
 		gw.configWatcher.OnReload(func(newCfg *config.Config) {
 			// Update the gateway's config pointer so all subsystems see the new values.
+			gw.cfgMu.Lock()
 			gw.cfg = newCfg
+			gw.cfgMu.Unlock()
 			// Update LLM model on agent
 			if gw.agent != nil {
 				gw.agent.SetModel(newCfg.LLM.Model)
@@ -349,6 +353,14 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	return gw, nil
 }
 
+// Config returns the current configuration snapshot under a read lock.
+// Callers must NOT modify the returned pointer — it is shared across all readers.
+func (gw *Gateway) Config() *config.Config {
+	gw.cfgMu.RLock()
+	defer gw.cfgMu.RUnlock()
+	return gw.cfg
+}
+
 // AddChannel registers a channel adapter. Call before Start().
 func (gw *Gateway) AddChannel(ch channel.Channel) {
 	gw.channels.channels[ch.Name()] = ch
@@ -361,10 +373,11 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 	// Start MCP servers asynchronously — npx/uvx process startup can take
 	// several seconds and should not block the TUI from appearing.
-	if len(gw.cfg.Tools.MCP.Servers) > 0 {
+	if len(gw.Config().Tools.MCP.Servers) > 0 {
 		go func() {
 			var wg sync.WaitGroup
-			for name, srv := range gw.cfg.Tools.MCP.Servers {
+			cfg := gw.Config()
+			for name, srv := range cfg.Tools.MCP.Servers {
 				name, srv := name, srv
 				wg.Add(1)
 				go func() {
@@ -418,7 +431,7 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 	// Start HTTP admin server if enabled (standalone only — dashboard has its own server)
 	if gw.features.IsEnabled("server") && !gw.featureEnabled("dashboard") {
-		go startHTTPServer(gw.cfg.Server.Addr, gw.db)
+		go startHTTPServer(gw.Config().Server.Addr, gw.db)
 	}
 
 	// Start stale task detector
@@ -470,7 +483,7 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 	// Persist evolution state and stop engine (only when feature was enabled)
 	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {
 		prefPath := ""
-		if p, err := gw.resolveEvolutionPreferencePath(gw.cfg.Evolution.PreferenceFile); err == nil {
+		if p, err := gw.resolveEvolutionPreferencePath(gw.Config().Evolution.PreferenceFile); err == nil {
 			prefPath = p
 		}
 		gw.evolution.Engine().SaveState(prefPath)
@@ -709,7 +722,7 @@ func (n *noopKBEmbedder) Dimensions() int {
 // watchMCPDir periodically scans ~/.IronClaw/mcp/ and syncs MCP servers.
 // New yaml files trigger server startup; removed files trigger shutdown.
 func (gw *Gateway) watchMCPDir(ctx context.Context) {
-	pollInterval := gw.cfg.Tools.MCP.PollInterval
+	pollInterval := gw.Config().Tools.MCP.PollInterval
 	if pollInterval <= 0 {
 		pollInterval = 30 * time.Second
 	}
@@ -726,7 +739,8 @@ func (gw *Gateway) watchMCPDir(ctx context.Context) {
 				desired = make(map[string]config.MCPServerConfig)
 			}
 			// Merge project-level MCP config (project config always takes priority).
-			for name, srv := range gw.cfg.Tools.MCP.Servers {
+			cfg := gw.Config()
+		for name, srv := range cfg.Tools.MCP.Servers {
 				desired[name] = srv
 			}
 			gw.mcpManager.SyncServers(ctx, desired, gw.tools)
@@ -817,12 +831,13 @@ func (gw *Gateway) handleTeamCommand(ctx context.Context, goal string) string {
 		return "Team mode is not enabled. Set agent.team.enabled: true in config."
 	}
 
+	cfg := gw.Config()
 	prompt := fmt.Sprintf(taskledger.TeamPlanPrompt, goal)
 	req := agent.CompletionRequest{
-		Model:     gw.cfg.LLM.Model,
+		Model:     gw.agent.Model(),
 		System:    "You are a task planning assistant. Output only valid JSON.",
 		Messages:  []agent.CompletionMessage{{Role: "user", Content: prompt}},
-		MaxTokens: gw.cfg.LLM.MaxTokens,
+		MaxTokens: cfg.LLM.MaxTokens,
 	}
 	resp, err := gw.provider.Complete(ctx, req)
 	if err != nil {
@@ -889,11 +904,12 @@ func (gw *Gateway) handleModeCommand(arg string) string {
 // executeTeamTask runs a single team task by creating a temporary session
 // and routing through the main agent runtime.
 func (gw *Gateway) executeTeamTask(ctx context.Context, task taskledger.Task) (string, error) {
+	cfg := gw.Config()
 	req := agent.CompletionRequest{
-		Model:     gw.cfg.LLM.Model,
+		Model:     gw.agent.Model(),
 		System:    "You are an agent executing a specific task. Be concise and focused.",
 		Messages:  []agent.CompletionMessage{{Role: "user", Content: task.Description}},
-		MaxTokens: gw.cfg.LLM.MaxTokens,
+		MaxTokens: cfg.LLM.MaxTokens,
 	}
 	resp, err := gw.provider.Complete(ctx, req)
 	if err != nil {
@@ -904,17 +920,18 @@ func (gw *Gateway) executeTeamTask(ctx context.Context, task taskledger.Task) (s
 
 // initRateLimiter creates the rate limiter based on config.
 func (gw *Gateway) initRateLimiter() {
-	if !gw.cfg.RateLimit.Enabled {
+	cfg := gw.Config()
+	if !cfg.RateLimit.Enabled {
 		gw.observability.rateLimiter = ratelimit.NoopLimiter{}
 		slog.Info("rate limiting disabled")
 		return
 	}
 
-	rate := gw.cfg.RateLimit.RequestsPerSec
+	rate := cfg.RateLimit.RequestsPerSec
 	if rate <= 0 {
 		rate = 10
 	}
-	burst := gw.cfg.RateLimit.Burst
+	burst := cfg.RateLimit.Burst
 	if burst <= 0 {
 		burst = 20
 	}

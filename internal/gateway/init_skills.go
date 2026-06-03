@@ -20,7 +20,7 @@ func (gw *Gateway) initSkillManager() error {
 	if err := gw.skillMgr.LoadDir(userSkillsDir); err != nil {
 		slog.Warn("gateway: failed to load user skills", "dir", userSkillsDir, "err", err)
 	}
-	for _, dir := range gw.cfg.Skills.ExtraDirs {
+	for _, dir := range gw.Config().Skills.ExtraDirs {
 		if err := gw.skillMgr.LoadDir(dir); err != nil {
 			slog.Warn("gateway: failed to load extra skills dir", "dir", dir, "err", err)
 		}

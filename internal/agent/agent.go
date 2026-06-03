@@ -61,6 +61,9 @@ func (a *Agent) SetApprovalFunc(fn ApprovalFunc) { a.approvalFn = fn }
 // SetModel updates the LLM model.
 func (a *Agent) SetModel(model string) { a.deps.Core.LLMCfg.Model = model }
 
+// Model returns the current LLM model.
+func (a *Agent) Model() string { return a.deps.Core.LLMCfg.Model }
+
 // EventBus returns the agent's event bus for external subscribers.
 func (a *Agent) EventBus() EventBus { return a.eventBus }
 

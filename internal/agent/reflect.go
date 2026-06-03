@@ -32,6 +32,9 @@ type Reflector struct {
 	memoryNotify   MemoryNotifyFunc // optional notification callback
 }
 
+// SetModel updates the LLM model used for reflection.
+func (r *Reflector) SetModel(model string) { r.llmModel = model }
+
 // NewReflector creates a new Reflector.
 func NewReflector(
 	provider Provider,

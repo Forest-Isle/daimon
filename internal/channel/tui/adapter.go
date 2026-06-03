@@ -26,7 +26,7 @@ type Adapter struct {
 	version      string
 	channelID    string // unique per launch so each TUI invocation gets a fresh session
 	dashboardURL string
-	autoApprove  bool
+	autoApprove  atomic.Bool
 	argCompleter ArgCompleter // optional dynamic argument completer
 
 	// approvalTimeout is the max time to wait for the user to respond
@@ -66,7 +66,7 @@ func (a *Adapter) SetApprovalTimeout(d time.Duration) {
 
 // SetAutoApprove disables interactive approval prompts.
 func (a *Adapter) SetAutoApprove(v bool) {
-	a.autoApprove = v
+	a.autoApprove.Store(v)
 }
 
 // SetDashboardURL stores the web dashboard URL so it can be shown in the TUI header.
@@ -238,7 +238,7 @@ func (a *Adapter) Stop(_ context.Context) error {
 // ---------- channel.ApprovalSender ----------
 
 func (a *Adapter) SendApprovalRequest(ctx context.Context, target channel.MessageTarget, toolName string, input string) (bool, error) {
-	if a.autoApprove {
+	if a.autoApprove.Load() {
 		return true, nil
 	}
 	if a.program == nil {
@@ -337,7 +337,7 @@ type modelWrapper struct {
 func (w *modelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Intercept setAutoApproveMsg to enable auto-approve in the adapter
 	if _, ok := msg.(setAutoApproveMsg); ok {
-		w.adapter.autoApprove = true
+		w.adapter.autoApprove.Store(true)
 		slog.Info("tui: auto-approve enabled by user")
 	}
 

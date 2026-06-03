@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
@@ -30,7 +31,7 @@ type Adapter struct {
 	approvalTimeoutSec int
 
 	// autoApprove, when true, skips interactive approval for all subsequent requests.
-	autoApprove bool
+	autoApprove atomic.Bool
 }
 
 // Config holds the configuration for the Discord adapter.
@@ -214,7 +215,7 @@ func (a *Adapter) onInteractionCreate(s *discordgo.Session, i *discordgo.Interac
 
 	// Always approve
 	case "always_approve":
-		a.autoApprove = true
+		a.autoApprove.Store(true)
 		if v, ok := a.pendingApprovals.Load(key); ok {
 			ch := v.(chan bool)
 			select {
@@ -264,7 +265,7 @@ func (a *Adapter) onInteractionCreate(s *discordgo.Session, i *discordgo.Interac
 // SendApprovalRequest sends a Discord message with approve/deny buttons and
 // blocks until the user responds or the timeout expires.
 func (a *Adapter) SendApprovalRequest(ctx context.Context, target channel.MessageTarget, toolName string, input string) (bool, error) {
-	if a.autoApprove {
+	if a.autoApprove.Load() {
 		return true, nil
 	}
 

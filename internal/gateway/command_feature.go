@@ -115,11 +115,12 @@ func (gw *Gateway) findFeatureInfo(name string) *feature.FeatureInfo {
 func (gw *Gateway) handleConfigCommand(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) {
 	var b strings.Builder
 	b.WriteString("**Configuration**\n\n")
-	fmt.Fprintf(&b, "  Provider:       %s\n", gw.cfg.LLM.Provider)
-	fmt.Fprintf(&b, "  Model:          %s\n", gw.cfg.LLM.Model)
-	fmt.Fprintf(&b, "  Max Tokens:     %d\n", gw.cfg.LLM.MaxTokens)
+	cfg := gw.Config()
+	fmt.Fprintf(&b, "  Provider:       %s\n", cfg.LLM.Provider)
+	fmt.Fprintf(&b, "  Model:          %s\n", gw.agent.Model())
+	fmt.Fprintf(&b, "  Max Tokens:     %d\n", cfg.LLM.MaxTokens)
 	fmt.Fprintf(&b, "  Agent Mode:     %s\n", gw.currentMode.Load().(string))
-	fmt.Fprintf(&b, "  Max Iterations: %d\n", gw.cfg.Agent.MaxIterations)
+	fmt.Fprintf(&b, "  Max Iterations: %d\n", cfg.Agent.MaxIterations)
 
 	if gw.features != nil {
 		enabled := 0
@@ -173,15 +174,14 @@ func (gw *Gateway) handleCompactCommand(ctx context.Context, ch channel.Channel,
 // handleModelCommand shows or switches the current LLM model.
 func (gw *Gateway) handleModelCommand(ctx context.Context, ch channel.Channel, msg channel.InboundMessage, args string) {
 	if args == "" {
-		gw.sendReply(ctx, ch, msg, fmt.Sprintf("Model: %s (provider: %s)", gw.cfg.LLM.Model, gw.cfg.LLM.Provider))
+		gw.sendReply(ctx, ch, msg, fmt.Sprintf("Model: %s (provider: %s)", gw.agent.Model(), gw.Config().LLM.Provider))
 		return
 	}
 
-	old := gw.cfg.LLM.Model
-	gw.cfg.LLM.Model = args
+	old := gw.agent.Model()
 	gw.agent.SetModel(args)
 	if gw.cognitiveLoop != nil {
-		gw.agent.SetModel(args)
+		gw.cognitiveLoop.SetModel(args)
 	}
 	gw.sendReply(ctx, ch, msg, fmt.Sprintf("Model switched: %s → %s", old, args))
 }

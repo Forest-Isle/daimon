@@ -8,6 +8,7 @@ import (
 )
 
 func (gw *Gateway) initMultiAgent() error {
+	cfg := gw.Config()
 	// Multi-agent system
 	if gw.featureEnabled("multi_agent") {
 		// Set MultiAgent deps on gw.agentDeps first, then create SubAgentManager
@@ -27,7 +28,7 @@ func (gw *Gateway) initMultiAgent() error {
 
 		// Agent orchestrator for parallel scheduling
 		orchestrator := agent.NewAgentOrchestrator(agent.NewAgentManager(
-			gw.provider, gw.sessions, gw.db, gw.memory.Store(), gw.tools, gw.cfg.Agent, gw.cfg.LLM,
+			gw.provider, gw.sessions, gw.db, gw.memory.Store(), gw.tools, cfg.Agent, cfg.LLM,
 		), 4)
 		gw.agentDeps.MultiAgent.Orchestrator = orchestrator
 
@@ -41,16 +42,16 @@ func (gw *Gateway) initMultiAgent() error {
 
 		// Agent manager for loading agent specs
 		agentMgr := agent.NewAgentManager(
-			gw.provider, gw.sessions, gw.db, gw.memory.Store(), gw.tools, gw.cfg.Agent, gw.cfg.LLM,
+			gw.provider, gw.sessions, gw.db, gw.memory.Store(), gw.tools, cfg.Agent, cfg.LLM,
 		)
 
 		_ = agentMgr.LoadDir(userdir.AgentsDir())
-		for _, dir := range gw.cfg.Agents.ExtraDirs {
+		for _, dir := range cfg.Agents.ExtraDirs {
 			if err := agentMgr.LoadDir(dir); err != nil {
 				slog.Warn("gateway: failed to load agents from extra dir", "dir", dir, "err", err)
 			}
 		}
-		for _, def := range gw.cfg.Agents.Definitions {
+		for _, def := range cfg.Agents.Definitions {
 			if err := agentMgr.Add(defToSpec(def)); err != nil {
 				slog.Warn("gateway: failed to add inline agent definition", "name", def.Name, "err", err)
 			}
@@ -61,10 +62,10 @@ func (gw *Gateway) initMultiAgent() error {
 		agentMgr.SetAgentMCPManager(agentMCPMgr)
 
 		// Team coordination manager
-		if gw.cfg.Agent.Team.Enabled {
+		if cfg.Agent.Team.Enabled {
 			teamMgr := agent.NewTeamManager(subAgentMgr)
 			gw.tasks.teamManager = teamMgr
-			slog.Info("agent team manager initialized", "max_workers", gw.cfg.Agent.Team.MaxWorkers)
+			slog.Info("agent team manager initialized", "max_workers", cfg.Agent.Team.MaxWorkers)
 		}
 
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
@@ -72,35 +73,35 @@ func (gw *Gateway) initMultiAgent() error {
 
 	// Speculative execution of read-only tools during streaming
 	if gw.featureEnabled("speculative") {
-		maxInFlight := gw.cfg.Agent.SpeculativeExecution.MaxInFlight
+		maxInFlight := cfg.Agent.SpeculativeExecution.MaxInFlight
 		se := agent.NewSpeculativeExecutor(gw.tools, maxInFlight)
 		gw.agentDeps.MultiAgent.Speculative = se
 		slog.Info("speculative execution enabled", "max_in_flight", maxInFlight)
 	}
 
 	// Compression pipeline and context manager
-	contextWindow := agent.ModelContextWindow(gw.cfg.LLM.Model)
+	contextWindow := agent.ModelContextWindow(cfg.LLM.Model)
 
-	if gw.cfg.Agent.Compression.Strategy == "layered" {
+	if cfg.Agent.Compression.Strategy == "layered" {
 		_ = agent.NewCompressionPipeline(
-			gw.provider, gw.cfg.LLM.Model, gw.cfg.Agent.Compression, gw.resultStore, contextWindow,
+			gw.provider, cfg.LLM.Model, cfg.Agent.Compression, gw.resultStore, contextWindow,
 		)
 		slog.Info("layered compression pipeline enabled")
 
 		tokenBudget := agent.NewTokenBudget(
 			contextWindow,
-			float64(gw.cfg.Agent.Compression.Layers.ToolEvictionPct)/100.0,
-			float64(gw.cfg.Agent.Compression.Layers.SummarizePct)/100.0,
-			float64(gw.cfg.Agent.Compression.Layers.SlimPromptPct)/100.0,
-			gw.cfg.Agent.Compression.TokenEstimateRatio,
+			float64(cfg.Agent.Compression.Layers.ToolEvictionPct)/100.0,
+			float64(cfg.Agent.Compression.Layers.SummarizePct)/100.0,
+			float64(cfg.Agent.Compression.Layers.SlimPromptPct)/100.0,
+			cfg.Agent.Compression.TokenEstimateRatio,
 		)
 		_ = tokenBudget
 		slog.Info("token budget monitor enabled",
-			"model", gw.cfg.LLM.Model,
+			"model", cfg.LLM.Model,
 			"model_limit", contextWindow,
-			"light_pct", gw.cfg.Agent.Compression.Layers.ToolEvictionPct,
-			"medium_pct", gw.cfg.Agent.Compression.Layers.SummarizePct,
-			"heavy_pct", gw.cfg.Agent.Compression.Layers.SlimPromptPct,
+			"light_pct", cfg.Agent.Compression.Layers.ToolEvictionPct,
+			"medium_pct", cfg.Agent.Compression.Layers.SummarizePct,
+			"heavy_pct", cfg.Agent.Compression.Layers.SlimPromptPct,
 		)
 	}
 
@@ -109,14 +110,14 @@ func (gw *Gateway) initMultiAgent() error {
 	// reactive 413 retry regardless of compression strategy.
 	contextMgr := agent.NewPipelineContextManager(
 		gw.provider,
-		gw.cfg.LLM.Model,
-		&gw.cfg.Agent.Compression,
+		cfg.LLM.Model,
+		&cfg.Agent.Compression,
 		contextWindow,
 		gw.resultStore,
 	)
 	gw.contextMgr = contextMgr
 	gw.agentDeps.Memory.ContextMgr = contextMgr
-	slog.Info("context manager initialized", "strategy", gw.cfg.Agent.Compression.Strategy)
+	slog.Info("context manager initialized", "strategy", cfg.Agent.Compression.Strategy)
 
 	return nil
 }

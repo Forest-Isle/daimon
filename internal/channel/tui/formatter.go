@@ -2,12 +2,14 @@ package tui
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/glamour"
 )
 
 var mdRenderer *glamour.TermRenderer
 var rendererWidth int
+var rendererMu sync.RWMutex
 
 func init() {
 	// Initialize with a default width, will be updated dynamically
@@ -33,6 +35,9 @@ func updateRendererWidth(width int) {
 		effectiveWidth = 40
 	}
 
+	rendererMu.Lock()
+	defer rendererMu.Unlock()
+
 	if effectiveWidth != rendererWidth {
 		rendererWidth = effectiveWidth
 		var err error
@@ -49,12 +54,17 @@ func updateRendererWidth(width int) {
 // renderMarkdown converts Markdown text to styled ANSI output.
 // Falls back to plain text on error or if the renderer is unavailable.
 func renderMarkdown(text string) string {
-	if mdRenderer == nil || text == "" {
-		return wrapText(text, rendererWidth)
+	rendererMu.RLock()
+	r := mdRenderer
+	w := rendererWidth
+	rendererMu.RUnlock()
+
+	if r == nil || text == "" {
+		return wrapText(text, w)
 	}
-	rendered, err := mdRenderer.Render(text)
+	rendered, err := r.Render(text)
 	if err != nil {
-		return wrapText(text, rendererWidth)
+		return wrapText(text, w)
 	}
 	return rendered
 }
