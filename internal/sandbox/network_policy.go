@@ -79,6 +79,12 @@ func NewNetworkPolicy(mode string, whitelist, blacklist []string) *NetworkPolicy
 // CheckURL validates a URL against the policy. Performs both hostname and IP-level
 // checks with CIDR matching to catch DNS rebinding, hex/octal IP encodings, and
 // alternative DNS names that resolve to internal hosts.
+//
+// IP obfuscation bypass protection: before DNS resolution, the host is parsed
+// directly as an IP address via netip.ParseAddr. This catches decimal
+// (2130706433 = 127.0.0.1), hexadecimal (0x7f000001), octal (0177.0.0.1),
+// and dotted-quad-with-leading-zeros representations that would otherwise
+// bypass hostname blacklists and potentially confuse DNS resolvers.
 func (p *NetworkPolicy) CheckURL(rawURL string) error {
 	if p.mode == "none" {
 		return nil
@@ -101,8 +107,22 @@ func (p *NetworkPolicy) CheckURL(rawURL string) error {
 		}
 	}
 
-	// Stage 2: IP-level CIDR check — resolve hostname and verify resolved IPs
-	// are not in private/special-use ranges. This catches DNS rebinding.
+	// Stage 2: Direct IP parsing — catch obfuscated IP representations
+	// (decimal, hex, octal) that would bypass hostname checks and potentially
+	// confuse DNS resolvers.
+	if len(p.cidrBlacklist) > 0 {
+		if ip, err := netip.ParseAddr(host); err == nil {
+			for _, prefix := range p.cidrBlacklist {
+				if prefix.Contains(ip) {
+					return fmt.Errorf("blocked by network policy: host %s is IP %s (blocked by CIDR %s)",
+						host, ip, prefix)
+				}
+			}
+		}
+	}
+
+	// Stage 3: DNS resolution — resolve hostname and verify resolved IPs
+	// are not in private/special-use ranges.
 	if len(p.cidrBlacklist) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), p.resolveTimeout)
 		defer cancel()
