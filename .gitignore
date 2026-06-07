@@ -74,3 +74,6 @@ configs/ironclaw_eval.yaml
 
 # Node modules (web studio)
 web/studio/node_modules/
+
+# Web studio build output
+web/studio/dist/
