@@ -10,8 +10,8 @@ import (
 // circuit breaker. It wires the collector into the evolution engine and makes
 // the health checker available for the cognitive agent to record metrics.
 //
-// Called unconditionally after the evolution engine is set up so that eval runs
-// (which disable the dashboard) still accumulate health metrics.
+// Called unconditionally after the evolution engine is set up so that all run
+// modes still accumulate health metrics.
 func (gw *Gateway) initCogMetrics() {
 	if gw.evolution.cogCollector != nil {
 		return

@@ -1,6 +1,6 @@
 # Contributing to IronClaw
 
-This repository is a Go-first agent runtime with two frontend workspaces. Keep changes small, source-derived, and verified.
+This repository is a Go-first agent runtime with a frontend workspace. Keep changes small, source-derived, and verified.
 
 ## Local Setup
 
@@ -8,7 +8,7 @@ Required tools:
 
 - Go 1.25.9 or compatible newer patch release.
 - CGO-enabled toolchain for `github.com/mattn/go-sqlite3`.
-- Node.js and npm for `web/` and `web/studio/`.
+- Node.js and npm for `web/studio/`.
 - Git, because worktree tools and developer workflows depend on it.
 
 ```bash
@@ -33,7 +33,7 @@ git status --short
 git diff main..HEAD
 ```
 
-Generated frontend build output should not be committed unless it is the embedded dashboard output expected by the repo. In particular, remove accidental `web/studio/dist/` output unless intentionally changing Studio distribution policy.
+Generated frontend build output should not be committed. In particular, remove accidental `web/studio/dist/` output unless intentionally changing Studio distribution policy.
 
 ## Verification Matrix
 
@@ -49,14 +49,6 @@ For Gateway, tool, memory, knowledge, session, store, provider, or concurrency c
 
 ```bash
 make test
-```
-
-For embedded dashboard changes:
-
-```bash
-cd web
-npm ci
-npm run build
 ```
 
 For Studio changes:

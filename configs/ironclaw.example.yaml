@@ -6,7 +6,7 @@
 #
 # 默认开启: memory, skills, multi_agent, team, speculative, scheduler, knowledge,
 #           knowledge_graph, reranker, sandbox (auto-detect Docker)
-# 默认关闭: evolution, model_routing, dashboard, server
+# 默认关闭: evolution, model_routing, server
 
 llm:
   provider: claude                               # "claude" (default) or "openai" / "openai-compatible"
@@ -262,7 +262,7 @@ sandbox:
 
 # Rate limiting and backpressure — protects against excessive message/API traffic
 # When enabled, applies token-bucket rate limiting to agent message handling and
-# dashboard HTTP endpoints. Uses per-user (per-IP for HTTP) token buckets.
+# the standalone HTTP admin server. Uses per-user (per-IP for HTTP) token buckets.
 rate_limit:
   enabled: false
   requests_per_sec: 10    # tokens refilled per second
@@ -294,12 +294,6 @@ hooks:
 server:
   addr: ":8080"
   enabled: false
-
-# Web Dashboard — real-time agent monitoring UI
-dashboard:
-  enabled: false
-  addr: "127.0.0.1:8080"
-  token: ""
 
 log:
   level: info

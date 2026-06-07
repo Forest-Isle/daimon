@@ -16,7 +16,7 @@ func TestSaveAndLoadOverrides(t *testing.T) {
 
 	overrides := map[string]bool{
 		"memory":    true,
-		"dashboard": false,
+		"server":    false,
 		"scheduler": true,
 	}
 
@@ -62,14 +62,14 @@ func TestSaveOverrides_AtomicWrite(t *testing.T) {
 	require.NoError(t, SaveOverrides(path, map[string]bool{"memory": true}))
 
 	// Overwrite with different content
-	require.NoError(t, SaveOverrides(path, map[string]bool{"memory": false, "dashboard": true}))
+	require.NoError(t, SaveOverrides(path, map[string]bool{"memory": false, "server": true}))
 
 	// Temp file should not exist after success
 	assert.NoFileExists(t, path+".tmp")
 
 	loaded, err := LoadOverrides(path)
 	require.NoError(t, err)
-	assert.Equal(t, map[string]bool{"memory": false, "dashboard": true}, loaded)
+	assert.Equal(t, map[string]bool{"memory": false, "server": true}, loaded)
 }
 
 func TestRuntimeOverrides_ReturnsAllStates(t *testing.T) {

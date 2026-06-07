@@ -7,7 +7,7 @@ import (
 )
 
 // discardEmitter is the zero-value ObservabilityEmitter. All methods are no-ops.
-// Used when no dashboard or TUI emitter is configured.
+// Used when no observability emitter (e.g. the TUI) is configured.
 type discardEmitter struct{}
 
 func (discardEmitter) EmitToolStart(string, string, string)    {}

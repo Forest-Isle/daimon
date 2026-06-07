@@ -211,17 +211,6 @@ func mergeConfig(base *Config, overlay *Config) {
 		base.Server.Enabled = true
 	}
 
-	// Dashboard
-	if overlay.Dashboard.Enabled {
-		base.Dashboard.Enabled = true
-	}
-	if overlay.Dashboard.Addr != "" {
-		base.Dashboard.Addr = overlay.Dashboard.Addr
-	}
-	if overlay.Dashboard.Token != "" {
-		base.Dashboard.Token = overlay.Dashboard.Token
-	}
-
 	// Log
 	if overlay.Log.Level != "" {
 		base.Log.Level = overlay.Log.Level

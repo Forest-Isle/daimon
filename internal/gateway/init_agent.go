@@ -55,7 +55,7 @@ func (gw *Gateway) initAgentRuntime() error {
 			PermEngine:  gw.permEngine,
 		}.WithDefaults(),
 		Observability: agent.ObservabilityDeps{
-			Emitter:        gw.dashboard.Emitter(),
+			Emitter:        gw.emitter,
 			MetricsEmitter: nil,
 		}.WithDefaults(),
 		MultiAgent: agent.MultiAgentDeps{

@@ -6,9 +6,9 @@ This audit covered the current IronClaw source tree after deleting stale public/
 
 - 38 Go packages from `go list ./...`.
 - 496 Go source files in `cmd/` and `internal/`.
-- 42 first-party frontend TS/TSX/Vue/CSS files outside `node_modules`.
+- 42 first-party frontend Vue/TS/CSS files outside `node_modules`.
 - 20 SQLite migrations in `internal/store/migrations`.
-- `configs/ironclaw.example.yaml`, `Makefile`, `go.mod`, `web/package.json`, and `web/studio/package.json`.
+- `configs/ironclaw.example.yaml`, `Makefile`, `go.mod`, and `web/studio/package.json`.
 
 The audit did not delete operational/spec Markdown assets such as `.codex/skills/**/SKILL.md`, `.agent/skills/**/SKILL.md`, `.agent/workflows/*.md`, `internal/skill/builtin/**/SKILL.md`, or `openspec/**`. Those files are part of runtime agent skills or spec workflow history, not the project documentation set being rewritten.
 
@@ -21,7 +21,6 @@ make build-bin
 make vet
 make test-short
 make test
-cd web && npm ci && npm run build
 cd web/studio && npm ci && npm run build
 ```
 
@@ -31,7 +30,6 @@ Expected details:
 - `make vet` runs `go vet ./...`.
 - `make test-short` runs all Go tests without race detector.
 - `make test` runs all Go tests with `-race -count=1`.
-- `web` build produces the embedded dashboard bundle consumed by `internal/dashboard`.
 - `web/studio` build produces a standalone Vue bundle; `web/studio/dist/` is generated output and should not be committed unless a release process explicitly requires it.
 
 ## Fixed Defect
@@ -66,7 +64,6 @@ No broken module connections remain after the fix:
 - Interfaces resolve.
 - Gateway construction paths are covered by build/vet/tests.
 - Frontend API imports compile.
-- Dashboard backend routes match the Preact API client.
 - SQLite migrations are embedded and applied through `_migrations`.
 
 ## Residual Non-Blocking Findings

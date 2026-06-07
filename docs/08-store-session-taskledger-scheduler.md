@@ -124,4 +124,3 @@ This means scheduled tasks reuse the same rate limit, slash command, agent, memo
 - SQLite path defaults to `./data/ironclaw.db`.
 - `make test` uses CGO because `go-sqlite3` is CGO-based.
 - Store tests and session tests should be run after migration or schema changes.
-- Dashboard session routes query the same SQLite session/message/tool log tables.

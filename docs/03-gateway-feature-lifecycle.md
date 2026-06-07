@@ -26,8 +26,7 @@ flowchart TB
     Task --> Scheduler[scheduler]
     Scheduler --> Cog[cogmetrics]
     Cog --> Rate[rate limiter]
-    Rate --> Dashboard[initDashboard]
-    Dashboard --> Commands[slash command table]
+    Rate --> Commands[slash command table]
     Commands --> Subsystems[subsystem list and feature hooks]
 ```
 
@@ -38,7 +37,6 @@ The order matters:
 - Agent is created before Memory and Knowledge, then `AgentDeps` is late-wired with real memory/knowledge dependencies.
 - Evolution engine exists before cognitive/evolution hooks are attached.
 - Knowledge initializes after memory so graph sync can attach to memory lifecycle when available.
-- Dashboard starts after rate limiter so dashboard routes can be wrapped correctly.
 
 ## Feature Registry Defaults
 
@@ -56,7 +54,6 @@ The order matters:
 | `sandbox` | on | construct | Auto-detects Docker; config can disable it. |
 | `evolution` | off | start | Hot-reloadable self-evolution engine. |
 | `model_routing` | off | construct | Depends on `evolution`. |
-| `dashboard` | off | construct | Hot-reloadable web dashboard server. |
 | `server` | off | construct | Standalone HTTP admin server. |
 | `worktree` | on | construct | Auto-detects Git; registers worktree tools. |
 | `mcp_<name>` | on | start | One feature per configured MCP server. |
@@ -73,7 +70,7 @@ The order matters:
 4. Tool result store cleanup loop.
 5. Registered channels.
 6. Scheduler if enabled.
-7. Standalone HTTP admin server if `server` is enabled and dashboard is disabled.
+7. Standalone HTTP admin server if `server` is enabled.
 8. Task ledger stale detector.
 9. Evolution engine if enabled.
 
@@ -100,9 +97,8 @@ Subsystem ordering is declared as:
 4. Evolution
 5. Tasks
 6. Channels
-7. Dashboard
 
-`StopAll` runs in reverse order so dashboard/channels/tasks stop before base infrastructure.
+`StopAll` runs in reverse order so channels/tasks stop before base infrastructure.
 
 ## Config Hot Reload
 
@@ -113,7 +109,7 @@ When `GatewayOptions.ConfigPath` is provided, Gateway builds a `ConfigWatcher`. 
 - Rate limiter.
 - Agent event bus publishes `ConfigChanged`.
 
-Feature lifecycle hooks are separately bound for dashboard, evolution, scheduler, and each `mcp_*` feature.
+Feature lifecycle hooks are separately bound for evolution, scheduler, and each `mcp_*` feature.
 
 ## Slash Command Table
 

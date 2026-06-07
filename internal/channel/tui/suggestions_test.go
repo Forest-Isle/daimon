@@ -82,14 +82,14 @@ func TestGenerateSuggestions_StaticSubArgs_Filtered(t *testing.T) {
 func TestGenerateSuggestions_DynamicArgCompleter(t *testing.T) {
 	completer := func(cmd, subCmd, argSoFar string) []string {
 		if cmd == "feature" && subCmd == "enable" {
-			return []string{"dashboard", "evolution"}
+			return []string{"scheduler", "evolution"}
 		}
 		return nil
 	}
 
-	suggestions := GenerateSuggestions("/feature enable d", 17, completer)
+	suggestions := GenerateSuggestions("/feature enable s", 17, completer)
 	require.Len(t, suggestions, 1)
-	assert.Equal(t, "dashboard", suggestions[0].ArgValue)
+	assert.Equal(t, "scheduler", suggestions[0].ArgValue)
 }
 
 func TestGenerateSuggestions_ModeSubArgs(t *testing.T) {
@@ -126,10 +126,10 @@ func TestApplySuggestion_ArgValue(t *testing.T) {
 	cmd := Command{Name: "feature"}
 	suggestion := SuggestionItem{
 		Command:     cmd,
-		DisplayText: "/feature enable dashboard",
-		ArgValue:    "dashboard",
+		DisplayText: "/feature enable scheduler",
+		ArgValue:    "scheduler",
 	}
 
-	result := ApplySuggestion("/feature enable d", suggestion)
-	assert.Equal(t, "/feature enable dashboard ", result)
+	result := ApplySuggestion("/feature enable s", suggestion)
+	assert.Equal(t, "/feature enable scheduler ", result)
 }

@@ -1,7 +1,7 @@
 package agent
 
 // ObservabilityEmitter emits agent lifecycle events for observability consumers
-// (web dashboard, TUI, eval harness). Implementations must be safe for concurrent
+// (e.g. the TUI status bar). Implementations must be safe for concurrent
 // use. All methods are no-ops when the receiver is nil, so callers need not nil-check.
 type ObservabilityEmitter interface {
 	EmitToolStart(sessionID, toolName, input string)
@@ -31,7 +31,7 @@ type MetricsEmitter interface {
 }
 
 // multiEmitter fans out ObservabilityEmitter calls to multiple backends,
-// allowing the web dashboard and TUI to receive events simultaneously.
+// allowing several consumers to receive events simultaneously.
 type multiEmitter struct {
 	targets []ObservabilityEmitter
 }

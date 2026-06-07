@@ -110,13 +110,6 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 		Dependencies: []string{"evolution"},
 	})
 	r.Register(feature.Feature{
-		Name:          "dashboard",
-		Description:   "Web dashboard for real-time agent monitoring",
-		Default:       false,
-		Phase:         feature.PhaseConstruct,
-		HotReloadable: true,
-	})
-	r.Register(feature.Feature{
 		Name:        "server",
 		Description: "Standalone HTTP admin server",
 		Default:     false,
@@ -159,19 +152,8 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 
 // bindFeatureLifecycleHooks wires OnEnable/OnDisable hooks for hot-reloadable
 // features. Called after all subsystems are initialized so that hooks can
-// reference Gateway fields (dashboard server, evolution engine, etc.).
+// reference Gateway fields (evolution engine, etc.).
 func (gw *Gateway) bindFeatureLifecycleHooks() {
-	if err := gw.features.SetOnEnable("dashboard", func(ctx context.Context) error {
-		return gw.startDashboard()
-	}); err != nil {
-		slog.Warn("gateway: SetOnEnable hook failed", "feature", "dashboard", "err", err)
-	}
-	if err := gw.features.SetOnDisable("dashboard", func(ctx context.Context) error {
-		return gw.stopDashboard()
-	}); err != nil {
-		slog.Warn("gateway: SetOnDisable hook failed", "feature", "dashboard", "err", err)
-	}
-
 	if err := gw.features.SetOnEnable("evolution", func(ctx context.Context) error {
 		if gw.evolution.engine != nil {
 			gw.evolution.engine.Start()
@@ -246,7 +228,6 @@ func configToOverrides(cfg *config.Config) map[string]bool {
 		"sandbox":         cfg.Sandbox.Enabled,
 		"evolution":       cfg.Evolution.Enabled,
 		"model_routing":   cfg.Evolution.Router.Enabled,
-		"dashboard":       cfg.Dashboard.Enabled,
 		"server":          cfg.Server.Enabled,
 	}
 }

@@ -78,12 +78,6 @@ type ServerConfig struct {
 	A2AServerAddr string `yaml:"a2a_server_addr"`
 }
 
-type DashboardConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Addr    string `yaml:"addr"`
-	Token   string `yaml:"token"`
-}
-
 // HealthConfig configures the health check HTTP endpoint.
 type HealthConfig struct {
 	Port int `yaml:"port"` // default: 9090

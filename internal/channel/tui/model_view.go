@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 // View renders the full TUI.
@@ -18,14 +16,6 @@ func (m Model) View() string {
 
 	// Header — headerStyle has Padding(0,1), so content width = m.width - 2
 	left := fmt.Sprintf(" IronClaw %s  [%s]", m.version, m.agentMode)
-	if m.dashboardURL != "" {
-		dashLabel := "Dashboard: " + m.dashboardURL
-		contentWidth := m.width - 2
-		gap := contentWidth - lipgloss.Width(left) - lipgloss.Width(dashLabel)
-		if gap >= 2 {
-			left += strings.Repeat(" ", gap) + dashLabel
-		}
-	}
 	header := headerStyle.Width(m.width).Render(left)
 	b.WriteString(header)
 	b.WriteString("\n")

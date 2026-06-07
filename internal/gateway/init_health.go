@@ -10,8 +10,8 @@ import (
 )
 
 // startHealthServer starts a standalone HTTP server for health check endpoints
-// (/healthz, /readyz, /health). This server is always started regardless of
-// whether the dashboard is enabled, ensuring health probes are always available.
+// (/healthz, /readyz, /health). This server is always started, ensuring health
+// probes are always available.
 func (gw *Gateway) startHealthServer() {
 	if gw.healthRegistry == nil {
 		slog.Warn("health: registry not initialized, skipping health server")

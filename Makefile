@@ -1,4 +1,4 @@
-.PHONY: web build build-bin run test test-short test-coverage lint fmt docker clean help
+.PHONY: build build-bin run test test-short test-coverage lint fmt docker clean help
 
 BINARY    := ironclaw
 BUILD_DIR := bin
@@ -9,20 +9,12 @@ LDFLAGS   := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.d
 TAGS      := fts5
 COVERAGE  := coverage.out
 
-## web: Build frontend assets (requires npm)
-web:
-	@if [ -d web/node_modules ]; then \
-		cd web && npm run build; \
-	else \
-		cd web && npm ci --prefer-offline && npm run build; \
-	fi
-
-## build: Build the binary (with frontend)
-build: web
+## build: Build the binary
+build:
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/ironclaw
 
-## build-bin: Build binary only (no frontend, for CI without npm)
+## build-bin: Build binary only (alias of build, kept for CI compatibility)
 build-bin:
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/ironclaw

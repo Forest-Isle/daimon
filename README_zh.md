@@ -45,13 +45,13 @@ flowchart TB
 | 模块 | 包 | 作用 |
 |---|---|---|
 | CLI | `cmd/ironclaw` | 提供 `start`、`tui`、`skill`、`memory`、`agent`、`insights`、`mcp` 命令。 |
-| Gateway | `internal/gateway` | 项目组合根：初始化数据库、Feature Registry、工具、Agent、Memory、Knowledge、Skill、多 Agent、Scheduler、Dashboard 等。 |
+| Gateway | `internal/gateway` | 项目组合根：初始化数据库、Feature Registry、工具、Agent、Memory、Knowledge、Skill、多 Agent、Scheduler 等。 |
 | Agent | `internal/agent`、`internal/dag` | LLM provider、会话处理、Simple/Unified loop、上下文压缩、工具执行、子代理、团队协作、任务计划。 |
 | Tool | `internal/tool`、`internal/worktree` | Bash、file、HTTP、browser、code intel、memory、plan_task、worktree、MCP 工具以及拦截器链。 |
 | Memory/Knowledge | `internal/memory`、`internal/memorywire`、`internal/knowledge`、`internal/knowledge/graph` | 文件记忆、embedding、事实抽取、生命周期、AMP 适配、文档摄入、混合检索、知识图谱。 |
 | Channel | `internal/channel/*` | Telegram、Discord、TUI 适配，审批、反思、反馈和工具流式输出能力。 |
 | State | `internal/store`、`internal/session`、`internal/taskledger`、`internal/scheduler` | SQLite 迁移、会话、消息、工具日志、任务账本、团队任务、定时任务。 |
-| Observability | `internal/dashboard`、`internal/observability`、`internal/cogmetrics`、`internal/health`、`internal/ratelimit` | Dashboard、WebSocket 事件、Prometheus、OpenTelemetry、健康检查、限流。 |
+| Observability | `internal/observability`、`internal/cogmetrics`、`internal/health`、`internal/ratelimit` | OpenTelemetry、认知指标、健康检查、限流。 |
 | Evolution | `internal/evolution` | 偏好学习、策略优化、技能草稿、轨迹记录。 |
 | Security | `internal/sandbox`、`internal/hook`、`internal/guardian`、`internal/logging` | 文件/网络策略、Docker/host 沙箱、Hook 系统、安全审计和日志脱敏。 |
 
@@ -76,8 +76,7 @@ make build-bin
 make vet
 make test-short
 make test
-cd web && npm ci && npm run build
-cd ../web/studio && npm ci && npm run build
+cd web/studio && npm ci && npm run build
 ```
 
 ## 配置与用户目录
@@ -102,7 +101,7 @@ cd ../web/studio && npm ci && npm run build
 - Agent 运行时。
 - 工具、权限、Hook、沙箱。
 - Memory、Knowledge、Knowledge Graph。
-- 通道、Dashboard、可观测性。
+- 通道与可观测性。
 - Store、Session、Task Ledger、Scheduler。
 - Evolution。
 - 前端应用。

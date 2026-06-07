@@ -24,7 +24,6 @@ type Config struct {
 	Scheduler     SchedulerConfig     `yaml:"scheduler"`
 	Tools         ToolsConfig         `yaml:"tools"`
 	Server        ServerConfig        `yaml:"server"`
-	Dashboard     DashboardConfig     `yaml:"dashboard"`
 	Health        HealthConfig        `yaml:"health"`
 	Log           LogConfig           `yaml:"log"`
 	Observability ObservabilityConfig `yaml:"observability"`

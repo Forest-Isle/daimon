@@ -4,9 +4,8 @@
 
 | Target | Command | Meaning |
 |---|---|---|
-| Dashboard build | `make web` | Installs/builds `web/` when needed. |
-| Full binary | `make build` | Builds dashboard, then Go binary with `CGO_ENABLED=1` and `-tags fts5`. |
-| Go-only binary | `make build-bin` | Builds `./cmd/ironclaw` without rebuilding frontend. |
+| Full binary | `make build` | Builds the Go binary with `CGO_ENABLED=1` and `-tags fts5`. |
+| Go-only binary | `make build-bin` | Builds `./cmd/ironclaw`. |
 | Short tests | `make test-short` | All Go tests without race detector. |
 | Race tests | `make test` | All Go tests with `-race -count=1`. |
 | Coverage | `make test-coverage` | Writes `coverage.out`. |
@@ -50,16 +49,6 @@ flowchart LR
 
 New tools that can mutate files, run commands, call network, or write state should implement `Capabilities()` so permission and parallel execution behavior are explicit.
 
-## Adding a Dashboard API Route
-
-1. Add the route to `internal/dashboard/server.go`.
-2. Wrap private data with `deps.authMiddleware`.
-3. Add SQL query or state tracker dependency carefully.
-4. Update `web/src/lib/types.ts`.
-5. Update `web/src/lib/api.ts`.
-6. Update a page/component.
-7. Run dashboard frontend build and Go tests.
-
 ## Adding a Migration
 
 1. Add a numbered SQL file under `internal/store/migrations`.
@@ -72,7 +61,6 @@ New tools that can mutate files, run commands, call network, or write state shou
 | Symptom | Check |
 |---|---|
 | Go build fails around SQLite | Ensure CGO toolchain is available and use Makefile targets. |
-| Dashboard route returns unauthorized | Check `dashboard.token`, Bearer header, or `?token=` query. |
 | Knowledge vector search does not use custom endpoint | Check `memory.embedding_base_url`; Knowledge now uses this field. |
 | MCP tools missing | Check `~/.IronClaw/mcp/*.yaml`, command availability, server logs, and `mcp_<name>` feature state. |
 | Sandbox not active | Check `sandbox.enabled`, Docker availability, and Feature Registry state. |
@@ -92,6 +80,5 @@ Run broader checks for broader changes:
 
 ```bash
 make test
-cd web && npm run build
 cd web/studio && npm run build
 ```

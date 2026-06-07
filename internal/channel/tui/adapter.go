@@ -25,7 +25,6 @@ type Adapter struct {
 	agentMode    string
 	version      string
 	channelID    string // unique per launch so each TUI invocation gets a fresh session
-	dashboardURL string
 	autoApprove  atomic.Bool
 	argCompleter ArgCompleter // optional dynamic argument completer
 
@@ -69,11 +68,6 @@ func (a *Adapter) SetAutoApprove(v bool) {
 	a.autoApprove.Store(v)
 }
 
-// SetDashboardURL stores the web dashboard URL so it can be shown in the TUI header.
-func (a *Adapter) SetDashboardURL(url string) {
-	a.dashboardURL = url
-}
-
 // SetArgCompleter injects a dynamic argument completer for slash command autocomplete.
 // Should be called before Start(). If called after Start(), the completer is
 // forwarded to the running Model immediately.
@@ -91,7 +85,6 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 	a.handler = handler
 
 	m := NewModel(a.agentMode, a.version)
-	m.dashboardURL = a.dashboardURL
 	if a.argCompleter != nil {
 		m.SetArgCompleter(a.argCompleter)
 	}

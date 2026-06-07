@@ -60,7 +60,6 @@ type Model struct {
 	streamingText string
 	agentMode     string // "simple" or "cognitive"
 	version       string
-	dashboardURL  string // non-empty when web dashboard is enabled
 
 	// Approval state
 	approvalTool  string

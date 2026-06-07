@@ -33,7 +33,7 @@ func (ct commandTable) dispatch(ctx context.Context, ch channel.Channel, msg cha
 		return resp, true
 	}
 
-	// 2. Prefix match (commands with arguments like "/feature enable dashboard")
+	// 2. Prefix match (commands with arguments like "/feature enable evolution")
 	for prefix, entry := range ct {
 		if !entry.exact && strings.HasPrefix(text, prefix) {
 			if text == prefix || strings.HasPrefix(text, prefix+" ") {
