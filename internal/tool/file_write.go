@@ -69,7 +69,7 @@ type fileWriteInput struct {
 	Content string `json:"content"`
 }
 
-func (t *FileWriteTool) Execute(_ context.Context, input []byte) (Result, error) {
+func (t *FileWriteTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	var in fileWriteInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Error: "invalid input: " + err.Error()}, nil
@@ -78,14 +78,15 @@ func (t *FileWriteTool) Execute(_ context.Context, input []byte) (Result, error)
 		return Result{Error: "path is required"}, nil
 	}
 
-	dir := filepath.Dir(in.Path)
+	path := ResolveWorkPath(ctx, in.Path)
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Result{Error: err.Error()}, nil
 	}
 
-	if err := os.WriteFile(in.Path, []byte(in.Content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(in.Content), 0o644); err != nil {
 		return Result{Error: err.Error()}, nil
 	}
 
-	return Result{Output: "file written: " + in.Path}, nil
+	return Result{Output: "file written: " + path}, nil
 }

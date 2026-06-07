@@ -80,7 +80,7 @@ type fileEditInput struct {
 	ReplaceAll bool   `json:"replace_all"`
 }
 
-func (t *FileEditTool) Execute(_ context.Context, input []byte) (Result, error) {
+func (t *FileEditTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	var in fileEditInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Error: "invalid input: " + err.Error()}, nil
@@ -92,7 +92,8 @@ func (t *FileEditTool) Execute(_ context.Context, input []byte) (Result, error) 
 		return Result{Error: "old_string and new_string are identical"}, nil
 	}
 
-	data, err := os.ReadFile(in.Path)
+	path := ResolveWorkPath(ctx, in.Path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return Result{Error: err.Error()}, nil
 	}
@@ -115,9 +116,9 @@ func (t *FileEditTool) Execute(_ context.Context, input []byte) (Result, error) 
 		replacements = 1
 	}
 
-	if err := os.WriteFile(in.Path, []byte(newContent), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(newContent), 0o644); err != nil {
 		return Result{Error: err.Error()}, nil
 	}
 
-	return Result{Output: fmt.Sprintf("edited %s: %d replacement(s) made", in.Path, replacements)}, nil
+	return Result{Output: fmt.Sprintf("edited %s: %d replacement(s) made", path, replacements)}, nil
 }

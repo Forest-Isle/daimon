@@ -92,6 +92,9 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", in.Command)
+	if dir := WorkDirFromContext(ctx); dir != "" {
+		cmd.Dir = dir
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	cmd.Stdout = &stdout

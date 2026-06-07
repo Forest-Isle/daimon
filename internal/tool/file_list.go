@@ -42,7 +42,7 @@ type fileListInput struct {
 	Path string `json:"path"`
 }
 
-func (t *FileListTool) Execute(_ context.Context, input []byte) (Result, error) {
+func (t *FileListTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	var in fileListInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Error: "invalid input: " + err.Error()}, nil
@@ -51,7 +51,8 @@ func (t *FileListTool) Execute(_ context.Context, input []byte) (Result, error) 
 		return Result{Error: "path is required"}, nil
 	}
 
-	entries, err := os.ReadDir(in.Path)
+	path := ResolveWorkPath(ctx, in.Path)
+	entries, err := os.ReadDir(path)
 	if err != nil {
 		return Result{Error: err.Error()}, nil
 	}

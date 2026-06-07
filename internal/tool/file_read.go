@@ -56,7 +56,7 @@ type fileReadInput struct {
 	Limit  int    `json:"limit"`
 }
 
-func (t *FileReadTool) Execute(_ context.Context, input []byte) (Result, error) {
+func (t *FileReadTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	var in fileReadInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Error: "invalid input: " + err.Error()}, nil
@@ -65,7 +65,8 @@ func (t *FileReadTool) Execute(_ context.Context, input []byte) (Result, error) 
 		return Result{Error: "path is required"}, nil
 	}
 
-	data, err := os.ReadFile(in.Path)
+	path := ResolveWorkPath(ctx, in.Path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return Result{Error: err.Error()}, nil
 	}
@@ -82,7 +83,7 @@ func (t *FileReadTool) Execute(_ context.Context, input []byte) (Result, error) 
 		start = in.Offset - 1
 	}
 	if start >= len(lines) {
-		return Result{Output: "", Type: ResultFile, FilePath: in.Path}, nil
+		return Result{Output: "", Type: ResultFile, FilePath: path}, nil
 	}
 	lines = lines[start:]
 
@@ -109,7 +110,7 @@ func (t *FileReadTool) Execute(_ context.Context, input []byte) (Result, error) 
 	return Result{
 		Output:    output,
 		Type:      ResultFile,
-		FilePath:  in.Path,
+		FilePath:  path,
 		IsPartial: isPartial,
 	}, nil
 }

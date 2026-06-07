@@ -221,6 +221,28 @@ func StreamCallbackFromContext(ctx context.Context) StreamCallback {
 	return cb
 }
 
+type workDirCtxKey struct{}
+
+func WithWorkDir(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, workDirCtxKey{}, dir)
+}
+
+func WorkDirFromContext(ctx context.Context) string {
+	dir, _ := ctx.Value(workDirCtxKey{}).(string)
+	return dir
+}
+
+func ResolveWorkPath(ctx context.Context, path string) string {
+	dir := WorkDirFromContext(ctx)
+	if dir == "" {
+		return path
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(dir, path)
+}
+
 // UnregisterByPrefix removes all tools whose name starts with prefix and returns the removed names.
 func (r *Registry) UnregisterByPrefix(prefix string) []string {
 	r.mu.Lock()
