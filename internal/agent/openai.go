@@ -96,6 +96,7 @@ type oaiFunction struct {
 type oaiToolCall struct {
 	ID       string          `json:"id"`
 	Type     string          `json:"type"`
+	Index    *int            `json:"index,omitempty"`
 	Function oaiToolCallFunc `json:"function"`
 }
 
@@ -274,10 +275,23 @@ func (p *OpenAIProvider) buildRequest(req CompletionRequest, stream bool) oaiReq
 	for _, msg := range req.Messages {
 		switch msg.Role {
 		case "user":
-			oai.Messages = append(oai.Messages, oaiMessage{
-				Role:    "user",
-				Content: msg.Content,
-			})
+			// A user message carrying a ToolUseID is a tool result in the
+			// internal Anthropic-shaped convention emitted by BuildMessages
+			// (context.go). OpenAI requires tool results as role:"tool" with a
+			// tool_call_id; a plain user message here triggers HTTP 400 on the
+			// next turn. This mirrors claude_provider.go's NewToolResultBlock path.
+			if msg.ToolUseID != "" {
+				oai.Messages = append(oai.Messages, oaiMessage{
+					Role:       "tool",
+					Content:    msg.Content,
+					ToolCallID: msg.ToolUseID,
+				})
+			} else {
+				oai.Messages = append(oai.Messages, oaiMessage{
+					Role:    "user",
+					Content: msg.Content,
+				})
+			}
 		case "assistant":
 			am := oaiMessage{Role: "assistant"}
 			if msg.Content != "" {
@@ -414,8 +428,13 @@ func (p *OpenAIProvider) parseChoice(choice oaiChoice) *CompletionResponse {
 		resp.StopReason = StopToolUse
 	case "length":
 		resp.StopReason = StopMaxToken
-	default:
+	case "stop", "":
 		resp.StopReason = StopEndTurn
+	case "content_filter":
+		resp.StopReason = StopAbnormal
+	default:
+		slog.Warn("openai: unrecognized finish_reason", "finish_reason", choice.FinishReason)
+		resp.StopReason = StopAbnormal
 	}
 
 	return resp
@@ -428,6 +447,7 @@ type openaiStreamIterator struct {
 	body          io.ReadCloser
 	mu            sync.Mutex
 	toolCalls     map[int]*oaiToolCall // index → accumulated call
+	maxToolIdx    int                  // highest tool-call index seen, for id-less fallback
 	textBuf       strings.Builder
 	done          bool
 	stopReason    StopReason
@@ -508,28 +528,40 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 			return StreamDelta{Text: text}, nil
 		}
 
-		// Accumulate tool calls
+		// Accumulate tool calls, keyed by the OpenAI delta "index". Argument
+		// fragments arrive in later chunks carrying only the index (no id/name),
+		// so routing by index — not insertion order — is required for correct
+		// reconstruction of parallel tool calls.
 		for _, tc := range delta.ToolCalls {
+			if it.toolCalls == nil {
+				it.toolCalls = make(map[int]*oaiToolCall)
+			}
 			idx := 0
-			if tc.ID != "" {
-				if it.toolCalls == nil {
-					it.toolCalls = make(map[int]*oaiToolCall)
-				}
-				idx = len(it.toolCalls)
-				it.toolCalls[idx] = &oaiToolCall{
-					ID:   tc.ID,
-					Type: tc.Type,
-					Function: oaiToolCallFunc{
-						Name:      tc.Function.Name,
-						Arguments: tc.Function.Arguments,
-					},
-				}
+			if tc.Index != nil {
+				idx = *tc.Index
 			} else if len(it.toolCalls) > 0 {
-				idx = len(it.toolCalls) - 1
-				if existing, ok := it.toolCalls[idx]; ok {
-					existing.Function.Arguments += tc.Function.Arguments
+				// No index provided (older/non-conforming servers): fall back to
+				// the most recently seen call so single-tool streams still work.
+				idx = it.maxToolIdx
+			}
+			existing, ok := it.toolCalls[idx]
+			if !ok {
+				existing = &oaiToolCall{}
+				it.toolCalls[idx] = existing
+				if idx > it.maxToolIdx {
+					it.maxToolIdx = idx
 				}
 			}
+			if tc.ID != "" {
+				existing.ID = tc.ID
+			}
+			if tc.Type != "" {
+				existing.Type = tc.Type
+			}
+			if tc.Function.Name != "" {
+				existing.Function.Name = tc.Function.Name
+			}
+			existing.Function.Arguments += tc.Function.Arguments
 		}
 
 		if choice.FinishReason != "" {
@@ -538,8 +570,13 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 				it.stopReason = StopToolUse
 			case "length":
 				it.stopReason = StopMaxToken
-			default:
+			case "stop", "":
 				it.stopReason = StopEndTurn
+			case "content_filter":
+				it.stopReason = StopAbnormal
+			default:
+				slog.Warn("openai stream: unrecognized finish_reason", "finish_reason", choice.FinishReason)
+				it.stopReason = StopAbnormal
 			}
 			it.done = true
 			delta := it.buildFinalDelta()

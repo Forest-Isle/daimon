@@ -6,9 +6,11 @@ import (
 
 const maxContextMessages = 50
 
-// safeTrimHistory trims history to at most maxLen messages while ensuring
-// tool_use/tool_result pairs are never split. It finds a safe cut point
-// where no orphaned tool_result references a tool_use that was trimmed away.
+// safeTrimHistory trims history to at most maxLen messages while ensuring no
+// orphaned tool_result remains — a tool_result whose tool_use was trimmed away
+// causes the provider to return HTTP 400. It first advances the window to begin
+// on a user message (API requirement), then drops any tool_result anywhere in
+// the window whose referenced tool_use is no longer present.
 func safeTrimHistory(history []session.Message, maxLen int) []session.Message {
 	if len(history) <= maxLen {
 		return history
@@ -16,37 +18,32 @@ func safeTrimHistory(history []session.Message, maxLen int) []session.Message {
 
 	start := len(history) - maxLen
 
-	// Collect all tool_use IDs present from start onward
+	// Ensure the window begins on a user message, dropping any leading
+	// assistant/tool_use/tool_result fragments.
+	for start < len(history) && history[start].Role != "user" {
+		start++
+	}
+	window := history[start:]
+
+	// Collect tool_use IDs present in the window.
 	toolUseIDs := make(map[string]bool)
-	for _, m := range history[start:] {
+	for _, m := range window {
 		if m.Role == "tool_use" {
 			toolUseIDs[m.ID] = true
 		}
 	}
 
-	// Move start forward to skip any orphaned tool_result messages
-	// whose corresponding tool_use was trimmed away.
-	for start < len(history) {
-		m := history[start]
+	// Drop any tool_result — at any position — whose tool_use is not in the
+	// window. ToolName stores the referenced tool_use ID for tool_result rows.
+	trimmed := make([]session.Message, 0, len(window))
+	for _, m := range window {
 		if m.Role == "tool_result" && !toolUseIDs[m.ToolName] {
-			start++
 			continue
 		}
-		// Also skip standalone tool_use at the very beginning if its
-		// tool_result is not in the window (partial pair).
-		if m.Role == "tool_use" {
-			break
-		}
-		break
+		trimmed = append(trimmed, m)
 	}
 
-	// Ensure the first message has role "user" (API requirement).
-	// Skip any leading assistant/tool_use/tool_result messages.
-	for start < len(history) && history[start].Role != "user" {
-		start++
-	}
-
-	return history[start:]
+	return trimmed
 }
 
 // BuildMessages converts session history into CompletionMessages for the LLM.

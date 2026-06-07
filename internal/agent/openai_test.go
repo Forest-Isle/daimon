@@ -161,6 +161,47 @@ func TestOpenAIProvider_BuildRequest_MessageMapping(t *testing.T) {
 	}
 }
 
+// TestOpenAIProvider_BuildRequest_PipelineShapedToolResult verifies the OpenAI
+// adapter correctly serializes tool results in the shape the real agent pipeline
+// actually emits. BuildMessages (context.go) converts a tool_result session
+// message into CompletionMessage{Role: "user", ToolUseID: ...} — the Anthropic
+// internal convention. The OpenAI adapter must translate that into a
+// role:"tool" message with tool_call_id, or the provider returns HTTP 400 on
+// the second iteration of any tool-using conversation.
+func TestOpenAIProvider_BuildRequest_PipelineShapedToolResult(t *testing.T) {
+	p := NewOpenAIProvider("", "gpt-4", "")
+	req := CompletionRequest{
+		Messages: []CompletionMessage{
+			{Role: "user", Content: "run ls"},
+			{Role: "assistant", Content: "", ToolBlocks: []ToolUseBlock{
+				{ID: "call_42", Name: "bash", Input: `{"cmd":"ls"}`},
+			}},
+			// This is exactly what BuildMessages emits for a tool result:
+			// role "user" with ToolUseID set, NOT role "tool_result".
+			{Role: "user", Content: "file1\nfile2", ToolUseID: "call_42"},
+		},
+	}
+
+	oai := p.buildRequest(req, false)
+
+	if len(oai.Messages) != 3 {
+		t.Fatalf("message count = %d, want 3 (user + assistant + tool)", len(oai.Messages))
+	}
+	if oai.Messages[1].Role != "assistant" || len(oai.Messages[1].ToolCalls) != 1 {
+		t.Fatalf("second message should be assistant with 1 tool call, got role=%q calls=%d",
+			oai.Messages[1].Role, len(oai.Messages[1].ToolCalls))
+	}
+	if oai.Messages[2].Role != "tool" {
+		t.Errorf("tool result must serialize as role %q, got %q", "tool", oai.Messages[2].Role)
+	}
+	if oai.Messages[2].ToolCallID != "call_42" {
+		t.Errorf("tool_call_id = %q, want call_42", oai.Messages[2].ToolCallID)
+	}
+	if oai.Messages[2].Content != "file1\nfile2" {
+		t.Errorf("tool content = %q, want file1\\nfile2", oai.Messages[2].Content)
+	}
+}
+
 func TestOpenAIProvider_Stream_TextOnly(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -262,6 +303,71 @@ func TestOpenAIProvider_Stream_ToolCalls(t *testing.T) {
 	}
 	if final.ToolCalls[0].Input != `{"cmd":"ls"}` {
 		t.Errorf("tool args = %q, want {\"cmd\":\"ls\"}", final.ToolCalls[0].Input)
+	}
+}
+
+// TestOpenAIProvider_Stream_MultipleToolCalls_IndexKeyed verifies that parallel
+// tool calls streamed by OpenAI/DeepSeek are accumulated by their "index" field.
+// Argument-delta chunks carry only the index (no id/name); the accumulator must
+// route each fragment to the matching call. The old code keyed off insertion
+// order and routed id-less fragments to the most recent call, corrupting any
+// response with 2+ tool calls — which unified_loop produces routinely.
+func TestOpenAIProvider_Stream_MultipleToolCalls_IndexKeyed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		chunks := []string{
+			`{"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"read","arguments":""}}]},"finish_reason":null}]}`,
+			`{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"write","arguments":""}}]},"finish_reason":null}]}`,
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":\"a\"}"}}]},"finish_reason":null}]}`,
+			`{"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"path\":\"b\"}"}}]},"finish_reason":null}]}`,
+			`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		}
+		for _, c := range chunks {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", c)
+			flusher.Flush()
+		}
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	p := NewOpenAIProvider("", "gpt-4", server.URL)
+	iter, err := p.Stream(context.Background(), CompletionRequest{
+		Messages: []CompletionMessage{{Role: "user", Content: "do two things"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer iter.Close()
+
+	var final StreamDelta
+	for {
+		d, err := iter.Next()
+		if d.Done {
+			final = d
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if len(final.ToolCalls) != 2 {
+		t.Fatalf("tool_calls = %d, want 2", len(final.ToolCalls))
+	}
+	if final.ToolCalls[0].ID != "call_a" || final.ToolCalls[0].Name != "read" {
+		t.Errorf("call[0] = %q/%q, want call_a/read", final.ToolCalls[0].ID, final.ToolCalls[0].Name)
+	}
+	if final.ToolCalls[0].Input != `{"path":"a"}` {
+		t.Errorf("call[0] args = %q, want {\"path\":\"a\"}", final.ToolCalls[0].Input)
+	}
+	if final.ToolCalls[1].ID != "call_b" || final.ToolCalls[1].Name != "write" {
+		t.Errorf("call[1] = %q/%q, want call_b/write", final.ToolCalls[1].ID, final.ToolCalls[1].Name)
+	}
+	if final.ToolCalls[1].Input != `{"path":"b"}` {
+		t.Errorf("call[1] args = %q, want {\"path\":\"b\"}", final.ToolCalls[1].Input)
 	}
 }
 

@@ -1,0 +1,9 @@
+{
+  "id": "fix-syntax-error",
+  "prompt": "The file calc.go has a syntax error that prevents it from compiling. Fix it so that `go build` succeeds. The function Add(a, b int) int must return the sum of a and b.",
+  "setup": "printf 'package main\\n\\nfunc Add(a, b int) int {\\n\\treturn a + b\\n\\nfunc main() {}\\n' > calc.go",
+  "scorers": [
+    {"type": "command_succeeds", "command": "go build ./..."},
+    {"type": "file_contains", "path": "calc.go", "substr": "return a + b"}
+  ]
+}

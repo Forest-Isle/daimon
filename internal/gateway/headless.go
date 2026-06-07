@@ -14,7 +14,7 @@ import (
 
 // HeadlessGateway is a minimal runtime used by subprocess backends.
 // It initializes only DB → Tools → LLM → Runtime, skipping channels,
-// scheduler, knowledge, skills, memory, and multi-agent orchestration.
+// scheduler, skills, memory, and multi-agent orchestration.
 type HeadlessGateway struct {
 	db         *store.DB
 	sessions   *session.Manager

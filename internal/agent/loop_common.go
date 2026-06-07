@@ -151,7 +151,7 @@ func loopIteration(
 
 	// If no tool calls, we're done
 	if len(toolCalls) == 0 {
-		_ = updater.Finish(fullText)
+		_ = updater.Finish(appendStopNotice(fullText, stopReason))
 		return updater, nil, nil
 	}
 
@@ -211,7 +211,7 @@ func loopIterationNonStreaming(
 
 	if len(resp.ToolCalls) == 0 {
 		if sendErr := ch.Send(ctx, channel.OutboundMessage{
-			Channel: target.Channel, ChannelID: target.ChannelID, Text: resp.Text,
+			Channel: target.Channel, ChannelID: target.ChannelID, Text: appendStopNotice(resp.Text, resp.StopReason),
 		}); sendErr != nil {
 			slog.Warn("failed to send message", "err", sendErr)
 		}
@@ -219,6 +219,33 @@ func loopIterationNonStreaming(
 	}
 
 	return resp.ToolCalls, nil
+}
+
+// noticeMaxTokens / noticeAbnormal are appended to a response the model did not
+// finish cleanly, so a partial or filtered answer is never presented as
+// complete.
+const (
+	noticeMaxTokens = "[response truncated: reached max output tokens]"
+	noticeAbnormal  = "[response incomplete: the model stopped unexpectedly]"
+)
+
+// appendStopNotice flags responses that ended on a non-success stop reason
+// (max tokens, content filtering, or an unrecognized finish reason). For a
+// clean end_turn or tool_use stop the text is returned unchanged.
+func appendStopNotice(text string, stopReason StopReason) string {
+	var notice string
+	switch stopReason {
+	case StopMaxToken:
+		notice = noticeMaxTokens
+	case StopAbnormal:
+		notice = noticeAbnormal
+	default:
+		return text
+	}
+	if text == "" {
+		return notice
+	}
+	return text + "\n\n" + notice
 }
 
 // computeBudgetPressure generates a warning string based on iteration pressure.

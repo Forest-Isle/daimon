@@ -55,6 +55,10 @@ const (
 	StopEndTurn  StopReason = "end_turn"
 	StopToolUse  StopReason = "tool_use"
 	StopMaxToken StopReason = "max_tokens"
+	// StopAbnormal marks a stop that is neither a clean end nor a tool call —
+	// e.g. content filtering or an unrecognized provider finish reason. It must
+	// not be treated as a successful completion.
+	StopAbnormal StopReason = "abnormal"
 )
 
 // CompletionResponse is the full response from the LLM.

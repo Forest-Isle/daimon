@@ -1,0 +1,9 @@
+{
+  "id": "create-config-field",
+  "prompt": "Create a file named config.json containing a JSON object with a single key \"timeout\" set to the number 30.",
+  "scorers": [
+    {"type": "file_exists", "path": "config.json"},
+    {"type": "file_contains", "path": "config.json", "substr": "\"timeout\""},
+    {"type": "file_contains", "path": "config.json", "substr": "30"}
+  ]
+}
