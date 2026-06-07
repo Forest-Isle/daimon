@@ -12,12 +12,11 @@ This file is a compact handoff for coding assistants working in this repository.
 
 ## Important Current Facts
 
-- Feature Registry defaults many core systems on: memory, skills, multi-agent, team, speculative, scheduler, knowledge, knowledge graph, reranker, worktree.
+- Feature Registry defaults many core systems on: memory, skills, multi-agent, team, speculative, scheduler, worktree.
 - Standalone admin server, evolution, and model routing are opt-in.
 - `agent.mode` accepts `simple`, `unified`, and legacy `cognitive`; `cognitive` maps to UnifiedLoop behavior.
 - `internal/agent/spec.go` contains future A2A remote-agent fields. Local sub-agent backends are current; remote A2A execution is not.
 - Vue Studio views contain prototype/demo state and should not be described as fully backend-persisted.
-- Knowledge Base embedding now uses `memory.embedding_base_url`; keep future embedding call sites consistent.
 
 ## Safe Verification Commands
 

@@ -24,7 +24,7 @@ func NewServer(opts ...ServerOption) *Server {
 	srv := mcpserver.NewMCPServer("ironclaw", "1.0.0",
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithLogging(),
-		mcpserver.WithInstructions("IronClaw AI agent — access memory, knowledge, and skills"),
+		mcpserver.WithInstructions("IronClaw AI agent — access memory and skills"),
 	)
 	s := &Server{mcpServer: srv}
 	for _, opt := range opts {

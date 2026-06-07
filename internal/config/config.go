@@ -19,8 +19,6 @@ type Config struct {
 	Agent         AgentConfig         `yaml:"agent"`
 	Store         StoreConfig         `yaml:"store"`
 	Memory        MemoryConfig        `yaml:"memory"`
-	Knowledge     KnowledgeConfig     `yaml:"knowledge"` // Phase 2 placeholder
-	Graph         GraphConfig         `yaml:"graph"`     // Phase 3 placeholder
 	Scheduler     SchedulerConfig     `yaml:"scheduler"`
 	Tools         ToolsConfig         `yaml:"tools"`
 	Server        ServerConfig        `yaml:"server"`
@@ -188,13 +186,6 @@ func defaultConfig() Config {
 		},
 		Agents: AgentsConfig{
 			Enabled: true,
-		},
-		Knowledge: KnowledgeConfig{
-			Enabled:      true,
-			ChunkSize:    512,
-			ChunkOverlap: 64,
-			BM25Weight:   0.4,
-			VectorWeight: 0.6,
 		},
 		Permissions: PermissionsConfig{
 			Default: "ask",

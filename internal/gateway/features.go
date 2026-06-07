@@ -57,31 +57,6 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 
 	// Tier 2: AutoDetect driven
 	r.Register(feature.Feature{
-		Name:         "knowledge",
-		Description:  "Document ingestion and hybrid retrieval",
-		Default:      true,
-		Phase:        feature.PhaseConstruct,
-		Dependencies: []string{"memory"},
-		AutoDetect: func(ctx context.Context) feature.DetectResult {
-			// Knowledge works without OpenAI key (BM25-only fallback via noopKBEmbedder)
-			return feature.DetectResult{Available: true}
-		},
-	})
-	r.Register(feature.Feature{
-		Name:         "knowledge_graph",
-		Description:  "Entity/relation extraction and graph traversal",
-		Default:      true,
-		Phase:        feature.PhaseConstruct,
-		Dependencies: []string{"knowledge"},
-	})
-	r.Register(feature.Feature{
-		Name:         "reranker",
-		Description:  "LLM-based search result reranking",
-		Default:      true,
-		Phase:        feature.PhaseConstruct,
-		Dependencies: []string{"knowledge"},
-	})
-	r.Register(feature.Feature{
 		Name:        "sandbox",
 		Description: "Docker container isolation for bash execution",
 		Default:     true,
@@ -222,9 +197,6 @@ func configToOverrides(cfg *config.Config) map[string]bool {
 		"team":            cfg.Agent.Team.Enabled,
 		"speculative":     cfg.Agent.SpeculativeExecution.Enabled,
 		"scheduler":       cfg.Scheduler.Enabled,
-		"knowledge":       cfg.Knowledge.Enabled,
-		"knowledge_graph": cfg.Knowledge.GraphEnabled || cfg.Graph.Enabled,
-		"reranker":        cfg.Knowledge.Reranker.Enabled,
 		"sandbox":         cfg.Sandbox.Enabled,
 		"evolution":       cfg.Evolution.Enabled,
 		"model_routing":   cfg.Evolution.Router.Enabled,

@@ -18,7 +18,7 @@ type UnifiedMemory struct {
 	Type    MemoryType
 	Content string
 	Score   float64
-	Source  string // "memory", "knowledge", "graph", "procedural"
+	Source  string // "memory", "procedural"
 
 	// Procedural-specific
 	Strategy *StrategyRecord `json:",omitempty"`
@@ -33,13 +33,6 @@ type StrategyRecord struct {
 	LastUsed     time.Time
 }
 
-// TripleSummary is a compact representation of a graph triple.
-type TripleSummary struct {
-	Subject   string
-	Predicate string
-	Object    string
-}
-
 // SearchOptions configures a cortex search.
 type SearchOptions struct {
 	UserID    string
@@ -50,8 +43,6 @@ type SearchOptions struct {
 // FusionWeights controls how scores from different sources are combined.
 type FusionWeights struct {
 	MemoryWeight     float64
-	KnowledgeWeight  float64
-	GraphWeight      float64
 	ProceduralWeight float64
 }
 
@@ -59,8 +50,6 @@ type FusionWeights struct {
 func DefaultFusionWeights() *FusionWeights {
 	return &FusionWeights{
 		MemoryWeight:     0.35,
-		KnowledgeWeight:  0.30,
-		GraphWeight:      0.15,
 		ProceduralWeight: 0.20,
 	}
 }

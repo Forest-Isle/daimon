@@ -1,6 +1,6 @@
 # IronClaw 项目总览
 
-IronClaw 是一个本地优先的 AI Agent Runtime。它不是单一聊天机器人，而是一个由 Gateway 统一接线的运行时系统：CLI、消息通道、LLM Provider、工具、权限与沙箱、记忆、知识库、子代理、任务账本、调度器、可观测性、评测和自进化组件都在同一套生命周期里组合。
+IronClaw 是一个本地优先的 AI Agent Runtime。它不是单一聊天机器人，而是一个由 Gateway 统一接线的运行时系统：CLI、消息通道、LLM Provider、工具、权限与沙箱、记忆、子代理、任务账本、调度器、可观测性、评测和自进化组件都在同一套生命周期里组合。
 
 当前项目以 Go 为主，前端有一个 Vite 应用：
 
@@ -8,10 +8,7 @@ IronClaw 是一个本地优先的 AI Agent Runtime。它不是单一聊天机器
 
 ## 当前审计结论
 
-本轮源码审计和验证完成后，未发现阻断构建、静态检查、短测试、前端构建或 race 测试的缺陷。已修复一个真实接线问题：
-
-- `internal/gateway/init_knowledge.go` 原先初始化 Knowledge Base embedding 时没有使用 `memory.embedding_base_url`。
-- 修复后 Knowledge Base、Memory、Codebase Index 三处都通过 `memory.NewOpenAIEmbeddingWithURL(...)` 使用同一套 embedding API key、model、base URL。
+本轮源码审计和验证完成后，未发现阻断构建、静态检查、短测试、前端构建或 race 测试的缺陷。
 
 详见 [CODE_HEALTH_REPORT.md](CODE_HEALTH_REPORT.md) 和 [docs/00-current-state-and-verification.md](docs/00-current-state-and-verification.md)。
 
@@ -29,7 +26,6 @@ flowchart TB
     Gateway --> Tools[Tool Registry]
     Gateway --> Agent[Agent Runtime]
     Gateway --> Memory[Memory Subsystem]
-    Gateway --> Knowledge[Knowledge / Graph]
     Gateway --> Channels[Telegram / Discord / TUI]
     Gateway --> Scheduler[Scheduler]
     Gateway --> Evolution[Evolution hooks]
@@ -45,10 +41,10 @@ flowchart TB
 | 模块 | 包 | 作用 |
 |---|---|---|
 | CLI | `cmd/ironclaw` | 提供 `start`、`tui`、`skill`、`memory`、`agent`、`insights`、`mcp` 命令。 |
-| Gateway | `internal/gateway` | 项目组合根：初始化数据库、Feature Registry、工具、Agent、Memory、Knowledge、Skill、多 Agent、Scheduler 等。 |
+| Gateway | `internal/gateway` | 项目组合根：初始化数据库、Feature Registry、工具、Agent、Memory、Skill、多 Agent、Scheduler 等。 |
 | Agent | `internal/agent`、`internal/dag` | LLM provider、会话处理、Simple/Unified loop、上下文压缩、工具执行、子代理、团队协作、任务计划。 |
 | Tool | `internal/tool`、`internal/worktree` | Bash、file、HTTP、browser、code intel、memory、plan_task、worktree、MCP 工具以及拦截器链。 |
-| Memory/Knowledge | `internal/memory`、`internal/memorywire`、`internal/knowledge`、`internal/knowledge/graph` | 文件记忆、embedding、事实抽取、生命周期、AMP 适配、文档摄入、混合检索、知识图谱。 |
+| Memory | `internal/memory`、`internal/memorywire` | 文件记忆、embedding、事实抽取、生命周期、AMP 适配、统一检索。 |
 | Channel | `internal/channel/*` | Telegram、Discord、TUI 适配，审批、反思、反馈和工具流式输出能力。 |
 | State | `internal/store`、`internal/session`、`internal/taskledger`、`internal/scheduler` | SQLite 迁移、会话、消息、工具日志、任务账本、团队任务、定时任务。 |
 | Observability | `internal/observability`、`internal/cogmetrics`、`internal/health`、`internal/ratelimit` | OpenTelemetry、认知指标、健康检查、限流。 |
@@ -100,7 +96,7 @@ cd web/studio && npm ci && npm run build
 - Gateway 与 Feature Registry。
 - Agent 运行时。
 - 工具、权限、Hook、沙箱。
-- Memory、Knowledge、Knowledge Graph。
+- Memory 系统。
 - 通道与可观测性。
 - Store、Session、Task Ledger、Scheduler。
 - Evolution。

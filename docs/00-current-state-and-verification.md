@@ -32,33 +32,22 @@ Expected details:
 - `make test` runs all Go tests with `-race -count=1`.
 - `web/studio` build produces a standalone Vue bundle; `web/studio/dist/` is generated output and should not be committed unless a release process explicitly requires it.
 
-## Fixed Defect
+## Embedding Consistency
 
-One real code defect was found and fixed:
+Embedding call sites share the same `memory` embedding fields so an OpenAI-compatible service works consistently across the runtime:
 
 ```mermaid
 flowchart TB
     Config[memory.openai_api_key / embedding_model / embedding_base_url]
     Config --> Memory[Memory embedder]
     Config --> CodeIndex[Codebase Index embedder]
-    Config --> Knowledge[Knowledge Base embedder]
 ```
 
-Before the fix, Memory and Codebase Index used `memory.NewOpenAIEmbeddingWithURL(...)`, but Knowledge Base used the constructor that ignored the configured base URL. That meant an OpenAI-compatible embedding service could work for memories and semantic code search while Knowledge Base still attempted the default OpenAI endpoint.
-
-The fixed file is `internal/gateway/init_knowledge.go`. Knowledge Base now uses:
-
-```go
-memory.NewOpenAIEmbeddingWithURL(
-    gw.cfg.Memory.OpenAIAPIKey,
-    gw.cfg.Memory.EmbeddingModel,
-    gw.cfg.Memory.EmbeddingBaseURL,
-)
-```
+Both Memory and Codebase Index use `memory.NewOpenAIEmbeddingWithURL(...)`, honoring the configured base URL. Keep any future embedding call sites consistent with this constructor.
 
 ## Current Health
 
-No broken module connections remain after the fix:
+No broken module connections remain:
 
 - Go packages compile.
 - Interfaces resolve.

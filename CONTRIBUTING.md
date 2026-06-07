@@ -45,7 +45,7 @@ make vet
 make test-short
 ```
 
-For Gateway, tool, memory, knowledge, session, store, provider, or concurrency changes:
+For Gateway, tool, memory, session, store, provider, or concurrency changes:
 
 ```bash
 make test

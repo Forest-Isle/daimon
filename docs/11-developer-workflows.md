@@ -61,7 +61,7 @@ New tools that can mutate files, run commands, call network, or write state shou
 | Symptom | Check |
 |---|---|
 | Go build fails around SQLite | Ensure CGO toolchain is available and use Makefile targets. |
-| Knowledge vector search does not use custom endpoint | Check `memory.embedding_base_url`; Knowledge now uses this field. |
+| Memory vector search does not use custom endpoint | Check `memory.embedding_base_url`; embeddings use this field. |
 | MCP tools missing | Check `~/.IronClaw/mcp/*.yaml`, command availability, server logs, and `mcp_<name>` feature state. |
 | Sandbox not active | Check `sandbox.enabled`, Docker availability, and Feature Registry state. |
 | Vue Studio appears disconnected | Studio only connects to `/ws`; most views are prototype-local until backend APIs are added. |

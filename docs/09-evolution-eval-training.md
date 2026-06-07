@@ -42,9 +42,8 @@ Gateway creates the engine before cognitive/evolution hooks are initialized:
 
 1. `gw.evolution.engine = evolution.NewEngine(cfg.Evolution)`
 2. `initPlanAndEvolution`
-3. `initKnowledgeSystem`
-4. `Start()` starts the engine if the feature is enabled.
-5. On stop, Gateway saves evolution state and stops the engine when enabled.
+3. `Start()` starts the engine if the feature is enabled.
+4. On stop, Gateway saves evolution state and stops the engine when enabled.
 
 When a provider is available, Gateway can wire `LLMSkillOpt` into the engine at runtime start.
 

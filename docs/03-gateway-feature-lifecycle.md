@@ -18,8 +18,7 @@ flowchart TB
     Agent --> Memory[initMemorySystem]
     Memory --> Evo[create evolution engine]
     Evo --> Plan[initPlanAndEvolution]
-    Plan --> Knowledge[initKnowledgeSystem]
-    Knowledge --> CoreMemory[core_memory and AMP tools]
+    Plan --> CoreMemory[core_memory and AMP tools]
     CoreMemory --> Skills[initSkillManager]
     Skills --> Multi[initMultiAgent]
     Multi --> Task[task ledger and team coordinator]
@@ -32,11 +31,10 @@ flowchart TB
 
 The order matters:
 
-- Database is first because sessions, audit logs, knowledge, memory indexes, and task ledger depend on it.
+- Database is first because sessions, audit logs, memory indexes, and task ledger depend on it.
 - Tools and security chain exist before Agent runtime.
-- Agent is created before Memory and Knowledge, then `AgentDeps` is late-wired with real memory/knowledge dependencies.
+- Agent is created before Memory, then `AgentDeps` is late-wired with real memory dependencies.
 - Evolution engine exists before cognitive/evolution hooks are attached.
-- Knowledge initializes after memory so graph sync can attach to memory lifecycle when available.
 
 ## Feature Registry Defaults
 
@@ -48,9 +46,6 @@ The order matters:
 | `team` | on | construct | Depends on `multi_agent`; `/team` coordination. |
 | `speculative` | on | construct | Read-only tool pre-execution during streaming. |
 | `scheduler` | on | start | Hot-reloadable scheduled task execution. |
-| `knowledge` | on | construct | Depends on `memory`; BM25-only fallback without embeddings. |
-| `knowledge_graph` | on | construct | Depends on `knowledge`; graph store/extraction when enabled by config. |
-| `reranker` | on | construct | Depends on `knowledge`; active when reranker provider is `llm`. |
 | `sandbox` | on | construct | Auto-detects Docker; config can disable it. |
 | `evolution` | off | start | Hot-reloadable self-evolution engine. |
 | `model_routing` | off | construct | Depends on `evolution`. |

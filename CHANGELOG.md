@@ -10,6 +10,11 @@ All notable changes to IronClaw are tracked here.
 - Removed the Prometheus `/metrics` endpoint, which was served only by the dashboard server. No custom collectors were registered on it.
 - Removed the Makefile `web` frontend build target; `make build` no longer builds an embedded frontend.
 - Removed the TUI dashboard-URL header display (`SetDashboardURL`).
+- Removed the Knowledge Base and Knowledge Graph subsystems: deleted the `internal/knowledge` package (document ingestion, chunking, BM25+vector hybrid retrieval, reranker) and the `internal/knowledge/graph` package (entity/relation extraction, graph traversal, decay, sync).
+- Removed the `knowledge`, `knowledge_graph`, and `reranker` features from the Feature Registry, the `knowledge:` and `graph:` config sections, and the `ironclaw_knowledge_query` MCP tool.
+- The memory unified retriever now fuses only memory-store and procedural sources; `FusionWeights` drops `KnowledgeWeight` and `GraphWeight`.
+- Dropped the `kb_*` and `kg_*` tables via migration `024_drop_knowledge_tables.sql`; removed migrations `004_knowledge_base.sql`, `005_knowledge_graph.sql`, and `011_temporal_graph.sql`.
+- Removed the `knowledge` eval dimension and suite (11 dimensions remain).
 
 ### Fixed
 

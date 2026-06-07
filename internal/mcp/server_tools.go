@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Forest-Isle/IronClaw/internal/knowledge"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -17,7 +16,6 @@ import (
 // Nil fields disable the corresponding tool.
 type ServerDeps struct {
 	MemoryStore memory.Store
-	Knowledge   knowledge.Searcher
 	SkillMgr    *skill.Manager
 }
 
@@ -34,18 +32,6 @@ func RegisterDefaultTools(srv *Server, deps ServerDeps) {
 			makeMemorySearchHandler(deps.MemoryStore),
 		)
 		slog.Info("mcp server: registered ironclaw_memory_search")
-	}
-
-	if deps.Knowledge != nil {
-		srv.RegisterTool(
-			mcp.NewTool("ironclaw_knowledge_query",
-				mcp.WithDescription("Query IronClaw's knowledge base for relevant information"),
-				mcp.WithString("query", mcp.Description("Natural language query"), mcp.Required()),
-				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default 5)")),
-			),
-			makeKnowledgeQueryHandler(deps.Knowledge),
-		)
-		slog.Info("mcp server: registered ironclaw_knowledge_query")
 	}
 
 	if deps.SkillMgr != nil {
@@ -95,50 +81,6 @@ func makeMemorySearchHandler(store memory.Store) mcpserver.ToolHandlerFunc {
 			entries[i] = resultEntry{
 				ID:      r.Entry.ID,
 				Content: r.Entry.Content,
-				Score:   r.Score,
-			}
-		}
-		data, _ := json.Marshal(entries)
-		return mcp.NewToolResultText(string(data)), nil
-	}
-}
-
-// makeKnowledgeQueryHandler returns a tool handler that queries the knowledge base.
-func makeKnowledgeQueryHandler(searcher knowledge.Searcher) mcpserver.ToolHandlerFunc {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		args := req.GetArguments()
-		query, _ := args["query"].(string)
-		if query == "" {
-			return mcp.NewToolResultError("query parameter is required"), nil
-		}
-
-		limit := 5
-		if l, ok := args["limit"].(float64); ok && l > 0 {
-			limit = int(l)
-		}
-
-		results, err := searcher.Search(ctx, knowledge.KnowledgeQuery{
-			Text:  query,
-			Limit: limit,
-		})
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("knowledge query failed: %v", err)), nil
-		}
-
-		if len(results) == 0 {
-			return mcp.NewToolResultText("No matching knowledge found."), nil
-		}
-
-		type resultEntry struct {
-			Source  string  `json:"source"`
-			Content string  `json:"content"`
-			Score   float64 `json:"score"`
-		}
-		entries := make([]resultEntry, len(results))
-		for i, r := range results {
-			entries[i] = resultEntry{
-				Source:  r.Chunk.SourceURI,
-				Content: r.Chunk.Content,
 				Score:   r.Score,
 			}
 		}

@@ -12,7 +12,7 @@ This documentation set was rewritten from the current source tree. It intentiona
 | [03-gateway-feature-lifecycle.md](03-gateway-feature-lifecycle.md) | Gateway initialization order, Feature Registry defaults, hot reload, start/stop lifecycle. |
 | [04-agent-runtime.md](04-agent-runtime.md) | AgentDeps, providers, SimpleLoop, UnifiedLoop, context compression, sub-agents, teams. |
 | [05-tools-permissions-sandbox-hooks.md](05-tools-permissions-sandbox-hooks.md) | Tool registry, built-in tools, MCP tools, worktree tools, interceptor chain, permissions, hooks, sandbox. |
-| [06-memory-knowledge-graph.md](06-memory-knowledge-graph.md) | File memory, embeddings, lifecycle, AMP, Knowledge Base, hybrid retrieval, Knowledge Graph. |
+| [06-memory.md](06-memory.md) | File memory, embeddings, lifecycle, AMP, unified retrieval, prompt injection. |
 | [07-channels-dashboard-observability.md](07-channels-dashboard-observability.md) | Telegram, Discord, TUI, OpenTelemetry, cognitive metrics. |
 | [08-store-session-taskledger-scheduler.md](08-store-session-taskledger-scheduler.md) | SQLite migrations, session persistence, task ledger, team coordination, scheduler. |
 | [09-evolution-eval-training.md](09-evolution-eval-training.md) | Evolution engine and insights. |
@@ -35,7 +35,6 @@ flowchart LR
     Gateway --> Agent[internal/agent]
     Gateway --> Tools[internal/tool]
     Gateway --> Memory[internal/memory]
-    Gateway --> Knowledge[internal/knowledge]
     Gateway --> Channels[internal/channel]
     Gateway --> Store[(internal/store SQLite)]
     Agent --> Provider[Claude or OpenAI-compatible]
