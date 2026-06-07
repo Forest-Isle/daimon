@@ -13,9 +13,7 @@ The root command is `ironclaw`. The main command group is built in `cmd/ironclaw
 | `ironclaw memory reindex` | Rebuild the file memory index from `~/.IronClaw/memory`. |
 | `ironclaw agent run` | Subprocess backend entry point. Reads a JSON request from stdin and writes a JSON response to stdout. |
 | `ironclaw insights report/export/health` | Analyze evolution trajectory data. |
-| `ironclaw eval ...` | Run, compare, diagnose, benchmark, visualize, and longitudinally evaluate task suites. |
 | `ironclaw mcp serve` | Start a standalone IronClaw MCP server over stdio or Streamable HTTP. Current standalone mode has minimal dependency wiring. |
-| `ironclaw training export` | Export trajectory data in reward, DPO, or SFT formats. |
 
 ## Config Load Order
 
@@ -62,7 +60,6 @@ Important consequence: boolean fields that default to true are not always easy t
 | `tools` | bash/file/http/browser/verify/MCP/concurrency/result persistence | Built-in tool registration and execution behavior. |
 | `permissions` | default action and ordered rules | PermissionEngine decisions. |
 | `sandbox` | allowed/read-only dirs, bash backend, Docker config, network policy | File/network isolation and bash execution backend. |
-| `dashboard` | enabled, addr, token | Dashboard HTTP server and auth. |
 | `observability` | enabled, exporter, endpoint, sample rate | OpenTelemetry and metrics setup. |
 | `evolution` | preference, synthesizer, optimizer, model routing | Optional evolution engine and strategy updates. |
 
@@ -93,7 +90,7 @@ MCP files under `~/.IronClaw/mcp/*.yaml` are parsed into `cfg.Tools.MCP.Servers`
 
 ## Feature Overrides
 
-Feature defaults come from `internal/gateway/features.go`. Runtime changes can be persisted at `~/.IronClaw/feature_state.json`. Gateway applies persisted state after config overrides unless `GatewayOptions.SkipPersistedFeatureState` is set, which eval mode uses to avoid stale interactive state changing benchmark behavior.
+Feature defaults come from `internal/gateway/features.go`. Runtime changes can be persisted at `~/.IronClaw/feature_state.json`. Gateway applies persisted state after config overrides unless `GatewayOptions.SkipPersistedFeatureState` is set, which lets a caller boot with a clean, config-only feature set.
 
 ## Configuration Example
 
@@ -110,11 +107,6 @@ memory:
   openai_api_key: "${OPENAI_API_KEY}"
   embedding_model: text-embedding-3-small
   embedding_base_url: "https://api.openai.com/v1"
-
-dashboard:
-  enabled: true
-  addr: ":9443"
-  token: "${IRONCLAW_DASHBOARD_TOKEN}"
 ```
 
 Knowledge Base embedding uses the same `memory` embedding fields.

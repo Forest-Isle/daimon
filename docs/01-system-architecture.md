@@ -15,7 +15,7 @@ sequenceDiagram
     participant Tools as internal/tool
     participant Store as internal/store
 
-    User->>CLI: ironclaw start/tui/eval/etc.
+    User->>CLI: ironclaw start/tui/etc.
     CLI->>Config: Load YAML, expand env, apply overlays
     CLI->>Config: userdir.Apply(~/.IronClaw)
     CLI->>Gateway: New(cfg, options)
@@ -36,7 +36,7 @@ sequenceDiagram
 flowchart TB
     subgraph Entry
         CMD[cmd/ironclaw]
-        Web[web and web/studio]
+        Web[web/studio]
     end
 
     subgraph Composition
@@ -52,7 +52,6 @@ flowchart TB
         Channel[internal/channel]
         Memory[internal/memory]
         Knowledge[internal/knowledge]
-        Eval[internal/eval]
         Evolution[internal/evolution]
     end
 
@@ -61,7 +60,6 @@ flowchart TB
         Session[internal/session]
         TaskLedger[internal/taskledger]
         Scheduler[internal/scheduler]
-        Dashboard[internal/dashboard]
         Observability[internal/observability]
         Sandbox[internal/sandbox]
         Hook[internal/hook]
@@ -74,7 +72,7 @@ flowchart TB
     Gateway --> Feature
     Gateway --> Runtime
     Gateway --> Infrastructure
-    Web --> Dashboard
+    Web --> Gateway
 ```
 
 ## Runtime Responsibilities
@@ -92,7 +90,7 @@ Gateway owns cross-module wiring:
 - Tool registry, hooks, permission engine, sandbox, verification, audit.
 - LLM provider and `AgentDeps`.
 - Memory, Knowledge Base, Knowledge Graph, Skills, Agents, Teams.
-- Scheduler, task ledger, dashboard, health server, metrics, config reload.
+- Scheduler, task ledger, health server, metrics, config reload.
 
 ### Agent
 
@@ -112,7 +110,7 @@ Channels normalize Telegram, Discord, TUI, scheduler, and subprocess inputs into
 
 ### State and Observability
 
-SQLite stores sessions, messages, tool logs, knowledge tables, graph tables, memory indexes, task ledger state, execution events, and replay data. Dashboard and observability packages expose REST, WebSocket, Prometheus metrics, and OpenTelemetry traces.
+SQLite stores sessions, messages, tool logs, knowledge tables, graph tables, memory indexes, task ledger state, execution events, and replay data. The observability package exposes OpenTelemetry traces and metrics, and cognitive metrics are surfaced to the TUI status bar.
 
 ## Data Flow for a User Message
 
@@ -146,5 +144,4 @@ flowchart LR
 | Tool registry/interceptors | `internal/gateway/init_tools.go`, `internal/tool/*.go` |
 | Memory | `internal/gateway/init_memory.go`, `internal/memory/*.go` |
 | Knowledge | `internal/gateway/init_knowledge.go`, `internal/knowledge/*.go`, `internal/knowledge/graph/*.go` |
-| Dashboard | `internal/dashboard/server.go`, `web/src/lib/api.ts` |
 | Store | `internal/store/sqlite.go`, `internal/store/migrations/*.sql` |

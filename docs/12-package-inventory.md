@@ -6,7 +6,7 @@ This inventory is based on `go list ./...`.
 
 | Package | Role |
 |---|---|
-| `cmd/ironclaw` | Cobra CLI, runtime entry points, TUI startup, skill commands, memory reindex, eval, MCP serve, training export, insights. |
+| `cmd/ironclaw` | Cobra CLI, runtime entry points, TUI startup, skill commands, memory reindex, MCP serve, insights. |
 
 ## Runtime Core
 
@@ -58,11 +58,10 @@ This inventory is based on `go list ./...`.
 | `internal/taskledger` | Task ledger, stale detector, team coordinator/planner, noop implementation. |
 | `internal/scheduler` | Scheduled task model and poller. |
 
-## Observability and UI Backend
+## Observability
 
 | Package | Role |
 |---|---|
-| `internal/dashboard` | Embedded dashboard server, REST routes, WebSocket hub, state tracker, event bus, evolution bridge. |
 | `internal/observability` | OpenTelemetry tracing/metrics setup and metric instruments. |
 | `internal/cogmetrics` | Cognitive metric collector, health report, breaker, rolling averages. |
 | `internal/health` | Health check registry and checker abstraction. |
@@ -73,7 +72,6 @@ This inventory is based on `go list ./...`.
 | Package | Role |
 |---|---|
 | `internal/evolution` | Evolution engine, preferences, strategies, reward, insights, trajectory recorder, skill synthesis/activation, prompt optimization. |
-| `internal/eval` | Evaluation harness, suites, dry/live runners, assertions, diagnosis, benchmarks, longitudinal/adaptive eval, training export. |
 
 ## Utility
 
@@ -99,16 +97,14 @@ flowchart TB
     Gateway --> Session[internal/session]
     Gateway --> Task[internal/taskledger]
     Gateway --> Scheduler[internal/scheduler]
-    Gateway --> Dashboard[internal/dashboard]
     Gateway --> Evolution[internal/evolution]
     Gateway --> MCP[internal/mcp]
     Gateway --> Sandbox[internal/sandbox]
     Gateway --> Hook[internal/hook]
+    Gateway --> Cog[internal/cogmetrics]
+    Gateway --> Obs[internal/observability]
 
     Agent --> DAG[internal/dag]
-    Agent --> Eval[internal/eval]
     Memory --> Memorywire[internal/memorywire]
     Knowledge --> Graph[internal/knowledge/graph]
-    Dashboard --> Cog[internal/cogmetrics]
-    Dashboard --> Obs[internal/observability]
 ```

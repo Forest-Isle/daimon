@@ -13,10 +13,10 @@ This documentation set was rewritten from the current source tree. It intentiona
 | [04-agent-runtime.md](04-agent-runtime.md) | AgentDeps, providers, SimpleLoop, UnifiedLoop, context compression, sub-agents, teams. |
 | [05-tools-permissions-sandbox-hooks.md](05-tools-permissions-sandbox-hooks.md) | Tool registry, built-in tools, MCP tools, worktree tools, interceptor chain, permissions, hooks, sandbox. |
 | [06-memory-knowledge-graph.md](06-memory-knowledge-graph.md) | File memory, embeddings, lifecycle, AMP, Knowledge Base, hybrid retrieval, Knowledge Graph. |
-| [07-channels-dashboard-observability.md](07-channels-dashboard-observability.md) | Telegram, Discord, TUI, Dashboard REST/WS, Prometheus, OpenTelemetry, cognitive metrics. |
+| [07-channels-dashboard-observability.md](07-channels-dashboard-observability.md) | Telegram, Discord, TUI, OpenTelemetry, cognitive metrics. |
 | [08-store-session-taskledger-scheduler.md](08-store-session-taskledger-scheduler.md) | SQLite migrations, session persistence, task ledger, team coordination, scheduler. |
-| [09-evolution-eval-training.md](09-evolution-eval-training.md) | Evolution engine, insights, eval harness, benchmark runners, training export. |
-| [10-frontend-apps.md](10-frontend-apps.md) | Preact dashboard and Vue Studio, build behavior, API contracts, prototype boundaries. |
+| [09-evolution-eval-training.md](09-evolution-eval-training.md) | Evolution engine and insights. |
+| [10-frontend-apps.md](10-frontend-apps.md) | Vue Studio app, build behavior, API contracts, prototype boundaries. |
 | [11-developer-workflows.md](11-developer-workflows.md) | Build/test workflows, adding features/tools/config/routes, troubleshooting. |
 | [12-package-inventory.md](12-package-inventory.md) | Package-by-package inventory for all current Go packages. |
 
@@ -37,7 +37,6 @@ flowchart LR
     Gateway --> Memory[internal/memory]
     Gateway --> Knowledge[internal/knowledge]
     Gateway --> Channels[internal/channel]
-    Gateway --> Dashboard[internal/dashboard]
     Gateway --> Store[(internal/store SQLite)]
     Agent --> Provider[Claude or OpenAI-compatible]
     Tools --> Sandbox[permissions/hooks/sandbox/verify/audit]

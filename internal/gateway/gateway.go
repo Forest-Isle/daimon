@@ -14,11 +14,9 @@ import (
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/cogmetrics"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/memorywire"
-	"github.com/Forest-Isle/IronClaw/internal/eval"
 	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
 	"github.com/Forest-Isle/IronClaw/internal/health"
@@ -69,11 +67,15 @@ type Gateway struct {
 	// Subsystems — each manages a group of related fields
 	memory        *MemorySubsystem
 	channels      *ChannelSubsystem
-	dashboard     *DashboardSubsystem
 	sandbox       *SandboxSubsystem
 	evolution     *EvolutionSubsystem
 	tasks         *TaskSubsystem
 	observability *ObservabilitySubsystem
+
+	// emitter is the active ObservabilityEmitter shared by the agent runtime,
+	// context manager, and channel consumers (e.g. TUI status bar). Nil means
+	// no emitter is configured; agent deps substitute a discard emitter.
+	emitter agent.ObservabilityEmitter
 
 	agentDeps agent.AgentDeps // shared dependency bundle
 	cmdTable  commandTable    // slash command routing table
@@ -111,7 +113,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// by the init* methods below.
 	gw.memory = &MemorySubsystem{}
 	gw.channels = &ChannelSubsystem{channels: make(map[string]channel.Channel)}
-	gw.dashboard = &DashboardSubsystem{}
 	gw.sandbox = &SandboxSubsystem{}
 	gw.evolution = &EvolutionSubsystem{}
 	gw.tasks = &TaskSubsystem{}
@@ -126,7 +127,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	}
 	rb.push(func() { gw.db.Close() })
 
-	// Health check registry — always available regardless of dashboard
+	// Health check registry — always available
 	gw.healthRegistry = health.NewRegistry()
 	gw.healthRegistry.Register("database", health.CheckerFunc(func(ctx context.Context) error {
 		return gw.db.PingContext(ctx)
@@ -292,17 +293,11 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		})
 	})
 
-	// initCogMetrics runs unconditionally so eval runs (dashboard disabled)
-	// still populate cogCollector.
+	// initCogMetrics runs unconditionally so eval runs still populate
+	// cogCollector.
 	gw.initCogMetrics()
 
-	// Rate limiter must be initialized before dashboard (which may wrap it).
 	gw.initRateLimiter()
-
-	if err = gw.initDashboard(); err != nil {
-		return nil, fmt.Errorf("dashboard: %w", err)
-	}
-	rb.push(func() { _ = gw.dashboard.Stop(gw.initCtx) })
 
 	// Populate command table
 	gw.cmdTable = commandTable{
@@ -325,7 +320,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		gw.evolution,
 		gw.tasks,
 		gw.channels,
-		gw.dashboard,
 	}
 
 	gw.bindFeatureLifecycleHooks()
@@ -371,7 +365,7 @@ func (gw *Gateway) AddChannel(ch channel.Channel) {
 
 // Start initializes all channels and begins processing.
 func (gw *Gateway) Start(ctx context.Context) error {
-	// Start health check HTTP server — always available independent of dashboard
+	// Start health check HTTP server — always available
 	gw.startHealthServer()
 
 	// Start MCP servers asynchronously — npx/uvx process startup can take
@@ -432,8 +426,8 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		slog.Info("scheduler started")
 	}
 
-	// Start HTTP admin server if enabled (standalone only — dashboard has its own server)
-	if gw.features.IsEnabled("server") && !gw.featureEnabled("dashboard") {
+	// Start HTTP admin server if enabled (standalone)
+	if gw.features.IsEnabled("server") {
 		go startHTTPServer(gw.Config().Server.Addr, gw.db, gw.memory.Store())
 	}
 
@@ -464,19 +458,19 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 // SetObservabilityEmitter replaces the current ObservabilityEmitter on the agent deps
 // and context manager. Prefer AddObservabilityEmitter when multiple consumers must
-// coexist (e.g. web dashboard + TUI).
+// coexist (e.g. TUI status bar alongside another consumer).
 func (gw *Gateway) SetObservabilityEmitter(e agent.ObservabilityEmitter) {
-	gw.dashboard.emitter = e
+	gw.emitter = e
 	gw.agentDeps.Observability.Emitter = e
 	if gw.contextMgr != nil {
 		gw.contextMgr.SetObservabilityEmitter(e)
 	}
 }
 
-// AddObservabilityEmitter merges e with the existing emitter so both the web
-// dashboard and channel-specific consumers (e.g. TUI status bar) receive events.
+// AddObservabilityEmitter merges e with the existing emitter so multiple
+// channel-specific consumers (e.g. TUI status bar) receive events.
 func (gw *Gateway) AddObservabilityEmitter(e agent.ObservabilityEmitter) {
-	merged := agent.NewMultiEmitter(gw.dashboard.Emitter(), e)
+	merged := agent.NewMultiEmitter(gw.emitter, e)
 	gw.SetObservabilityEmitter(merged)
 }
 
@@ -546,44 +540,6 @@ func (gw *Gateway) SetMode(mode string) error {
 	gw.currentMode.Store(mode)
 	slog.Info("gateway: mode switched", "mode", mode)
 	return nil
-}
-
-// CogMetricsCollector returns the cognitive-metrics collector, or nil when
-// evolution is not enabled. Used by the eval harness to populate CogHealth.
-func (gw *Gateway) CogMetricsCollector() *cogmetrics.Collector {
-	return gw.evolution.Collector()
-}
-
-// NewEvalRunner creates an eval.AgentRunner backed by the gateway's cognitive agent.
-// It also wires the runner's compression emitter into the context manager so that
-// context compression events are captured even when the dashboard is disabled.
-func (gw *Gateway) NewEvalRunner() *eval.CognitiveAgentRunner {
-	if gw.agent == nil { // defensive: should not happen after init
-		return nil
-	}
-	r := eval.NewCognitiveAgentRunner(gw.agent, gw.evolution.Engine())
-	r.SetCogCollector(gw.evolution.Collector())
-	r.SetMemoryStore(gw.memory.Store())
-	// Route context compression events through the eval hook so they appear
-	// in EvalResult.CompressionEvents even when the dashboard is disabled.
-	if gw.contextMgr != nil {
-		gw.contextMgr.SetObservabilityEmitter(
-			agent.NewMultiEmitter(gw.dashboard.Emitter(), r.CompressionEmitter()),
-		)
-	}
-	return r
-}
-
-// EvolutionEngine returns the gateway's evolution engine, or nil if evolution
-// is not configured. Used by the eval longitudinal command to trigger insights
-// cycles between benchmark iterations.
-func (gw *Gateway) EvolutionEngine() *evolution.Engine {
-	return gw.evolution.Engine()
-}
-
-// LLMProvider returns the gateway's LLM provider for external use (e.g. eval judging).
-func (gw *Gateway) LLMProvider() agent.Provider {
-	return gw.provider
 }
 
 // Features returns the feature registry, allowing callers to inspect which

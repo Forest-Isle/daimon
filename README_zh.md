@@ -1,10 +1,9 @@
 # IronClaw 项目总览
 
-IronClaw 是一个本地优先的 AI Agent Runtime。它不是单一聊天机器人，而是一个由 Gateway 统一接线的运行时系统：CLI、消息通道、LLM Provider、工具、权限与沙箱、记忆、知识库、子代理、任务账本、调度器、可观测性、Dashboard、评测和自进化组件都在同一套生命周期里组合。
+IronClaw 是一个本地优先的 AI Agent Runtime。它不是单一聊天机器人，而是一个由 Gateway 统一接线的运行时系统：CLI、消息通道、LLM Provider、工具、权限与沙箱、记忆、知识库、子代理、任务账本、调度器、可观测性、评测和自进化组件都在同一套生命周期里组合。
 
-当前项目以 Go 为主，前端有两个 Vite 应用：
+当前项目以 Go 为主，前端有一个 Vite 应用：
 
-- `web/`：Preact Dashboard，构建产物嵌入 Go 二进制，由 `internal/dashboard` 提供 REST 和 WebSocket。
 - `web/studio/`：Vue Studio 原型，用于可视化 Flow、Prompt、Memory、Evolution 视图；当前有本地示例状态，不能当作完整后端持久化控制台。
 
 ## 当前审计结论
@@ -33,8 +32,7 @@ flowchart TB
     Gateway --> Knowledge[Knowledge / Graph]
     Gateway --> Channels[Telegram / Discord / TUI]
     Gateway --> Scheduler[Scheduler]
-    Gateway --> Dashboard[Dashboard REST / WS]
-    Gateway --> Evolution[Evolution / Eval hooks]
+    Gateway --> Evolution[Evolution hooks]
 
     Agent --> Provider[Claude or OpenAI-compatible]
     Agent --> Sessions[Session Manager]
@@ -46,7 +44,7 @@ flowchart TB
 
 | 模块 | 包 | 作用 |
 |---|---|---|
-| CLI | `cmd/ironclaw` | 提供 `start`、`tui`、`skill`、`memory`、`agent`、`insights`、`eval`、`mcp`、`training` 命令。 |
+| CLI | `cmd/ironclaw` | 提供 `start`、`tui`、`skill`、`memory`、`agent`、`insights`、`mcp` 命令。 |
 | Gateway | `internal/gateway` | 项目组合根：初始化数据库、Feature Registry、工具、Agent、Memory、Knowledge、Skill、多 Agent、Scheduler、Dashboard 等。 |
 | Agent | `internal/agent`、`internal/dag` | LLM provider、会话处理、Simple/Unified loop、上下文压缩、工具执行、子代理、团队协作、任务计划。 |
 | Tool | `internal/tool`、`internal/worktree` | Bash、file、HTTP、browser、code intel、memory、plan_task、worktree、MCP 工具以及拦截器链。 |
@@ -54,7 +52,7 @@ flowchart TB
 | Channel | `internal/channel/*` | Telegram、Discord、TUI 适配，审批、反思、反馈和工具流式输出能力。 |
 | State | `internal/store`、`internal/session`、`internal/taskledger`、`internal/scheduler` | SQLite 迁移、会话、消息、工具日志、任务账本、团队任务、定时任务。 |
 | Observability | `internal/dashboard`、`internal/observability`、`internal/cogmetrics`、`internal/health`、`internal/ratelimit` | Dashboard、WebSocket 事件、Prometheus、OpenTelemetry、健康检查、限流。 |
-| Evolution/Eval | `internal/evolution`、`internal/eval` | 偏好学习、策略优化、技能草稿、轨迹记录、评测套件、训练数据导出。 |
+| Evolution | `internal/evolution` | 偏好学习、策略优化、技能草稿、轨迹记录。 |
 | Security | `internal/sandbox`、`internal/hook`、`internal/guardian`、`internal/logging` | 文件/网络策略、Docker/host 沙箱、Hook 系统、安全审计和日志脱敏。 |
 
 ## 快速开始
@@ -91,7 +89,7 @@ cd ../web/studio && npm ci && npm run build
 3. 当前工作目录下 `.ironclaw/ironclaw.yaml`。
 4. 当前工作目录下 `.ironclaw/local.yaml`。
 5. `~/.IronClaw` 用户目录注入：`Soul.md`、`Memory.md`、`Agent.md`、`mcp/*.yaml`、`skills/`、`agents/`。
-6. 持久化功能开关 `~/.IronClaw/feature_state.json`，eval 模式会跳过它，避免污染评测。
+6. 持久化功能开关 `~/.IronClaw/feature_state.json`，调用方可选择跳过。
 
 ## 文档入口
 
@@ -106,6 +104,6 @@ cd ../web/studio && npm ci && npm run build
 - Memory、Knowledge、Knowledge Graph。
 - 通道、Dashboard、可观测性。
 - Store、Session、Task Ledger、Scheduler。
-- Evolution、Eval、Training。
+- Evolution。
 - 前端应用。
 - 开发流程与包清单。
