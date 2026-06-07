@@ -1,0 +1,85 @@
+package gateway
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/IronClaw/internal/health"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// nullChannel is a minimal channel.Channel used to exercise the full
+// Start()/Stop() lifecycle without any external dependency.
+type nullChannel struct {
+	started bool
+	stopped bool
+}
+
+func (c *nullChannel) Name() string { return "null" }
+func (c *nullChannel) Start(ctx context.Context, handler channel.InboundHandler) error {
+	c.started = true
+	return nil
+}
+func (c *nullChannel) Stop(ctx context.Context) error {
+	c.stopped = true
+	return nil
+}
+func (c *nullChannel) Send(ctx context.Context, msg channel.OutboundMessage) error {
+	return nil
+}
+func (c *nullChannel) SendStreaming(ctx context.Context, target channel.MessageTarget) (channel.StreamUpdater, error) {
+	return nil, nil
+}
+
+// TestGatewayFullLifecycle exercises the complete runtime wiring:
+// New() constructs every subsystem, Start() boots channels + scheduler +
+// health server + background goroutines, and Stop() tears them down cleanly.
+// This covers the runtime paths that unit tests on individual subsystems miss.
+func TestGatewayFullLifecycle(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Agent.Mode = "simple"
+	// Enable memory so the memory-backed tools (core_memory, amp_memory) wire up.
+	cfg.Memory.Enabled = true
+	// Keep scheduler enabled (default) so Start() boots its goroutine.
+	cfg.Scheduler.Enabled = true
+	cfg.Scheduler.PollInterval = time.Hour // long interval — we only verify boot/teardown
+
+	gw, err := New(cfg)
+	require.NoError(t, err)
+
+	// Every core subsystem must be wired after New().
+	assert.NotNil(t, gw.agent, "agent runtime")
+	assert.NotNil(t, gw.tools, "tool registry")
+	assert.NotNil(t, gw.sessions, "session manager")
+	assert.NotNil(t, gw.features, "feature registry")
+	assert.NotNil(t, gw.channels.Scheduler(), "scheduler")
+	assert.NotNil(t, gw.tasks.TaskLedger(), "task ledger")
+	assert.NotNil(t, gw.healthRegistry, "health registry")
+
+	// Core tools must be registered end-to-end.
+	for _, name := range []string{"core_memory", "amp_memory", "plan_task"} {
+		_, err := gw.tools.Get(name)
+		assert.NoError(t, err, "tool %q must be registered", name)
+	}
+
+	ch := &nullChannel{}
+	gw.AddChannel(ch)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	require.NoError(t, gw.Start(ctx), "Start must succeed")
+	assert.True(t, ch.started, "channel must be started")
+
+	// Health report must include the database checker and report OK overall.
+	hctx, hcancel := context.WithTimeout(ctx, 2*time.Second)
+	defer hcancel()
+	report := gw.healthRegistry.Check(hctx)
+	require.Contains(t, report.Checks, "database")
+	assert.Equal(t, health.StatusOK, report.Checks["database"].Status, "database health check")
+
+	require.NoError(t, gw.Stop(context.Background()), "Stop must succeed")
+}
