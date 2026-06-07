@@ -1,64 +1,67 @@
-# IronClaw golangci-lint configuration
-# Run: golangci-lint run ./...
-
+version: "2"
 run:
-  timeout: 5m
-  tests: true
   modules-download-mode: readonly
-
-linters:
-  enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gosec
-    - gocognit
-    - dupl
-    - gofmt
-    - goimports
-    - misspell
-  disable-all: false
-
-linters-settings:
-  gocognit:
-    min-complexity: 30
-  dupl:
-    threshold: 100
-  gosec:
-    excludes:
-      - G104  # Errors not checked (too noisy in tool callbacks)
-  funlen:
-    lines: 120
-    statements: 60
-  staticcheck:
-    checks: ["all", "-SA1019"]  # Allow deprecated symbol usage during migration
-
-issues:
-  exclude-rules:
-    # Exclude dupl in test files
-    - path: _test\.go
-      linters:
-        - dupl
-        - gosec
-    # Exclude gosec for intentional test patterns
-    - path: _test\.go
-      text: "G306|G404"
-    # Exclude examples from long-function checks
-    - path: examples/
-      linters:
-        - funlen
-    # Exclude eval fixtures from complexity checks
-    - path: internal/eval/fixtures
-      linters:
-        - gocognit
-        - funlen
-  max-issues-per-linter: 0
-  max-same-issues: 0
-
+  tests: true
 output:
   formats:
-    - format: colored-line-number
-  sort-results: true
+    text:
+      path: stdout
+linters:
+  enable:
+    - dupl
+    - gocognit
+    - gosec
+    - misspell
+  settings:
+    dupl:
+      threshold: 100
+    funlen:
+      lines: 120
+      statements: 60
+    gocognit:
+      min-complexity: 30
+    gosec:
+      excludes:
+        - G104
+    staticcheck:
+      checks:
+        - all
+        - -SA1019
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - dupl
+          - gosec
+        path: _test\.go
+      - path: _test\.go
+        text: G306|G404
+      - linters:
+          - funlen
+        path: examples/
+      - linters:
+          - funlen
+          - gocognit
+        path: internal/eval/fixtures
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

@@ -27,6 +27,10 @@ jobs:
           args: '-no-fail -fmt sarif -out results.sarif ./...'
       - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
+        # Code Scanning upload requires GitHub Advanced Security, which is not
+        # available on private repos without a license. Keep the step so it
+        # activates automatically if GHAS is enabled, but don't fail the job.
+        continue-on-error: true
         if: always()
         with:
           sarif_file: results.sarif
