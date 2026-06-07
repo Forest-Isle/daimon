@@ -4,8 +4,8 @@
 # 此文件中的 enabled 字段仅作为覆盖：省略则使用 Feature Registry 默认值。
 # 运行时可通过 /feature list 查看所有功能状态，/feature enable|disable 开关功能。
 #
-# 默认开启: memory, skills, multi_agent, team, speculative, scheduler, knowledge,
-#           knowledge_graph, reranker, sandbox (auto-detect Docker)
+# 默认开启: memory, skills, multi_agent, team, speculative, scheduler,
+#           sandbox (auto-detect Docker)
 # 默认关闭: evolution, model_routing, dashboard, server
 
 llm:
@@ -131,26 +131,6 @@ memory:
     flush_interval: 5s             # 事务日志刷新间隔
     chunk_threshold: 200           # 超过此数量的事实时自动分块
     compression: false             # 是否压缩大文件
-
-# 知识库 - 文档摄入 + BM25/向量混合检索
-knowledge:
-  # enabled: true                      # 默认开启（无 OpenAI key 时退化为 BM25-only）
-  chunk_size: 512
-  chunk_overlap: 64
-  bm25_weight: 0.4
-  vector_weight: 0.6
-  graph_enabled: false              # 启用知识图谱（实体/关系抽取）
-  ingest_dirs:                      # 启动时自动摄入的目录
-    # - "./docs"
-    # - "./knowledge"
-  reranker:
-    enabled: false
-    provider: llm                   # "llm" 或 "none"
-
-  # 性能优化配置
-  # enable_search_cache: true      # 启用搜索结果缓存
-  # search_cache_size: 500         # 缓存查询数量
-  # search_cache_ttl: 5m           # 缓存过期时间
 
 scheduler:
   # enabled: true                      # 默认开启

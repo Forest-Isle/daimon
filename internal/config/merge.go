@@ -120,34 +120,6 @@ func mergeConfig(base *Config, overlay *Config) {
 		base.Memory.VectorDimension = overlay.Memory.VectorDimension
 	}
 
-	// Knowledge
-	if overlay.Knowledge.Enabled {
-		base.Knowledge.Enabled = true
-	}
-	if overlay.Knowledge.ChunkSize > 0 {
-		base.Knowledge.ChunkSize = overlay.Knowledge.ChunkSize
-	}
-	if overlay.Knowledge.ChunkOverlap > 0 {
-		base.Knowledge.ChunkOverlap = overlay.Knowledge.ChunkOverlap
-	}
-	if overlay.Knowledge.BM25Weight > 0 {
-		base.Knowledge.BM25Weight = overlay.Knowledge.BM25Weight
-	}
-	if overlay.Knowledge.VectorWeight > 0 {
-		base.Knowledge.VectorWeight = overlay.Knowledge.VectorWeight
-	}
-	if overlay.Knowledge.GraphEnabled {
-		base.Knowledge.GraphEnabled = true
-	}
-	if len(overlay.Knowledge.IngestDirs) > 0 {
-		base.Knowledge.IngestDirs = overlay.Knowledge.IngestDirs
-	}
-
-	// Graph
-	if overlay.Graph.Enabled {
-		base.Graph.Enabled = true
-	}
-
 	// Scheduler
 	if overlay.Scheduler.Enabled {
 		base.Scheduler.Enabled = true

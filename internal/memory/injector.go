@@ -10,7 +10,6 @@ type PromptSections struct {
 	MemoryLines    []string // episodic memories
 	KnowledgeLines []string // semantic knowledge
 	StrategyLines  []string // procedural strategies
-	GraphLines     []string // graph relations
 	Combined       string   // all sections combined
 }
 
@@ -23,8 +22,6 @@ func (ur *UnifiedRetriever) BuildPromptSection(memories []*UnifiedMemory) *Promp
 		}
 		line := truncateLine(mem.Content, 240)
 		switch {
-		case mem.Source == "graph":
-			sections.GraphLines = append(sections.GraphLines, "- "+line)
 		case mem.Type == Procedural:
 			sections.StrategyLines = append(sections.StrategyLines, "- "+line)
 		case mem.Type == Semantic:
@@ -53,7 +50,6 @@ func (ps *PromptSections) Format() string {
 	appendBlock("## Relevant Memories", ps.MemoryLines)
 	appendBlock("## Knowledge Context", ps.KnowledgeLines)
 	appendBlock("## Past Successful Strategies", ps.StrategyLines)
-	appendBlock("## Related Entities", ps.GraphLines)
 
 	return strings.Join(blocks, "\n\n")
 }

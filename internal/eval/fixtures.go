@@ -304,7 +304,6 @@ func FullSuite() []TaskCase {
 	all = append(all, ToolSelectionSuite()...)
 	all = append(all, ConversationSuite()...)
 	all = append(all, MemorySuite()...)
-	all = append(all, KnowledgeSuite()...)
 	all = append(all, MultiAgentSuite()...)
 	// Self-learning dimensions
 	all = append(all, SkillLearningSuite()...)
@@ -325,7 +324,6 @@ func AllSuites() map[string]func() []TaskCase {
 		"tool_selection":       ToolSelectionSuite,
 		"conversation":         ConversationSuite,
 		"memory":               MemorySuite,
-		"knowledge":            KnowledgeSuite,
 		"multi_agent":          MultiAgentSuite,
 		"skill_learning":       SkillLearningSuite,
 		"preference_adherence": PreferenceAdherenceSuite,

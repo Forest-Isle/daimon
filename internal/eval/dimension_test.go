@@ -13,7 +13,6 @@ func TestDimension_String(t *testing.T) {
 		{DimToolSelection, "tool_selection"},
 		{DimConversation, "conversation"},
 		{DimMemory, "memory"},
-		{DimKnowledge, "knowledge"},
 		{DimMultiAgent, "multi_agent"},
 		{DimSkillLearning, "skill_learning"},
 		{DimPreferenceAdherence, "preference_adherence"},
@@ -87,8 +86,8 @@ func TestAggregateDimensions_WeakestStrongest(t *testing.T) {
 
 func TestAllDimensions_Count(t *testing.T) {
 	dims := AllDimensions()
-	if len(dims) != 12 {
-		t.Errorf("expected 12 dimensions (8 original + 4 self-learning), got %d: %v", len(dims), dims)
+	if len(dims) != 11 {
+		t.Errorf("expected 11 dimensions (7 original + 4 self-learning), got %d: %v", len(dims), dims)
 	}
 	// Verify the self-learning-related dimensions are present.
 	found := make(map[Dimension]bool)

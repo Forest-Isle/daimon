@@ -57,7 +57,6 @@ Important consequence: boolean fields that default to true are not always easy t
 | `agent` | `mode`, `max_iterations`, `system_prompt`, compression, speculative, team | Controls loop strategy, prompt, context compression, speculative execution, team workers. |
 | `store` | `path` | SQLite database path. |
 | `memory` | storage dir, embedding model/base URL/API key, fact extraction, lifecycle, cache, retention | File memory store, embeddings, fact extraction, reflection, compaction, retention. |
-| `knowledge` | chunk size, weights, ingest dirs, reranker, cache, graph | Knowledge Base ingestion and retrieval. |
 | `scheduler` | enabled, poll interval | Scheduled prompt execution. |
 | `tools` | bash/file/http/browser/verify/MCP/concurrency/result persistence | Built-in tool registration and execution behavior. |
 | `permissions` | default action and ordered rules | PermissionEngine decisions. |
@@ -116,5 +115,3 @@ dashboard:
   addr: ":9443"
   token: "${IRONCLAW_DASHBOARD_TOKEN}"
 ```
-
-Knowledge Base embedding uses the same `memory` embedding fields.

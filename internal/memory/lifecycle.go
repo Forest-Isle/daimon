@@ -53,13 +53,6 @@ func (s MemoryOperationSummary) String() string {
 	return "Memory: " + strings.Join(parts, ", ")
 }
 
-// GraphSyncer is an optional interface for syncing memory events to the knowledge graph.
-type GraphSyncer interface {
-	SyncOnAdd(ctx context.Context, factID, content string) error
-	SyncOnUpdate(ctx context.Context, oldFactID, newFactID, content string) error
-	SyncOnDelete(ctx context.Context, factID string) error
-}
-
 // LifecycleManager implements the ADD/UPDATE/DELETE/NOOP decision loop.
 // It mirrors the mem0 core design: new fact -> similarity search -> LLM decision -> execute.
 type LifecycleManager struct {
@@ -68,7 +61,6 @@ type LifecycleManager struct {
 	completer Completer
 	cfg       MemoryConfig
 	reflector *ReflectionTracker
-	graphSync GraphSyncer
 	audit     *AuditLogger
 }
 
@@ -83,13 +75,6 @@ func NewLifecycleManager(store Store, embedder EmbeddingProvider, completer Comp
 		cfg:       cfg,
 		reflector: reflector,
 	}
-}
-
-// SetGraphSync attaches an optional graph syncer to the lifecycle manager.
-// This is called after construction because the graph may be initialized after
-// the lifecycle manager is created.
-func (lm *LifecycleManager) SetGraphSync(gs GraphSyncer) {
-	lm.graphSync = gs
 }
 
 // SetAuditLogger attaches an optional audit logger to the lifecycle manager.
@@ -249,7 +234,7 @@ func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, cand
 // executeAdd stores a new fact entry as a Markdown file.
 func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, sessionID, userID string, scope MemoryScope, relatedTo string) (string, error) {
 	now := time.Now()
-	// Generate a predictable ID so we can pass it to both store.Save and graphSync.
+	// Generate a predictable ID so we can pass it to both store.Save and the audit log.
 	factID := fmt.Sprintf("fact_%d", now.UnixNano())
 
 	metadata := map[string]string{
@@ -281,13 +266,6 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 		UpdatedAt: now,
 	}); err != nil {
 		return "", err
-	}
-
-	// Sync to knowledge graph if available
-	if lm.graphSync != nil {
-		if err := lm.graphSync.SyncOnAdd(ctx, factID, fact.Content); err != nil {
-			slog.Warn("lifecycle: graph sync on add failed", "id", factID, "err", err)
-		}
 	}
 
 	// Audit log
@@ -342,13 +320,6 @@ func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, 
 		return "", err
 	}
 
-	// Sync to knowledge graph if available
-	if lm.graphSync != nil {
-		if err := lm.graphSync.SyncOnUpdate(ctx, targetID, newFactID, fact.Content); err != nil {
-			slog.Warn("lifecycle: graph sync on update failed", "old_id", targetID, "new_id", newFactID, "err", err)
-		}
-	}
-
 	// Audit log
 	if lm.audit != nil {
 		contentPreview := fact.Content
@@ -365,13 +336,6 @@ func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, 
 func (lm *LifecycleManager) executeDelete(ctx context.Context, targetID string) error {
 	if err := lm.store.Delete(ctx, targetID); err != nil {
 		return err
-	}
-
-	// Sync to knowledge graph if available
-	if lm.graphSync != nil {
-		if err := lm.graphSync.SyncOnDelete(ctx, targetID); err != nil {
-			slog.Warn("lifecycle: graph sync on delete failed", "id", targetID, "err", err)
-		}
 	}
 
 	// Audit log

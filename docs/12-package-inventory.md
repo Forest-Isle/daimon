@@ -40,14 +40,12 @@ This inventory is based on `go list ./...`.
 | `internal/channel/discord` | Discord adapter, formatting, approval/reflection/feedback callbacks. |
 | `internal/channel/tui` | Bubble Tea TUI channel, view model, formatter, command suggestions, observability emitter. |
 
-## Memory and Knowledge
+## Memory
 
 | Package | Role |
 |---|---|
 | `internal/memory` | File memory store, embeddings, cache, lifecycle, facts, compactor, consolidator, profiler, privacy, temporal memory, unified retrieval. |
 | `internal/memorywire` | Agent Memory Protocol adapter. |
-| `internal/knowledge` | Knowledge Base, chunking, ingestion pipelines, store, retriever, reranker, cache. |
-| `internal/knowledge/graph` | SQLite graph store, entity extraction, graph sync, graph decay. |
 
 ## Persistence and Coordination
 
@@ -94,7 +92,6 @@ flowchart TB
     Gateway --> Tool[internal/tool]
     Gateway --> Channel[internal/channel]
     Gateway --> Memory[internal/memory]
-    Gateway --> Knowledge[internal/knowledge]
     Gateway --> Store[internal/store]
     Gateway --> Session[internal/session]
     Gateway --> Task[internal/taskledger]
@@ -108,7 +105,6 @@ flowchart TB
     Agent --> DAG[internal/dag]
     Agent --> Eval[internal/eval]
     Memory --> Memorywire[internal/memorywire]
-    Knowledge --> Graph[internal/knowledge/graph]
     Dashboard --> Cog[internal/cogmetrics]
     Dashboard --> Obs[internal/observability]
 ```

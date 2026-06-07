@@ -1,6 +1,6 @@
 # IronClaw
 
-IronClaw is a local-first AI agent runtime written in Go. It wires LLM providers, channels, tools, memory, knowledge retrieval, sub-agents, scheduling, observability, and optional web dashboards behind one Gateway.
+IronClaw is a local-first AI agent runtime written in Go. It wires LLM providers, channels, tools, memory, sub-agents, scheduling, observability, and optional web dashboards behind one Gateway.
 
 The current codebase is a Go 1.25.9 project with two Vite frontends:
 
@@ -9,7 +9,7 @@ The current codebase is a Go 1.25.9 project with two Vite frontends:
 
 ## Current Status
 
-The current audit found no compilation, vet, short-test, frontend-build, or race-test failures after fixing one wiring defect in Knowledge Base embedding initialization. The fixed defect was in `internal/gateway/init_knowledge.go`: Knowledge Base embedding now honors `memory.embedding_base_url`, matching Memory and Codebase Index behavior.
+The current audit found no compilation, vet, short-test, frontend-build, or race-test failures.
 
 See:
 
@@ -28,7 +28,6 @@ flowchart LR
     Agent --> Provider[Claude or OpenAI-compatible provider]
     Agent --> Tools[Tool registry]
     Agent --> Memory[Memory system]
-    Agent --> Knowledge[Knowledge base]
     Agent --> Agents[Sub-agents and teams]
     Tools --> Sandbox[Permission / Hook / Sandbox / Verify / Audit chain]
     Gateway --> Store[(SQLite WAL store)]
@@ -44,7 +43,7 @@ flowchart LR
 | Gateway | `internal/gateway` | Central composition root, feature registry, subsystem lifecycle, slash command dispatch. |
 | Agent | `internal/agent`, `internal/dag` | LLM loop strategies, provider adapters, context compression, tool execution, sub-agent orchestration, task planning. |
 | Tools | `internal/tool`, `internal/worktree` | Built-in tools, MCP adapters, worktree tools, permission and sandbox interceptor chain. |
-| Memory and knowledge | `internal/memory`, `internal/memorywire`, `internal/knowledge`, `internal/knowledge/graph` | File memory, embeddings, lifecycle, AMP adapter, document ingestion, hybrid retrieval, graph extraction. |
+| Memory | `internal/memory`, `internal/memorywire` | File memory, embeddings, lifecycle, AMP adapter, unified retrieval. |
 | Channels | `internal/channel/*` | Telegram, Discord, TUI, approval prompts, reflection prompts, feedback, streaming output. |
 | State | `internal/store`, `internal/session`, `internal/taskledger`, `internal/scheduler` | SQLite migrations, sessions/messages, task ledger, stale detection, scheduled tasks. |
 | Observability | `internal/dashboard`, `internal/observability`, `internal/cogmetrics`, `internal/health`, `internal/ratelimit` | REST/WS dashboard, OpenTelemetry, Prometheus metrics, health checks, cognitive metrics. |
@@ -99,7 +98,7 @@ Start with [docs/README.md](docs/README.md). The docs are source-of-truth notes 
 - CLI, config hierarchy, and user directory.
 - Agent runtime and sub-agent model.
 - Tools, permissions, hooks, sandboxing, and MCP.
-- Memory, Knowledge Base, and Knowledge Graph.
+- Memory system.
 - Channels, dashboard, observability, store, sessions, task ledger, scheduler.
 - Evolution, eval harness, training export.
 - Frontend apps and developer workflows.

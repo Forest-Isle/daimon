@@ -39,32 +39,6 @@ type FileStorageConfig struct {
 	Compression    bool          `yaml:"compression"`     // enable gzip compression for large files
 }
 
-// KnowledgeConfig holds configuration for the Phase 2 knowledge base package.
-type KnowledgeConfig struct {
-	Enabled           bool           `yaml:"enabled"`
-	ChunkSize         int            `yaml:"chunk_size"`
-	ChunkOverlap      int            `yaml:"chunk_overlap"`
-	BM25Weight        float64        `yaml:"bm25_weight"`
-	VectorWeight      float64        `yaml:"vector_weight"`
-	GraphEnabled      bool           `yaml:"graph_enabled"`
-	IngestDirs        []string       `yaml:"ingest_dirs"`
-	Reranker          RerankerConfig `yaml:"reranker"`
-	EnableSearchCache bool           `yaml:"enable_search_cache"` // enable search result caching
-	SearchCacheSize   int            `yaml:"search_cache_size"`   // max cached queries (default: 500)
-	SearchCacheTTL    time.Duration  `yaml:"search_cache_ttl"`    // cache TTL (default: 5min)
-}
-
-// RerankerConfig configures the optional LLM-based reranker.
-type RerankerConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	Provider string `yaml:"provider"` // "llm" or "none"
-}
-
-// GraphConfig holds configuration for the Phase 3 knowledge graph.
-type GraphConfig struct {
-	Enabled bool `yaml:"enabled"`
-}
-
 type SchedulerConfig struct {
 	Enabled      bool          `yaml:"enabled"`
 	PollInterval time.Duration `yaml:"poll_interval"`

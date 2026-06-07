@@ -206,12 +206,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	if err = gw.initPlanAndEvolution(); err != nil {
 		return nil, fmt.Errorf("plan/evolution: %w", err)
 	}
-	if err = gw.initKnowledgeSystem(); err != nil {
-		return nil, fmt.Errorf("knowledge: %w", err)
-	}
 	if gw.memory.Store() != nil {
 		procedural := memory.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
-		gw.memory.cortex = memory.NewUnifiedRetriever(gw.memory.Store(), gw.memory.KBSearcher(), gw.memory.GraphStore(), procedural, gw.memory.Embedder())
+		gw.memory.cortex = memory.NewUnifiedRetriever(gw.memory.Store(), procedural, gw.memory.Embedder())
 		// Register core_memory tool so the LLM can actively manage its own
 		// persistent memory (Mem0/Letta pattern — agentic memory writes).
 		gw.tools.Register(tool.NewCoreMemoryTool(gw.memory.Store(), gw.memory.LifecycleManager()))
@@ -732,18 +729,6 @@ func defaultSkillsDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".IronClaw", "skills")
-}
-
-// noopKBEmbedder is a no-op EmbeddingProvider used when no OpenAI key is configured.
-// It causes the knowledge base to fall back to BM25/LIKE text search only.
-type noopKBEmbedder struct{}
-
-func (n *noopKBEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
-	return nil, nil
-}
-
-func (n *noopKBEmbedder) Dimensions() int {
-	return 0
 }
 
 // watchMCPDir periodically scans ~/.IronClaw/mcp/ and syncs MCP servers.

@@ -30,8 +30,6 @@ Migrations are tracked in `_migrations`. Existing databases from older migration
 Current migrations cover:
 
 - Initial sessions/messages/tool logs.
-- Knowledge Base tables.
-- Knowledge Graph tables.
 - File memory index.
 - Memory access and audit logs.
 - Reflection and temporal memory tables.
@@ -41,6 +39,7 @@ Current migrations cover:
 - Execution events and agent replays.
 - Cleanup of legacy RL tables.
 - Temporal facts.
+- Cleanup of legacy Knowledge Base and Knowledge Graph tables.
 
 The presence of `022_drop_rl_tables.sql` is important: current code uses `internal/evolution`, not an active `internal/rl` package.
 

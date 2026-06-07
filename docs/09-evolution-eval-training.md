@@ -42,9 +42,8 @@ Gateway creates the engine before cognitive/evolution hooks are initialized:
 
 1. `gw.evolution.engine = evolution.NewEngine(cfg.Evolution)`
 2. `initPlanAndEvolution`
-3. `initKnowledgeSystem`
-4. `Start()` starts the engine if the feature is enabled.
-5. On stop, Gateway saves evolution state and stops the engine when enabled.
+3. `Start()` starts the engine if the feature is enabled.
+4. On stop, Gateway saves evolution state and stops the engine when enabled.
 
 When a provider is available, Gateway can wire `LLMSkillOpt` into the engine at runtime start.
 
@@ -97,7 +96,7 @@ flowchart TB
 - Forces `agent.mode` to `cognitive` for backward-compatible UnifiedLoop eval.
 - Enables evolution so eval hooks populate before/after evolution fields.
 - Sets permissions to `none` and disables tool approvals.
-- Enables memory, knowledge, multi-agent, and team.
+- Enables memory, multi-agent, and team.
 - Disables dashboard to avoid port conflicts.
 - Uses a temporary memory directory.
 - Skips persisted feature state so prior `/feature disable` choices cannot affect eval results.

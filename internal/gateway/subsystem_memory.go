@@ -4,15 +4,12 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/Forest-Isle/IronClaw/internal/knowledge"
-	"github.com/Forest-Isle/IronClaw/internal/knowledge/graph"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/memorywire"
 )
 
-// MemorySubsystem manages memory store, knowledge searcher, knowledge graph,
-// fact extraction, lifecycle management, and background tasks for consolidation,
-// compaction, and graph decay.
+// MemorySubsystem manages memory store, fact extraction, lifecycle management,
+// and background tasks for consolidation and compaction.
 type MemorySubsystem struct {
 	memStore      memory.Store
 	embedder      memory.EmbeddingProvider
@@ -20,9 +17,6 @@ type MemorySubsystem struct {
 	lifecycleMgr  *memory.LifecycleManager
 	consolidator  *memory.Consolidator
 	compactor     *memory.Compactor
-	graphDecay    *graph.GraphDecayTask
-	kbSearcher    knowledge.Searcher
-	graphStore    graph.Graph
 	cortex        *memory.UnifiedRetriever
 	ampAdapter    *memorywire.Adapter
 	memoryDir     string
@@ -43,10 +37,6 @@ func (ms *MemorySubsystem) Stop(_ context.Context) error {
 		ms.compactor.Stop()
 		slog.Debug("memory: compactor stopped")
 	}
-	if ms.graphDecay != nil {
-		ms.graphDecay.Stop()
-		slog.Debug("memory: graph decay stopped")
-	}
 	return nil
 }
 
@@ -61,12 +51,6 @@ func (ms *MemorySubsystem) FactExtractor() *memory.LLMFactExtractor { return ms.
 
 // LifecycleManager returns the memory lifecycle manager, or nil.
 func (ms *MemorySubsystem) LifecycleManager() *memory.LifecycleManager { return ms.lifecycleMgr }
-
-// KBSearcher returns the knowledge base searcher, or nil.
-func (ms *MemorySubsystem) KBSearcher() knowledge.Searcher { return ms.kbSearcher }
-
-// GraphStore returns the knowledge graph store, or nil.
-func (ms *MemorySubsystem) GraphStore() graph.Graph { return ms.graphStore }
 
 // Cortex returns the unified retriever (cortex), or nil.
 func (ms *MemorySubsystem) Cortex() *memory.UnifiedRetriever { return ms.cortex }

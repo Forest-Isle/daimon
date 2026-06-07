@@ -181,10 +181,9 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 	cfg.Tools.HTTP.RequiresApproval = false
 	cfg.Tools.Browser.RequiresApproval = false
 
-	// Force all eval-critical features on so that all 8 evaluation dimensions
+	// Force all eval-critical features on so that all evaluation dimensions
 	// exercise real agent capabilities rather than skipping due to disabled features.
 	cfg.Memory.Enabled = true
-	cfg.Knowledge.Enabled = true
 	cfg.Agents.Enabled = true     // multi_agent feature
 	cfg.Agent.Team.Enabled = true // team feature
 
@@ -206,7 +205,6 @@ func initEvalGateway(configPath string) (*gateway.Gateway, func(), error) {
 		"permissions.default", "none",
 		"memory.enabled", true,
 		"memory.storage_dir", evalMemDir,
-		"knowledge.enabled", true,
 		"multi_agent.enabled", true,
 		"dashboard.enabled", false,
 	)
@@ -313,7 +311,7 @@ func newEvalListCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&suite, "suite", "all", "suite to list: 'all' shows every named suite, or specify a name (builtin, evolution, workload, planning, error_recovery, tool_selection, conversation, memory, knowledge, multi_agent, skill_evolution, self_learning, full, ...)")
+	cmd.Flags().StringVar(&suite, "suite", "all", "suite to list: 'all' shows every named suite, or specify a name (builtin, evolution, workload, planning, error_recovery, tool_selection, conversation, memory, multi_agent, skill_evolution, self_learning, full, ...)")
 	return cmd
 }
 

@@ -51,7 +51,6 @@ flowchart TB
         Tool[internal/tool]
         Channel[internal/channel]
         Memory[internal/memory]
-        Knowledge[internal/knowledge]
         Eval[internal/eval]
         Evolution[internal/evolution]
     end
@@ -91,7 +90,7 @@ Gateway owns cross-module wiring:
 - Feature Registry and persisted feature overrides.
 - Tool registry, hooks, permission engine, sandbox, verification, audit.
 - LLM provider and `AgentDeps`.
-- Memory, Knowledge Base, Knowledge Graph, Skills, Agents, Teams.
+- Memory, Skills, Agents, Teams.
 - Scheduler, task ledger, dashboard, health server, metrics, config reload.
 
 ### Agent
@@ -102,9 +101,9 @@ Gateway owns cross-module wiring:
 
 Tools are plain implementations of `tool.Tool`. Runtime concerns such as approval, user hooks, sandbox policy, post-edit verification, and audit are added by the interceptor chain rather than hidden inside every tool.
 
-### Memory and Knowledge
+### Memory
 
-Memory stores persistent user/session facts in files with a SQLite-backed index and optional embeddings. Knowledge ingests documents into chunks and uses BM25/vector hybrid retrieval. Knowledge Graph extracts entities/relations from memory and knowledge chunks when enabled.
+Memory stores persistent user/session facts in files with a SQLite-backed index and optional embeddings. A unified retriever fuses the memory store and procedural memory into a single retrieval surface.
 
 ### Channels
 
@@ -112,7 +111,7 @@ Channels normalize Telegram, Discord, TUI, scheduler, and subprocess inputs into
 
 ### State and Observability
 
-SQLite stores sessions, messages, tool logs, knowledge tables, graph tables, memory indexes, task ledger state, execution events, and replay data. Dashboard and observability packages expose REST, WebSocket, Prometheus metrics, and OpenTelemetry traces.
+SQLite stores sessions, messages, tool logs, memory indexes, task ledger state, execution events, and replay data. Dashboard and observability packages expose REST, WebSocket, Prometheus metrics, and OpenTelemetry traces.
 
 ## Data Flow for a User Message
 
@@ -145,6 +144,5 @@ flowchart LR
 | Agent loops | `internal/agent/simple_loop.go`, `internal/agent/unified_loop.go`, `internal/agent/loop_common.go` |
 | Tool registry/interceptors | `internal/gateway/init_tools.go`, `internal/tool/*.go` |
 | Memory | `internal/gateway/init_memory.go`, `internal/memory/*.go` |
-| Knowledge | `internal/gateway/init_knowledge.go`, `internal/knowledge/*.go`, `internal/knowledge/graph/*.go` |
 | Dashboard | `internal/dashboard/server.go`, `web/src/lib/api.ts` |
 | Store | `internal/store/sqlite.go`, `internal/store/migrations/*.sql` |

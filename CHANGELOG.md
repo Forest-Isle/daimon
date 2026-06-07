@@ -4,6 +4,14 @@ All notable changes to IronClaw are tracked here.
 
 ## Unreleased
 
+### Removed
+
+- Removed the Knowledge Base and Knowledge Graph subsystems: deleted the `internal/knowledge` package (document ingestion, chunking, BM25+vector hybrid retrieval, reranker) and the `internal/knowledge/graph` package (entity/relation extraction, graph traversal, decay, sync).
+- Removed the `knowledge`, `knowledge_graph`, and `reranker` features from the Feature Registry, the `knowledge:` and `graph:` config sections, and the `ironclaw_knowledge_query` MCP tool.
+- The memory unified retriever now fuses only memory-store and procedural sources; `FusionWeights` drops `KnowledgeWeight` and `GraphWeight`.
+- Dropped the `kb_*` and `kg_*` tables via migration `024_drop_knowledge_tables.sql`; removed migrations `004_knowledge_base.sql`, `005_knowledge_graph.sql`, and `011_temporal_graph.sql`.
+- Removed the `knowledge` eval dimension and suite (11 dimensions remain).
+
 ### Fixed
 
 - Fixed Knowledge Base embedding initialization so it honors `memory.embedding_base_url`. Memory, Codebase Index, and Knowledge Base now use the same OpenAI-compatible embedding endpoint configuration path.

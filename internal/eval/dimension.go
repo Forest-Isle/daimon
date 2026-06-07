@@ -10,7 +10,6 @@ const (
 	DimToolSelection Dimension = "tool_selection"
 	DimConversation  Dimension = "conversation"
 	DimMemory        Dimension = "memory"
-	DimKnowledge     Dimension = "knowledge"
 	DimMultiAgent    Dimension = "multi_agent"
 
 	// Self-learning dimensions — assess the agent's ability to improve over time.
@@ -25,7 +24,7 @@ const (
 func AllDimensions() []Dimension {
 	return []Dimension{
 		DimTaskExecution, DimPlanning, DimErrorRecovery, DimToolSelection,
-		DimConversation, DimMemory, DimKnowledge, DimMultiAgent,
+		DimConversation, DimMemory, DimMultiAgent,
 		DimSkillLearning, DimPreferenceAdherence, DimMemoryRetention, DimSkillEvolution,
 	}
 }
