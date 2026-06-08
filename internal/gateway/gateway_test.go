@@ -20,11 +20,7 @@ func testConfig(t *testing.T) *config.Config {
 	cfg.LLM.MaxTokens = 4096
 	cfg.Agent.Mode = "simple"
 	cfg.Agent.MaxIterations = 10
-	cfg.Agent.Cognitive.ConfidenceThreshold = 0.6
 	cfg.Agent.Cognitive.MaxParallelTools = 3
-	cfg.Agent.Cognitive.MaxReplanAttempts = 2
-	cfg.Agent.Cognitive.PlanMaxTokens = 2048
-	cfg.Agent.Cognitive.ReflectMaxTokens = 1024
 	cfg.Agent.Cognitive.ApprovalTimeoutSeconds = 120
 	cfg.Store.Path = filepath.Join(tmp, "test.db")
 

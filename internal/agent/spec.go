@@ -89,21 +89,6 @@ type AgentSpec struct {
 	Backend    BackendType      `yaml:"backend"`     // "in_process" (default) | "subprocess" | "docker"
 	Hooks      AgentHookConfig  `yaml:"hooks"`       // lifecycle hooks
 	MCPServers []AgentMCPConfig `yaml:"mcp_servers"` // per-agent MCP servers
-
-	// Phase 3: A2A remote agent support (reserved, not implemented)
-	Remote *RemoteAgentConfig `yaml:"remote,omitempty"`
-}
-
-// RemoteAgentConfig holds configuration for A2A protocol remote agents.
-// Phase 3 placeholder — when spec.Remote != nil, AgentTool will call a remote
-// endpoint via A2A instead of creating a local Runtime.
-type RemoteAgentConfig struct {
-	URL       string            `yaml:"url"`        // A2A agent endpoint
-	AgentCard string            `yaml:"agent_card"` // Agent Card URL
-	AuthType  string            `yaml:"auth_type"`  // bearer/api_key/oauth
-	AuthToken string            `yaml:"auth_token"`
-	Timeout   time.Duration     `yaml:"timeout"`
-	Headers   map[string]string `yaml:"headers"`
 }
 
 // DefaultMaxIterations is the default iteration limit for sub-agents.

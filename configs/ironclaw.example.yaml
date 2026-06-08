@@ -43,11 +43,7 @@ agent:
   cognitive:
     # plan_model: ""          # defaults to llm.model if empty
     # reflect_model: ""       # defaults to llm.model if empty
-    confidence_threshold: 0.6
     max_parallel_tools: 3
-    max_replan_attempts: 2
-    plan_max_tokens: 2048
-    reflect_max_tokens: 1024
   # Context compression strategy (Phase 1 performance optimization)
   # "layered": progressive multi-layer compression (recommended)
   # "legacy": original single-pass LLM compression

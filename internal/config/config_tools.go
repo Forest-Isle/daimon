@@ -9,14 +9,8 @@ type ToolsConfig struct {
 	Browser             BrowserToolConfig         `yaml:"browser"`
 	Verify              VerifyConfig              `yaml:"verify"`
 	MCP                 MCPConfig                 `yaml:"mcp"`
-	WASM                WASMConfig                `yaml:"wasm"`
 	ConcurrentExecution ConcurrentExecutionConfig `yaml:"concurrent_execution"`
 	ResultPersistence   ResultPersistenceConfig   `yaml:"result_persistence"`
-}
-
-// WASMConfig configures WASM plugin runtime defaults.
-type WASMConfig struct {
-	DefaultTimeout time.Duration `yaml:"default_timeout"` // default per-plugin timeout; default: 30s
 }
 
 type VerifyConfig struct {

@@ -42,13 +42,9 @@ type CompressionLayers struct {
 
 // CognitiveConfig holds configuration for the unified agent loop.
 type CognitiveConfig struct {
-	PlanModel              string  `yaml:"plan_model"`
-	ReflectModel           string  `yaml:"reflect_model"`
-	ConfidenceThreshold    float64 `yaml:"confidence_threshold"`     // default 0.6
-	MaxParallelTools       int     `yaml:"max_parallel_tools"`       // default 3
-	MaxReplanAttempts      int     `yaml:"max_replan_attempts"`      // default 2
-	PlanMaxTokens          int     `yaml:"plan_max_tokens"`          // default 2048
-	ReflectMaxTokens       int     `yaml:"reflect_max_tokens"`       // default 1024
-	ApprovalTimeoutSeconds int     `yaml:"approval_timeout_seconds"` // default 120
+	PlanModel              string `yaml:"plan_model"`
+	ReflectModel           string `yaml:"reflect_model"`
+	MaxParallelTools       int    `yaml:"max_parallel_tools"`       // default 3
+	ApprovalTimeoutSeconds int    `yaml:"approval_timeout_seconds"` // default 120
 	StreamingEnabled       bool    `yaml:"streaming_enabled"`        // enable channel-based streaming pipeline (default false)
 }

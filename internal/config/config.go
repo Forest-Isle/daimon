@@ -95,11 +95,7 @@ func defaultConfig() Config {
 			MaxIterations: 20,
 			Mode:          "simple",
 			Cognitive: CognitiveConfig{
-				ConfidenceThreshold:    0.6,
 				MaxParallelTools:       3,
-				MaxReplanAttempts:      2,
-				PlanMaxTokens:          2048,
-				ReflectMaxTokens:       1024,
 				ApprovalTimeoutSeconds: 120,
 			},
 			Compression: CompressionConfig{
@@ -131,7 +127,6 @@ func defaultConfig() Config {
 		},
 		Server: ServerConfig{
 			Addr:          ":8080",
-			A2AServerAddr: ":9191",
 		},
 		Log: LogConfig{
 			Level:  "info",
@@ -163,9 +158,6 @@ func defaultConfig() Config {
 			},
 			MCP: MCPConfig{
 				PollInterval: 30 * time.Second,
-			},
-			WASM: WASMConfig{
-				DefaultTimeout: 30 * time.Second,
 			},
 			ConcurrentExecution: ConcurrentExecutionConfig{
 				Enabled:        true,
