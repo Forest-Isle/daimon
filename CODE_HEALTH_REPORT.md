@@ -18,8 +18,6 @@ IronClaw is currently buildable and testable across the Go runtime and both fron
 | # | Location | Pattern found | Notes |
 |---|---|---|---|
 | 1 | `internal/agent/spec.go:93` | A2A remote agent support is marked "reserved, not implemented". | This is explicitly a future extension. Local sub-agents work through in-process, subprocess, and Docker backends; remote A2A execution should not be documented as available. |
-| 2 | `web/studio/src/views/PromptIDE.vue` | Preview output uses randomized local simulation. | Studio is a visual/prototype surface. It builds successfully, but save/test preview flows are not wired to persisted backend APIs. |
-| 3 | `web/studio/src/views/MemoryExplorer.vue` and `web/studio/src/views/FlowEditor.vue` | Views use local static/demo state. | These are useful UI prototypes, not live Memory/Flow management APIs. |
 
 ## 🟠 Broken Module Connections
 
@@ -33,7 +31,6 @@ IronClaw is currently buildable and testable across the Go runtime and both fron
 |---|---|---|---|
 | 1 | `internal/gateway/gateway.go` | Gateway is a large composition root with many subsystem dependencies. | M |
 | 2 | `internal/gateway/init_tools.go` | Tool, hook, permission, sandbox, verify, and audit setup are all in one initializer. | M |
-| 3 | `web/studio/src/views/*` | UI prototype data can be mistaken for live runtime data. | L |
 
 ## 🔵 Optimization Opportunities
 
@@ -67,7 +64,6 @@ make vet
 make test-short
 make test
 cd web && npm ci && npm run build
-cd web/studio && npm ci && npm run build
 ```
 
 Notes:

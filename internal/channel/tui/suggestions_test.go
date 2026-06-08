@@ -82,7 +82,7 @@ func TestGenerateSuggestions_StaticSubArgs_Filtered(t *testing.T) {
 func TestGenerateSuggestions_DynamicArgCompleter(t *testing.T) {
 	completer := func(cmd, subCmd, argSoFar string) []string {
 		if cmd == "feature" && subCmd == "enable" {
-			return []string{"scheduler", "evolution"}
+			return []string{"scheduler"}
 		}
 		return nil
 	}

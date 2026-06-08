@@ -91,7 +91,7 @@ func AgentSpanAttributes(agentName string) []attribute.KeyValue {
 }
 
 // RetrieverSpanAttributes returns OTel attributes for a retrieval span
-// (memory search, knowledge base query, hybrid retrieval).
+// (memory search, hybrid retrieval).
 func RetrieverSpanAttributes(source, query string, resultCount int) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		attribute.String(openInferenceSpanKindKey, OpenInferenceSpanKindRetriever),

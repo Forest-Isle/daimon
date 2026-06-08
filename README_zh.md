@@ -4,7 +4,6 @@ IronClaw 是一个本地优先的 AI Agent Runtime。它不是单一聊天机器
 
 当前项目以 Go 为主，前端有一个 Vite 应用：
 
-- `web/studio/`：Vue Studio 原型，用于可视化 Flow、Prompt、Memory、Evolution 视图；当前有本地示例状态，不能当作完整后端持久化控制台。
 
 ## 当前审计结论
 
@@ -28,7 +27,6 @@ flowchart TB
     Gateway --> Memory[Memory Subsystem]
     Gateway --> Channels[Telegram / Discord / TUI]
     Gateway --> Scheduler[Scheduler]
-    Gateway --> Evolution[Evolution hooks]
 
     Agent --> Provider[Claude or OpenAI-compatible]
     Agent --> Sessions[Session Manager]
@@ -47,8 +45,7 @@ flowchart TB
 | Memory | `internal/memory`、`internal/memorywire` | 文件记忆、embedding、事实抽取、生命周期、AMP 适配、统一检索。 |
 | Channel | `internal/channel/*` | Telegram、Discord、TUI 适配，审批、反思、反馈和工具流式输出能力。 |
 | State | `internal/store`、`internal/session`、`internal/taskledger`、`internal/scheduler` | SQLite 迁移、会话、消息、工具日志、任务账本、团队任务、定时任务。 |
-| Observability | `internal/observability`、`internal/cogmetrics`、`internal/health`、`internal/ratelimit` | OpenTelemetry、认知指标、健康检查、限流。 |
-| Evolution | `internal/evolution` | 偏好学习、策略优化、技能草稿、轨迹记录。 |
+| Observability | `internal/observability`、`internal/health`、`internal/ratelimit` | OpenTelemetry、健康检查、限流。 |
 | Security | `internal/sandbox`、`internal/hook`、`internal/guardian`、`internal/logging` | 文件/网络策略、Docker/host 沙箱、Hook 系统、安全审计和日志脱敏。 |
 
 ## 快速开始
@@ -72,7 +69,6 @@ make build-bin
 make vet
 make test-short
 make test
-cd web/studio && npm ci && npm run build
 ```
 
 ## 配置与用户目录
@@ -99,6 +95,5 @@ cd web/studio && npm ci && npm run build
 - Memory 系统。
 - 通道与可观测性。
 - Store、Session、Task Ledger、Scheduler。
-- Evolution。
 - 前端应用。
 - 开发流程与包清单。

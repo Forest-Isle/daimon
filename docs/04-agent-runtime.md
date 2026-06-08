@@ -76,7 +76,7 @@ Full skill bodies are loaded lazily through the `read_skill` tool.
 | `unified` | `UnifiedLoop` | LLM/tool loop with parallel dispatch for compatible tools. |
 | `cognitive` | `UnifiedLoop` alias | Backward-compatible alias accepted by config and `/mode`. |
 
-The current runtime does not have a separate active RL package. Evolution hooks exist, but loop execution is Simple/Unified.
+The current runtime does not have a separate active RL or evolution package. Loop execution is Simple/Unified.
 
 ## Tool Execution
 

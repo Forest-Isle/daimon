@@ -16,14 +16,11 @@ flowchart TB
     Features --> Tools[initToolsAndHooks]
     Tools --> Agent[initAgentRuntime]
     Agent --> Memory[initMemorySystem]
-    Memory --> Evo[create evolution engine]
-    Evo --> Plan[initPlanAndEvolution]
     Plan --> CoreMemory[core_memory and AMP tools]
     CoreMemory --> Skills[initSkillManager]
     Skills --> Multi[initMultiAgent]
     Multi --> Task[task ledger and team coordinator]
     Task --> Scheduler[scheduler]
-    Scheduler --> Cog[cogmetrics]
     Cog --> Rate[rate limiter]
     Rate --> Commands[slash command table]
     Commands --> Subsystems[subsystem list and feature hooks]
@@ -34,7 +31,6 @@ The order matters:
 - Database is first because sessions, audit logs, memory indexes, and task ledger depend on it.
 - Tools and security chain exist before Agent runtime.
 - Agent is created before Memory, then `AgentDeps` is late-wired with real memory dependencies.
-- Evolution engine exists before cognitive/evolution hooks are attached.
 
 ## Feature Registry Defaults
 
@@ -47,8 +43,6 @@ The order matters:
 | `speculative` | on | construct | Read-only tool pre-execution during streaming. |
 | `scheduler` | on | start | Hot-reloadable scheduled task execution. |
 | `sandbox` | on | construct | Auto-detects Docker; config can disable it. |
-| `evolution` | off | start | Hot-reloadable self-evolution engine. |
-| `model_routing` | off | construct | Depends on `evolution`. |
 | `server` | off | construct | Standalone HTTP admin server. |
 | `worktree` | on | construct | Auto-detects Git; registers worktree tools. |
 | `mcp_<name>` | on | start | One feature per configured MCP server. |
@@ -67,7 +61,6 @@ The order matters:
 6. Scheduler if enabled.
 7. Standalone HTTP admin server if `server` is enabled.
 8. Task ledger stale detector.
-9. Evolution engine if enabled.
 
 ```mermaid
 flowchart LR
@@ -77,19 +70,17 @@ flowchart LR
     Start --> Channels[Channels]
     Channels --> Scheduler[Scheduler]
     Scheduler --> Tasks[Stale task detector]
-    Tasks --> Evolution[Evolution engine]
 ```
 
 ## Stop Lifecycle
 
-`Gateway.Stop(ctx)` stops subsystems in reverse dependency order, closes MCP clients, persists/stops evolution state when enabled, shuts down health server, closes the stop channel, stops config watcher, and closes SQLite.
+`Gateway.Stop(ctx)` stops subsystems in reverse dependency order, closes MCP clients, shuts down health server, closes the stop channel, stops config watcher, and closes SQLite.
 
 Subsystem ordering is declared as:
 
 1. Observability
 2. Memory
 3. Sandbox
-4. Evolution
 5. Tasks
 6. Channels
 
@@ -104,7 +95,7 @@ When `GatewayOptions.ConfigPath` is provided, Gateway builds a `ConfigWatcher`. 
 - Rate limiter.
 - Agent event bus publishes `ConfigChanged`.
 
-Feature lifecycle hooks are separately bound for evolution, scheduler, and each `mcp_*` feature.
+Feature lifecycle hooks are separately bound for scheduler and each `mcp_*` feature.
 
 ## Slash Command Table
 

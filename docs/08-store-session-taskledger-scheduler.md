@@ -41,7 +41,7 @@ Current migrations cover:
 - Temporal facts.
 - Cleanup of legacy Knowledge Base and Knowledge Graph tables.
 
-The presence of `022_drop_rl_tables.sql` is important: current code uses `internal/evolution`, not an active `internal/rl` package.
+The presence of `022_drop_rl_tables.sql` and `024_drop_knowledge_tables.sql` is important: current code has removed both the `internal/evolution` and `internal/rl` packages.
 
 ## Session Manager
 

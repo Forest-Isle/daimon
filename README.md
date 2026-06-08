@@ -4,7 +4,6 @@ IronClaw is a local-first AI agent runtime written in Go. It wires LLM providers
 
 The current codebase is a Go 1.25.9 project with a Vite frontend:
 
-- `web/studio/`: standalone Vue Studio prototype for visual pipeline and prompt work.
 
 ## Current Status
 
@@ -30,7 +29,6 @@ flowchart LR
     Agent --> Agents[Sub-agents and teams]
     Tools --> Sandbox[Permission / Hook / Sandbox / Verify / Audit chain]
     Gateway --> Store[(SQLite WAL store)]
-    Gateway --> Eval[Evolution hooks]
 ```
 
 ## Main Modules
@@ -44,8 +42,7 @@ flowchart LR
 | Memory | `internal/memory`, `internal/memorywire` | File memory, embeddings, lifecycle, AMP adapter, unified retrieval. |
 | Channels | `internal/channel/*` | Telegram, Discord, TUI, approval prompts, reflection prompts, feedback, streaming output. |
 | State | `internal/store`, `internal/session`, `internal/taskledger`, `internal/scheduler` | SQLite migrations, sessions/messages, task ledger, stale detection, scheduled tasks. |
-| Observability | `internal/observability`, `internal/cogmetrics`, `internal/health`, `internal/ratelimit` | OpenTelemetry, cognitive metrics, health checks, rate limiting. |
-| Evolution | `internal/evolution` | Preference learning, strategy optimization, skill draft synthesis. |
+| Observability | `internal/observability`, `internal/health`, `internal/ratelimit` | OpenTelemetry, health checks, rate limiting. |
 | Security | `internal/sandbox`, `internal/hook`, `internal/guardian`, `internal/logging` | Docker/host isolation, file/network policy, user hooks, safety checks, redaction. |
 
 ## Quick Start
@@ -69,7 +66,6 @@ For full verification:
 
 ```bash
 make test
-cd web/studio && npm ci && npm run build
 ```
 
 `make test` uses `CGO_ENABLED=1`, the `fts5` build tag, and the Go race detector.
@@ -84,7 +80,7 @@ The example configuration lives at `configs/ironclaw.example.yaml`. Runtime load
 4. User directory injection from `~/.IronClaw`: `Soul.md`, `Memory.md`, `Agent.md`, MCP server files, skills, and agent specs.
 5. Persisted runtime feature overrides from `~/.IronClaw/feature_state.json`, unless the caller opts out.
 
-Feature defaults are documented in [Gateway lifecycle](docs/03-gateway-feature-lifecycle.md). Most core runtime features are on by default; the standalone admin server, evolution, and model routing are opt-in.
+Feature defaults are documented in [Gateway lifecycle](docs/03-gateway-feature-lifecycle.md). Most core runtime features are on by default; the standalone admin server is opt-in.
 
 ## Developer Documentation
 
@@ -97,7 +93,6 @@ Start with [docs/README.md](docs/README.md). The docs are source-of-truth notes 
 - Tools, permissions, hooks, sandboxing, and MCP.
 - Memory system.
 - Channels, observability, store, sessions, task ledger, scheduler.
-- Evolution engine and insights.
 - Frontend apps and developer workflows.
 
 ## License

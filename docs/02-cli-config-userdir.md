@@ -12,7 +12,6 @@ The root command is `ironclaw`. The main command group is built in `cmd/ironclaw
 | `ironclaw skill list/search/install/update/remove` | Manage skills, using local skill loading and the external `clawhub` CLI for registry operations. |
 | `ironclaw memory reindex` | Rebuild the file memory index from `~/.IronClaw/memory`. |
 | `ironclaw agent run` | Subprocess backend entry point. Reads a JSON request from stdin and writes a JSON response to stdout. |
-| `ironclaw insights report/export/health` | Analyze evolution trajectory data. |
 | `ironclaw mcp serve` | Start a standalone IronClaw MCP server over stdio or Streamable HTTP. Current standalone mode has minimal dependency wiring. |
 
 ## Config Load Order
@@ -60,7 +59,6 @@ Important consequence: boolean fields that default to true are not always easy t
 | `permissions` | default action and ordered rules | PermissionEngine decisions. |
 | `sandbox` | allowed/read-only dirs, bash backend, Docker config, network policy | File/network isolation and bash execution backend. |
 | `observability` | enabled, exporter, endpoint, sample rate | OpenTelemetry and metrics setup. |
-| `evolution` | preference, synthesizer, optimizer, model routing | Optional evolution engine and strategy updates. |
 
 ## User Directory
 
@@ -75,7 +73,6 @@ Important consequence: boolean fields that default to true are not always easy t
     *.yaml
   skills/
   agents/
-  evolution/
   memory/
 ```
 

@@ -71,20 +71,6 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 
 	// Tier 3: Opt-in (default false)
 	r.Register(feature.Feature{
-		Name:          "evolution",
-		Description:   "Self-evolution engine (preference learning, skill synthesis)",
-		Default:       false,
-		Phase:         feature.PhaseStart,
-		HotReloadable: true,
-	})
-	r.Register(feature.Feature{
-		Name:         "model_routing",
-		Description:  "Dynamic model selection by task complexity",
-		Default:      false,
-		Phase:        feature.PhaseConstruct,
-		Dependencies: []string{"evolution"},
-	})
-	r.Register(feature.Feature{
 		Name:        "server",
 		Description: "Standalone HTTP admin server",
 		Default:     false,
@@ -127,25 +113,8 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 
 // bindFeatureLifecycleHooks wires OnEnable/OnDisable hooks for hot-reloadable
 // features. Called after all subsystems are initialized so that hooks can
-// reference Gateway fields (evolution engine, etc.).
+// reference Gateway fields.
 func (gw *Gateway) bindFeatureLifecycleHooks() {
-	if err := gw.features.SetOnEnable("evolution", func(ctx context.Context) error {
-		if gw.evolution.engine != nil {
-			gw.evolution.engine.Start()
-		}
-		return nil
-	}); err != nil {
-		slog.Warn("gateway: SetOnEnable hook failed", "feature", "evolution", "err", err)
-	}
-	if err := gw.features.SetOnDisable("evolution", func(ctx context.Context) error {
-		if gw.evolution.engine != nil {
-			gw.evolution.engine.Stop()
-		}
-		return nil
-	}); err != nil {
-		slog.Warn("gateway: SetOnDisable hook failed", "feature", "evolution", "err", err)
-	}
-
 	if err := gw.features.SetOnEnable("scheduler", func(ctx context.Context) error {
 		if gw.channels.sched != nil {
 			gw.channels.sched.Start(ctx)
@@ -198,8 +167,6 @@ func configToOverrides(cfg *config.Config) map[string]bool {
 		"speculative":     cfg.Agent.SpeculativeExecution.Enabled,
 		"scheduler":       cfg.Scheduler.Enabled,
 		"sandbox":         cfg.Sandbox.Enabled,
-		"evolution":       cfg.Evolution.Enabled,
-		"model_routing":   cfg.Evolution.Router.Enabled,
 		"server":          cfg.Server.Enabled,
 	}
 }

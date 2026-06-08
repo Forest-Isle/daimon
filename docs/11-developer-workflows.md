@@ -80,5 +80,4 @@ Run broader checks for broader changes:
 
 ```bash
 make test
-cd web/studio && npm run build
 ```

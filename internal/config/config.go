@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/Forest-Isle/IronClaw/internal/evolution"
 )
 
 type Config struct {
@@ -31,7 +29,6 @@ type Config struct {
 	Sandbox       SandboxConfig       `yaml:"sandbox"`
 	Hooks         HooksConfig         `yaml:"hooks"`
 	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
-	Evolution     evolution.Config    `yaml:"evolution"`
 }
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
@@ -211,6 +208,5 @@ func defaultConfig() Config {
 			RequestsPerSec: 10,
 			Burst:          20,
 		},
-		Evolution: evolution.DefaultConfig(),
 	}
 }

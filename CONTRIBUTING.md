@@ -8,7 +8,6 @@ Required tools:
 
 - Go 1.25.9 or compatible newer patch release.
 - CGO-enabled toolchain for `github.com/mattn/go-sqlite3`.
-- Node.js and npm for `web/studio/`.
 - Git, because worktree tools and developer workflows depend on it.
 
 ```bash
@@ -33,7 +32,6 @@ git status --short
 git diff main..HEAD
 ```
 
-Generated frontend build output should not be committed. In particular, remove accidental `web/studio/dist/` output unless intentionally changing Studio distribution policy.
 
 ## Verification Matrix
 
@@ -54,7 +52,6 @@ make test
 For Studio changes:
 
 ```bash
-cd web/studio
 npm ci
 npm run build
 ```

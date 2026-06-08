@@ -15,8 +15,6 @@ This documentation set was rewritten from the current source tree. It intentiona
 | [06-memory.md](06-memory.md) | File memory, embeddings, lifecycle, AMP, unified retrieval, prompt injection. |
 | [07-channels-dashboard-observability.md](07-channels-dashboard-observability.md) | Telegram, Discord, TUI, OpenTelemetry, cognitive metrics. |
 | [08-store-session-taskledger-scheduler.md](08-store-session-taskledger-scheduler.md) | SQLite migrations, session persistence, task ledger, team coordination, scheduler. |
-| [09-evolution-eval-training.md](09-evolution-eval-training.md) | Evolution engine and insights. |
-| [10-frontend-apps.md](10-frontend-apps.md) | Vue Studio app, build behavior, API contracts, prototype boundaries. |
 | [11-developer-workflows.md](11-developer-workflows.md) | Build/test workflows, adding features/tools/config/routes, troubleshooting. |
 | [12-package-inventory.md](12-package-inventory.md) | Package-by-package inventory for all current Go packages. |
 

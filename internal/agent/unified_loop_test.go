@@ -187,33 +187,4 @@ func TestUnifiedLoop_ParallelDispatch(t *testing.T) {
 	}
 }
 
-func TestSimpleLoop_EvolutionBridgeCalls(t *testing.T) {
-	sess := &session.Session{
-		ID: "test-sess-4", Channel: "test", ChannelID: "ch1", CreatedAt: time.Now(),
-	}
 
-	registry := tool.NewRegistry()
-	registry.Register(&testReadTool{})
-
-	deps := AgentDeps{}.WithDefaults()
-	deps.Core.Tools = registry
-	deps.Core.Cfg.MaxIterations = 3
-	deps.Core.Provider = &testProvider{
-		text:      "ok",
-		toolCalls: []ToolUseBlock{{ID: "c1", Name: "read", Input: `{"path":"/tmp/x"}`}},
-	}
-
-	a := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
-	// Set a no-op bridge to verify the calls don't panic
-	a.SetEvolutionBridge(&EvolutionBridge{}) // nil engine = no-op
-	ch := &testChannel{}
-
-	loop := &SimpleLoop{}
-	err := loop.Execute(context.Background(), a, ch, channel.InboundMessage{
-		Channel: "test", ChannelID: "ch1", Text: "read /tmp/x",
-	}, sess)
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

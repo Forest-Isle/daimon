@@ -66,7 +66,7 @@ func TestCheckUnknownKeys_InvalidYAML(t *testing.T) {
 
 func TestBuildKnownKeys_HasExpectedKeys(t *testing.T) {
 	keys := buildKnownKeys()
-	expected := []string{"llm", "telegram", "agent", "store", "memory", "tools", "server", "evolution"}
+	expected := []string{"llm", "telegram", "agent", "store", "memory", "tools", "server"}
 	for _, k := range expected {
 		if !keys[k] {
 			t.Errorf("expected key %q in knownTopLevelKeys", k)

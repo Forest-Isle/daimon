@@ -69,7 +69,7 @@ Scheduler tasks are converted into `channel.InboundMessage` with user identity `
 - Sample rate is config-driven.
 - Tool execution spans and metrics are recorded in the interceptor chain.
 
-Cognitive metrics are collected through `internal/cogmetrics` and surfaced to the TUI status bar through the agent `ObservabilityEmitter`.
+The TUI status bar surfaces metrics through the agent `ObservabilityEmitter`.
 
 ## Health and Rate Limit
 

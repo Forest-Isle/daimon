@@ -79,14 +79,6 @@ var commandRegistry = []Command{
 		Category:    "builtin",
 	},
 
-	// Insights
-	{
-		Name:        "insights",
-		Description: "Show evolution insights",
-		ArgHint:     "[days]",
-		Category:    "builtin",
-	},
-
 	// Task resume
 	{
 		Name:        "resume",

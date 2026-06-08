@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/session"
@@ -22,51 +21,40 @@ func (UnifiedLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, ms
 		maxIter = 20
 	}
 
-	startTime := time.Now()
-
 	for iteration := 0; iteration < maxIter; iteration++ {
 		slog.Info("unified loop iteration", "iteration", iteration, "session", sess.ID)
 
 		updater, toolCalls, iterErr := loopIteration(ctx, a, ch, sess, target, systemPrompt, iteration, maxIter)
 		if iterErr != nil {
-			notifyEpisodeComplete(a, sess, iteration, false, startTime)
 			return iterErr
 		}
 
 		if len(toolCalls) == 0 {
-			notifyEpisodeComplete(a, sess, iteration, true, startTime)
 			return nil
 		}
 
 		// UnifiedLoop: parallel tool dispatch
 		a.dispatchToolsParallel(ctx, ch, sess, target, toolCalls, computeBudgetPressure(iteration, maxIter))
 
-		notifyLoopIteration(a, sess, toolCalls, iteration)
 		_ = updater
 	}
 
-	notifyEpisodeComplete(a, sess, maxIter, true, startTime)
 	return nil
 }
 
 // unifiedNonStreaming handles the non-streaming fallback path.
 func unifiedNonStreaming(ctx context.Context, a *Agent, ch channel.Channel, sess *session.Session, target channel.MessageTarget, systemPrompt string, maxIter int) error {
-	startTime := time.Now()
 	for iteration := 0; iteration < maxIter; iteration++ {
 		toolCalls, err := loopIterationNonStreaming(ctx, a, ch, sess, target, systemPrompt, iteration, maxIter)
 		if err != nil {
-			notifyEpisodeComplete(a, sess, iteration, false, startTime)
 			return err
 		}
 
 		if len(toolCalls) == 0 {
-			notifyEpisodeComplete(a, sess, iteration, true, startTime)
 			return nil
 		}
 
 		a.dispatchToolsParallel(ctx, ch, sess, target, toolCalls, computeBudgetPressure(iteration, maxIter))
-		notifyLoopIteration(a, sess, toolCalls, iteration)
 	}
-	notifyEpisodeComplete(a, sess, maxIter, true, startTime)
 	return nil
 }

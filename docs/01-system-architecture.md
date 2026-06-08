@@ -36,7 +36,6 @@ sequenceDiagram
 flowchart TB
     subgraph Entry
         CMD[cmd/ironclaw]
-        Web[web/studio]
     end
 
     subgraph Composition
@@ -51,7 +50,6 @@ flowchart TB
         Tool[internal/tool]
         Channel[internal/channel]
         Memory[internal/memory]
-        Evolution[internal/evolution]
     end
 
     subgraph Infrastructure
@@ -71,7 +69,6 @@ flowchart TB
     Gateway --> Feature
     Gateway --> Runtime
     Gateway --> Infrastructure
-    Web --> Gateway
 ```
 
 ## Runtime Responsibilities
@@ -93,7 +90,7 @@ Gateway owns cross-module wiring:
 
 ### Agent
 
-`internal/agent` receives normalized channel messages. It builds the system prompt from base prompt, userdir persona/rules, memories, profile sections, skills, and agent specs. It executes either SimpleLoop or UnifiedLoop, persists session state, emits events, and optionally forwards events to evolution.
+`internal/agent` receives normalized channel messages. It builds the system prompt from base prompt, userdir persona/rules, memories, profile sections, skills, and agent specs. It executes either SimpleLoop or UnifiedLoop, persists session state, and emits runtime events.
 
 ### Tools
 

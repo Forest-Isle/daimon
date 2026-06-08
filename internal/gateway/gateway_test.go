@@ -28,7 +28,7 @@ func testConfig(t *testing.T) *config.Config {
 	cfg.Agent.Cognitive.ApprovalTimeoutSeconds = 120
 	cfg.Store.Path = filepath.Join(tmp, "test.db")
 
-	// Ensure user home directory exists for evolution path resolution
+	// Ensure user home directory exists
 	homeDir := filepath.Join(tmp, "home")
 	_ = os.MkdirAll(homeDir, 0o755)
 

@@ -6,7 +6,7 @@
 #
 # 默认开启: memory, skills, multi_agent, team, speculative, scheduler,
 #           sandbox (auto-detect Docker)
-# 默认关闭: evolution, model_routing, server
+# 默认关闭: server
 
 llm:
   provider: claude                               # "claude" (default) or "openai" / "openai-compatible"
@@ -71,39 +71,6 @@ observability:
   exporter: "stdout"        # 开发时用 stdout，生产用 otlp_grpc
   endpoint: "localhost:4317" # OTLP gRPC endpoint（otlp_grpc 时生效）
   sample_rate: 1.0           # 采样率 0.0-1.0
-
-# 自进化引擎（UnifiedLoop 模式下生效）：偏好学习、技能草稿合成、策略统计调优
-# 草稿目录默认 ~/.IronClaw/skills/drafts/，策略文件默认 ~/.IronClaw/evolution/strategy.yaml
-evolution:
-  enabled: false
-  hook_timeout: 10s
-  preference:
-    enabled: true
-    max_preferences: 100
-    min_confidence: 0.3
-  synthesizer:
-    enabled: true
-    pattern_threshold: 3
-    reward_threshold: 0.5
-    drafts_dir: drafts
-    auto_notify: true
-  optimizer:
-    enabled: true
-    update_interval: 10
-    max_adjustment_percent: 10
-    revert_threshold: 0.15
-    strategy_file: strategy.yaml
-  preference_file: preferences.yaml   # persisted to ~/.IronClaw/evolution/
-  # 模型路由：根据任务复杂度动态选择模型（减少简单任务的 API 成本）
-  model_routing:
-    enabled: false
-    simple:
-      model: ""                        # e.g. claude-haiku-3-20250307
-      # max_tokens: 4096
-    moderate:
-      model: ""                        # empty = use default llm.model
-    complex:
-      model: ""                        # e.g. claude-sonnet-4-20250514
 
 store:
   path: "./data/ironclaw.db"

@@ -43,11 +43,10 @@ func AgentFromContext(ctx context.Context) *Agent {
 // reads from the pointer on every access, so late-bound dependencies are
 // immediately visible without a by-value copy staleness problem.
 type Agent struct {
-	deps            *AgentDeps
-	strategy        LoopStrategy
-	approvalFn      ApprovalFunc
-	eventBus        EventBus
-	evolutionBridge *EvolutionBridge // optional, set by gateway for evolution integration
+	deps       *AgentDeps
+	strategy   LoopStrategy
+	approvalFn ApprovalFunc
+	eventBus   EventBus
 }
 
 // NewAgent creates a new Agent with the given dependencies, strategy, and event bus.
@@ -66,11 +65,6 @@ func (a *Agent) SetStrategy(s LoopStrategy) { a.strategy = s }
 
 // SetApprovalFunc sets the tool approval callback.
 func (a *Agent) SetApprovalFunc(fn ApprovalFunc) { a.approvalFn = fn }
-
-// SetEvolutionBridge wires an EvolutionBridge for forwarding events to the
-// evolution engine. When nil the bridge is disabled — all evolution notifications
-// become no-ops.
-func (a *Agent) SetEvolutionBridge(bridge *EvolutionBridge) { a.evolutionBridge = bridge }
 
 // SetModel updates the LLM model.
 func (a *Agent) SetModel(model string) { a.deps.Core.LLMCfg.Model = model }

@@ -61,16 +61,13 @@ This inventory is based on `go list ./...`.
 | Package | Role |
 |---|---|
 | `internal/observability` | OpenTelemetry tracing/metrics setup and metric instruments. |
-| `internal/cogmetrics` | Cognitive metric collector, health report, breaker, rolling averages. |
 | `internal/health` | Health check registry and checker abstraction. |
 | `internal/ratelimit` | Request rate limiter and middleware-style helpers. |
 
-## Evolution and Evaluation
+## Evaluation
 
 | Package | Role |
 |---|---|
-| `internal/evolution` | Evolution engine, preferences, strategies, reward, insights, trajectory recorder, skill synthesis/activation, prompt optimization. |
-
 ## Utility
 
 | Package | Role |
@@ -94,11 +91,9 @@ flowchart TB
     Gateway --> Session[internal/session]
     Gateway --> Task[internal/taskledger]
     Gateway --> Scheduler[internal/scheduler]
-    Gateway --> Evolution[internal/evolution]
     Gateway --> MCP[internal/mcp]
     Gateway --> Sandbox[internal/sandbox]
     Gateway --> Hook[internal/hook]
-    Gateway --> Cog[internal/cogmetrics]
     Gateway --> Obs[internal/observability]
 
     Agent --> DAG[internal/dag]

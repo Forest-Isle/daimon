@@ -17,7 +17,6 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/memorywire"
-	"github.com/Forest-Isle/IronClaw/internal/evolution"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
 	"github.com/Forest-Isle/IronClaw/internal/health"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
@@ -68,7 +67,6 @@ type Gateway struct {
 	memory        *MemorySubsystem
 	channels      *ChannelSubsystem
 	sandbox       *SandboxSubsystem
-	evolution     *EvolutionSubsystem
 	tasks         *TaskSubsystem
 	observability *ObservabilitySubsystem
 
@@ -114,7 +112,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.memory = &MemorySubsystem{}
 	gw.channels = &ChannelSubsystem{channels: make(map[string]channel.Channel)}
 	gw.sandbox = &SandboxSubsystem{}
-	gw.evolution = &EvolutionSubsystem{}
 	gw.tasks = &TaskSubsystem{}
 	gw.observability = &ObservabilitySubsystem{
 		obsShutdown: func(context.Context) {},
@@ -202,10 +199,13 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		gw.agentDeps.Memory.BaseDir = gw.memory.MemoryDir()
 	}
 
-	// Evolution engine must exist before cognitive agent registers hooks.
-	gw.evolution.engine = evolution.NewEngine(cfg.Evolution)
-	if err = gw.initPlanAndEvolution(); err != nil {
-		return nil, fmt.Errorf("plan/evolution: %w", err)
+	// Plan Mode: plan->approve->execute flow for write tools.
+	if gw.provider != nil {
+		gw.planMode = agent.NewPlanMode(
+			gw.provider,
+			gw.handleApproval,
+			false,
+		)
 	}
 	if gw.memory.Store() != nil {
 		procedural := memory.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
@@ -290,10 +290,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		})
 	})
 
-	// initCogMetrics runs unconditionally so eval runs still populate
-	// cogCollector.
-	gw.initCogMetrics()
-
 	gw.initRateLimiter()
 
 	// Populate command table
@@ -314,7 +310,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		gw.observability, // shutdown last, start first
 		gw.memory,
 		gw.sandbox,
-		gw.evolution,
 		gw.tasks,
 		gw.channels,
 	}
@@ -435,19 +430,6 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start evolution engine only when feature is enabled
-	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {
-		gw.evolution.Engine().Start()
-
-		// Wire SkillOpt text-space optimizer into the evolution engine.
-		// Uses the gateway's LLM provider for candidate generation.
-		if gw.provider != nil {
-			skillCompleter := newSkillOptCompleter(gw.provider)
-			skillOpt := evolution.NewLLMSkillOpt(0.3, skillCompleter)
-			gw.evolution.Engine().SetSkillOpt(skillOpt)
-			slog.Info("gateway: SkillOpt optimizer wired")
-		}
-	}
 
 	slog.Info("gateway started")
 	return nil
@@ -483,15 +465,6 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 
 	_ = gw.mcpManager.Close()
 
-	// Persist evolution state and stop engine (only when feature was enabled)
-	if gw.evolution.Engine() != nil && gw.featureEnabled("evolution") {
-		prefPath := ""
-		if p, err := gw.resolveEvolutionPreferencePath(gw.Config().Evolution.PreferenceFile); err == nil {
-			prefPath = p
-		}
-		gw.evolution.Engine().SaveState(prefPath)
-		gw.evolution.Engine().Stop()
-	}
 
 	if gw.healthSrv != nil {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -656,27 +629,6 @@ func (a *completerAdapter) Complete(ctx context.Context, systemPrompt, userMessa
 	return resp.Text, nil
 }
 
-// skillOptCompleter bridges agent.Provider to evolution.Completer for SkillOpt.
-type skillOptCompleter struct {
-	provider agent.Provider
-}
-
-func newSkillOptCompleter(provider agent.Provider) *skillOptCompleter {
-	return &skillOptCompleter{provider: provider}
-}
-
-func (a *skillOptCompleter) Complete(ctx context.Context, systemPrompt, userMessage string) (string, error) {
-	req := agent.CompletionRequest{
-		System:    systemPrompt,
-		Messages:  []agent.CompletionMessage{{Role: "user", Content: userMessage}},
-		MaxTokens: 256,
-	}
-	resp, err := a.provider.Complete(ctx, req)
-	if err != nil {
-		return "", err
-	}
-	return resp.Text, nil
-}
 
 // defaultSkillsDir returns the path to ~/.IronClaw/skills/.
 func defaultSkillsDir() string {
