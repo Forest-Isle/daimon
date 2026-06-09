@@ -295,27 +295,17 @@ func (c *ClaudeProvider) parseResponse(resp *anthropic.Message) *CompletionRespo
 	return result
 }
 
-// PendingToolBlock represents a tool_use block whose streaming is complete
-// (name + input finalized) but the overall model response is still generating.
-// Used by speculative execution to launch read-only tools early.
-type PendingToolBlock struct {
-	ToolUseID string
-	ToolName  string
-	Input     string
-}
-
 // claudeStreamIterator wraps the Anthropic streaming response.
 type claudeStreamIterator struct {
-	stream            *ssestream.Stream[anthropic.MessageStreamEventUnion]
-	done              bool
-	accum             anthropic.Message
-	provider          *ClaudeProvider // back-reference for tracking cache usage
-	pendingToolBlocks []PendingToolBlock
-	ctx               context.Context
-	span              trace.Span
-	start             time.Time
-	model             string
-	finalized         bool
+	stream    *ssestream.Stream[anthropic.MessageStreamEventUnion]
+	done      bool
+	accum     anthropic.Message
+	provider  *ClaudeProvider // back-reference for tracking cache usage
+	ctx       context.Context
+	span      trace.Span
+	start     time.Time
+	model     string
+	finalized bool
 }
 
 func (it *claudeStreamIterator) Next() (StreamDelta, error) {
@@ -334,21 +324,6 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 				return StreamDelta{Text: d.Text}, nil
 			}
 		case anthropic.ContentBlockStopEvent:
-			if int(e.Index) < len(it.accum.Content) {
-				block := it.accum.Content[e.Index]
-				if v, ok := block.AsAny().(anthropic.ToolUseBlock); ok {
-					inputBytes, err := json.Marshal(v.Input)
-					if err != nil {
-						slog.Warn("claude: failed to marshal tool use input", "tool", v.Name, "err", err)
-						inputBytes = []byte("{}")
-					}
-					it.pendingToolBlocks = append(it.pendingToolBlocks, PendingToolBlock{
-						ToolUseID: v.ID,
-						ToolName:  v.Name,
-						Input:     string(inputBytes),
-					})
-				}
-			}
 		case anthropic.MessageStopEvent:
 			it.done = true
 			// Track cache usage from the accumulated message
@@ -390,15 +365,6 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 	}
 	it.finish(nil)
 	return delta, nil
-}
-
-// PendingToolBlocks returns tool_use blocks that completed during streaming
-// and clears the internal buffer. Callers (e.g. speculative executor) can
-// start these tools before the model finishes its full response.
-func (it *claudeStreamIterator) PendingToolBlocks() []PendingToolBlock {
-	blocks := it.pendingToolBlocks
-	it.pendingToolBlocks = nil
-	return blocks
 }
 
 func (it *claudeStreamIterator) Close() {

@@ -7,11 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
 	"github.com/Forest-Isle/IronClaw/internal/taskledger"
-	"github.com/Forest-Isle/IronClaw/internal/util"
 )
 
 // handleTasks lists running and pending tasks from the task ledger.
@@ -59,64 +57,6 @@ func (gw *Gateway) handleTasks(ctx context.Context, _ channel.Channel, msg chann
 	return b.String(), nil
 }
 
-// handleTeam breaks a goal into parallel tasks using the LLM and executes them.
-func (gw *Gateway) handleTeam(ctx context.Context, _ channel.Channel, msg channel.InboundMessage) (string, error) {
-	goal := strings.TrimPrefix(msg.Text, "/team ")
-	goal = strings.TrimSpace(goal)
-
-	if gw.tasks.TeamCoordinator() == nil {
-		return "Team mode is not enabled. Set agent.team.enabled: true in config.", nil
-	}
-
-	prompt := fmt.Sprintf(taskledger.TeamPlanPrompt, goal)
-	req := agent.CompletionRequest{
-		Model:     gw.agent.Model(),
-		System:    "You are a task planning assistant. Output only valid JSON.",
-		Messages:  []agent.CompletionMessage{{Role: "user", Content: prompt}},
-		MaxTokens: gw.Config().LLM.MaxTokens,
-	}
-	resp, err := gw.provider.Complete(ctx, req)
-	if err != nil {
-		return fmt.Sprintf("Failed to generate plan: %v", err), nil
-	}
-
-	rootID := fmt.Sprintf("team_%d", time.Now().UnixNano())
-	rootTask := taskledger.Task{
-		ID:    rootID,
-		Kind:  taskledger.TaskKindTeamTask,
-		State: taskledger.TaskStateRunning,
-		Title: util.TruncateStr(goal, 100),
-	}
-	if err := gw.tasks.TaskLedger().Register(ctx, rootTask); err != nil {
-		return fmt.Sprintf("Failed to register root task: %v", err), nil
-	}
-
-	tasks, err := taskledger.ParseTaskPlan(resp.Text, rootID)
-	if err != nil {
-		return fmt.Sprintf("Failed to parse plan: %v", err), nil
-	}
-
-	for _, t := range tasks {
-		if err := gw.tasks.TeamCoordinator().AddTask(ctx, t); err != nil {
-			return fmt.Sprintf("Failed to add task %s: %v", t.ID, err), nil
-		}
-	}
-
-	result, err := gw.tasks.TeamCoordinator().RunWithExecutor(ctx)
-	if err != nil {
-		return fmt.Sprintf("Team execution failed: %v", err), nil
-	}
-
-	now := time.Now().UTC()
-	rootTask.State = taskledger.TaskStateCompleted
-	rootTask.CompletedAt = &now
-	rootTask.Result = result.Summary
-	if err := gw.tasks.TaskLedger().Update(ctx, rootTask); err != nil {
-		slog.Warn("gateway: failed to update root task", "err", err)
-	}
-
-	return fmt.Sprintf("Team completed: %d tasks done, %d failed", result.TasksCompleted, result.TasksFailed), nil
-}
 
 // handleMode processes the /mode command.
 func (gw *Gateway) handleMode(ctx context.Context, _ channel.Channel, msg channel.InboundMessage) (string, error) {

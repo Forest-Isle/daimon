@@ -13,7 +13,7 @@ import (
 )
 
 // loopIteration performs one iteration of the agent loop: stream LLM response,
-// collect tool calls (with speculative execution), save messages, and finalize
+// collect tool calls, save messages, and finalize
 // the streaming updater. Returns the updater, tool calls collected, and any error.
 func loopIteration(
 	ctx context.Context,
@@ -25,11 +25,6 @@ func loopIteration(
 	iteration int,
 	maxIter int,
 ) (channel.StreamUpdater, []ToolUseBlock, error) {
-	// Reset speculative executor
-	if a.deps.MultiAgent.Speculative != nil {
-		a.deps.MultiAgent.Speculative.Reset()
-	}
-
 	// Push metrics
 	util := a.deps.Memory.ContextMgr.Utilization(sess, systemPrompt)
 	inTok, outTok := int64(0), int64(0)
@@ -99,15 +94,6 @@ func loopIteration(
 		}
 		if delta.Done && len(delta.ToolCalls) > 0 {
 			toolCalls = delta.ToolCalls
-		}
-
-		// Speculative execution
-		if a.deps.MultiAgent.Speculative != nil {
-			if ptbSrc, ok := stream.(PendingToolBlockSource); ok {
-				for _, ptb := range ptbSrc.PendingToolBlocks() {
-					a.deps.MultiAgent.Speculative.TryLaunch(ctx, ptb.ToolUseID, ptb.ToolName, ptb.Input)
-				}
-			}
 		}
 
 		if delta.Done {

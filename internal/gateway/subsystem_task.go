@@ -15,7 +15,6 @@ type TaskSubsystem struct {
 	taskLedger      *taskledger.SQLiteTaskLedger
 	teamCoordinator *taskledger.TeamCoordinator
 	subAgentMgr     *agent.SubAgentManager
-	teamManager     *agent.TeamManager
 	staleDetector   *taskledger.StaleDetector
 }
 
@@ -54,5 +53,3 @@ func (ts *TaskSubsystem) TeamCoordinator() *taskledger.TeamCoordinator { return 
 // SubAgentManager returns the sub-agent manager, or nil.
 func (ts *TaskSubsystem) SubAgentManager() *agent.SubAgentManager { return ts.subAgentMgr }
 
-// TeamManager returns the team manager, or nil.
-func (ts *TaskSubsystem) TeamManager() *agent.TeamManager { return ts.teamManager }

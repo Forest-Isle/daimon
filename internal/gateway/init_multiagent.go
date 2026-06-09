@@ -26,12 +26,6 @@ func (gw *Gateway) initMultiAgent() error {
 		agentMCPMgr := agent.NewAgentMCPManager(nil)
 		gw.agentDeps.MultiAgent.AgentMCP = agentMCPMgr
 
-		// Agent orchestrator for parallel scheduling
-		orchestrator := agent.NewAgentOrchestrator(agent.NewAgentManager(
-			gw.provider, gw.sessions, gw.db, gw.memory.Store(), gw.tools, cfg.Agent, cfg.LLM,
-		), 4)
-		gw.agentDeps.MultiAgent.Orchestrator = orchestrator
-
 		// Now create SubAgentManager with fully populated deps
 		deps := gw.agentDeps
 		deps.Core.AgentID = "subagent-manager"
@@ -61,22 +55,7 @@ func (gw *Gateway) initMultiAgent() error {
 
 		agentMgr.SetAgentMCPManager(agentMCPMgr)
 
-		// Team coordination manager
-		if cfg.Agent.Team.Enabled {
-			teamMgr := agent.NewTeamManager(subAgentMgr)
-			gw.tasks.teamManager = teamMgr
-			slog.Info("agent team manager initialized", "max_workers", cfg.Agent.Team.MaxWorkers)
-		}
-
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
-	}
-
-	// Speculative execution of read-only tools during streaming
-	if gw.featureEnabled("speculative") {
-		maxInFlight := cfg.Agent.SpeculativeExecution.MaxInFlight
-		se := agent.NewSpeculativeExecutor(gw.tools, maxInFlight)
-		gw.agentDeps.MultiAgent.Speculative = se
-		slog.Info("speculative execution enabled", "max_in_flight", maxInFlight)
 	}
 
 	// Compression pipeline and context manager

@@ -29,16 +29,6 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 		Default:     true,
 	})
 	r.Register(feature.Feature{
-		Name:        "team",
-		Description: "Team coordinator for /team command",
-		Default:     true,
-	})
-	r.Register(feature.Feature{
-		Name:        "speculative",
-		Description: "Read-only tool pre-execution during streaming",
-		Default:     true,
-	})
-	r.Register(feature.Feature{
 		Name:        "scheduler",
 		Description: "Scheduled task execution",
 		Default:     true,
@@ -81,8 +71,6 @@ func configToOverrides(cfg *config.Config) map[string]bool {
 		"memory":          cfg.Memory.Enabled,
 		"skills":          cfg.Skills.Enabled,
 		"multi_agent":     cfg.Agents.Enabled,
-		"team":            cfg.Agent.Team.Enabled,
-		"speculative":     cfg.Agent.SpeculativeExecution.Enabled,
 		"scheduler":       cfg.Scheduler.Enabled,
 		"sandbox":         cfg.Sandbox.Enabled,
 		"server":          cfg.Server.Enabled,

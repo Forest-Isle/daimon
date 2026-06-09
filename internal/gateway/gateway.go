@@ -47,7 +47,6 @@ type Gateway struct {
 	resultStore      *tool.ResultStore
 	mcpManager       *mcp.Manager
 	userHookMgr      *hook.UserHookManager // user-configurable hook scripts
-	planMode         *agent.PlanMode       // plan->approve->execute flow
 	contextMgr       *agent.PipelineContextManager
 	features       *feature.Registry
 	healthRegistry *healthRegistry
@@ -175,14 +174,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		gw.agentDeps.Memory.BaseDir = gw.memory.MemoryDir()
 	}
 
-	// Plan Mode: plan->approve->execute flow for write tools.
-	if gw.provider != nil {
-		gw.planMode = agent.NewPlanMode(
-			gw.provider,
-			gw.handleApproval,
-			false,
-		)
-	}
 	if gw.memory.Store() != nil {
 		procedural := memory.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
 		gw.memory.cortex = memory.NewUnifiedRetriever(gw.memory.Store(), procedural, gw.memory.Embedder())
@@ -200,47 +191,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// Task ledger
 	gw.tasks.taskLedger = taskledger.NewSQLiteTaskLedger(gw.db)
 	gw.agentDeps.MultiAgent.TaskLedger = gw.tasks.TaskLedger()
-
-	// Team coordinator
-	if gw.features.IsEnabled("team") {
-		maxWorkers := cfg.Agent.Team.MaxWorkers
-		if maxWorkers <= 0 {
-			maxWorkers = 3
-		}
-		tc := taskledger.NewTeamCoordinator(gw.tasks.TaskLedger(), maxWorkers)
-		tc.SetExecutor(func(ctx context.Context, task taskledger.Task) (string, error) {
-			if gw.tasks.SubAgentManager() == nil {
-				return gw.executeTeamTask(ctx, task)
-			}
-			taskIDShort := task.ID
-			if len(taskIDShort) > 8 {
-				taskIDShort = taskIDShort[:8]
-			}
-			spec := &agent.AgentSpec{
-				Name:          fmt.Sprintf("team_%s", taskIDShort),
-				Description:   "Team task worker",
-				SystemPrompt:  "You are an agent executing a specific task. Be concise and focused.",
-				MaxIterations: 10,
-			}
-			cfg := gw.Config()
-			if cfg.Agent.Team.Model != "" {
-				spec.Model = cfg.Agent.Team.Model
-			}
-			_ = spec.Validate()
-			result, err := gw.tasks.SubAgentManager().Spawn(ctx, agent.SpawnRequest{
-				Spec: spec,
-				Task: task.Description,
-			})
-			if err != nil {
-				return "", err
-			}
-			if result.Status == agent.StatusError {
-				return "", fmt.Errorf("task failed: %s", result.Error)
-			}
-			return result.Summary, nil
-		})
-		gw.tasks.teamCoordinator = tc
-	}
 
 	// Scheduler
 	gw.channels.sched = scheduler.New(gw.db, cfg.Scheduler.PollInterval)
@@ -261,7 +211,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// Populate command table
 	gw.cmdTable = commandTable{
 		"/tasks":   {gw.handleTasks, true},
-		"/team":    {gw.handleTeam, false},
 		"/mode":    {gw.handleMode, false},
 		"/feature": {gw.handleFeature, false},
 		"/config":  {gw.handleConfig, true},
@@ -628,19 +577,3 @@ func defToSpec(def config.AgentDefinition) *agent.AgentSpec {
 // handleModeCommand processes the /mode command argument.
 // arg="" means query-only; arg="simple"|"cognitive" switches mode.
 
-// executeTeamTask runs a single team task by creating a temporary session
-// and routing through the main agent runtime.
-func (gw *Gateway) executeTeamTask(ctx context.Context, task taskledger.Task) (string, error) {
-	cfg := gw.Config()
-	req := agent.CompletionRequest{
-		Model:     gw.agent.Model(),
-		System:    "You are an agent executing a specific task. Be concise and focused.",
-		Messages:  []agent.CompletionMessage{{Role: "user", Content: task.Description}},
-		MaxTokens: cfg.LLM.MaxTokens,
-	}
-	resp, err := gw.provider.Complete(ctx, req)
-	if err != nil {
-		return "", err
-	}
-	return resp.Text, nil
-}
