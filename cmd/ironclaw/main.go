@@ -291,6 +291,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		tg.SetApprovalTimeout(cfg.Agent.Cognitive.ApprovalTimeoutSeconds)
 	}
 	gw.AddChannel(tg)
+	gw.SetSchedulerNotifier(tg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

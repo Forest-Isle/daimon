@@ -22,7 +22,8 @@ func InitCommands(gwRef *Gateway) *CommandSubsystem {
 		"/compact": {gwRef.handleCompact, true},
 		"/model":   {gwRef.handleModel, false},
 		"/new":     {gwRef.handleReset, true},
-		"/start":   {gwRef.handleReset, true},
+		"/start":    {gwRef.handleReset, true},
+		"/schedule": {gwRef.handleSchedule, false},
 	}
 	return cs
 }

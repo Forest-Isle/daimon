@@ -42,6 +42,7 @@ type Gateway struct {
 	mcpSub     *MCPSubsystem
 	health     *HealthSubsystem
 	commands   *CommandSubsystem
+	scheduler  *SchedulerSubsystem
 
 	subsystems Subsystems
 }
@@ -103,6 +104,11 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.health = InitHealth(cfg, gw.db)
 	gw.commands = InitCommands(gw)
 
+	// SchedulerChannel notifier is wired post-construction in main.go
+	// after the Telegram channel is created.
+	gw.scheduler = InitScheduler(gw.db, nil)
+	gw.AddChannel(gw.scheduler.Channel)
+
 	gw.config.OnReload(func(newCfg *config.Config) {
 		if gw.agent != nil {
 			gw.agent.SetModel(newCfg.LLM.Model)
@@ -110,7 +116,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		}
 	})
 
-	gw.subsystems = Subsystems{gw.memory, gw.channels, gw.mcpSub, gw.health, gw.config}
+	gw.subsystems = Subsystems{gw.memory, gw.channels, gw.mcpSub, gw.health, gw.config, gw.scheduler}
 	return gw, nil
 }
 
@@ -120,6 +126,13 @@ func (gw *Gateway) CurrentMode() string        { return gw.currentMode.Load().(s
 
 func (gw *Gateway) AddChannel(ch channel.Channel) {
 	gw.channels.channels[ch.Name()] = ch
+}
+
+// SetSchedulerNotifier wires the scheduler's reply forwarding to a real channel.
+func (gw *Gateway) SetSchedulerNotifier(ch channel.Channel) {
+	if gw.scheduler != nil {
+		gw.scheduler.Channel.SetNotifier(ch)
+	}
 }
 
 func (gw *Gateway) SetMode(mode string) error {
