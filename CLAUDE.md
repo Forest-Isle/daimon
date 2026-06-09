@@ -15,6 +15,9 @@ This file is a compact handoff for coding assistants working in this repository.
 - Standalone admin server is opt-in.
 - `agent.mode` accepts `simple`, `unified`, and legacy `cognitive`; `cognitive` maps to UnifiedLoop behavior.
 - Sub-agents run in-process only. `internal/agent/spec.go` contains future A2A remote-agent fields; remote A2A execution is not implemented.
+- Tools execute directly on the host — there is no sandbox/Docker isolation, file guard, or network policy. The tool interceptor chain lives on `gateway.interceptorChain` (permission → hook → user-hook → verify → audit) and is built in `init_tools.go`.
+- No telemetry: there is no OpenTelemetry/metrics instrumentation in the agent or tool paths.
+- Channels are TUI (default) and Telegram. `config.DiscordConfig` exists but has no adapter.
 
 ## Safe Verification Commands
 
