@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -369,6 +370,51 @@ func (m Model) renderSuggestions() string {
 	return suggestionBoxStyle.Width(m.width - 4).Render(b.String())
 }
 
+// modelInfo groups a model name with its role label.
+type modelInfo struct {
+	role  string // e.g. "Opus", "Sonnet", "Haiku"
+	name  string // actual model name
+	label string // display: "role → name" or just "name"
+}
+
+// getAnthropicModels returns the Anthropic-format model list.
+// If ANTHROPIC_DEFAULT_* env vars are set, they override the official defaults.
+func getAnthropicModels() []modelInfo {
+	models := []modelInfo{
+		{role: "Opus", name: orDefault("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-8")},
+		{role: "Sonnet", name: orDefault("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-6")},
+		{role: "Sonnet 4", name: "claude-sonnet-4-20250514"},
+		{role: "Haiku", name: orDefault("ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-4-5")},
+	}
+	for i := range models {
+		if models[i].name == models[i].role {
+			models[i].label = models[i].name
+		} else if models[i].name != "" {
+			models[i].label = models[i].role + " → " + models[i].name
+		}
+	}
+	return models
+}
+
+// getOpenAIModels returns the OpenAI-format model list with env var overrides.
+func getOpenAIModels() []modelInfo {
+	return []modelInfo{
+		{role: "GPT-5", name: orDefault("OPENAI_DEFAULT_GPT5_MODEL", "gpt-5.4")},
+		{role: "GPT-5 Mini", name: orDefault("OPENAI_DEFAULT_GPT5_MINI_MODEL", "gpt-5.4-mini")},
+		{role: "GPT-4.1", name: orDefault("OPENAI_DEFAULT_GPT4_MODEL", "gpt-4.1")},
+		{role: "Reasoning", name: orDefault("OPENAI_DEFAULT_REASONING_MODEL", "o4-mini")},
+		{role: "GPT-4o", name: "gpt-4o"},
+	}
+}
+
+// orDefault returns the env var value if set, otherwise the default.
+func orDefault(envKey, defaultVal string) string {
+	if v := os.Getenv(envKey); v != "" {
+		return v
+	}
+	return defaultVal
+}
+
 // renderModelPanel renders the model info and reference panel.
 func (m Model) renderModelPanel() string {
 	var b strings.Builder
@@ -378,7 +424,7 @@ func (m Model) renderModelPanel() string {
 	// Current model
 	current := m.metrics.model
 	if current == "" {
-		current = m.agentMode + " (pending first request)"
+		current = "pending first request"
 	}
 	b.WriteString(statsLabelStyle.Render("Current: "))
 	b.WriteString(statsValueStyle.Render(current))
@@ -390,30 +436,35 @@ func (m Model) renderModelPanel() string {
 	}
 	b.WriteString("\n")
 
-	// Popular models reference
-	b.WriteString(statsLabelStyle.Render("Anthropic:"))
+	// Anthropic models (with env var overrides)
+	anthroLabel := "Anthropic"
+	if os.Getenv("ANTHROPIC_DEFAULT_SONNET_MODEL") != "" {
+		anthroLabel += " (custom via env)"
+	}
+	b.WriteString(statsLabelStyle.Render(anthroLabel + ":"))
 	b.WriteString("\n")
-	for _, name := range []string{
-		"claude-opus-4-8", "claude-sonnet-4-6",
-		"claude-sonnet-4-5", "claude-haiku-4-5",
-	} {
-		b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %s", name)))
+	for _, mi := range getAnthropicModels() {
+		b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %s", mi.name)))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
-	b.WriteString(statsLabelStyle.Render("OpenAI-compatible:"))
+	// OpenAI models
+	openaiLabel := "OpenAI-compatible"
+	if os.Getenv("OPENAI_DEFAULT_GPT5_MODEL") != "" {
+		openaiLabel += " (custom via env)"
+	}
+	b.WriteString(statsLabelStyle.Render(openaiLabel + ":"))
 	b.WriteString("\n")
-	for _, name := range []string{
-		"gpt-5.4", "gpt-5.4-mini",
-		"gpt-4.1", "o4-mini", "gpt-4o",
-	} {
-		b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %s", name)))
+	for _, mi := range getOpenAIModels() {
+		b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %s", mi.name)))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
 	b.WriteString(suggestionHintStyle.Render("  /model <name> to switch  [Esc] dismiss"))
+	b.WriteString("\n")
+	b.WriteString(suggestionHintStyle.Render("  Set ANTHROPIC_DEFAULT_* / OPENAI_DEFAULT_* env vars to customize"))
 
 	return statsPanelStyle.Width(m.width - 2).Render(b.String())
 }
