@@ -20,11 +20,11 @@ type ScheduledTask struct {
 	ID         string
 	Prompt     string
 	CronExpr   string
-	NotifyTo   string
-	NotifyID   string
+	NotifyTo   string // maps to DB column "channel"
+	NotifyID   string // maps to DB column "channel_id"
 	Enabled    bool
 	CreatedAt  string
-	LastRunAt  string
+	LastRunAt  string // maps to DB column "last_run"
 	LastStatus string
 }
 
@@ -80,11 +80,15 @@ func (s *SchedulerChannel) Start(ctx context.Context, handler channel.InboundHan
 
 // Send forwards the agent's reply to the notifier channel.
 func (s *SchedulerChannel) Send(ctx context.Context, msg channel.OutboundMessage) error {
+	origID := msg.ChannelID
 	s.rewriteTarget(&msg)
 	if s.notifier == nil {
 		return fmt.Errorf("scheduler: no notifier configured")
 	}
-	return s.notifier.Send(ctx, msg)
+	err := s.notifier.Send(ctx, msg)
+	// Clean up the active target after the reply is forwarded.
+	s.activeTargets.Delete(origID)
+	return err
 }
 
 // SendStreaming delegates streaming to the notifier.
@@ -147,10 +151,11 @@ func splitTarget(s string) (ch, id string) {
 }
 
 // loadEnabledTasks reads all enabled tasks from the database.
+// Uses column names from 001_init.sql: channel, channel_id, last_run.
 func (s *SchedulerChannel) loadEnabledTasks(ctx context.Context) ([]ScheduledTask, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, prompt, cron_expr, notify_to, notify_id, enabled, created_at,
-		        COALESCE(last_run_at, ''), COALESCE(last_status, '')
+		`SELECT id, prompt, cron_expr, channel, channel_id, enabled, created_at,
+		        COALESCE(last_run, ''), COALESCE(last_status, '')
 		 FROM scheduled_tasks WHERE enabled = 1`)
 	if err != nil {
 		return nil, err
@@ -204,7 +209,6 @@ func (s *SchedulerChannel) unregisterCron(taskID string) {
 func (s *SchedulerChannel) fireTask(t ScheduledTask) {
 	targetKey := t.NotifyTo + ":" + t.NotifyID
 	s.activeTargets.Store(t.ID, targetKey)
-	defer s.activeTargets.Delete(t.ID)
 
 	s.setLastRun(t.ID)
 
@@ -218,12 +222,20 @@ func (s *SchedulerChannel) fireTask(t ScheduledTask) {
 	}
 }
 
-// setLastRun updates the task's last_run_at timestamp.
+// setLastRun updates the task's last_run timestamp.
 func (s *SchedulerChannel) setLastRun(taskID string) {
-	_, err := s.db.Exec(`UPDATE scheduled_tasks SET last_run_at = datetime('now'), last_status = 'running' WHERE id = ?`, taskID)
+	_, err := s.db.Exec(`UPDATE scheduled_tasks SET last_run = datetime('now'), last_status = 'running' WHERE id = ?`, taskID)
 	if err != nil {
-		slog.Warn("scheduler: failed to update last_run_at", "task", taskID, "err", err)
+		slog.Warn("scheduler: failed to update last_run", "task", taskID, "err", err)
 	}
+}
+
+// taskName returns a short name for the task derived from its prompt.
+func taskName(prompt string) string {
+	if len(prompt) > 50 {
+		return prompt[:47] + "..."
+	}
+	return prompt
 }
 
 // AddTask persists a new scheduled task and registers it with cron if enabled.
@@ -238,8 +250,8 @@ func (s *SchedulerChannel) AddTask(ctx context.Context, prompt, cronExpr, notify
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO scheduled_tasks (id, prompt, cron_expr, notify_to, notify_id) VALUES (?, ?, ?, ?, ?)`,
-		t.ID, t.Prompt, t.CronExpr, t.NotifyTo, t.NotifyID)
+		`INSERT INTO scheduled_tasks (id, name, prompt, cron_expr, channel, channel_id) VALUES (?, ?, ?, ?, ?, ?)`,
+		t.ID, taskName(prompt), t.Prompt, t.CronExpr, t.NotifyTo, t.NotifyID)
 	if err != nil {
 		return nil, fmt.Errorf("scheduler: insert task: %w", err)
 	}
@@ -296,8 +308,8 @@ func (s *SchedulerChannel) RunOnce(ctx context.Context, id string) error {
 // ListTasks returns all scheduled tasks ordered by creation time.
 func (s *SchedulerChannel) ListTasks(ctx context.Context) ([]ScheduledTask, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, prompt, cron_expr, notify_to, notify_id, enabled, created_at,
-		        COALESCE(last_run_at, ''), COALESCE(last_status, '')
+		`SELECT id, prompt, cron_expr, channel, channel_id, enabled, created_at,
+		        COALESCE(last_run, ''), COALESCE(last_status, '')
 		 FROM scheduled_tasks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -320,8 +332,8 @@ func (s *SchedulerChannel) ListTasks(ctx context.Context) ([]ScheduledTask, erro
 func (s *SchedulerChannel) getTask(ctx context.Context, id string) (*ScheduledTask, error) {
 	var t ScheduledTask
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, prompt, cron_expr, notify_to, notify_id, enabled, created_at,
-		        COALESCE(last_run_at, ''), COALESCE(last_status, '')
+		`SELECT id, prompt, cron_expr, channel, channel_id, enabled, created_at,
+		        COALESCE(last_run, ''), COALESCE(last_status, '')
 		 FROM scheduled_tasks WHERE id = ?`, id).
 		Scan(&t.ID, &t.Prompt, &t.CronExpr, &t.NotifyTo, &t.NotifyID,
 			&t.Enabled, &t.CreatedAt, &t.LastRunAt, &t.LastStatus)
