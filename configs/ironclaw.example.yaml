@@ -4,7 +4,7 @@
 # 此文件中的 enabled 字段仅作为覆盖：省略则使用 Feature Registry 默认值。
 # 运行时可通过 /feature list 查看所有功能状态，/feature enable|disable 开关功能。
 #
-# 默认开启: memory, skills, multi_agent, team, speculative, scheduler,
+# 默认开启: memory, skills, multi_agent, scheduler,
 #           sandbox (auto-detect Docker)
 # 默认关闭: server
 
@@ -41,7 +41,6 @@ agent:
   max_iterations: 20
   mode: simple   # "simple" | "unified" (also accepts "cognitive" for backward compat)
   cognitive:
-    # plan_model: ""          # defaults to llm.model if empty
     # reflect_model: ""       # defaults to llm.model if empty
     max_parallel_tools: 3
   # Context compression strategy (Phase 1 performance optimization)

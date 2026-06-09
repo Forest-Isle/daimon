@@ -22,7 +22,6 @@ const (
 	TaskKindCognitiveSubtask TaskKind = "cognitive_subtask"
 	TaskKindSubAgent         TaskKind = "sub_agent"
 	TaskKindScheduled        TaskKind = "scheduled"
-	TaskKindTeamTask         TaskKind = "team_task"
 )
 
 type Task struct {

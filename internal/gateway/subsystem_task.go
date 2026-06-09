@@ -9,13 +9,11 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 )
 
-// TaskSubsystem manages the task ledger, team coordinator, sub-agent manager,
-// team manager, and stale task detector.
+// TaskSubsystem manages the task ledger, sub-agent manager, and stale task detector.
 type TaskSubsystem struct {
-	taskLedger      *taskledger.SQLiteTaskLedger
-	teamCoordinator *taskledger.TeamCoordinator
-	subAgentMgr     *agent.SubAgentManager
-	staleDetector   *taskledger.StaleDetector
+	taskLedger    *taskledger.SQLiteTaskLedger
+	subAgentMgr   *agent.SubAgentManager
+	staleDetector *taskledger.StaleDetector
 }
 
 func (ts *TaskSubsystem) Name() string { return "task" }
@@ -46,9 +44,6 @@ func (ts *TaskSubsystem) Stop(_ context.Context) error {
 
 // TaskLedger returns the task ledger, or nil.
 func (ts *TaskSubsystem) TaskLedger() *taskledger.SQLiteTaskLedger { return ts.taskLedger }
-
-// TeamCoordinator returns the team coordinator, or nil.
-func (ts *TaskSubsystem) TeamCoordinator() *taskledger.TeamCoordinator { return ts.teamCoordinator }
 
 // SubAgentManager returns the sub-agent manager, or nil.
 func (ts *TaskSubsystem) SubAgentManager() *agent.SubAgentManager { return ts.subAgentMgr }

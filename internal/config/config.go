@@ -107,14 +107,6 @@ func defaultConfig() Config {
 				},
 				TokenEstimateRatio: 0.25,
 			},
-			SpeculativeExecution: SpeculativeExecutionConfig{
-				Enabled:     true,
-				MaxInFlight: 3,
-			},
-			Team: TeamConfig{
-				Enabled:    true,
-				MaxWorkers: 3,
-			},
 		},
 		Memory: MemoryConfig{
 			Enabled: true,

@@ -8,22 +8,6 @@ type AgentConfig struct {
 	Mode                 string                     `yaml:"mode"` // "simple" | "unified" (also accepts "cognitive" for backward compat)
 	Cognitive            CognitiveConfig            `yaml:"cognitive"`
 	Compression          CompressionConfig          `yaml:"compression"`
-	SpeculativeExecution SpeculativeExecutionConfig `yaml:"speculative_execution"`
-	Team                 TeamConfig                 `yaml:"team"`
-}
-
-// TeamConfig configures the Agent Teams coordination system.
-type TeamConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	MaxWorkers int    `yaml:"max_workers"`
-	Model      string `yaml:"model"`
-}
-
-// SpeculativeExecutionConfig controls launching read-only tools during streaming
-// before the model finishes its response.
-type SpeculativeExecutionConfig struct {
-	Enabled     bool `yaml:"enabled"`
-	MaxInFlight int  `yaml:"max_in_flight"`
 }
 
 // CompressionConfig controls the context compression strategy.
@@ -42,7 +26,6 @@ type CompressionLayers struct {
 
 // CognitiveConfig holds configuration for the unified agent loop.
 type CognitiveConfig struct {
-	PlanModel              string `yaml:"plan_model"`
 	ReflectModel           string `yaml:"reflect_model"`
 	MaxParallelTools       int    `yaml:"max_parallel_tools"`       // default 3
 	ApprovalTimeoutSeconds int    `yaml:"approval_timeout_seconds"` // default 120

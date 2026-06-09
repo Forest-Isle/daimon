@@ -66,17 +66,6 @@ func mergeConfig(base *Config, overlay *Config) {
 		base.Agent.Mode = overlay.Agent.Mode
 	}
 
-	// Agent.Team
-	if overlay.Agent.Team.Enabled {
-		base.Agent.Team.Enabled = true
-	}
-	if overlay.Agent.Team.MaxWorkers > 0 {
-		base.Agent.Team.MaxWorkers = overlay.Agent.Team.MaxWorkers
-	}
-	if overlay.Agent.Team.Model != "" {
-		base.Agent.Team.Model = overlay.Agent.Team.Model
-	}
-
 	// Store
 	if overlay.Store.Path != "" {
 		base.Store.Path = overlay.Store.Path
