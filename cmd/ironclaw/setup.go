@@ -53,7 +53,7 @@ func runSetupWizard() (string, error) {
 					huh.NewOption("Anthropic Claude (Sonnet 4)", "claude"),
 					huh.NewOption("OpenAI (GPT-4o)", "openai"),
 				).
-				Value(&provider),
+				Height(0).Value(&provider),
 		),
 	).WithTheme(theme).WithWidth(64).Run()
 	if err != nil {
@@ -115,7 +115,7 @@ func runSetupWizard() (string, error) {
 						"gpt-3.5-turbo",
 					)
 				}, &provider).
-				Value(&model),
+				Height(0).Value(&model),
 		),
 	).WithTheme(theme).WithWidth(64).Run()
 	if err != nil {
@@ -138,7 +138,7 @@ func runSetupWizard() (string, error) {
 					huh.NewOption("Simple — standard linear loop (recommended)", "simple"),
 					huh.NewOption("Unified — with parallel tool dispatch", "cognitive"),
 				).
-				Value(&agentMode),
+				Height(0).Value(&agentMode),
 		),
 	).WithTheme(theme).WithWidth(64).Run()
 	if err != nil {
@@ -158,7 +158,7 @@ func runSetupWizard() (string, error) {
 					huh.NewOption(".ironclaw/ironclaw.yaml — current project (recommended)", "project"),
 					huh.NewOption("~/.ironclaw/config.yaml — global for all projects", "global"),
 				).
-				Value(&saveStyle),
+				Height(0).Value(&saveStyle),
 		),
 	).WithTheme(theme).WithWidth(64).Run()
 	if err != nil {

@@ -41,10 +41,11 @@ func AgentFromContext(ctx context.Context) *Agent {
 // reads from the pointer on every access, so late-bound dependencies are
 // immediately visible without a by-value copy staleness problem.
 type Agent struct {
-	deps       *AgentDeps
-	strategy   LoopStrategy
-	approvalFn ApprovalFunc
-	eventBus   EventBus
+	deps         *AgentDeps
+	strategy     LoopStrategy
+	approvalFn   ApprovalFunc
+	eventBus     EventBus
+	sessionLocks sync.Map // key: "channel:channel_id" → *sync.Mutex
 }
 
 // NewAgent creates a new Agent with the given dependencies, strategy, and event bus.
@@ -88,6 +89,13 @@ func (a *Agent) Sessions() *session.Manager { return a.deps.Core.Sessions }
 // HandleMessage is the single entry point for all agent modes.
 func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
 	ctx = AgentToContext(ctx, a)
+
+	// Serialize per-session: prevent concurrent messages on the same
+	// channel+channelID from interleaving LLM calls and session state.
+	lockKey := msg.Channel + ":" + msg.ChannelID
+	lockVal, _ := a.sessionLocks.LoadOrStore(lockKey, &sync.Mutex{})
+	lockVal.(*sync.Mutex).Lock()
+	defer lockVal.(*sync.Mutex).Unlock()
 
 	sess, err := a.deps.Core.Sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {
