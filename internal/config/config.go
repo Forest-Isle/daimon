@@ -44,17 +44,17 @@ func ExpandEnv(data []byte) []byte {
 // FindConfigPath resolves the config file path by searching standard locations.
 // explicitPath comes from the -c flag; empty means "auto-discover".
 //
-// Search order:
-//  1. explicitPath (if non-empty and exists)
-//  2. .ironclaw/ironclaw.yaml in CWD (project-level convention)
-//  3. configs/ironclaw.yaml in CWD (dev convenience)
-//  4. ~/.ironclaw/config.yaml (user global)
+// Production mode (auto-discover when explicitPath is empty):
+//  1. .ironclaw/ironclaw.yaml in CWD (project-level convention)
+//  2. ~/.ironclaw/config.yaml (user global)
+//
+// Development mode: pass -c configs/ironclaw.yaml explicitly.
 func FindConfigPath(explicitPath string) (string, error) {
 	if explicitPath != "" {
 		if _, err := os.Stat(explicitPath); err == nil {
 			return explicitPath, nil
 		}
-		return "", fmt.Errorf("config file not found: %s (use -c to specify path, or create .ironclaw/ironclaw.yaml)", explicitPath)
+		return "", fmt.Errorf("config file not found: %s", explicitPath)
 	}
 
 	cwd, err := os.Getwd()
@@ -62,28 +62,25 @@ func FindConfigPath(explicitPath string) (string, error) {
 		cwd = "."
 	}
 
-	candidates := []string{
-		filepath.Join(cwd, ".ironclaw", "ironclaw.yaml"),
-		filepath.Join(cwd, "configs", "ironclaw.yaml"),
+	projectPath := filepath.Join(cwd, ".ironclaw", "ironclaw.yaml")
+	if _, err := os.Stat(projectPath); err == nil {
+		return projectPath, nil
 	}
 
 	home, homeErr := os.UserHomeDir()
 	if homeErr == nil {
-		candidates = append(candidates, filepath.Join(home, ".ironclaw", "config.yaml"))
-	}
-
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
+		userPath := filepath.Join(home, ".ironclaw", "config.yaml")
+		if _, err := os.Stat(userPath); err == nil {
+			return userPath, nil
 		}
 	}
 
 	return "", fmt.Errorf(
-		"no config file found. Create one at:\n"+
-			"  • .ironclaw/ironclaw.yaml  (project-level, recommended)\n"+
-			"  • configs/ironclaw.yaml    (development)\n"+
-			"  • ~/.ironclaw/config.yaml  (user global)\n"+
-			"Or copy from configs/ironclaw.example.yaml",
+		"no config file found.\n\n"+
+			"  Production: create .ironclaw/ironclaw.yaml in your project,\n"+
+			"              or ~/.ironclaw/config.yaml for global defaults.\n"+
+			"  Development: ironclaw tui -c configs/ironclaw.yaml\n"+
+			"  Template:    cp configs/ironclaw.example.yaml .ironclaw/ironclaw.yaml",
 	)
 }
 
