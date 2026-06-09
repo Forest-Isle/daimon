@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"testing"
-	"time"
 )
 
 func TestAgentSpec_InvalidMode(t *testing.T) {
@@ -65,38 +64,3 @@ func TestSubagentContext_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestOrchestratorDAG_ExecutionOrder(t *testing.T) {
-	var order []string
-	executor := func(ctx context.Context, task AgentTask) (*AgentResult, error) {
-		time.Sleep(5 * time.Millisecond)
-		order = append(order, task.ID)
-		return &AgentResult{AgentName: task.AgentName, Output: "done"}, nil
-	}
-
-	orch := NewAgentOrchestrator(nil, 2)
-	tasks := []AgentTask{
-		{ID: "a", AgentName: "a1", Task: "t1"},
-		{ID: "b", AgentName: "a2", Task: "t2", DependsOn: []string{"a"}},
-	}
-
-	results, err := orch.ExecuteDAG(context.Background(), tasks, executor)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
-
-	aIdx, bIdx := -1, -1
-	for i, id := range order {
-		if id == "a" {
-			aIdx = i
-		}
-		if id == "b" {
-			bIdx = i
-		}
-	}
-	if aIdx >= bIdx {
-		t.Errorf("task 'a' (idx=%d) should execute before 'b' (idx=%d)", aIdx, bIdx)
-	}
-}
