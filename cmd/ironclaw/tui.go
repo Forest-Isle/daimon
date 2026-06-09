@@ -42,8 +42,6 @@ func runTUI(configPath string, devMode bool) error {
 	resolvedPath, err := config.FindConfigPath(configPath, devMode)
 	if err != nil {
 		if isInteractive() {
-			fmt.Println(err)
-			fmt.Println()
 			resolvedPath, err = runSetupWizard()
 			if err != nil {
 				return fmt.Errorf("setup: %w", err)
