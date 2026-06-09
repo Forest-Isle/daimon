@@ -80,11 +80,17 @@ func FindConfigPath(explicitPath string, devMode bool) (string, error) {
 		return projectPath, nil
 	}
 
+	// No project config — try to bootstrap from global.
 	home, homeErr := os.UserHomeDir()
 	if homeErr == nil {
-		userPath := filepath.Join(home, ".ironclaw", "config.yaml")
-		if _, err := os.Stat(userPath); err == nil {
-			return userPath, nil
+		globalPath := filepath.Join(home, ".ironclaw", "config.yaml")
+		if _, err := os.Stat(globalPath); err == nil {
+			// Bootstrap: copy global config to project.
+			if err := bootstrapProjectConfig(globalPath, projectPath); err == nil {
+				return projectPath, nil
+			}
+			// Bootstrap failed — fall back to global directly.
+			return globalPath, nil
 		}
 	}
 
@@ -216,4 +222,27 @@ func defaultConfig() Config {
 			Default: "ask",
 		},
 	}
+}
+
+// bootstrapProjectConfig copies the global config to the project directory
+// as .ironclaw/ironclaw.yaml. The project copy starts identical to the global
+// config so the user can customize it independently. Returns nil on success.
+func bootstrapProjectConfig(globalPath, projectPath string) error {
+	data, err := os.ReadFile(globalPath)
+	if err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(projectPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	// Prepend a header note so the user knows this was auto-generated.
+	header := []byte("# Generated from " + globalPath + ".\n" +
+		"# Edit this file for project-specific overrides.\n" +
+		"# Remove this file to fall back to the global config.\n\n")
+	content := append(header, data...)
+
+	return os.WriteFile(projectPath, content, 0644)
 }
