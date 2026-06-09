@@ -90,6 +90,14 @@ func runTUI(configPath string, devMode bool) error {
 		gw.SetMetricsEmitter(em)
 	}
 
+	// Pass config model roles to the TUI /model panel.
+	tuiAdapter.SetModelRoles(
+		cfg.LLM.Provider,
+		cfg.LLM.Models.Opus,
+		cfg.LLM.Models.Sonnet,
+		cfg.LLM.Models.Haiku,
+	)
+
 	// Handle signals for graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)

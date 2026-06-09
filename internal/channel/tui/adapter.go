@@ -70,6 +70,13 @@ func (a *Adapter) SetAutoApprove(v bool) {
 	a.autoApprove.Store(v)
 }
 
+// SetModelRoles forwards model role config to the TUI model.
+func (a *Adapter) SetModelRoles(provider, opus, sonnet, haiku string) {
+	if a.model != nil {
+		a.model.SetModelRoles(provider, opus, sonnet, haiku)
+	}
+}
+
 // SetArgCompleter injects a dynamic argument completer for slash command autocomplete.
 // Should be called before Start(). If called after Start(), the completer is
 // forwarded to the running Model immediately.

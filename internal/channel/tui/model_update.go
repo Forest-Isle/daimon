@@ -203,7 +203,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case tea.KeyEnter:
 				if m.modelSelectionIdx >= 0 && m.modelSelectionIdx < len(m.modelItems) {
 					selected := m.modelItems[m.modelSelectionIdx]
-					m.textarea.SetValue("/model " + selected.name)
+					m.textarea.SetValue("/model " + selected.Name)
 					m.showModelPanel = false
 				}
 				return m, nil

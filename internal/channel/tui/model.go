@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"fmt"
 	"time"
 
@@ -102,7 +103,7 @@ type Model struct {
 	showModelPanel bool // toggle for model info/selection panel
 
 	// Model selection state
-	modelItems       []modelInfo // populated when panel opens
+	modelItems       []ModelRoleEntry // populated via SetModelRoles
 	modelSelectionIdx int        // -1 = no selection, initializes to 0
 
 	// Compression tracking for stats panel
@@ -150,4 +151,48 @@ func NewModel(agentMode, version, username, cwd string) Model {
 
 func (m Model) Init() tea.Cmd {
 	return textarea.Blink
+}
+
+// ModelRoleEntry is a single model entry for the /model selection panel.
+type ModelRoleEntry struct {
+	Role string
+	Name string
+}
+
+// SetModelRoles populates the model selection list from config values.
+// opus/sonnet/haiku come from llm.models in config; empty = use defaults.
+// Priority: config > ANTHROPIC_DEFAULT_* env > official default.
+func (m *Model) SetModelRoles(provider, opusModel, sonnetModel, haikuModel string) {
+	m.modelItems = nil
+
+	use := func(role, envKey, officialDefault string) string {
+		if v := os.Getenv(envKey); v != "" {
+			return v
+		}
+		return officialDefault
+	}
+
+	if provider == "claude" || provider == "" {
+		opus := opusModel
+		if opus == "" { opus = use("Opus", "ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-8") }
+		sonnet := sonnetModel
+		if sonnet == "" { sonnet = use("Sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-6") }
+		haiku := haikuModel
+		if haiku == "" { haiku = use("Haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-4-5") }
+
+		m.modelItems = append(m.modelItems,
+			ModelRoleEntry{Role: "Opus", Name: opus},
+			ModelRoleEntry{Role: "Sonnet", Name: sonnet},
+			ModelRoleEntry{Role: "Sonnet 4", Name: "claude-sonnet-4-20250514"},
+			ModelRoleEntry{Role: "Haiku", Name: haiku},
+		)
+	}
+	if provider == "openai" || provider == "openai-compatible" || provider == "" {
+		m.modelItems = append(m.modelItems,
+			ModelRoleEntry{Role: "GPT-5", Name: use("GPT-5", "OPENAI_DEFAULT_GPT5_MODEL", "gpt-5.4")},
+			ModelRoleEntry{Role: "GPT-5 Mini", Name: use("GPT-5 Mini", "OPENAI_DEFAULT_GPT5_MINI_MODEL", "gpt-5.4-mini")},
+			ModelRoleEntry{Role: "GPT-4.1", Name: use("GPT-4.1", "OPENAI_DEFAULT_GPT4_MODEL", "gpt-4.1")},
+			ModelRoleEntry{Role: "Reasoning", Name: use("Reasoning", "OPENAI_DEFAULT_REASONING_MODEL", "o4-mini")},
+		)
+	}
 }

@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -370,50 +369,6 @@ func (m Model) renderSuggestions() string {
 	return suggestionBoxStyle.Width(m.width - 4).Render(b.String())
 }
 
-// modelInfo groups a model name with its role label.
-type modelInfo struct {
-	role  string // e.g. "Opus", "Sonnet", "Haiku"
-	name  string // actual model name
-	label string // display: "role → name" or just "name"
-}
-
-// getAnthropicModels returns the Anthropic-format model list.
-// If ANTHROPIC_DEFAULT_* env vars are set, they override the official defaults.
-func getAnthropicModels() []modelInfo {
-	models := []modelInfo{
-		{role: "Opus", name: orDefault("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-8")},
-		{role: "Sonnet", name: orDefault("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-6")},
-		{role: "Sonnet 4", name: "claude-sonnet-4-20250514"},
-		{role: "Haiku", name: orDefault("ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-4-5")},
-	}
-	for i := range models {
-		if models[i].name == models[i].role {
-			models[i].label = models[i].name
-		} else if models[i].name != "" {
-			models[i].label = models[i].role + " → " + models[i].name
-		}
-	}
-	return models
-}
-
-// getOpenAIModels returns the OpenAI-format model list with env var overrides.
-func getOpenAIModels() []modelInfo {
-	return []modelInfo{
-		{role: "GPT-5", name: orDefault("OPENAI_DEFAULT_GPT5_MODEL", "gpt-5.4")},
-		{role: "GPT-5 Mini", name: orDefault("OPENAI_DEFAULT_GPT5_MINI_MODEL", "gpt-5.4-mini")},
-		{role: "GPT-4.1", name: orDefault("OPENAI_DEFAULT_GPT4_MODEL", "gpt-4.1")},
-		{role: "Reasoning", name: orDefault("OPENAI_DEFAULT_REASONING_MODEL", "o4-mini")},
-		{role: "GPT-4o", name: "gpt-4o"},
-	}
-}
-
-// orDefault returns the env var value if set, otherwise the default.
-func orDefault(envKey, defaultVal string) string {
-	if v := os.Getenv(envKey); v != "" {
-		return v
-	}
-	return defaultVal
-}
 
 // renderModelPanel renders the interactive model selection panel.
 func (m Model) renderModelPanel() string {
@@ -439,9 +394,9 @@ func (m Model) renderModelPanel() string {
 	b.WriteString("\n")
 	for i, mi := range m.modelItems {
 		if i == m.modelSelectionIdx {
-			b.WriteString(selectedSuggestionStyle.Render(fmt.Sprintf("▶ %-24s  %s", mi.name, mi.role)))
+			b.WriteString(selectedSuggestionStyle.Render(fmt.Sprintf("▶ %-24s  %s", mi.Name, mi.Role)))
 		} else {
-			b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %-24s  %s", mi.name, mi.role)))
+			b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %-24s  %s", mi.Name, mi.Role)))
 		}
 		b.WriteString("\n")
 	}
