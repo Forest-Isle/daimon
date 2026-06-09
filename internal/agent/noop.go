@@ -10,8 +10,8 @@ import (
 // Used when no observability emitter (e.g. the TUI) is configured.
 type discardEmitter struct{}
 
-func (discardEmitter) EmitToolStart(string, string, string)    {}
-func (discardEmitter) EmitToolEnd(string, string, bool, int64) {}
+func (discardEmitter) EmitToolStart(string, string, string)                      {}
+func (discardEmitter) EmitToolEnd(string, string, bool, int64)                   {}
 func (discardEmitter) EmitSubAgentSpawn(string, string, string, string)          {}
 func (discardEmitter) EmitSubAgentComplete(string, string, bool, int64)          {}
 func (discardEmitter) EmitContextCompress(string, string, int, float64, float64) {}

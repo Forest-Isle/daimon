@@ -22,7 +22,7 @@ var (
 			Padding(0, 1)
 
 	headerLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#C4B5F5"))
+				Foreground(lipgloss.Color("#C4B5F5"))
 
 	// Chat message labels
 	userLabelStyle = lipgloss.NewStyle().
@@ -131,16 +131,16 @@ var (
 				Foreground(lipgloss.Color("#FFD700"))
 
 	statusToolOKStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#04B575"))
+				Foreground(lipgloss.Color("#04B575"))
 
 	statusToolFailStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF5555"))
+				Foreground(lipgloss.Color("#FF5555"))
 
 	statusDimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262"))
 
 	statusPhaseStyle = lipgloss.NewStyle().
-			Foreground(colorPurple)
+				Foreground(colorPurple)
 
 	// Stats detail panel
 	statsPanelStyle = lipgloss.NewStyle().
@@ -149,8 +149,8 @@ var (
 			Padding(0, 1)
 
 	statsHeaderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorPurple)
+				Bold(true).
+				Foreground(colorPurple)
 
 	statsLabelStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#929292"))
@@ -159,16 +159,16 @@ var (
 			Foreground(lipgloss.Color("#FAFAFA"))
 
 	statsBarFilledStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#04B575"))
+				Foreground(lipgloss.Color("#04B575"))
 
 	statsBarEmptyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#333333"))
+				Foreground(lipgloss.Color("#333333"))
 
 	statsBarWarnStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFD700"))
+				Foreground(lipgloss.Color("#FFD700"))
 
 	statsBarCritStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF5555"))
+				Foreground(lipgloss.Color("#FF5555"))
 
 	// Welcome screen
 	welcomeBoxStyle = lipgloss.NewStyle().
@@ -178,17 +178,17 @@ var (
 			Align(lipgloss.Center)
 
 	welcomeTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorPurple).
-			MarginBottom(1)
+				Bold(true).
+				Foreground(colorPurple).
+				MarginBottom(1)
 
 	welcomeSubtitleStyle = lipgloss.NewStyle().
-			Foreground(colorDimGray).
-			Italic(true).
-			MarginBottom(1)
+				Foreground(colorDimGray).
+				Italic(true).
+				MarginBottom(1)
 
 	welcomeHintStyle = lipgloss.NewStyle().
-			Foreground(colorGray)
+				Foreground(colorGray)
 
 	welcomeKeyStyle = lipgloss.NewStyle().
 			Foreground(colorGreen).

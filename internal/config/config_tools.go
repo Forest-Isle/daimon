@@ -60,4 +60,3 @@ type HTTPToolConfig struct {
 	RequiresApproval bool          `yaml:"requires_approval"`
 	Timeout          time.Duration `yaml:"timeout"`
 }
-

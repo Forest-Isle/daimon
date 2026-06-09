@@ -12,10 +12,10 @@ import (
 
 type testChannel struct{}
 
-func (m *testChannel) Name() string                                          { return "test" }
-func (m *testChannel) Start(context.Context, channel.InboundHandler) error   { return nil }
-func (m *testChannel) Send(context.Context, channel.OutboundMessage) error   { return nil }
-func (m *testChannel) Stop(context.Context) error                            { return nil }
+func (m *testChannel) Name() string                                        { return "test" }
+func (m *testChannel) Start(context.Context, channel.InboundHandler) error { return nil }
+func (m *testChannel) Send(context.Context, channel.OutboundMessage) error { return nil }
+func (m *testChannel) Stop(context.Context) error                          { return nil }
 func (m *testChannel) SendStreaming(context.Context, channel.MessageTarget) (channel.StreamUpdater, error) {
 	return &testUpdater{}, nil
 }
@@ -65,8 +65,8 @@ func (m *testStream) Close() {}
 
 type testReadTool struct{}
 
-func (t *testReadTool) Name() string           { return "read" }
-func (t *testReadTool) Description() string    { return "Read a file" }
+func (t *testReadTool) Name() string        { return "read" }
+func (t *testReadTool) Description() string { return "Read a file" }
 func (t *testReadTool) InputSchema() map[string]any {
 	return map[string]any{"type": "object"}
 }
@@ -186,5 +186,3 @@ func TestUnifiedLoop_ParallelDispatch(t *testing.T) {
 		t.Fatalf("expected 2 tool results, got %d", toolResultCount)
 	}
 }
-
-

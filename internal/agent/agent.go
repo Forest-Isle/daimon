@@ -191,7 +191,6 @@ func (a *Agent) buildSystemPrompt(ctx context.Context, userText string) string {
 		}
 	}
 
-
 	// Skills
 	if a.deps.MultiAgent.SkillMgr != nil {
 		if section := a.deps.MultiAgent.SkillMgr.BuildPromptSection(userText); section != "" {

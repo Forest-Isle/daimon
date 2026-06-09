@@ -1,13 +1,13 @@
 package config
 
 type AgentConfig struct {
-	MaxIterations        int                        `yaml:"max_iterations"`
-	SystemPrompt         string                     `yaml:"system_prompt"`
-	Personality          string                     `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
-	PersistentRules      string                     `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
-	Mode                 string                     `yaml:"mode"` // "simple" | "unified" (also accepts "cognitive" for backward compat)
-	Cognitive            CognitiveConfig            `yaml:"cognitive"`
-	Compression          CompressionConfig          `yaml:"compression"`
+	MaxIterations   int               `yaml:"max_iterations"`
+	SystemPrompt    string            `yaml:"system_prompt"`
+	Personality     string            `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
+	PersistentRules string            `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
+	Mode            string            `yaml:"mode"` // "simple" | "unified" (also accepts "cognitive" for backward compat)
+	Cognitive       CognitiveConfig   `yaml:"cognitive"`
+	Compression     CompressionConfig `yaml:"compression"`
 }
 
 // CompressionConfig controls the context compression strategy.
@@ -29,5 +29,5 @@ type CognitiveConfig struct {
 	ReflectModel           string `yaml:"reflect_model"`
 	MaxParallelTools       int    `yaml:"max_parallel_tools"`       // default 3
 	ApprovalTimeoutSeconds int    `yaml:"approval_timeout_seconds"` // default 120
-	StreamingEnabled       bool    `yaml:"streaming_enabled"`        // enable channel-based streaming pipeline (default false)
+	StreamingEnabled       bool   `yaml:"streaming_enabled"`        // enable channel-based streaming pipeline (default false)
 }

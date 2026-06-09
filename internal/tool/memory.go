@@ -13,8 +13,8 @@ import (
 // MemoryTool is the single LLM-facing memory tool.
 // Operations: save, search, delete, list.
 type MemoryTool struct {
-	store    memory.Store
-	lcMgr    *memory.LifecycleManager
+	store memory.Store
+	lcMgr *memory.LifecycleManager
 }
 
 // MemoryInput is the JSON schema for the tool call.
@@ -32,8 +32,10 @@ func NewMemoryTool(store memory.Store, lcMgr *memory.LifecycleManager) *MemoryTo
 	return &MemoryTool{store: store, lcMgr: lcMgr}
 }
 
-func (t *MemoryTool) Name() string        { return "memory" }
-func (t *MemoryTool) Description() string { return "Manage persistent memory. Operations: save (store a fact), search (find relevant memories), delete (remove by ID), list (list recent entries)." }
+func (t *MemoryTool) Name() string { return "memory" }
+func (t *MemoryTool) Description() string {
+	return "Manage persistent memory. Operations: save (store a fact), search (find relevant memories), delete (remove by ID), list (list recent entries)."
+}
 func (t *MemoryTool) RequiresApproval() bool { return true }
 func (t *MemoryTool) Capabilities() ToolCapabilities {
 	return ToolCapabilities{IsDestructive: true}

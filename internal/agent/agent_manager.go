@@ -18,18 +18,18 @@ import (
 
 // AgentManager loads, validates, and registers sub-agent specs as tools.
 type AgentManager struct {
-	mu             sync.RWMutex
-	specs          []*AgentSpec
-	provider       Provider
-	sessions       *session.Manager
-	db             *store.DB
-	memStore       memory.Store
-	tools          *tool.Registry
-	cfg            config.AgentConfig
-	llmCfg         config.LLMConfig
-	bgManager      *BackgroundManager
-	agentMCP       *AgentMCPManager
-	subAgentMgr    *SubAgentManager
+	mu          sync.RWMutex
+	specs       []*AgentSpec
+	provider    Provider
+	sessions    *session.Manager
+	db          *store.DB
+	memStore    memory.Store
+	tools       *tool.Registry
+	cfg         config.AgentConfig
+	llmCfg      config.LLMConfig
+	bgManager   *BackgroundManager
+	agentMCP    *AgentMCPManager
+	subAgentMgr *SubAgentManager
 }
 
 // NewAgentManager creates a new AgentManager.

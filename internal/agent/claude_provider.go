@@ -380,4 +380,3 @@ func (c *ClaudeProvider) trackCacheUsage(usage anthropic.Usage) {
 		)
 	}
 }
-

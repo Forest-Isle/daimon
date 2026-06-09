@@ -90,14 +90,14 @@ type Model struct {
 	historySaved string // stash current input when entering history
 
 	// Metrics & tool tracking
-	activeTool  string // currently executing tool name (empty when idle)
-	lastTool    string // most recent completed tool
-	lastToolOK  bool
-	lastToolMs  int64
-	toolHistory []toolHistoryEntry
-	toolCount   int // total tools executed this session
-	metrics     metricsState
-	showStats    bool // toggle for detailed stats panel
+	activeTool    string // currently executing tool name (empty when idle)
+	lastTool      string // most recent completed tool
+	lastToolOK    bool
+	lastToolMs    int64
+	toolHistory   []toolHistoryEntry
+	toolCount     int // total tools executed this session
+	metrics       metricsState
+	showStats     bool // toggle for detailed stats panel
 	showHelpPanel bool // toggle for help/commands panel
 
 	// Compression tracking for stats panel

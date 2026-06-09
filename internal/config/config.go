@@ -10,21 +10,20 @@ import (
 )
 
 type Config struct {
-	LLM           LLMConfig           `yaml:"llm"`
-	Telegram      TelegramConfig      `yaml:"telegram"`
-	TUI           TUIConfig           `yaml:"tui"`
-	Agent         AgentConfig         `yaml:"agent"`
-	Store         StoreConfig         `yaml:"store"`
-	Memory        MemoryConfig        `yaml:"memory"`
-	Tools         ToolsConfig         `yaml:"tools"`
-	Server        ServerConfig        `yaml:"server"`
-	Health        HealthConfig        `yaml:"health"`
-	Log           LogConfig           `yaml:"log"`
-	Skills        SkillsConfig        `yaml:"skills"`
-	Agents        AgentsConfig        `yaml:"agents"`
-	Permissions   PermissionsConfig   `yaml:"permissions"`
-	Hooks         HooksConfig         `yaml:"hooks"`
-
+	LLM         LLMConfig         `yaml:"llm"`
+	Telegram    TelegramConfig    `yaml:"telegram"`
+	TUI         TUIConfig         `yaml:"tui"`
+	Agent       AgentConfig       `yaml:"agent"`
+	Store       StoreConfig       `yaml:"store"`
+	Memory      MemoryConfig      `yaml:"memory"`
+	Tools       ToolsConfig       `yaml:"tools"`
+	Server      ServerConfig      `yaml:"server"`
+	Health      HealthConfig      `yaml:"health"`
+	Log         LogConfig         `yaml:"log"`
+	Skills      SkillsConfig      `yaml:"skills"`
+	Agents      AgentsConfig      `yaml:"agents"`
+	Permissions PermissionsConfig `yaml:"permissions"`
+	Hooks       HooksConfig       `yaml:"hooks"`
 }
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
@@ -114,7 +113,7 @@ func defaultConfig() Config {
 			Port: 9090,
 		},
 		Server: ServerConfig{
-			Addr:          ":8080",
+			Addr: ":8080",
 		},
 		Log: LogConfig{
 			Level:  "info",

@@ -63,4 +63,3 @@ func TestSubagentContext_RoundTrip(t *testing.T) {
 		t.Errorf("expected depth 1, got %d", sc.Depth)
 	}
 }
-

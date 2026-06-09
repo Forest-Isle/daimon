@@ -37,15 +37,15 @@ func NewOpenAIProvider(apiKey, model, baseURL string) *OpenAIProvider {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &OpenAIProvider{
-		apiKey:       apiKey,
-		model:        model,
-		baseURL:      baseURL,
+		apiKey:  apiKey,
+		model:   model,
+		baseURL: baseURL,
 		client: &http.Client{
 			Timeout: 120 * time.Second,
 			Transport: &http.Transport{
-				MaxIdleConns:        10,
-				IdleConnTimeout:     90 * time.Second,
-				DisableCompression:  false,
+				MaxIdleConns:       10,
+				IdleConnTimeout:    90 * time.Second,
+				DisableCompression: false,
 			},
 		},
 		cacheMetrics: NewCacheMetrics(100),
@@ -376,16 +376,16 @@ func (p *OpenAIProvider) parseChoice(choice oaiChoice) *CompletionResponse {
 // ── Streaming ──
 
 type openaiStreamIterator struct {
-	reader        *bufio.Reader
-	body          io.ReadCloser
-	mu            sync.Mutex
-	toolCalls     map[int]*oaiToolCall // index → accumulated call
-	maxToolIdx    int                  // highest tool-call index seen, for id-less fallback
-	textBuf       strings.Builder
-	done          bool
-	stopReason    StopReason
-	provider      *OpenAIProvider // back-reference for tracking cache usage
-	finalized     bool
+	reader     *bufio.Reader
+	body       io.ReadCloser
+	mu         sync.Mutex
+	toolCalls  map[int]*oaiToolCall // index → accumulated call
+	maxToolIdx int                  // highest tool-call index seen, for id-less fallback
+	textBuf    strings.Builder
+	done       bool
+	stopReason StopReason
+	provider   *OpenAIProvider // back-reference for tracking cache usage
+	finalized  bool
 }
 
 func (it *openaiStreamIterator) Next() (StreamDelta, error) {
@@ -530,7 +530,6 @@ func (it *openaiStreamIterator) buildFinalDelta() StreamDelta {
 		it.stopReason = StopEndTurn
 	}
 	d.StopReason = it.stopReason
-
 
 	return d
 }

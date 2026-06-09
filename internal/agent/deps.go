@@ -51,9 +51,9 @@ func (d MemoryDeps) WithDefaults() MemoryDeps {
 
 // SecurityDeps holds optional security subsystem dependencies.
 type SecurityDeps struct {
-	Interceptor  *tool.InterceptorChain // nil = passthrough (tools execute directly)
-	HookMgr      *hook.Manager          // nil = no hooks
-	PermEngine   *tool.PermissionEngine // nil = allow-all
+	Interceptor *tool.InterceptorChain // nil = passthrough (tools execute directly)
+	HookMgr     *hook.Manager          // nil = no hooks
+	PermEngine  *tool.PermissionEngine // nil = allow-all
 }
 
 // WithDefaults returns a copy of SecurityDeps with nil fields filled.
@@ -78,7 +78,7 @@ func (d SecurityDeps) WithDefaults() SecurityDeps {
 // ObservabilityDeps holds optional observability subsystem dependencies.
 type ObservabilityDeps struct {
 	Emitter        ObservabilityEmitter // default: discardEmitter{}
-	MetricsEmitter MetricsEmitter   // default: discardMetrics{}
+	MetricsEmitter MetricsEmitter       // default: discardMetrics{}
 }
 
 // WithDefaults returns a copy of ObservabilityDeps with nil interface fields filled.
@@ -97,13 +97,13 @@ func (d ObservabilityDeps) WithDefaults() ObservabilityDeps {
 // MultiAgentDeps holds optional multi-agent subsystem dependencies.
 // Nil fields mean the feature is disabled.
 type MultiAgentDeps struct {
-	SkillMgr     *skill.Manager
-	AgentMgr     *AgentManager
-	SubAgentMgr  *SubAgentManager // nil = no sub-agents
-	AgentMCP     *AgentMCPManager
-	ResultStore  *tool.ResultStore
-	BgManager    *BackgroundManager // nil = disabled
-	PromptCache  *PromptCache       // nil = disabled
+	SkillMgr    *skill.Manager
+	AgentMgr    *AgentManager
+	SubAgentMgr *SubAgentManager // nil = no sub-agents
+	AgentMCP    *AgentMCPManager
+	ResultStore *tool.ResultStore
+	BgManager   *BackgroundManager // nil = disabled
+	PromptCache *PromptCache       // nil = disabled
 }
 
 // WithDefaults returns a copy of MultiAgentDeps with nil interface fields filled.

@@ -25,8 +25,8 @@ func TestPipelineContextManager_Compress_BelowThreshold(t *testing.T) {
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
 			ToolOutputReducePct: 30,
-			SummarizePct:    50,
-			EmergencyPct:    90,
+			SummarizePct:        50,
+			EmergencyPct:        90,
 		},
 		TokenEstimateRatio: 0.25,
 	}
@@ -50,8 +50,8 @@ func TestPipelineContextManager_Compress_AboveThreshold(t *testing.T) {
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
 			ToolOutputReducePct: 1, // very low threshold — always triggers
-			SummarizePct:    99,
-			EmergencyPct:    99,
+			SummarizePct:        99,
+			EmergencyPct:        99,
 		},
 		TokenEstimateRatio: 0.25,
 	}
@@ -257,8 +257,8 @@ func TestPipelineContextManager_ReactiveCompress_WithPipeline(t *testing.T) {
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
 			ToolOutputReducePct: 99,
-			SummarizePct:    99,
-			EmergencyPct:    99,
+			SummarizePct:        99,
+			EmergencyPct:        99,
 		},
 		TokenEstimateRatio: 0.25,
 	}
@@ -349,8 +349,8 @@ func TestPipelineContextManager_ReactiveCompressWithRetry_Level1Success(t *testi
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
 			ToolOutputReducePct: 1,
-			SummarizePct:    99,
-			EmergencyPct:    99,
+			SummarizePct:        99,
+			EmergencyPct:        99,
 		},
 		TokenEstimateRatio: 0.25,
 	}
@@ -380,8 +380,8 @@ func TestPipelineContextManager_ReactiveCompressWithRetry_Level2Success(t *testi
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
 			ToolOutputReducePct: 1,
-			SummarizePct:    99,
-			EmergencyPct:    99,
+			SummarizePct:        99,
+			EmergencyPct:        99,
 		},
 		TokenEstimateRatio: 0.25,
 	}
@@ -418,8 +418,8 @@ func TestPipelineContextManager_ReactiveCompressWithRetry_AllFail(t *testing.T) 
 		Strategy: "layered",
 		Layers: config.CompressionLayers{
 			ToolOutputReducePct: 1,
-			SummarizePct:    99,
-			EmergencyPct:    99,
+			SummarizePct:        99,
+			EmergencyPct:        99,
 		},
 		TokenEstimateRatio: 0.25,
 	}
