@@ -112,22 +112,35 @@ func runSetupWizard() (string, error) {
 
 	// ── Step 4: Model ──────────────────────────────────────────────
 	defaultModel := "claude-sonnet-4-20250514"
-	modelHint := "latest Sonnet — great balance of speed & intelligence"
 	if apiFormat == "openai" {
 		defaultModel = "gpt-4o"
-		modelHint = "latest flagship — multimodal, 128K context"
 	}
 
 	err = huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
 				Title("Step 4/5").
-				Description("Choose model (press Enter for default, or type any model name)"),
-			huh.NewInput().
+				Description("Choose a model"),
+			huh.NewSelect[string]().
 				Title("Model").
-				Description(modelHint).
-				Placeholder(defaultModel).
-				Value(&model),
+				Description("Arrow keys to choose, Enter to confirm.").
+				OptionsFunc(func() []huh.Option[string] {
+					if apiFormat == "claude" {
+						return huh.NewOptions(
+							"claude-sonnet-4-20250514",
+							"claude-opus-4-20250514",
+							"claude-3.5-haiku-20241022",
+						)
+					}
+					return huh.NewOptions(
+						"gpt-4o",
+						"gpt-4.1",
+						"o4-mini",
+						"o3-mini",
+						"gpt-4-turbo",
+					)
+				}, &apiFormat).
+				Height(0).Value(&model),
 		),
 	).WithTheme(theme).WithWidth(68).Run()
 	if err != nil {
