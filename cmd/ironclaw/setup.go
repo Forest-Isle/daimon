@@ -111,9 +111,9 @@ func runSetupWizard() (string, error) {
 	}
 
 	// ── Step 4: Model ──────────────────────────────────────────────
-	defaultModel := "claude-sonnet-4-20250514"
+	defaultModel := "claude-sonnet-4-6"
 	if apiFormat == "openai" {
-		defaultModel = "gpt-4o"
+		defaultModel = "gpt-5.4"
 	}
 
 	err = huh.NewForm(
@@ -127,17 +127,21 @@ func runSetupWizard() (string, error) {
 				OptionsFunc(func() []huh.Option[string] {
 					if apiFormat == "claude" {
 						return huh.NewOptions(
-							"claude-sonnet-4-20250514",
+							"claude-opus-4-8",
+							"claude-sonnet-4-6",
+							"claude-sonnet-4-5",
+							"claude-haiku-4-5",
 							"claude-opus-4-20250514",
-							"claude-3.5-haiku-20241022",
+							"claude-sonnet-4-20250514",
 						)
 					}
 					return huh.NewOptions(
-						"gpt-4o",
+						"gpt-5.4",
+						"gpt-5.4-mini",
+						"gpt-5.2",
 						"gpt-4.1",
 						"o4-mini",
-						"o3-mini",
-						"gpt-4-turbo",
+						"gpt-4o",
 					)
 				}, &apiFormat).
 				Height(0).Value(&model),
