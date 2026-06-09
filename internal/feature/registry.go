@@ -2,330 +2,115 @@ package feature
 
 import (
 	"context"
-	"fmt"
-	"log"
-	"sync"
+	"sort"
 )
 
-type featureState struct {
-	feature  Feature
-	enabled  bool
-	reason   string
-	override *bool // nil = no override
-}
-
-// Registry holds feature definitions and their runtime states.
+// Registry holds feature definitions and their resolved states.
+// Call Register during init, then Resolve once. After Resolve, the registry is
+// read-only (IsEnabled, List, EnabledNames are safe for concurrent use).
 type Registry struct {
-	mu     sync.RWMutex
-	states map[string]*featureState
-	order  []string // populated by ResolveAndInit (topological order)
+	features map[string]Feature
+	states   map[string]state
+	order    []string // registration order
 }
 
+type state struct {
+	enabled bool
+	reason  string
+}
+
+// NewRegistry creates an empty feature registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		states: make(map[string]*featureState),
+		features: make(map[string]Feature),
+		states:   make(map[string]state),
 	}
 }
 
-// Register stores a feature definition. Must be called before ResolveAndInit.
+// Register stores a feature definition. Must be called before Resolve.
 func (r *Registry) Register(f Feature) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.states[f.Name] = &featureState{
-		feature: f,
-		enabled: false,
-		reason:  "not initialized",
-	}
+	r.features[f.Name] = f
+	r.order = append(r.order, f.Name)
 }
 
-// ApplyOverrides applies config-file overrides before ResolveAndInit.
-func (r *Registry) ApplyOverrides(overrides map[string]bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for name, enabled := range overrides {
-		if st, ok := r.states[name]; ok {
-			v := enabled
-			st.override = &v
+// Resolve evaluates every feature against overrides and auto-detection.
+// overrides comes from config YAML (feature.enabled fields).
+func (r *Registry) Resolve(ctx context.Context, overrides map[string]bool) {
+	for _, name := range r.order {
+		f := r.features[name]
+		s := state{}
+
+		// 1. Auto-detect: unavailable → off regardless
+		if f.AutoDetect != nil && !f.AutoDetect(ctx) {
+			s.enabled = false
+			s.reason = "auto-detect: not available"
+			r.states[name] = s
+			continue
 		}
-	}
-}
 
-// ResolveAndInit performs topological sort and initializes features in dependency order.
-func (r *Registry) ResolveAndInit(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	sorted, err := r.topoSort()
-	if err != nil {
-		return err
-	}
-	r.order = sorted
-
-	for _, name := range sorted {
-		st := r.states[name]
-		r.resolveFeature(ctx, st)
-	}
-	return nil
-}
-
-// resolveFeature decides whether a single feature should be enabled, then calls OnEnable.
-// Must be called with r.mu held.
-func (r *Registry) resolveFeature(ctx context.Context, st *featureState) {
-	if st.feature.AutoDetect != nil {
-		result := st.feature.AutoDetect(ctx)
-		if !result.Available {
-			st.enabled = false
-			st.reason = "auto-detect: " + result.Reason
-			return
-		}
-	}
-
-	wanted := st.feature.Default
-	if st.override != nil {
-		wanted = *st.override
-	}
-	if !wanted {
-		st.enabled = false
-		st.reason = "disabled by configuration"
-		return
-	}
-
-	for _, dep := range st.feature.Dependencies {
-		if depSt, ok := r.states[dep]; ok && !depSt.enabled {
-			st.enabled = false
-			st.reason = fmt.Sprintf("dependency %q is disabled", dep)
-			return
-		}
-	}
-
-	if st.feature.OnEnable != nil {
-		if err := st.feature.OnEnable(ctx); err != nil {
-			st.enabled = false
-			st.reason = "OnEnable failed: " + err.Error()
-			log.Printf("[feature] %s: OnEnable failed: %v", st.feature.Name, err)
-			return
-		}
-	}
-
-	st.enabled = true
-	st.reason = "enabled"
-}
-
-// topoSort returns feature names in topological order using Kahn's algorithm.
-// Must be called with r.mu held.
-func (r *Registry) topoSort() ([]string, error) {
-	inDegree := make(map[string]int, len(r.states))
-	dependents := make(map[string][]string, len(r.states))
-
-	for name := range r.states {
-		if _, ok := inDegree[name]; !ok {
-			inDegree[name] = 0
-		}
-	}
-
-	for name, st := range r.states {
-		for _, dep := range st.feature.Dependencies {
-			if _, ok := r.states[dep]; !ok {
-				return nil, fmt.Errorf("feature %q has unknown dependency %q", name, dep)
+		// 2. Override > default
+		if v, ok := overrides[name]; ok {
+			s.enabled = v
+			if v {
+				s.reason = "enabled by config"
+			} else {
+				s.reason = "disabled by config"
 			}
-			dependents[dep] = append(dependents[dep], name)
-			inDegree[name]++
-		}
-	}
-
-	var queue []string
-	for name, deg := range inDegree {
-		if deg == 0 {
-			queue = append(queue, name)
-		}
-	}
-
-	var sorted []string
-	for len(queue) > 0 {
-		node := queue[0]
-		queue = queue[1:]
-		sorted = append(sorted, node)
-		for _, dep := range dependents[node] {
-			inDegree[dep]--
-			if inDegree[dep] == 0 {
-				queue = append(queue, dep)
+		} else {
+			s.enabled = f.Default
+			if f.Default {
+				s.reason = "enabled"
+			} else {
+				s.reason = "disabled"
 			}
 		}
+
+		r.states[name] = s
 	}
 
-	if len(sorted) != len(r.states) {
-		return nil, fmt.Errorf("circular dependency detected among features")
+	// Sole hard dependency: team requires multi_agent
+	if s, ok := r.states["team"]; ok && s.enabled {
+		if ms, ok := r.states["multi_agent"]; ok && !ms.enabled {
+			s.enabled = false
+			s.reason = "dependency multi_agent is disabled"
+			r.states["team"] = s
+		}
 	}
-	return sorted, nil
 }
 
-// SetOnEnable sets or replaces the OnEnable hook for a feature.
-// Used for late-binding when the hook needs access to objects created after registration.
-func (r *Registry) SetOnEnable(name string, fn func(ctx context.Context) error) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	st, ok := r.states[name]
-	if !ok {
-		return fmt.Errorf("unknown feature %q", name)
-	}
-	st.feature.OnEnable = fn
-	return nil
-}
-
-// SetOnDisable sets or replaces the OnDisable hook for a feature.
-func (r *Registry) SetOnDisable(name string, fn func(ctx context.Context) error) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	st, ok := r.states[name]
-	if !ok {
-		return fmt.Errorf("unknown feature %q", name)
-	}
-	st.feature.OnDisable = fn
-	return nil
-}
-
-// IsEnabled reports whether a feature is currently enabled. Thread-safe.
+// IsEnabled reports whether a feature is enabled. Safe for concurrent use
+// after Resolve has returned.
 func (r *Registry) IsEnabled(name string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if st, ok := r.states[name]; ok {
-		return st.enabled
+	if s, ok := r.states[name]; ok {
+		return s.enabled
 	}
 	return false
 }
 
-// Enable activates a previously disabled feature at runtime.
-// The lock is released before calling OnEnable to avoid deadlocks when the
-// hook calls back into the Registry (e.g. IsEnabled).
-func (r *Registry) Enable(ctx context.Context, name string) error {
-	r.mu.Lock()
-
-	st, ok := r.states[name]
-	if !ok {
-		r.mu.Unlock()
-		return fmt.Errorf("unknown feature %q", name)
-	}
-	if st.enabled {
-		r.mu.Unlock()
-		return nil
-	}
-
-	if st.feature.AutoDetect != nil {
-		result := st.feature.AutoDetect(ctx)
-		if !result.Available {
-			r.mu.Unlock()
-			return fmt.Errorf("feature %q not available: %s", name, result.Reason)
-		}
-	}
-
-	for _, dep := range st.feature.Dependencies {
-		if depSt, ok := r.states[dep]; ok && !depSt.enabled {
-			r.mu.Unlock()
-			return fmt.Errorf("dependency %q is not enabled", dep)
-		}
-	}
-
-	onEnable := st.feature.OnEnable
-	r.mu.Unlock()
-
-	if onEnable != nil {
-		if err := onEnable(ctx); err != nil {
-			return fmt.Errorf("OnEnable for %q failed: %w", name, err)
-		}
-	}
-
-	r.mu.Lock()
-	// RE-CHECK: another goroutine may have enabled it while lock was released
-	if st.enabled {
-		r.mu.Unlock()
-		return nil
-	}
-	st.enabled = true
-	st.reason = "enabled at runtime"
-	r.mu.Unlock()
-	return nil
-}
-
-// Disable deactivates an enabled feature at runtime.
-// Fails if another enabled feature depends on this one.
-// The lock is released before calling OnDisable to avoid deadlocks.
-func (r *Registry) Disable(ctx context.Context, name string) error {
-	r.mu.Lock()
-
-	st, ok := r.states[name]
-	if !ok {
-		r.mu.Unlock()
-		return fmt.Errorf("unknown feature %q", name)
-	}
-	if !st.enabled {
-		r.mu.Unlock()
-		return nil
-	}
-
-	for otherName, otherSt := range r.states {
-		if !otherSt.enabled {
-			continue
-		}
-		for _, dep := range otherSt.feature.Dependencies {
-			if dep == name {
-				r.mu.Unlock()
-				return fmt.Errorf("cannot disable %q: feature %q depends on it", name, otherName)
-			}
-		}
-	}
-
-	onDisable := st.feature.OnDisable
-	r.mu.Unlock()
-
-	if onDisable != nil {
-		if err := onDisable(ctx); err != nil {
-			return fmt.Errorf("OnDisable for %q failed: %w", name, err)
-		}
-	}
-
-	r.mu.Lock()
-	// RE-CHECK: another goroutine may have disabled it while lock was released
-	if !st.enabled {
-		r.mu.Unlock()
-		return nil
-	}
-	st.enabled = false
-	st.reason = "disabled at runtime"
-	r.mu.Unlock()
-	return nil
-}
-
-// List returns info for all features in initialization order.
-func (r *Registry) List() []FeatureInfo {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	result := make([]FeatureInfo, 0, len(r.order))
+// List returns all features in registration order.
+func (r *Registry) List() []Info {
+	result := make([]Info, 0, len(r.order))
 	for _, name := range r.order {
-		st := r.states[name]
-		result = append(result, FeatureInfo{
-			Name:          st.feature.Name,
-			Description:   st.feature.Description,
-			Enabled:       st.enabled,
-			Reason:        st.reason,
-			Phase:         st.feature.Phase,
-			Dependencies:  st.feature.Dependencies,
-			HotReloadable: st.feature.HotReloadable,
+		f := r.features[name]
+		s := r.states[name]
+		result = append(result, Info{
+			Name:        f.Name,
+			Description: f.Description,
+			Enabled:     s.enabled,
+			Reason:      s.reason,
 		})
 	}
 	return result
 }
 
-// EnabledNames returns the names of all currently enabled features.
+// EnabledNames returns names of all enabled features, sorted.
 func (r *Registry) EnabledNames() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	var names []string
-	for _, name := range r.order {
-		if r.states[name].enabled {
+	for name, s := range r.states {
+		if s.enabled {
 			names = append(names, name)
 		}
 	}
+	sort.Strings(names)
 	return names
 }

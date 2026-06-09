@@ -62,7 +62,6 @@ func runTUI(configPath string) error {
 			time.Duration(cfg.Agent.Cognitive.ApprovalTimeoutSeconds) * time.Second,
 		)
 	}
-	tuiAdapter.SetArgCompleter(gw.BuildArgCompleter())
 	gw.AddChannel(tuiAdapter)
 
 	ctx, cancel := context.WithCancel(context.Background())

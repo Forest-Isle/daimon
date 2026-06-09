@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Forest-Isle/IronClaw/internal/logging"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -86,7 +85,7 @@ func (a *ToolAdapter) Execute(ctx context.Context, input []byte) (tool.Result, e
 
 	// Redact potential credentials leaked in MCP server responses before
 	// they propagate into session history or logs.
-	text := logging.Redact(extractText(resp.Content))
+	text := Redact(extractText(resp.Content))
 	if resp.IsError {
 		return tool.Result{Error: text}, nil
 	}

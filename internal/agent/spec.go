@@ -39,7 +39,7 @@ const (
 	ExecModeSpawn ExecutionMode = "spawn"
 	// ExecModeFork inherits the parent Runtime's full session context.
 	ExecModeFork ExecutionMode = "fork"
-	// ExecModeBackground runs asynchronously in a goroutine (Phase 2).
+	// ExecModeBackground runs asynchronously in a goroutine.
 	ExecModeBackground ExecutionMode = "background"
 )
 

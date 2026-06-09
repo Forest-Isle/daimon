@@ -2,15 +2,11 @@ package gateway
 
 import (
 	"context"
-
-	"github.com/Forest-Isle/IronClaw/internal/ratelimit"
 )
 
-// ObservabilitySubsystem manages OpenTelemetry tracing/metrics shutdown and
-// the rate limiter.
+// ObservabilitySubsystem manages OpenTelemetry tracing/metrics shutdown.
 type ObservabilitySubsystem struct {
 	obsShutdown func(context.Context)
-	rateLimiter ratelimit.Limiter
 }
 
 func (os *ObservabilitySubsystem) Name() string { return "observability" }
@@ -25,6 +21,3 @@ func (os *ObservabilitySubsystem) Stop(ctx context.Context) error {
 	}
 	return nil
 }
-
-// RateLimiter returns the rate limiter, or nil.
-func (os *ObservabilitySubsystem) RateLimiter() ratelimit.Limiter { return os.rateLimiter }

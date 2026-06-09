@@ -17,10 +17,8 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
-	"github.com/Forest-Isle/IronClaw/internal/health"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
-	"github.com/Forest-Isle/IronClaw/internal/ratelimit"
 	"github.com/Forest-Isle/IronClaw/internal/sandbox"
 	"github.com/Forest-Isle/IronClaw/internal/scheduler"
 	"github.com/Forest-Isle/IronClaw/internal/session"
@@ -51,9 +49,8 @@ type Gateway struct {
 	userHookMgr      *hook.UserHookManager // user-configurable hook scripts
 	planMode         *agent.PlanMode       // plan->approve->execute flow
 	contextMgr       *agent.PipelineContextManager
-	features         *feature.Registry
-	featureStatePath string // path to ~/.IronClaw/feature_state.json
-	healthRegistry   *health.Registry
+	features       *feature.Registry
+	healthRegistry *healthRegistry
 	healthSrv        *http.Server
 	currentMode      atomic.Value // stores string: "simple" | "unified"
 	codebaseIndex    *agent.CodebaseIndex
@@ -82,11 +79,6 @@ type Gateway struct {
 
 // GatewayOptions configures optional behaviour for Gateway.New.
 type GatewayOptions struct {
-	// SkipPersistedFeatureState prevents loading ~/.IronClaw/feature_state.json
-	// during feature registry initialization. Set to true in eval mode so that
-	// eval's forced config overrides cannot be silently reverted by a user's
-	// runtime `/feature disable` state from a previous interactive session.
-	SkipPersistedFeatureState bool
 	// ConfigPath is the path to the YAML config file for hot-reload watching.
 	// When set, the gateway will start a ConfigWatcher that reloads the config
 	// on file changes and calls OnReload callbacks.
@@ -124,8 +116,8 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	rb.push(func() { gw.db.Close() })
 
 	// Health check registry — always available
-	gw.healthRegistry = health.NewRegistry()
-	gw.healthRegistry.Register("database", health.CheckerFunc(func(ctx context.Context) error {
+	gw.healthRegistry = newHealthRegistry()
+	gw.healthRegistry.Register("database", CheckerFunc(func(ctx context.Context) error {
 		return gw.db.PingContext(ctx)
 	}))
 
@@ -151,24 +143,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		}
 	}
 
-	// Feature registry — register all features, apply config overrides, resolve dependencies
+	// Feature registry — register, apply config overrides, resolve
 	gw.features = registerFeatures(cfg)
-	gw.features.ApplyOverrides(configToOverrides(cfg))
-	// Apply any persisted runtime overrides (highest priority — user's explicit choices survive restarts)
-	if !opt.SkipPersistedFeatureState {
-		if home, err := os.UserHomeDir(); err == nil {
-			gw.featureStatePath = feature.DefaultStatePath(filepath.Join(home, ".IronClaw"))
-			if persisted, err := feature.LoadOverrides(gw.featureStatePath); err != nil {
-				slog.Warn("gateway: failed to load persisted feature state — file may be corrupted, using config defaults", "path", gw.featureStatePath, "err", err)
-			} else if len(persisted) > 0 {
-				gw.features.ApplyOverrides(persisted)
-				slog.Info("gateway: applied persisted feature overrides", "count", len(persisted))
-			}
-		}
-	}
-	if err = gw.features.ResolveAndInit(gw.initCtx); err != nil {
-		return nil, fmt.Errorf("feature registry: %w", err)
-	}
+	gw.features.Resolve(gw.initCtx, configToOverrides(cfg))
 
 	if err = gw.initToolsAndHooks(); err != nil {
 		return nil, fmt.Errorf("tools: %w", err)
@@ -176,7 +153,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	// Register Docker health check if Docker sandbox is available
 	if gw.sandbox.DockerSessionManager() != nil {
-		gw.healthRegistry.Register("docker", health.CheckerFunc(func(ctx context.Context) error {
+		gw.healthRegistry.Register("docker", CheckerFunc(func(ctx context.Context) error {
 			if !sandbox.ProbeDocker(ctx) {
 				return fmt.Errorf("docker daemon not reachable")
 			}
@@ -281,8 +258,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		})
 	})
 
-	gw.initRateLimiter()
-
 	// Populate command table
 	gw.cmdTable = commandTable{
 		"/tasks":   {gw.handleTasks, true},
@@ -305,8 +280,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		gw.channels,
 	}
 
-	gw.bindFeatureLifecycleHooks()
-
 	// Register config hot-reload callbacks now that all subsystems exist.
 	if gw.configWatcher != nil {
 		gw.configWatcher.OnReload(func(newCfg *config.Config) {
@@ -318,8 +291,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 			if gw.agent != nil {
 				gw.agent.SetModel(newCfg.LLM.Model)
 			}
-			// Update rate limiter
-			gw.initRateLimiter()
 			// Publish config changed event
 			if gw.agent != nil {
 				gw.agent.EventBus().Publish(agent.ConfigChanged{
@@ -364,9 +335,6 @@ func (gw *Gateway) Start(ctx context.Context) error {
 					defer wg.Done()
 					if err := gw.mcpManager.StartServer(ctx, name, srv, gw.tools); err != nil {
 						slog.Error("mcp server failed to start", "server", name, "err", err)
-						if gw.features != nil {
-							_ = gw.features.Disable(ctx, "mcp_"+name)
-						}
 					}
 				}()
 			}
@@ -513,27 +481,6 @@ func (gw *Gateway) Features() *feature.Registry {
 func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage) {
 	if msg.Text == "" {
 		return
-	}
-
-	// Rate limiting for agent message handling
-	if limiter := gw.observability.RateLimiter(); limiter != nil {
-		allowed, waitTime, err := limiter.Allow(ctx, msg.UserID)
-		if err != nil {
-			slog.Warn("gateway: rate limiter error, allowing message", "err", err, "user", msg.UserID)
-		} else if !allowed {
-			slog.Warn("gateway: rate limited", "user", msg.UserID, "wait", waitTime)
-			ch, ok := gw.channels.Channels()[msg.Channel]
-			if ok {
-				if err := ch.Send(ctx, channel.OutboundMessage{
-					Channel:   msg.Channel,
-					ChannelID: msg.ChannelID,
-					Text:      "You are sending messages too quickly. Please wait a moment before trying again.",
-				}); err != nil {
-					slog.Warn("failed to send message", "err", err)
-				}
-			}
-			return
-		}
 	}
 
 	ch, ok := gw.channels.Channels()[msg.Channel]
@@ -696,36 +643,4 @@ func (gw *Gateway) executeTeamTask(ctx context.Context, task taskledger.Task) (s
 		return "", err
 	}
 	return resp.Text, nil
-}
-
-// initRateLimiter creates the rate limiter based on config.
-func (gw *Gateway) initRateLimiter() {
-	cfg := gw.Config()
-	if !cfg.RateLimit.Enabled {
-		gw.observability.rateLimiter = ratelimit.NoopLimiter{}
-		slog.Info("rate limiting disabled")
-		return
-	}
-
-	rate := cfg.RateLimit.RequestsPerSec
-	if rate <= 0 {
-		rate = 10
-	}
-	burst := cfg.RateLimit.Burst
-	if burst <= 0 {
-		burst = 20
-	}
-
-	gw.observability.rateLimiter = ratelimit.NewPerKeyLimiter(rate, burst, 5*time.Minute)
-	slog.Info("rate limiting enabled", "requests_per_sec", rate, "burst", burst)
-}
-
-// SetRateLimiter replaces the rate limiter. Used for testing.
-func (gw *Gateway) SetRateLimiter(l ratelimit.Limiter) {
-	gw.observability.rateLimiter = l
-}
-
-// RateLimiter returns the current rate limiter.
-func (gw *Gateway) RateLimiter() ratelimit.Limiter {
-	return gw.observability.RateLimiter()
 }

@@ -28,7 +28,7 @@ type Config struct {
 	Permissions   PermissionsConfig   `yaml:"permissions"`
 	Sandbox       SandboxConfig       `yaml:"sandbox"`
 	Hooks         HooksConfig         `yaml:"hooks"`
-	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
+
 }
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
@@ -194,11 +194,6 @@ func defaultConfig() Config {
 			Network: NetworkConfig{
 				Mode: "blacklist",
 			},
-		},
-		RateLimit: RateLimitConfig{
-			Enabled:        false,
-			RequestsPerSec: 10,
-			Burst:          20,
 		},
 	}
 }

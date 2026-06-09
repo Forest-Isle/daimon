@@ -37,7 +37,7 @@ This inventory is based on `go list ./...`.
 |---|---|
 | `internal/channel` | Channel interfaces and common message types. |
 | `internal/channel/telegram` | Telegram adapter, formatting, approval/reflection/feedback callbacks. |
-| `internal/channel/discord` | Discord adapter, formatting, approval/reflection/feedback callbacks. |
+
 | `internal/channel/tui` | Bubble Tea TUI channel, view model, formatter, command suggestions, observability emitter. |
 
 ## Memory

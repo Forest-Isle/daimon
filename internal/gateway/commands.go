@@ -139,8 +139,9 @@ func (gw *Gateway) handleMode(ctx context.Context, _ channel.Channel, msg channe
 	return fmt.Sprintf("Mode switched to %s (was: %s)", arg, current), nil
 }
 
-// handleFeature processes /feature [list|enable|disable] [name].
+// handleFeature processes /feature [list].
 func (gw *Gateway) handleFeature(ctx context.Context, _ channel.Channel, msg channel.InboundMessage) (string, error) {
+	_ = ctx
 	args := strings.TrimPrefix(msg.Text, "/feature")
 	args = strings.TrimSpace(args)
 
@@ -148,37 +149,10 @@ func (gw *Gateway) handleFeature(ctx context.Context, _ channel.Channel, msg cha
 		return "Feature registry not initialized.", nil
 	}
 
-	switch {
-	case args == "" || args == "list":
+	if args == "" || args == "list" {
 		return gw.featureListString(), nil
-
-	case strings.HasPrefix(args, "enable "):
-		name := strings.TrimSpace(strings.TrimPrefix(args, "enable "))
-		if err := gw.features.Enable(ctx, name); err != nil {
-			return "", err
-		}
-		gw.persistFeatureState()
-		reply := fmt.Sprintf("Feature %q enabled.", name)
-		if info := gw.findFeatureInfo(name); info != nil && !info.HotReloadable {
-			reply += "\nNote: not hot-reloadable — restart IronClaw for full effect."
-		}
-		return reply, nil
-
-	case strings.HasPrefix(args, "disable "):
-		name := strings.TrimSpace(strings.TrimPrefix(args, "disable "))
-		if err := gw.features.Disable(ctx, name); err != nil {
-			return "", err
-		}
-		gw.persistFeatureState()
-		reply := fmt.Sprintf("Feature %q disabled.", name)
-		if info := gw.findFeatureInfo(name); info != nil && !info.HotReloadable {
-			reply += "\nNote: not hot-reloadable — restart IronClaw for full effect."
-		}
-		return reply, nil
-
-	default:
-		return "Usage: /feature [list|enable <name>|disable <name>]", nil
 	}
+	return "Usage: /feature list", nil
 }
 
 // featureListString builds a formatted feature list string.
@@ -188,7 +162,7 @@ func (gw *Gateway) featureListString() string {
 		return "No features registered."
 	}
 
-	var enabled, disabled []feature.FeatureInfo
+	var enabled, disabled []feature.Info
 	for _, f := range features {
 		if f.Enabled {
 			enabled = append(enabled, f)
@@ -200,13 +174,9 @@ func (gw *Gateway) featureListString() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "**Features** — %d active · %d inactive\n\n", len(enabled), len(disabled))
 
-	writeGroup := func(items []feature.FeatureInfo) {
+	writeGroup := func(items []feature.Info) {
 		for _, f := range items {
-			hot := ""
-			if f.HotReloadable {
-				hot = " [live]"
-			}
-			line := fmt.Sprintf("- **%s**%s — %s", f.Name, hot, f.Description)
+			line := fmt.Sprintf("- **%s** — %s", f.Name, f.Description)
 			if !f.Enabled && f.Reason != "" && f.Reason != "enabled" {
 				line += fmt.Sprintf(" *(%s)*", f.Reason)
 			}
@@ -226,7 +196,7 @@ func (gw *Gateway) featureListString() string {
 	}
 
 	b.WriteString("---\n")
-	b.WriteString("[live] = hot-reloadable · /feature enable <name> · /feature disable <name>")
+	b.WriteString("Feature state is controlled via config file. Restart to apply changes.")
 	return b.String()
 }
 

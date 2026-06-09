@@ -1,517 +1,482 @@
-# IronClaw 项目精简分析报告
+# IronClaw 瘦身分析报告
 
-> 生成日期：2026-06-08
-> 当前代码库：~44,000 行（已删除 evolution/cogmetrics 等 ~11,500 行后）
-> 目标：~25,000–30,000 行
-
----
-
-## 已删除（当前 git diff 中，供参考）
-
-| 文件/目录 | 估算行数 | 删除原因 |
-|-----------|----------|----------|
-| `internal/evolution/**` (60+ 文件) | ~9,700 | 遗传算法技能优化器，过度设计，未达预期效果 |
-| `internal/cogmetrics/**` (9 文件) | ~1,100 | 认知指标收集，未被实际使用 |
-| `cmd/ironclaw/insights.go` | 244 | 演化洞察 CLI 入口 |
-| `internal/gateway/init_plan.go` | 298 | 旧计划模式初始化逻辑 |
-| `internal/gateway/skill_draft_proposer.go` | 215 | 演化技能提词器 |
-| `internal/gateway/subsystem_evolution.go` | 38 | 演化子系统桥接 |
-| `internal/agent/evolution_bridge.go` | 125 | 演化-代理桥接层 |
+> 目标：少即是多 — 提炼最核心价值，削减不必要功能，后期重新规划设计。
+> 日期：2026-06-09
 
 ---
 
-## P1 — 死代码：零外部引用，可直接安全删除
+## 一、当前状态总览
 
-这些文件/包在整个代码库中没有任何 `import` 引用（自身文件和 `_test.go` 除外）。删除零风险。
+| 指标 | 数量 |
+|------|------|
+| Go 源文件 | 321 |
+| 生产代码行数 | ~49,000 |
+| 测试代码行数 | ~25,000 |
+| 内部包数量 | 25 |
+| 二进制入口点 | 2（`ironclaw start`、`ironclaw tui`） |
 
-### 1. `internal/guardian/` — 质量漂移检测系统
+### 各包代码量排名（生产代码）
 
-```
-文件：guardian.go (12,103 行) + guardian_test.go (11,874 行)
-总计：~24,000 行
-```
+| 排名 | 包 | 生产行数 | 测试行数 | 引用方数量 |
+|------|-----|---------|---------|-----------|
+| 1 | `agent` | 8,544 | 5,915 | 9 |
+| 2 | `tool` | 5,022 | 3,771 | 24 |
+| 3 | `channel` | 3,500 | 616 | 19 |
+| 4 | `gateway` | 2,552 | 165 | 3 |
+| 5 | `memory` | 2,244 | 1,255 | 11 |
+| 6 | `config` | 1,190 | 515 | 18 |
+| 7 | `hook` | 991 | 511 | 7 |
+| 8 | `sandbox` | 925 | 451 | 5 |
+| 9 | `taskledger` | 781 | 698 | 5 |
+| 10 | `dag` | 534 | 388 | 1 |
+| 11 | `worktree` | 555 | 169 | 2 |
+| 12 | `mcp` | 527 | 667 | 3 |
+| 13 | `session` | 455 | 52 | 19 |
+| 14 | `observability` | 427 | 362 | 5 |
+| 15 | `skill` | 417 | 114 | 5 |
+| 16 | `userdir` | 360 | 255 | 5 |
+| 17 | `eval` | 328 | 329 | **0（死代码）** |
+| 18 | `ratelimit` | 247 | 453 | 2 |
+| 19 | `health` | 178 | 278 | 2 |
+| 20 | `store` | 168 | 504 | 13 |
+| 21 | `scheduler` | 164 | 313 | 2 |
+| 22 | `logging` | 131 | 121 | 2 |
+| 23 | `errors` | 121 | 231 | 5 |
+| 24 | `util` | 23 | 112 | 6 |
 
-**是什么：** 完整的 Agent 质量监控系统——滑动窗口统计、漂移检测、告警通道、基线对比。
-**为什么死：** 从未在 Gateway 或 Agent 中接入。是独立设计的子系统，始终未连线。
-**引用情况：**
+### 已完成的瘦身（最近5次提交，已删除23,570行）
 
-```
-grep -rn "guardian" --include='*.go' | grep -v "internal/guardian/"
-# 输出：空
-```
-
-- [ ] **决策：**
-  - [ ] 直接删除（推荐）
-  - [ ] 保留并接入（需评估接入成本和价值）
-  - [ ] 保留不动
-
----
-
-### 2. `internal/tool/semantic_diff.go` — XML 语义差异引擎
-
-```
-文件：semantic_diff.go
-行数：2,560
-```
-
-**是什么：** 解析 LLM 输出的 XML 变更块（`<change>`, `<file>`, `<add>`, `<remove>` 等），生成结构化 unified diff。
-**为什么死：** 现有的文件编辑工具（`file_edit.go`, `file_patch.go`, `file_write.go`）完全不使用它。
-**引用情况：**
-
-```
-grep -rn "semantic_diff\|SemanticDiff" --include='*.go'
-# 输出：仅自身文件
-```
-
-- [ ] **决策：**
-  - [ ] 直接删除（推荐——现用 edit/patch/write 已覆盖）
-  - [ ] 替换现有 file_edit 为 semantic_diff（需大量重构）
-  - [ ] 保留不动
-
----
-
-### 3. `internal/agent/heartbeat.go` — Agent 心跳调度器
-
-```
-文件：heartbeat.go
-行数：124
-```
-
-**是什么：** 定时触发心跳 tick 的调度器（`HeartbeatScheduler`），通过 channel 发送 `HeartbeatTick`。
-**为什么死：** taskledger 有自己的心跳机制（`Heartbeat(ctx, id)`），agent 包的心跳调度器从未被实例化或使用。
-**引用情况：**
-
-```
-grep -rn "HeartbeatScheduler\|HeartbeatTick\|NewHeartbeatScheduler" --include='*.go' | grep -v heartbeat.go
-# 输出：空
-```
-
-- [ ] **决策：**
-  - [ ] 直接删除（推荐）
-  - [ ] 接入到 agent 生命周期中（需澄清用途）
-  - [ ] 保留不动
+| 提交 | 删除内容 |
+|------|---------|
+| `df9f110` | evolution、cogmetrics、web/studio、stale knowledge refs |
+| `81f6e57` | web dashboard subsystem |
+| `9fa7ab3` | Knowledge Base、Knowledge Graph subsystems |
+| `68b6d97` | eval subsystem CLI commands |
+| `78aef37` | P3#11-13 标记完成 |
+| *(pending)* | Phase 1: 删除 eval + discord 死代码 (~1,300 行) |
+| *(pending)* | Phase 2: 折叠薄封装 logging/health/ratelimit/dag + 删 plan_task (~2,600 行) |
 
 ---
 
-### 4. `internal/agent/incremental_json.go` — 流式 JSON 增量解析器
+## 二、逐包深度分析
 
-```
-文件：incremental_json.go
-行数：114
-```
+### 2.1 `agent` — 8,544 行，最大怪兽
 
-**是什么：** 增量解析不完整的流式 JSON 响应（处理 `{"key": "val` 这类截断）。
-**为什么死：** 当前的 OpenAI/Claude provider 都用各自的方式处理流式响应（SSE 逐行），不使用增量解析。
-**引用情况：**
+**结论：保留核心循环，砍掉过度基建和未使用的 backend。**
 
-```
-grep -rn "incremental_json\|IncrementalJSON" --include='*.go' | grep -v incremental_json.go
-# 输出：空
-```
+#### 文件分类明细
 
-- [ ] **决策：**
-  - [ ] 直接删除（推荐）
-  - [ ] 保留不动
+**核心循环（1,234 行）— 必须保留：**
 
----
-
-### 5. `internal/agent/backend_ipc.go` — IPC 子代理后端
-
-```
-文件：backend_ipc.go
-行数：90
-```
-
-**是什么：** 通过进程间通信（IPC）执行子代理的后端实现。
-**为什么死：** CLAUDE.md 明确标注"Local sub-agent backends are current; remote A2A execution is not"。当前使用 Docker/Subprocess 后端。
-**引用情况：**
-
-```
-grep -rn "BackendIPC\|IPCBackend\|backend_ipc" --include='*.go' | grep -v backend_ipc.go
-# 输出：空
-```
-
-- [ ] **决策：**
-  - [ ] 直接删除（推荐）
-  - [ ] 保留不动（如果近期计划实现 IPC 后端）
-
----
-
-### 6. `internal/agent/context_builder.go` — 动态上下文聚合器
-
-```
-文件：context_builder.go
-行数：52
-```
-
-**是什么：** `ContextBuilder` 聚合多个 `ContextScanner` 的动态上下文注入 prompt。
-**为什么死：** 从未被实例化。没有任何 `ContextScanner` 实现注册到它。
-**引用情况：**
-
-```
-grep -rn "ContextBuilder\|context_builder" --include='*.go'
-# 输出：仅自身文件
-```
-
-- [ ] **决策：**
-  - [ ] 直接删除（推荐）
-  - [ ] 接入使用（需实现 ContextScanner）
-  - [ ] 保留不动
-
----
-
-## P2 — 死配置/死字段：定义存在但从未被读取
-
-这些是 config 结构体中的字段——定义、默认值、YAML 解析都在，但运行时没有任何代码读取它们。
-
-### 7. `config_tools.go` — WASM 配置块
-
-```
-涉及：config_tools.go 中的 WASMConfig 结构体 + ToolsConfig.WASM 字段
-```
-
-**是什么：** WASM 插件运行时配置（超时等）。
-**为什么死：** WASM 插件运行时从未实现。整个代码库中没有任何 WASM 执行代码。
-**引用情况：**
-
-```
-grep -rn "WASM\|wasm" --include='*.go' | grep -v config_tools.go | grep -v config.go
-# 输出：空（仅 config 定义）
-```
-
-- [ ] **决策：**
-  - [ ] 删除 WASM 配置（推荐——等实现时再加）
-  - [ ] 保留不动（WASM 即将开发）
-
----
-
-### 8. `config_infra.go` — A2A 服务器地址
-
-```
-涉及：config_infra.go ServerConfig.A2AServerAddr + config.go 默认值 ":9191"
-```
-
-**是什么：** A2A 协议服务器监听地址。
-**为什么死：** CLAUDE.md："remote A2A execution is not"。spec.go："Phase 3: A2A remote agent support (reserved, not implemented)"。
-**引用情况：**
-
-```
-grep -rn "A2AServerAddr\|a2a_server_addr" --include='*.go'
-# 输出：仅 config 定义
-```
-
-- [ ] **决策：**
-  - [ ] 删除 A2AServerAddr（推荐）
-  - [ ] 保留不动
-
----
-
-### 9. `internal/agent/spec.go` — RemoteAgentConfig
-
-```
-涉及：spec.go RemoteAgentConfig 结构体 + AgentSpec.Remote 字段
-行数：~30
-```
-
-**是什么：** A2A 远程代理配置（URL, headers 等）。
-**为什么死：** 同上，"Phase 3, reserved, not implemented"。
-**引用情况：**
-
-```
-grep -rn "RemoteAgent\|RemoteAgentConfig" --include='*.go'
-# 输出：仅 spec.go 自身定义
-```
-
-- [ ] **决策：**
-  - [ ] 删除 RemoteAgentConfig（推荐）
-  - [ ] 保留不动
-
----
-
-### 10. `config_agent.go` — CognitiveConfig 中的 4 个死字段
-
-```
-涉及：CognitiveConfig.ConfidenceThreshold, .MaxReplanAttempts, .PlanMaxTokens, .ReflectMaxTokens
-```
-
-**是什么：** 这些字段在 `defaultConfig()` 中有默认值，在 YAML 中可配置，但运行时没有任何代码读取它们。
-**实际被使用的字段：** `ApprovalTimeoutSeconds`（main.go/tui.go 读取）, `MaxParallelTools`（init_agent.go 读取）
-**死字段验证：**
-
-```
-grep -rn "ConfidenceThreshold\|MaxReplanAttempts\|PlanMaxTokens\|ReflectMaxTokens" --include='*.go' | grep -v "_test.go" | grep -v "config"
-# 输出：空（除了 config 自身定义，无运行时读取）
-```
-
-- [ ] **决策：**
-  - [ ] 删除 4 个死字段，保留 `ApprovalTimeoutSeconds` 和 `MaxParallelTools`（推荐）
-  - [ ] 全部保留（计划将来启用）
-  - [ ] 保留不动
-
----
-
-## P3 — 过度设计：功能存在但复杂度过高，可大幅简化
-
-### 11. Memory 系统整体 ✅ 已完成 (2026-06-09, commit 7d2c04a)
-
-```
-包：internal/memory/ (25 文件, 3,497 行) ← 原 42 文件 / 8,693 行
-    internal/memorywire/ — 已删除
-    internal/tool/memory.go (223 行) ← 合并原 3 工具
-```
-
-**设计模式：Flat Store + Smart Retrieval**
-不再对记忆做多层 LLM 加工（facts→L1 reflections→L2 reflections→profile）。
-检索时由 BM25+向量+RRF 融合找相关内容，不需要预分类/预合并/预衰减。
-
-**删除清单（~5,200 行）：**
-
-| 已删除 | 行数 | 原因 |
-|--------|------|------|
-| profiler.go + test + profile_schema | ~1,200 | LLM总结LLM的LLM输出——检索已够好 |
-| reflector.go + test (L1/L2 reflections) | ~922 | 事实→模式→洞察的元认知链条无增量价值 |
-| forgetting_curve.go + test | ~555 | 艾宾浩斯衰减→TTL+访问频率替代 |
-| memorywire.go + test + adapter.go | ~774 | 零外部消费者，所有op 1:1映射Store |
-| compactor.go | ~241 | LLM合并同类→原始检索更精确 |
-| memory_index.go (MEMORY.md) | ~226 | 与SQLite索引冗余 |
-| markdown.go | ~219 | hash fn内联到file_store |
-| consolidator.go | ~193 | scope promotion→简单SQL内联 |
-| compressor.go + test | ~210 | 上下文窗口管理不属于memory |
-| section_buffer.go + test | ~136 | 仅profiler使用的缓冲 |
-| integration_test.go | ~132 | 引用已删除的Consolidator |
-
-**保留核心（~3,500 行）：**
-
-| 保留 | 行数 | 职责 |
+| 文件 | 行数 | 说明 |
 |------|------|------|
-| file_store.go | 724 | Markdown + SQLite + FTS5 + Vector + RRF |
-| lifecycle.go | 275 | ADD/UPDATE/DELETE/NOOP 决策 |
-| retriever.go | 254 | 统一搜索(memory+procedural并行) |
-| facts.go | 120 | LLM事实提取 |
-| procedural.go | 119 | 任务策略记录 |
-| openai.go | 147 | OpenAI嵌入 |
-| cache.go | 104 | 嵌入缓存 |
-| privacy.go | 103 | PII检测 |
-| + tests | ~800 | — |
+| `provider.go` | 97 | LLM Provider 接口定义 |
+| `agent.go` | 388 | 主 Agent 结构体 |
+| `unified_loop.go` | 60 | 统一循环入口 |
+| `simple_loop.go` | 45 | 简化循环 |
+| `loop_common.go` | 282 | 循环公共逻辑 |
+| `loop_strategy.go` | 14 | 策略接口 |
+| `deps.go` | 141 | 依赖注入结构 |
+| `context.go` | 120 | 上下文类型 |
+| `model_context.go` | 48 | 模型上下文 |
+| `noop.go` | 39 | 空实现 |
 
-**MemoryConfig 精简：16 字段 → 6 字段**
-（删除 ConsolidationInterval, EnableVSS, EnableSearchCache, SearchCacheSize, SearchCacheTTL,
-ReflectionCountThreshold, ReflectionDriftThreshold, ReflectionL2Trigger, CompactionInterval,
-CompactionThreshold）
+**LLM Provider（1,511 行）— 保留：**
 
-- [x] **已完成：** 激进方案 + 额外删除 forgetting_curve/memory_index/markdown/section_buffer
-  - 削减：~9,400 行 → ~3,500 行（-63%），46 文件 → 25 文件（-46%）
+| 文件 | 行数 | 说明 |
+|------|------|------|
+| `openai.go` | 743 | OpenAI 兼容 provider |
+| `claude_provider.go` | 501 | Claude provider |
+| `retry.go` | 152 | 重试逻辑 |
+| `tokenizer.go` | 115 | Token 计数 |
 
----
+**Sub-Agent 系统（1,991 行）— 保留核心，砍编排器：**
 
-### 12. 三重内存工具（暴露给 LLM 的内存写入接口） ✅ 已完成
+| 文件 | 行数 | 判定 |
+|------|------|------|
+| `subagent.go` | 397 | **保留** — 子代理核心 |
+| `subagent_result.go` | 218 | **保留** |
+| `subagent_context.go` | 81 | **保留** |
+| `agent_manager.go` | 258 | **保留** |
+| `agent_tool.go` | 176 | **保留** — agent 工具注册 |
+| `agent_mcp.go` | 158 | **保留** — per-agent MCP |
+| `agent_hooks.go` | 152 | **保留** |
+| `orchestrator.go` | 169 | **砍** — 并行调度，过度抽象 |
+| `background.go` | 234 | **保留** — 后台 agent 管理 |
+| `spec.go` | 148 | **保留** — agent 规格定义 |
 
-```
-之前：
-- internal/tool/core_memory.go (119 行) — remember/forget/update
-- internal/tool/memory_manage.go (252 行) — forget/list/protect/retention
-- internal/tool/amp_memory.go (74 行)    — AMP 协议
+**Context/Compression（833 行）— 保留：**
 
-之后：
-- internal/tool/memory.go (223 行) — save/search/delete/list 统一工具
-```
+| 文件 | 行数 | 说明 |
+|------|------|------|
+| `compression.go` | 420 | 上下文压缩 |
+| `context_manager.go` | 314 | Pipeline 上下文管理 |
+| `token_budget.go` | 99 | Token 预算 |
 
-**问题：** LLM 可见三种不同的内存写入工具，功能高度重叠（三个都能 forget）。
-**解决：** 合并为单一 `memory` 工具，四种操作：save/search/delete/list。LLM 不需要在三个接口间选择。
+**Plan/Team/Speculative（1,006 行）— 全部可砍，后期插件化：**
 
-- [x] **已完成**
+| 文件 | 行数 | 判定 |
+|------|------|------|
+| `plan_mode.go` | 369 | **砍** — plan→approve→execute 流程，增加复杂度但边际 UX 收益 |
+| `speculative.go` | 141 | **砍** — streaming 期间预执行只读工具，过早优化 |
+| `team_manager.go` | 179 | **砍** — 团队编排 |
+| `team.go` | 101 | **砍** |
+| `team_task.go` | 118 | **砍** |
+| `team_message.go` | 98 | **砍** |
 
----
+**Backends（593 行）— 只保留 in-process：**
 
-### 13. Memorywire/AMP 协议层 ✅ 已完成
+| 文件 | 行数 | 判定 |
+|------|------|------|
+| `backend.go` | 137 | **精简** — 接口定义保留 |
+| `backend_ipc.go` | 89 | **砍** — IPC 通信，subprocess/docker 需要 |
+| `backend_subprocess.go` | 163 | **砍** — os/exec 子进程，无人使用 |
+| `backend_docker.go` | 160 | **砍** — Docker 容器执行，无人使用 |
+| `fork.go` | 44 | **砍** — fork 模式 |
 
-```
-文件：
-- internal/memorywire/adapter.go — 已删除
-- internal/memory/memorywire.go + memorywire_test.go — 已删除
-- internal/tool/amp_memory.go — 已删除
-```
+> 注：`spec.go` 中注释标明 backend_subprocess/docker 是"future A2A remote-agent fields"。当前 A2A 远程执行未实现，这些 backend 是预留代码。
 
-**是什么：** AMP (Agent Memory Protocol) 适配器。所有操作（remember/recall/forget/merge/expire）与 Store 接口 1:1 映射。
-**问题：** 零外部消费者，纯抽象层无抽象价值。
-**解决：** 随 #11/#12 一起整包删除。
+**基建管道（1,376 行）— 大部分可砍：**
 
-- [x] **已完成**
+| 文件 | 行数 | 判定 |
+|------|------|------|
+| `message_bus.go` | 190 | **砍** — 事件总线，过度基建 |
+| `inproc_bus.go` | 62 | **砍** — 进程内总线实现 |
+| `emitter.go` | 91 | **砍** — 薄封装 |
+| `trace.go` | 99 | **砍** — 调用链追踪 |
+| `events.go` | 100 | **保留** — 事件类型定义 |
+| `circuit_breaker.go` | 100 | **砍** — 熔断器，早熟优化 |
+| `cache_metrics.go` | 144 | **砍** — 缓存指标 |
+| `codebase_index.go` | 278 | **砍** — 代码库索引，独立关注点 |
+| `prompt_cache.go` | 130 | **保留** — prompt 缓存有实际价值 |
+| `permission.go` | 136 | **保留** — 权限检查 |
+| `tool_bridge.go` | 46 | **保留** — 工具桥接 |
 
----
-
-### 14. `internal/agent/spec.go` — 执行模式 + Phase 注释
-
-```
-行数：163
-```
-
-**涉及内容：**
-- `ExecutionMode` 类型：spawn / fork / background（三种都在用）
-- `Remote *RemoteAgentConfig`：（见 P2#9，死字段）
-- Phase 1/2/3 注释：描述"当前"vs"未来"状态，部分已过时
-- `InheritContext`：仅 fork 模式使用
-
-- [ ] **决策：**
-  - [ ] 删除 RemoteAgentConfig（P2#9）+ 清理过时 Phase 注释
-  - [ ] 重命名 ExecModeFork → 更清晰的命名
-  - [ ] 不动
-
----
-
-### 15. Feature Registry 复杂度
-
-```
-文件：internal/feature/registry.go (331 行) + registry_test.go (316 行)
-```
-
-**当前 10 个 feature：** memory, skills, multi_agent, team, speculative, scheduler, sandbox, server, worktree, mcp_*
-
-**复杂度来源：**
-- 拓扑排序（Kahn 算法）— 当前依赖关系极简单（仅 team→multi_agent）
-- 运行时 Enable/Disable 含锁释放/重检查逻辑
-- 持久化 feature state 到 `~/.ironclaw/feature_state.json`
-- 热重载回调绑定
-- AutoDetect + Override + Default 三层优先级
-
-**简化空间：** 10 个布尔值不需要拓扑排序。简单的 `map[string]bool` + `for range` 初始化即可。
-
-- [ ] **决策选项：**
-  - [ ] 简化为 map-based 开关（~50 行替代 331 行）
-  - [ ] 保留拓扑排序（如果未来会加复杂依赖）
-  - [ ] 不动
+**Agent 包瘦身目标：8,544 → ~4,000 行。砍 4,500+ 行。**
 
 ---
 
-### 16. PlanTaskTool + DAG 执行器
+### 2.2 `tool` — 5,022 行
 
-```
-文件：
-- internal/tool/plan_task.go (463 行)
-- internal/tool/plan_task_test.go (238 行)
-- internal/dag/executor.go (178 行)
-- internal/dag/executor_test.go (177 行)
-```
+**结论：逐工具审计，砍掉不常用工具。**
 
-**是什么：** 将复杂任务分解为有依赖关系的 DAG 子任务图，然后按拓扑顺序执行。
-**使用方：** plan_task 注册为工具（暴露给 LLM），由 tool_bridge.go 桥接执行。
-**问题：** `/plan` 命令使用率如何？如果不常用，整个 DAG 包 + plan_task 工具可删除。
+| 文件 | 行数 | 判定 |
+|------|------|------|
+| `code_intel.go` | 559 | **保留** — 代码智能核心 |
+| `test_run.go` | 463 | **保留** — 测试运行 |
+| `file_patch.go` | 404 | **保留** — 文件补丁 |
+| `interceptor_verify.go` | 286 | **保留** — 拦截器校验 |
+| `browser_extract.go` | 262 | **砍** — 浏览器内容提取，极少使用 |
+| `tool.go` | 258 | **保留** — 工具注册核心 |
+| `browser_search.go` | 253 | **砍** — 浏览器搜索 |
+| `trust_tracker.go` | 235 | **砍** — 信任追踪，过度设计 |
+| `memory.go` | 223 | **保留** — 记忆工具 |
+| `permissions.go` | 213 | **保留** — 权限管理 |
+| `bash.go` | 212 | **保留** — Bash 执行 |
+| `plan_task.go` | 170 | **砍** — 依赖 dag 包，单一消费者 |
+| `interceptor_audit.go` | 141 | **保留** — 审计拦截器 |
+| `http.go` | 129 | **保留** — HTTP 工具 |
+| `interceptor_sandbox.go` | 126 | **保留** — 沙箱拦截器 |
+| `file_edit.go` | 124 | **保留** |
+| `resultstore.go` | 123 | **保留** — 结果存储 |
+| `browser.go` | 122 | **砍** — 浏览器工具基类 |
+| `file_read.go` | 116 | **保留** |
+| `interceptor.go` | 99 | **保留** — 拦截器链 |
+| `code_intel_search.go` | 99 | **保留** |
+| `interceptor_permission.go` | 94 | **保留** |
+| `file_write.go` | 92 | **保留** |
+| `skill.go` | 87 | **保留** — 技能工具 |
+| `file_list.go` | 70 | **保留** |
+| `interceptor_hook.go` | 39 | **保留** |
+| `policy.go` | 23 | **保留** |
 
-- [ ] **决策选项：**
-  - [ ] 删除 DAG 包 + plan_task 工具（~1,000 行）
-  - [ ] 保留 plan_task 但内联 DAG 逻辑
-  - [ ] 不动
-
----
-
-## P4 — 低影响：可选优化，非紧急
-
-### 17. Eval 包
-
-```
-目录：internal/eval/ (10 文件, ~1,500 行 + testdata)
-```
-
-**是什么：** Agent 评估框架——Task 定义、Scorer 接口、Runner、Report。
-**引用情况：** 完全自包含，主代码库零引用。由 `cmd/ironclaw` 的 eval 子命令入口使用。
-**问题：** 它是测试工具链，不是运行时。放在 `internal/` 中暗示不可能被外部引用——实际上也确实没有。
-
-- [ ] **决策选项：**
-  - [ ] 移入 `cmd/ironclaw/eval/`（更准确反映其 CLI 工具身份）
-  - [ ] 保留在 internal/
-  - [ ] 不动
+**Tool 包瘦身目标：5,022 → ~3,800 行。砍 browser + trust_tracker + plan_task。**
 
 ---
 
-### 18. Channel 实现
+### 2.3 `channel` — 3,500 行
 
-```
-目录：
-- internal/channel/tui/ (16 文件, 2,710 行)
-- internal/channel/discord/ (3 文件, 625 行)
-- internal/channel/telegram/ (2 文件, 510 行)
-```
+**结论：砍 discord，保留 tui + telegram。**
 
-**观察：**
-- TUI 最大，功能最丰富（对话框、统计、建议、格式化、样式）
-- Discord 和 Telegram 共享 `channel.Channel` 接口但代码几乎不共享
-- `discord/formatter.go`(16 行) 和 `telegram/formatter.go`(43 行) 可以做更多共享
+| 子包 | 行数 | 引用方 | 判定 |
+|------|------|--------|------|
+| `channel/` 基类 | 1,634 | 19 | **保留** — 接口 + 路由 |
+| `channel/tui` | 2,680 | 1（cmd/tui.go） | **保留** — Bubble Tea TUI，主要 UX |
+| `channel/telegram` | 511 | 1（cmd/main.go） | **保留** — Telegram bot |
+| `channel/discord` | 625 | **0** | **砍** — 死代码，无人引用 |
 
-- [ ] **决策选项：**
-  - [ ] 保持现状（三个频道实现相互独立是合理的）
-  - [ ] 提取公共 formatter 逻辑到 `internal/channel/`
-  - [ ] 评估 Discord/Telegram/TUI 三个频道的使用率和维护优先级
+**Channel 包瘦身目标：3,500 → 2,875 行。**
 
 ---
 
-### 19. Sandbox 多后端
+### 2.4 死代码 — 可立即删除
+
+| 包 | 生产行数 | 测试行数 | 引用方 | 说明 |
+|----|---------|---------|--------|------|
+| `internal/eval` | 328 | 329 | 0 | eval 子系统，git 记录已标"删除"但文件仍在磁盘 |
+| `internal/channel/discord` | 625 | ~100 | 0 | Discord 适配器，无人使用 |
+
+**小计：~1,050 生产行 + ~430 测试行可直接删除。**
+
+---
+
+### 2.5 薄封装 — 可折叠或删除
+
+| 包 | 生产行数 | 测试行数 | 引用方 | 建议 |
+|----|---------|---------|--------|------|
+| `logging` | 131 | 121 | 2（仅 mcp） | 薄 slog 封装，内联到 mcp 或直接用 stdlib slog |
+| `health` | 178 | 278 | 2（gateway） | 微型 HTTP `/health` 端点，并入 gateway |
+| `ratelimit` | 247 | 453 | 2（gateway） | 令牌桶限流，测试臃肿，直接删 |
+| `dag` | 534 | 388 | 1（tool/plan_task.go） | 完整 DAG 执行器仅一个消费者。砍 plan_task 后 dag 即成死代码 |
+
+**小计：~1,090 生产行可消除，4 个包消失。**
+
+---
+
+## 三、分阶段执行计划
+
+### Phase 1 — 立即删除（零风险，秒杀）
+
+**目标：删除死代码，-1,700 行，消灭 2 个包。**
+
+| 步骤 | 操作 | 预计节省 |
+|------|------|---------|
+| 1.1 | `git rm -r internal/eval/` | 328 生产 + 329 测试 |
+| 1.2 | `git rm -r internal/channel/discord/` | 625 生产 + ~100 测试 |
+| 1.3 | 清理 `cmd/` 和 `gateway/` 中残留的 eval/discord import | 少量 |
+| 1.4 | 运行 `make build-bin && make vet` 验证 | — |
+
+**验证标准：**
+- `make build-bin` 编译通过
+- `make vet` 无警告
+- `grep -r "internal/eval\|channel/discord" internal/ cmd/ --include='*.go'` 无结果
+
+---
+
+### Phase 2 — 折叠薄封装（低风险）
+
+**目标：消除 4 个包，-1,900 行。**
+
+#### 2.1 删除 `internal/logging`
+
+- `internal/mcp/adapter.go` 和 `manager.go` 改用 `log/slog` 标准库
+- 删除 `internal/logging/` 目录
+- 节省：131 生产 + 121 测试
+
+#### 2.2 折叠 `internal/health`
+
+- 将 `/health` HTTP 端点直接写入 `internal/gateway/http.go`
+- 删除 `internal/health/` 目录
+- 节省：178 生产 + 278 测试
+
+#### 2.3 删除 `internal/ratelimit`
+
+- 限流逻辑在 observability 子系统中未被有效使用
+- 直接删除 `internal/ratelimit/`
+- 清理 `gateway.go` 和 `subsystem_observability.go` 中的引用
+- 节省：247 生产 + 453 测试
+
+#### 2.4 删除 `internal/dag`
+
+- 前提：砍掉 `internal/tool/plan_task.go`（唯一消费者）
+- plan_task 功能可后期以更简单方式重新实现
+- 同时删除 `internal/dag/`
+- 节省：534 生产 + 388 测试 + 170（plan_task.go）
+
+**验证标准：**
+- `make build-bin && make vet` 通过
+- `make test-short` 通过
+- grep 确认无残留引用
+
+---
+
+### Phase 3 — Agent 瘦身（中风险，最高收益）
+
+**目标：agent 包 8,544 → ~4,000 行，-4,500 行。**
+
+#### 3.1 删除未使用的 backend（~460 行）
+
+| 删除文件 | 行数 |
+|---------|------|
+| `backend_subprocess.go` | 163 |
+| `backend_docker.go` | 160 |
+| `backend_ipc.go` | 89 |
+| `fork.go` | 44 |
+
+保留 `backend.go`（接口定义），精简为仅 in-process 模式。
+
+#### 3.2 删除 plan/team/speculative（~1,006 行）
+
+| 删除文件 | 行数 |
+|---------|------|
+| `plan_mode.go` | 369 |
+| `speculative.go` | 141 |
+| `team_manager.go` | 179 |
+| `team.go` | 101 |
+| `team_task.go` | 118 |
+| `team_message.go` | 98 |
+
+清理 gateway 中的 team/plan/speculative 初始化代码：
+- `init_multiagent.go` 中 team coordinator 相关
+- `gateway.go` 中 team feature gate
+- `features.go` 中 team/speculative feature 注册
+- `commands.go` 中 `/team` 命令
+
+#### 3.3 删除过度基建管道（~850 行）
+
+| 删除文件 | 行数 |
+|---------|------|
+| `message_bus.go` | 190 |
+| `inproc_bus.go` | 62 |
+| `emitter.go` | 91 |
+| `trace.go` | 99 |
+| `circuit_breaker.go` | 100 |
+| `cache_metrics.go` | 144 |
+| `codebase_index.go` | 278 |
+
+保留：`events.go`、`prompt_cache.go`、`permission.go`、`tool_bridge.go`
+
+#### 3.4 删除 orchestrator（169 行）
+
+agent 编排器过度抽象，可在 agent_manager 中直接管理。
+
+#### 3.5 清理相关测试文件
+
+删除上述文件对应的 `*_test.go`，约 2,000+ 测试行。
+
+**验证标准：**
+- `make build-bin && make vet` 通过
+- `make test-short` 通过
+- Gateway 启动后 TUI/Telegram 基础对话功能正常
+- Sub-agent 调用功能正常
+- 上下文压缩功能正常
+
+---
+
+### Phase 4 — Tool 审计（需要逐工具评估）
+
+**目标：tool 包 5,022 → ~3,800 行，-1,200 行。**
+
+| 步骤 | 操作 | 预计节省 |
+|------|------|---------|
+| 4.1 | 删除 `browser_extract.go`、`browser_search.go`、`browser.go` | 637 |
+| 4.2 | 删除 `trust_tracker.go` | 235 |
+| 4.3 | 删除 `plan_task.go`（已在 Phase 2.4 处理） | 170 |
+| 4.4 | 清理对应测试文件 | ~500 |
+
+**验证标准：**
+- tool 注册表仍包含所有核心工具（bash、file_*、memory、code_intel、http、skill）
+- `make test-short` 通过
+
+---
+
+### Phase 5 — 测试清理（收尾）
+
+**目标：删除与已砍代码对应的孤立测试，-5,000+ 测试行。**
+
+- 清理所有引用已删除包/文件的测试
+- 清理 integration test 中被砍功能的测试用例
+- 运行 `make test-short` 确认全绿
+
+---
+
+## 四、执行优先级矩阵
 
 ```
-文件：
-- internal/sandbox/docker_session.go (269 行)
-- internal/sandbox/docker_probe.go (50 行)
-- internal/sandbox/bubblewrap.go (300 行)
-- internal/sandbox/seatbelt.go (200 行)
-- internal/sandbox/network_policy.go (150 行)
-- internal/sandbox/file_guard.go (150 行)
+                    高风险
+                      │
+      Phase 4         │   Phase 3
+      Tool 审计        │   Agent 瘦身
+      (1,200行)       │   (4,500行)
+                      │
+  ────────────────────┼────────────────────
+                      │
+      Phase 1         │   Phase 2
+      死代码删除       │   薄封装折叠
+      (1,700行)       │   (1,900行)
+                      │
+                    低风险
 ```
 
-**是什么：** 三层沙箱后端——Docker（跨平台）、Seatbelt（macOS 原生）、Bubblewrap（Linux 原生）。
-**实际使用：** `sandbox.go` 优先级是 darwin→Seatbelt, linux→Bubblewrap, fallback→Docker。大多数部署只用 Docker。
-**问题：** 如果 IronClaw 主要部署在 Docker 环境，Seatbelt 和 Bubblewrap 基本上不会触发。
-
-- [ ] **决策选项：**
-  - [ ] 删除 Seatbelt 和 Bubblewrap，只保留 Docker（如部署环境统一）
-  - [ ] 保留为可选后端（需要原生沙箱的用户场景）
-  - [ ] 不动
+**推荐顺序：Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5**
 
 ---
 
-### 20. 其他迷你优化
+## 五、终态目标
 
-| 项 | 文件 | 说明 |
-|----|------|------|
-| 20a | `internal/agent/model_context.go` (48行) | 仅一个函数 `ModelContextWindow()`——可移到 `openai.go` 或 `deps.go`。 |
-| 20b | `internal/agent/noop.go` (64行) | Noop 实现用于测试。保留有测试价值。 |
-| 20c | `internal/agent/emitter.go` (91行) | MultiEmitter 合并逻辑——仅 TUI 使用，可移到 TUI 包。 |
-| 20d | `internal/observability/` (789行) | OpenTelemetry 埋点——如果是本地工具，这个开销可能不匹配。评估使用率。 |
-| 20e | `internal/config/watcher.go` | 配置热重载——增加了 gateway 的 OnReload 回调复杂度。评估是否必需。 |
-| 20f | `internal/logging/redact.go` (131行) | PII 日志脱敏——仅 mcp 包使用。可考虑内联。 |
+| 指标 | 当前 | 目标 | 变化 |
+|------|------|------|------|
+| 生产代码行数 | ~49,000 | ~35,000 | **-28%** |
+| 测试代码行数 | ~25,000 | ~15,000 | **-40%** |
+| 内部包数量 | 25 | ~15 | **-40%** |
+| Agent 包行数 | 8,544 | ~4,000 | **-53%** |
+| Tool 包行数 | 5,022 | ~3,800 | **-24%** |
+
+### 终态保留的核心包
+
+| 包 | 说明 |
+|----|------|
+| `agent` | 精简后的 agent 核心循环 + provider + sub-agent |
+| `tool` | 核心工具集（bash、file、memory、code_intel、http、skill） |
+| `channel` | TUI + Telegram 适配器 |
+| `gateway` | 组合根 |
+| `memory` | 持久化记忆系统 |
+| `config` | 配置加载 |
+| `session` | 会话管理 |
+| `store` | SQLite 数据层 |
+| `sandbox` | Docker 沙箱 |
+| `hook` | Hook 系统 |
+| `mcp` | MCP 集成 |
+| `skill` | Skill 加载 |
+| `worktree` | Git worktree 隔离 |
+| `scheduler` | 任务调度 |
+| `userdir` | 用户目录管理 |
+| `observability` | 可观测性（精简） |
+
+### 砍掉的包
+
+| 包 | 原因 |
+|----|------|
+| `eval` | 死代码 |
+| `channel/discord` | 死代码 |
+| `logging` | 薄封装，用 stdlib slog |
+| `health` | 并入 gateway |
+| `ratelimit` | 过度设计 |
+| `dag` | 单一消费者，随 plan_task 删除 |
+
+### 后期可插件化回归的功能
+
+以下功能在当前阶段被砍，但架构上保留扩展点，后期需要时可以插件形式回归：
+
+| 功能 | 涉及文件 | 回归优先级 |
+|------|---------|-----------|
+| Team 编排 | `team*.go`（5 文件） | 中 |
+| Plan Mode | `plan_mode.go` | 中 |
+| Speculative 执行 | `speculative.go` | 低 |
+| Docker/Subprocess Backend | `backend_docker.go`、`backend_subprocess.go` | 低（等 A2A 实现） |
+| 浏览器工具 | `browser*.go` | 低 |
+| Trust Tracker | `trust_tracker.go` | 低 |
+| Codebase Index | `codebase_index.go` | 中 |
 
 ---
 
-## 📊 汇总
+## 六、风险与缓解
 
-| 优先级 | 描述 | 状态 | 已削减行数 |
-|--------|------|------|-----------|
-| P1 | 死代码（6 项） | ⬜ 未开始 | ~27,000 |
-| P2 | 死配置（4 项） | ⬜ 未开始 | ~80 |
-| P3#11 | Memory 系统精简 | ✅ 已完成 | ~5,200 |
-| P3#12 | 三重内存工具合并 | ✅ 已完成 | ~220 |
-| P3#13 | Memorywire/AMP 删除 | ✅ 已完成 | ~550 |
-| P3#14 | Spec 清理 | ⬜ 未开始 | ~30 |
-| P3#15 | Feature Registry 简化 | ⬜ 未开始 | ~280 |
-| P3#16 | PlanTask/DAG 评估 | ⬜ 未开始 | ~1,000 |
-| P4 | 低影响优化（4+ 项） | ⬜ 未开始 | ~1,000–2,000 |
-| **已删除** | evolution/cogmetrics/etc | ✅ | ~11,500 |
-| **已削减** | P3#11–13 本次提交 (7d2c04a) | ✅ | **~6,083** |
-| **累计已削减** | | | **~17,583** |
-| **剩余可削减** | P1+P2+P3#14–16+P4 | | **~29,000–30,000** |
-
-**当前代码库：** ~44,000 行 → 已削减 ~17,600 → **当前 ~26,400 行**（已达目标）
+| 风险 | 等级 | 缓解措施 |
+|------|------|---------|
+| Agent 瘦身后核心循环异常 | 中 | Phase 3 每步后运行集成测试；保留 git history 可回滚 |
+| Team/Plan 功能有隐藏依赖 | 低 | Phase 3.2 前全局 grep feature gate 引用 |
+| Tool 审计误删常用工具 | 低 | Phase 4 前检查 tool registry 注册表和命令路由 |
+| 测试大量失败 | 中 | 每 Phase 完成后立即 `make test-short`，修复后再推进 |
 
 ---
 
-## 建议执行顺序
+## 七、执行记录
 
-1. **P1 全部删除。** 安全、快速、高回报。一次性 commit。
-2. **P2 清理配置。** 紧接着 P1，改动量小。
-3. **P3 逐个评估。** 建议顺序：
-   - ✅ ~~P3#11 Memory 系统~~ — 已完成 (2026-06-09, 7d2c04a)
-   - ✅ ~~P3#12 三重内存工具~~ — 已完成（随 #11）
-   - ✅ ~~P3#13 Memorywire/AMP~~ — 已完成（随 #11）
-   - P3#16 PlanTaskTool/DAG（独立子系统，易评估）
-   - P3#15 Feature Registry（改动小但影响 gateway 初始化）
-   - P3#14 Spec 清理（顺手的事）
-4. **P4 按需执行。** 开发节奏允许时处理。
-4. **P4 按需执行。** 开发节奏允许时处理。
+| Phase | 日期 | 状态 | 实际节省行数 | 备注 |
+|-------|------|------|-------------|------|
+| Phase 1 | 2026-06-09 | ✅ 完成 | 1,282 行 | eval(657) + discord(625), 零 import 引用, build/vet/test 全绿 |
+| Phase 2 | 2026-06-09 | ✅ 完成 | ~2,600 行 | logging→mcp, health→gateway, 删 ratelimit/dag/plan_task/tool_bridge, 消灭4包 |
+| Phase 3 | — | 待执行 | — | — |
+| Phase 4 | — | 待执行 | — | — |
+| Phase 5 | — | 待执行 | — | — |

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/health"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,10 +59,8 @@ func TestGatewayFullLifecycle(t *testing.T) {
 	assert.NotNil(t, gw.healthRegistry, "health registry")
 
 	// Core tools must be registered end-to-end.
-	for _, name := range []string{"memory", "plan_task"} {
-		_, err := gw.tools.Get(name)
-		assert.NoError(t, err, "tool %q must be registered", name)
-	}
+	_, err = gw.tools.Get("memory")
+	assert.NoError(t, err, "memory tool must be registered")
 
 	ch := &nullChannel{}
 	gw.AddChannel(ch)
@@ -79,7 +76,7 @@ func TestGatewayFullLifecycle(t *testing.T) {
 	defer hcancel()
 	report := gw.healthRegistry.Check(hctx)
 	require.Contains(t, report.Checks, "database")
-	assert.Equal(t, health.StatusOK, report.Checks["database"].Status, "database health check")
+	assert.Equal(t, HealthOK, report.Checks["database"].Status, "database health check")
 
 	require.NoError(t, gw.Stop(context.Background()), "Stop must succeed")
 }

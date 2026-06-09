@@ -33,13 +33,6 @@ type NetworkConfig struct {
 	Whitelist []string `yaml:"whitelist"`
 }
 
-// RateLimitConfig configures the rate limiting and backpressure system.
-type RateLimitConfig struct {
-	Enabled        bool    `yaml:"enabled"`
-	RequestsPerSec float64 `yaml:"requests_per_sec"` // default: 10
-	Burst          int     `yaml:"burst"`            // default: 20
-}
-
 // PermissionsConfig configures the permission engine.
 type PermissionsConfig struct {
 	Default string           `yaml:"default"` // "none", "notify", "approve", "deny" (default: "approve"; legacy "allow"/"ask" accepted)

@@ -91,18 +91,5 @@ func (gw *Gateway) initAgentRuntime() error {
 	gw.agent = agent.NewAgent(&gw.agentDeps, &agent.UnifiedLoop{}, agent.NewEventBus())
 	gw.agent.SetApprovalFunc(gw.handleApproval)
 
-	// Register plan_task tool for LLM-driven task decomposition
-	planExecutor := &agent.ToolExecutor{Agent: gw.agent}
-	maxParallel := gw.cfg.Agent.Cognitive.MaxParallelTools
-	if maxParallel <= 0 {
-		maxParallel = 5
-	}
-	planTaskTool := tool.NewPlanTaskTool(
-		maxParallel, planExecutor,
-		gw.hookMgr, gw.permEngine, getInterceptor(),
-	)
-	gw.tools.Register(planTaskTool)
-	slog.Info("plan_task tool registered", "max_parallel", maxParallel)
-
 	return nil
 }

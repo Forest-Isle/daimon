@@ -50,7 +50,7 @@ Important consequence: boolean fields that default to true are not always easy t
 | Group | Key fields | Runtime use |
 |---|---|---|
 | `llm` | `provider`, `api_key`, `base_url`, `model`, `max_tokens`, `retry` | Selects Claude or OpenAI-compatible provider and retry wrapper. |
-| `telegram`, `discord`, `tui` | tokens, allowed users, auto approve, timeout | Channel adapter setup. |
+| `telegram`, `tui` | tokens, allowed users, auto approve, timeout | Channel adapter setup. |
 | `agent` | `mode`, `max_iterations`, `system_prompt`, compression, speculative, team | Controls loop strategy, prompt, context compression, speculative execution, team workers. |
 | `store` | `path` | SQLite database path. |
 | `memory` | storage dir, embedding model/base URL/API key, fact extraction, lifecycle, cache, retention | File memory store, embeddings, fact extraction, reflection, compaction, retention. |

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/logging"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -100,7 +99,7 @@ func (m *Manager) startServerWithRetry(ctx context.Context, name string, srv con
 			"attempt", attempt,
 			"max_attempts", maxRetryAttempts,
 			"backoff", backoff,
-			"err", logging.Redact(lastErr.Error()),
+			"err", Redact(lastErr.Error()),
 		)
 
 		select {

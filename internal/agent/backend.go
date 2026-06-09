@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// ErrBackendNotImplemented is returned by backends reserved for future phases.
-var ErrBackendNotImplemented = fmt.Errorf("backend not yet implemented (reserved for Phase 3)")
 
 // BackendType identifies which execution backend to use.
 type BackendType string

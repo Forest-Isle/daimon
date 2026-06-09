@@ -8,8 +8,7 @@ import (
 )
 
 // SubprocessRequest is the JSON payload sent from the parent process to a
-// subprocess (or Docker container) via stdin. The child process loads its own
-// config from ConfigPath, then applies the override fields below.
+// subprocess (or Docker container) via stdin.
 type SubprocessRequest struct {
 	AgentID      string            `json:"agent_id"`
 	Task         string            `json:"task"`
