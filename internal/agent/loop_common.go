@@ -69,8 +69,9 @@ func loopIteration(
 		}
 	}
 	if streamErr != nil {
+		slog.Error("llm stream error", "err", streamErr)
 		_ = updater.Finish("Error: " + streamErr.Error())
-		return updater, nil, fmt.Errorf("llm stream: %w", streamErr)
+		return updater, nil, nil // error already communicated via stream
 	}
 
 	var fullText string
@@ -81,8 +82,9 @@ func loopIteration(
 		delta, deltaErr := stream.Next()
 		if deltaErr != nil {
 			stream.Close()
+			slog.Error("stream delta error", "err", deltaErr)
 			_ = updater.Finish("Error: " + deltaErr.Error())
-			return updater, nil, fmt.Errorf("stream next: %w", deltaErr)
+			return updater, nil, nil // error already communicated via stream
 		}
 
 		if delta.Text != "" {
@@ -107,8 +109,9 @@ func loopIteration(
 	if stopReason == StopToolUse && len(toolCalls) == 0 {
 		resp, completeErr := a.deps.Core.Provider.Complete(ctx, req)
 		if completeErr != nil {
+			slog.Error("non-streaming completion error", "err", completeErr)
 			_ = updater.Finish("Error: " + completeErr.Error())
-			return updater, nil, completeErr
+			return updater, nil, nil // error already communicated via stream
 		}
 		fullText = resp.Text
 		toolCalls = resp.ToolCalls
