@@ -64,11 +64,14 @@ func validate(cfg *Config) error {
 	if !knownProviders[cfg.LLM.Provider] {
 		return fmt.Errorf("llm.provider must be one of: claude, openai, openai-compatible (got %q)", cfg.LLM.Provider)
 	}
-	if cfg.Telegram.Token == "" {
-		return fmt.Errorf("telegram.token is required")
-	}
-	if len(cfg.Telegram.AllowedUserIDs) == 0 {
-		return fmt.Errorf("telegram.allowed_user_ids must have at least one entry")
+	// Telegram is optional — only validate when token or user IDs are provided.
+	if cfg.Telegram.Token != "" || len(cfg.Telegram.AllowedUserIDs) > 0 {
+		if cfg.Telegram.Token == "" {
+			return fmt.Errorf("telegram.token is required when telegram is configured")
+		}
+		if len(cfg.Telegram.AllowedUserIDs) == 0 {
+			return fmt.Errorf("telegram.allowed_user_ids must have at least one entry when telegram is configured")
+		}
 	}
 	if cfg.Agent.MaxIterations <= 0 {
 		cfg.Agent.MaxIterations = 20
