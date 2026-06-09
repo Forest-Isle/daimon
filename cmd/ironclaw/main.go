@@ -38,7 +38,7 @@ func main() {
 		Short: "Start the IronClaw agent runtime",
 		RunE:  runStart,
 	}
-	startCmd.Flags().StringVarP(&cfgPath, "config", "c", "configs/ironclaw.yaml", "path to config file")
+	startCmd.Flags().StringVarP(&cfgPath, "config", "c", "", "path to config file (auto-discovered if empty)")
 
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -257,8 +257,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Setup logging
 	setupLogging("info")
 
-	slog.Info("loading config", "path", cfgPath)
-	cfg, err := config.Load(cfgPath)
+	resolvedPath, err := config.FindConfigPath(cfgPath)
+	if err != nil {
+		return fmt.Errorf("find config: %w", err)
+	}
+	slog.Info("loading config", "path", resolvedPath)
+	cfg, err := config.Load(resolvedPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -269,7 +273,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load user config: %w", err)
 	}
 
-	gw, err := gateway.New(cfg, gateway.GatewayOptions{ConfigPath: cfgPath})
+	gw, err := gateway.New(cfg, gateway.GatewayOptions{ConfigPath: resolvedPath})
 	if err != nil {
 		return fmt.Errorf("init gateway: %w", err)
 	}

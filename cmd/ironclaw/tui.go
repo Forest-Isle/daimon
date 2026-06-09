@@ -26,7 +26,7 @@ func newTUICmd() *cobra.Command {
 			return runTUI(tuiCfgPath)
 		},
 	}
-	cmd.Flags().StringVarP(&tuiCfgPath, "config", "c", "configs/ironclaw.yaml", "path to config file")
+	cmd.Flags().StringVarP(&tuiCfgPath, "config", "c", "", "path to config file (auto-discovered if empty)")
 	return cmd
 }
 
@@ -37,8 +37,12 @@ func runTUI(configPath string) error {
 		return fmt.Errorf("setup TUI logging: %w", err)
 	}
 
-	slog.Info("loading config", "path", configPath)
-	cfg, err := config.Load(configPath)
+	resolvedPath, err := config.FindConfigPath(configPath)
+	if err != nil {
+		return fmt.Errorf("find config: %w", err)
+	}
+	slog.Info("loading config", "path", resolvedPath)
+	cfg, err := config.Load(resolvedPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -47,7 +51,7 @@ func runTUI(configPath string) error {
 		return fmt.Errorf("load user config: %w", err)
 	}
 
-	gw, err := gateway.New(cfg, gateway.GatewayOptions{ConfigPath: configPath})
+	gw, err := gateway.New(cfg, gateway.GatewayOptions{ConfigPath: resolvedPath})
 	if err != nil {
 		return fmt.Errorf("init gateway: %w", err)
 	}

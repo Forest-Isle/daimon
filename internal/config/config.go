@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"time"
 
@@ -38,6 +39,52 @@ func ExpandEnv(data []byte) []byte {
 		}
 		return match
 	})
+}
+
+// FindConfigPath resolves the config file path by searching standard locations.
+// explicitPath comes from the -c flag; empty means "auto-discover".
+//
+// Search order:
+//  1. explicitPath (if non-empty and exists)
+//  2. .ironclaw/ironclaw.yaml in CWD (project-level convention)
+//  3. configs/ironclaw.yaml in CWD (dev convenience)
+//  4. ~/.ironclaw/config.yaml (user global)
+func FindConfigPath(explicitPath string) (string, error) {
+	if explicitPath != "" {
+		if _, err := os.Stat(explicitPath); err == nil {
+			return explicitPath, nil
+		}
+		return "", fmt.Errorf("config file not found: %s (use -c to specify path, or create .ironclaw/ironclaw.yaml)", explicitPath)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+
+	candidates := []string{
+		filepath.Join(cwd, ".ironclaw", "ironclaw.yaml"),
+		filepath.Join(cwd, "configs", "ironclaw.yaml"),
+	}
+
+	home, homeErr := os.UserHomeDir()
+	if homeErr == nil {
+		candidates = append(candidates, filepath.Join(home, ".ironclaw", "config.yaml"))
+	}
+
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+
+	return "", fmt.Errorf(
+		"no config file found. Create one at:\n"+
+			"  • .ironclaw/ironclaw.yaml  (project-level, recommended)\n"+
+			"  • configs/ironclaw.yaml    (development)\n"+
+			"  • ~/.ironclaw/config.yaml  (user global)\n"+
+			"Or copy from configs/ironclaw.example.yaml",
+	)
 }
 
 func Load(path string) (*Config, error) {
