@@ -197,4 +197,3 @@ log:
 # multi_agent:
 #   agents:
 #     researcher:
-#       backend: in_process

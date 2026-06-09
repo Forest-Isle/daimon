@@ -83,7 +83,6 @@ type AgentSpec struct {
 	FailureStrategy FailureStrategy `yaml:"failure_strategy"`  // "best_effort" (default) | "fail_fast"
 	MaxOutputTokens int             `yaml:"max_output_tokens"` // limit output tokens (0 = no limit)
 
-	Backend    BackendType      `yaml:"backend"`     // "in_process" (only supported backend)
 	Hooks      AgentHookConfig  `yaml:"hooks"`       // lifecycle hooks
 	MCPServers []AgentMCPConfig `yaml:"mcp_servers"` // per-agent MCP servers
 }
@@ -131,12 +130,6 @@ func (s *AgentSpec) Validate() error {
 		// valid
 	default:
 		return fmt.Errorf("agent spec %q: invalid failure_strategy %q", s.Name, s.FailureStrategy)
-	}
-	switch s.Backend {
-	case "", BackendInProcess:
-		// valid
-	default:
-		return fmt.Errorf("agent spec %q: invalid backend %q", s.Name, s.Backend)
 	}
 	return nil
 }

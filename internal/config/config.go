@@ -12,7 +12,6 @@ import (
 type Config struct {
 	LLM           LLMConfig           `yaml:"llm"`
 	Telegram      TelegramConfig      `yaml:"telegram"`
-	Discord       DiscordConfig       `yaml:"discord"`
 	TUI           TUIConfig           `yaml:"tui"`
 	Agent         AgentConfig         `yaml:"agent"`
 	Store         StoreConfig         `yaml:"store"`

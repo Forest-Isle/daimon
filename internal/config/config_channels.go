@@ -24,12 +24,6 @@ type TelegramConfig struct {
 	Timeout        time.Duration `yaml:"timeout"` // long-polling timeout for update retrieval; default: 30s
 }
 
-// DiscordConfig holds Discord bot settings.
-type DiscordConfig struct {
-	Token          string   `yaml:"token"`
-	AllowedUserIDs []string `yaml:"allowed_user_ids"`
-}
-
 // TUIConfig configures the TUI (terminal UI) channel.
 type TUIConfig struct {
 	AutoApprove bool   `yaml:"auto_approve"` // skip approval prompts

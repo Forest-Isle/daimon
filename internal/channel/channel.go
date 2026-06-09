@@ -5,7 +5,7 @@ import "context"
 // InboundHandler is called by a channel adapter when a message arrives.
 type InboundHandler func(ctx context.Context, msg InboundMessage)
 
-// Channel adapts an external messaging platform (Telegram, Discord, etc.).
+// Channel adapts an external messaging platform (Telegram, TUI, etc.).
 type Channel interface {
 	Name() string
 	Start(ctx context.Context, handler InboundHandler) error
