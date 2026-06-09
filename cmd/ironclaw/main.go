@@ -304,6 +304,7 @@ func runStart(configPath string, devMode bool) error {
 		tg.SetApprovalTimeout(cfg.Agent.Cognitive.ApprovalTimeoutSeconds)
 	}
 	gw.AddChannel(tg)
+	gw.SetSchedulerNotifier(tg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
