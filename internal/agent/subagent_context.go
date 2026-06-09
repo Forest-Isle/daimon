@@ -9,10 +9,6 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
-// MaxForkDepth is the maximum nesting depth for fork agents.
-// Prevents unbounded recursion.
-const MaxForkDepth = 3
-
 // SubagentContext provides isolation and inheritance control for sub-agents.
 // It separates what is shared (read-only references) from what is isolated
 // (scoped tool registry, cancel func, tracking metadata).

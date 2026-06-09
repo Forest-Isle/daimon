@@ -37,8 +37,6 @@ type ExecutionMode string
 const (
 	// ExecModeSpawn creates an independent Runtime (default, current behavior).
 	ExecModeSpawn ExecutionMode = "spawn"
-	// ExecModeFork inherits the parent Runtime's full session context.
-	ExecModeFork ExecutionMode = "fork"
 	// ExecModeBackground runs asynchronously in a goroutine.
 	ExecModeBackground ExecutionMode = "background"
 )
@@ -115,7 +113,7 @@ func (s *AgentSpec) Validate() error {
 		s.ExecutionMode = ExecModeSpawn
 	}
 	switch s.ExecutionMode {
-	case ExecModeSpawn, ExecModeFork, ExecModeBackground:
+	case ExecModeSpawn, ExecModeBackground:
 		// valid
 	default:
 		return fmt.Errorf("agent spec %q: invalid execution_mode %q", s.Name, s.ExecutionMode)
@@ -136,13 +134,10 @@ func (s *AgentSpec) Validate() error {
 		return fmt.Errorf("agent spec %q: invalid failure_strategy %q", s.Name, s.FailureStrategy)
 	}
 	switch s.Backend {
-	case "", BackendInProcess, BackendSubprocess, BackendDocker:
+	case "", BackendInProcess:
 		// valid
 	default:
 		return fmt.Errorf("agent spec %q: invalid backend %q", s.Name, s.Backend)
-	}
-	if s.ExecutionMode == ExecModeFork {
-		s.InheritContext = true // fork always inherits
 	}
 	return nil
 }

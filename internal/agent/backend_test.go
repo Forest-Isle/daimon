@@ -103,83 +103,9 @@ func TestInProcessBackend_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestSubprocessBackend_Properties(t *testing.T) {
-	be := NewSubprocessBackend("/tmp/nonexistent.yaml")
-	if be.Name() != "subprocess" {
-		t.Errorf("expected name 'subprocess', got %q", be.Name())
-	}
-	// Available should return true because os.Executable() should exist.
-	if !be.Available() {
-		t.Log("subprocess backend not available (binary not found in test environment)")
-	}
-}
-
-func TestSubprocessBackend_FindBinary(t *testing.T) {
-	// findIronclawBinary should find *something* (at least os.Executable).
-	binary, err := findIronclawBinary()
-	if err != nil {
-		t.Skipf("no ironclaw binary found: %v", err)
-	}
-	if binary == "" {
-		t.Error("findIronclawBinary returned empty string without error")
-	}
-}
-
-func TestDockerBackend_NotAvailable(t *testing.T) {
-	be := NewDockerBackend("ironclaw:latest", "")
-	if be.Available() {
-		t.Skip("docker is available in this environment; skipping unavailability test")
-	}
-	if be.Name() != "docker" {
-		t.Errorf("expected name 'docker', got %q", be.Name())
-	}
-}
-
-func TestSelectBackend_Default(t *testing.T) {
-	executor := func(ctx context.Context, cfg BackendConfig) (*AgentResult, error) {
-		return &AgentResult{Output: "ok"}, nil
-	}
-
-	be := SelectBackend("", executor)
-	if be.Name() != "in_process" {
-		t.Errorf("default should be in_process, got %q", be.Name())
-	}
-
-	be = SelectBackend(BackendInProcess, executor)
-	if be.Name() != "in_process" {
-		t.Errorf("expected in_process, got %q", be.Name())
-	}
-}
-
-func TestSelectBackend_DockerFallback(t *testing.T) {
-	executor := func(ctx context.Context, cfg BackendConfig) (*AgentResult, error) {
-		return &AgentResult{Output: "ok"}, nil
-	}
-
-	probe := NewDockerBackend("ironclaw:latest", "")
-	if probe.Available() {
-		t.Skip("docker is available; fallback path cannot be tested")
-	}
-
-	be := SelectBackend(BackendDocker, executor)
-	if be.Name() != "in_process" {
-		t.Errorf("expected fallback to in_process, got %q", be.Name())
-	}
-}
-
 func TestBackendCleanup(t *testing.T) {
 	be := NewInProcessBackend(nil)
 	if err := be.Cleanup(); err != nil {
-		t.Errorf("unexpected cleanup error: %v", err)
-	}
-
-	be2 := NewSubprocessBackend("")
-	if err := be2.Cleanup(); err != nil {
-		t.Errorf("unexpected cleanup error: %v", err)
-	}
-
-	be3 := NewDockerBackend("", "")
-	if err := be3.Cleanup(); err != nil {
 		t.Errorf("unexpected cleanup error: %v", err)
 	}
 }

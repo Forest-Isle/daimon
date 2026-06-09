@@ -11,9 +11,7 @@ import (
 type BackendType string
 
 const (
-	BackendInProcess  BackendType = "in_process" // goroutine (default)
-	BackendSubprocess BackendType = "subprocess" // os/exec child process
-	BackendDocker     BackendType = "docker"     // container execution
+	BackendInProcess BackendType = "in_process" // goroutine (default)
 )
 
 // BackendConfig holds everything an execution backend needs to run an agent.
@@ -86,52 +84,3 @@ func (b *InProcessBackend) Available() bool { return true }
 func (b *InProcessBackend) Name() string    { return string(BackendInProcess) }
 func (b *InProcessBackend) Cleanup() error  { return nil }
 
-// SelectBackend returns the appropriate backend for the given type.
-// If the requested backend is unavailable, it transparently falls back to
-// InProcessBackend to ensure the system always works.
-func SelectBackend(backendType BackendType, executor func(ctx context.Context, cfg BackendConfig) (*AgentResult, error), opts ...BackendOption) ExecutionBackend {
-	o := backendOptions{
-		dockerImage: "ironclaw:latest",
-	}
-	for _, opt := range opts {
-		opt(&o)
-	}
-
-	switch backendType {
-	case BackendSubprocess:
-		be := NewSubprocessBackend(o.configPath)
-		if be.Available() {
-			return be
-		}
-		return NewInProcessBackend(executor)
-	case BackendDocker:
-		be := NewDockerBackend(o.dockerImage, o.dockerNetwork)
-		if be.Available() {
-			return be
-		}
-		return NewInProcessBackend(executor)
-	default:
-		return NewInProcessBackend(executor)
-	}
-}
-
-// --- BackendOption ---
-
-// BackendOption configures backend selection via SelectBackend.
-type BackendOption func(*backendOptions)
-
-type backendOptions struct {
-	configPath    string // config file path for SubprocessBackend
-	dockerImage   string // container image for DockerBackend
-	dockerNetwork string // Docker network for DockerBackend
-}
-
-// WithConfigPath provides the config file path for SubprocessBackend.
-func WithConfigPath(p string) BackendOption {
-	return func(o *backendOptions) { o.configPath = p }
-}
-
-// WithDockerImage provides the Docker image and network for DockerBackend.
-func WithDockerImage(img, network string) BackendOption {
-	return func(o *backendOptions) { o.dockerImage = img; o.dockerNetwork = network }
-}

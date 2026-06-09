@@ -6,23 +6,6 @@ import (
 	"time"
 )
 
-func TestAgentSpec_ForkMode_Validation(t *testing.T) {
-	spec := &AgentSpec{
-		Name:          "test-fork",
-		Description:   "test fork agent",
-		ExecutionMode: ExecModeFork,
-	}
-	if err := spec.Validate(); err != nil {
-		t.Fatalf("unexpected validation error: %v", err)
-	}
-	if !spec.InheritContext {
-		t.Error("fork mode should auto-set InheritContext to true")
-	}
-	if spec.ExecutionMode != ExecModeFork {
-		t.Errorf("expected fork mode, got %q", spec.ExecutionMode)
-	}
-}
-
 func TestAgentSpec_InvalidMode(t *testing.T) {
 	spec := &AgentSpec{
 		Name:          "test-bad",
