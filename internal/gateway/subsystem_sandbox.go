@@ -13,7 +13,6 @@ import (
 type SandboxSubsystem struct {
 	dockerSessionMgr *sandbox.DockerSessionManager
 	interceptorChain *tool.InterceptorChain
-	trustTracker     *tool.TrustTracker
 	httpTool         *tool.HTTPTool // stored for redirect-check injection after network policy init
 }
 
@@ -41,7 +40,3 @@ func (ss *SandboxSubsystem) InterceptorChain() *tool.InterceptorChain {
 	return ss.interceptorChain
 }
 
-// TrustTracker returns the trust tracker, or nil.
-func (ss *SandboxSubsystem) TrustTracker() *tool.TrustTracker {
-	return ss.trustTracker
-}

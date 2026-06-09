@@ -55,7 +55,7 @@ Important consequence: boolean fields that default to true are not always easy t
 | `store` | `path` | SQLite database path. |
 | `memory` | storage dir, embedding model/base URL/API key, fact extraction, lifecycle, cache, retention | File memory store, embeddings, fact extraction, reflection, compaction, retention. |
 | `scheduler` | enabled, poll interval | Scheduled prompt execution. |
-| `tools` | bash/file/http/browser/verify/MCP/concurrency/result persistence | Built-in tool registration and execution behavior. |
+| `tools` | bash/file/http/verify/MCP/concurrency/result persistence | Built-in tool registration and execution behavior. |
 | `permissions` | default action and ordered rules | PermissionEngine decisions. |
 | `sandbox` | allowed/read-only dirs, bash backend, Docker config, network policy | File/network isolation and bash execution backend. |
 | `observability` | enabled, exporter, endpoint, sample rate | OpenTelemetry and metrics setup. |

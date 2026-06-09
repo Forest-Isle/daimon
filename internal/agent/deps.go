@@ -55,7 +55,6 @@ type SecurityDeps struct {
 	Interceptor  *tool.InterceptorChain // nil = passthrough (tools execute directly)
 	HookMgr      *hook.Manager          // nil = no hooks
 	PermEngine   *tool.PermissionEngine // nil = allow-all
-	TrustTracker *tool.TrustTracker     // nil = no trust accumulation
 }
 
 // WithDefaults returns a copy of SecurityDeps with nil fields filled.
@@ -65,7 +64,7 @@ func (d SecurityDeps) WithDefaults() SecurityDeps {
 	if d.Interceptor == nil {
 		var interceptors []tool.ToolInterceptor
 		if d.PermEngine != nil {
-			interceptors = append(interceptors, tool.NewPermissionInterceptor(d.PermEngine, nil, nil, d.TrustTracker))
+			interceptors = append(interceptors, tool.NewPermissionInterceptor(d.PermEngine))
 		}
 		if d.HookMgr != nil {
 			interceptors = append(interceptors, tool.NewHookInterceptor(d.HookMgr))

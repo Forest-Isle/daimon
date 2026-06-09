@@ -93,13 +93,6 @@ func TestGetCapabilities(t *testing.T) {
 		t.Error("BashTool should not be read-only")
 	}
 
-	// Tool with CapableTool (browser)
-	browser := NewBrowserTool(0, false)
-	caps = GetCapabilities(browser)
-	if !caps.IsReadOnly {
-		t.Error("BrowserTool should be read-only")
-	}
-
 	// Tool without any optional interface
 	basic := &mockBasicTool{}
 	caps = GetCapabilities(basic)
@@ -173,12 +166,6 @@ func TestRegistryFiltersUnavailable(t *testing.T) {
 }
 
 func TestBuiltinToolsReadOnly(t *testing.T) {
-	// BrowserTool should be read-only
-	browser := NewBrowserTool(0, false)
-	if !IsToolReadOnly(browser) {
-		t.Error("BrowserTool should be read-only")
-	}
-
 	// BashTool should not be read-only
 	bash := NewBashTool(0, false, NewPolicy(nil))
 	if IsToolReadOnly(bash) {

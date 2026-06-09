@@ -20,7 +20,6 @@ type HeadlessGateway struct {
 	sessions   *session.Manager
 	tools      *tool.Registry
 	permEngine   *tool.PermissionEngine
-	trustTracker *tool.TrustTracker
 	hookMgr      *hook.Manager
 	provider   agent.Provider
 	agent      *agent.Agent
@@ -61,10 +60,6 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 	if cfg.Tools.HTTP.Enabled {
 		h.tools.Register(tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval))
 	}
-	if cfg.Tools.Browser.Enabled {
-		h.tools.Register(tool.NewBrowserTool(cfg.Tools.Browser.Timeout, cfg.Tools.Browser.RequiresApproval))
-	}
-
 	// 3. Hook & permission engine
 	hookCfg := cfg.Hooks
 	preToolUseCfg := make([]hook.HandlerConfig, len(hookCfg.PreToolUse))
@@ -92,7 +87,6 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 		}
 	}
 	h.permEngine = tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
-	h.trustTracker = tool.NewTrustTracker()
 
 	// 4. LLM provider
 	var provider agent.Provider = agent.NewClaudeProvider(cfg.LLM.APIKey, cfg.LLM.Model, cfg.LLM.BaseURL)
@@ -117,7 +111,6 @@ func NewHeadless(cfg *config.Config) (*HeadlessGateway, error) {
 			Interceptor:  tool.NewInterceptorChain(nil),
 			HookMgr:      h.hookMgr,
 			PermEngine:   h.permEngine,
-			TrustTracker: h.trustTracker,
 		}.WithDefaults(),
 		Observability: agent.ObservabilityDeps{}.WithDefaults(),
 		MultiAgent:    agent.MultiAgentDeps{}.WithDefaults(),

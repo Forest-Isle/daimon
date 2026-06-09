@@ -152,14 +152,6 @@ func mergeConfig(base *Config, overlay *Config) {
 		base.Tools.HTTP.RequiresApproval = true
 	}
 
-	// Tools.Browser
-	if overlay.Tools.Browser.Timeout > 0 {
-		base.Tools.Browser.Timeout = overlay.Tools.Browser.Timeout
-	}
-	if overlay.Tools.Browser.RequiresApproval {
-		base.Tools.Browser.RequiresApproval = true
-	}
-
 	// Tools.MCP — merge server maps
 	if len(overlay.Tools.MCP.Servers) > 0 {
 		if base.Tools.MCP.Servers == nil {

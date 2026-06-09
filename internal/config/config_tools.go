@@ -6,7 +6,6 @@ type ToolsConfig struct {
 	Bash                BashToolConfig            `yaml:"bash"`
 	File                FileToolConfig            `yaml:"file"`
 	HTTP                HTTPToolConfig            `yaml:"http"`
-	Browser             BrowserToolConfig         `yaml:"browser"`
 	Verify              VerifyConfig              `yaml:"verify"`
 	MCP                 MCPConfig                 `yaml:"mcp"`
 	ConcurrentExecution ConcurrentExecutionConfig `yaml:"concurrent_execution"`
@@ -62,9 +61,3 @@ type HTTPToolConfig struct {
 	Timeout          time.Duration `yaml:"timeout"`
 }
 
-// BrowserToolConfig holds configuration for the browser (HTTP GET) tool.
-type BrowserToolConfig struct {
-	Enabled          bool          `yaml:"enabled"`
-	RequiresApproval bool          `yaml:"requires_approval"`
-	Timeout          time.Duration `yaml:"timeout"`
-}

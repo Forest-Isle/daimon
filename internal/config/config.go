@@ -149,10 +149,6 @@ func defaultConfig() Config {
 				Enabled: true,
 				Timeout: 30 * time.Second,
 			},
-			Browser: BrowserToolConfig{
-				Enabled: true,
-				Timeout: 30 * time.Second,
-			},
 			Verify: VerifyConfig{
 				Enabled: true,
 			},

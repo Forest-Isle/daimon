@@ -40,11 +40,6 @@ func (gw *Gateway) initToolsAndHooks() error {
 		gw.tools.Register(httpTool)
 		gw.sandbox.httpTool = httpTool // stored for redirect-check injection after network policy is created
 	}
-	if cfg.Tools.Browser.Enabled {
-		gw.tools.Register(tool.NewBrowserTool(cfg.Tools.Browser.Timeout, cfg.Tools.Browser.RequiresApproval))
-		gw.tools.Register(tool.NewBrowserSearchTool(cfg.Tools.Browser.Timeout, cfg.Tools.Browser.RequiresApproval))
-		gw.tools.Register(tool.NewBrowserExtractTool(cfg.Tools.Browser.Timeout, cfg.Tools.Browser.RequiresApproval))
-	}
 	if gw.codebaseIndex == nil {
 		gw.codebaseIndex = newCodebaseIndexFromConfig(gw)
 		if gw.codebaseIndex != nil && gw.codebaseIndex.IsAvailable() {
@@ -119,8 +114,6 @@ func (gw *Gateway) initToolsAndHooks() error {
 		}
 	}
 	gw.permEngine = tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
-	gw.trustTracker = tool.NewTrustTracker()
-
 	// Sandbox components
 	var fileGuard *sandbox.FileGuard
 	var networkPolicy *sandbox.NetworkPolicy
@@ -170,11 +163,12 @@ func (gw *Gateway) initToolsAndHooks() error {
 	}
 	verifyInterceptor := tool.NewVerifyInterceptor(".")
 
-	// Progressive trust tracker (resets per session)
-	gw.sandbox.trustTracker = tool.NewTrustTracker()
+	// Progressive trust tracker removed (Phase 4 — trust accumulation over-designed)
 
 	interceptors := []tool.ToolInterceptor{
-		tool.NewPermissionInterceptor(gw.permEngine, NewGatewayToolNotifier(), NewGatewayToolApprover(gw.sessions, gw.channels), gw.trustTracker),
+		tool.NewPermissionInterceptor(gw.permEngine,
+			tool.WithNotifier(NewGatewayToolNotifier()),
+			tool.WithApprover(NewGatewayToolApprover(gw.sessions, gw.channels))),
 		tool.NewHookInterceptor(gw.hookMgr),
 		newUserHookInterceptor(gw.userHookMgr),
 		tool.NewSandboxInterceptor(gw.sandbox.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),

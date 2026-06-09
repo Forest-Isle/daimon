@@ -42,7 +42,6 @@ type Gateway struct {
 	tools            *tool.Registry
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
-	trustTracker     *tool.TrustTracker
 	skillMgr         *skill.Manager
 	resultStore      *tool.ResultStore
 	mcpManager       *mcp.Manager

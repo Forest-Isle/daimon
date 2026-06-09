@@ -30,7 +30,7 @@ func makeEngine(action string) *PermissionEngine {
 
 func TestPermissionInterceptor_None(t *testing.T) {
 	notifier := &mockNotifier{}
-	interceptor := NewPermissionInterceptor(makeEngine("none"), notifier, nil, nil)
+	interceptor := NewPermissionInterceptor(makeEngine("none"), WithNotifier(notifier))
 
 	nextCalled := false
 	next := func(_ context.Context, _ *ToolCall) (*ToolResult, error) {
@@ -55,7 +55,7 @@ func TestPermissionInterceptor_None(t *testing.T) {
 
 func TestPermissionInterceptor_Notify(t *testing.T) {
 	notifier := &mockNotifier{}
-	interceptor := NewPermissionInterceptor(makeEngine("notify"), notifier, nil, nil)
+	interceptor := NewPermissionInterceptor(makeEngine("notify"), WithNotifier(notifier))
 
 	nextCalled := false
 	call := &ToolCall{ToolName: "bash", Input: "echo hello"}
@@ -83,7 +83,7 @@ func TestPermissionInterceptor_Notify(t *testing.T) {
 }
 
 func TestPermissionInterceptor_Deny(t *testing.T) {
-	interceptor := NewPermissionInterceptor(makeEngine("deny"), nil, nil, nil)
+	interceptor := NewPermissionInterceptor(makeEngine("deny"))
 
 	nextCalled := false
 	next := func(_ context.Context, _ *ToolCall) (*ToolResult, error) {
@@ -105,7 +105,7 @@ func TestPermissionInterceptor_Deny(t *testing.T) {
 
 func TestPermissionInterceptor_ApproveGranted(t *testing.T) {
 	approver := &mockApprover{approve: true}
-	interceptor := NewPermissionInterceptor(makeEngine("approve"), nil, approver, nil)
+	interceptor := NewPermissionInterceptor(makeEngine("approve"), WithApprover(approver))
 
 	nextCalled := false
 	next := func(_ context.Context, _ *ToolCall) (*ToolResult, error) {
@@ -127,7 +127,7 @@ func TestPermissionInterceptor_ApproveGranted(t *testing.T) {
 
 func TestPermissionInterceptor_ApproveDenied(t *testing.T) {
 	approver := &mockApprover{approve: false}
-	interceptor := NewPermissionInterceptor(makeEngine("approve"), nil, approver, nil)
+	interceptor := NewPermissionInterceptor(makeEngine("approve"), WithApprover(approver))
 
 	nextCalled := false
 	next := func(_ context.Context, _ *ToolCall) (*ToolResult, error) {

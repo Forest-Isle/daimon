@@ -32,7 +32,6 @@ Gateway registers built-ins based on `cfg.Tools`:
 | `tools.bash` | `bash`, `test_run` |
 | `tools.file` | `file_read`, `file_write`, `file_edit`, `file_patch`, `file_list`, `grep_code`, `find_symbol`, `list_imports` |
 | `tools.http` | HTTP tool |
-| `tools.browser` | browser fetch/search/extract tools |
 | codebase index | semantic code search when embeddings are configured and index is available |
 | `worktree` feature | `worktree_create`, `worktree_diff`, `worktree_merge`, `worktree_list` |
 | memory init | `memory_manage`, later `core_memory`, AMP memory tool |
