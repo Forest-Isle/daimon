@@ -183,6 +183,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleChatKey processes key events when in normal chat mode.
 func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+		// Handle model selection navigation
+		if m.showModelPanel && len(m.modelItems) > 0 {
+			switch msg.Type {
+			case tea.KeyUp:
+				if m.modelSelectionIdx > 0 {
+					m.modelSelectionIdx--
+				} else {
+					m.modelSelectionIdx = len(m.modelItems) - 1
+				}
+				return m, nil
+			case tea.KeyDown:
+				if m.modelSelectionIdx < len(m.modelItems)-1 {
+					m.modelSelectionIdx++
+				} else {
+					m.modelSelectionIdx = 0
+				}
+				return m, nil
+			case tea.KeyEnter:
+				if m.modelSelectionIdx >= 0 && m.modelSelectionIdx < len(m.modelItems) {
+					selected := m.modelItems[m.modelSelectionIdx]
+					m.textarea.SetValue("/model " + selected.name)
+					m.showModelPanel = false
+				}
+				return m, nil
+			case tea.KeyEsc:
+				m.showModelPanel = false
+				return m, nil
+			}
+		}
+
 	// Handle suggestion navigation
 	if m.showingSuggestions && len(m.suggestions) > 0 {
 		switch msg.Type {

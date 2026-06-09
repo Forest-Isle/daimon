@@ -101,6 +101,10 @@ type Model struct {
 	showHelpPanel  bool // toggle for help/commands panel
 	showModelPanel bool // toggle for model info/selection panel
 
+	// Model selection state
+	modelItems       []modelInfo // populated when panel opens
+	modelSelectionIdx int        // -1 = no selection, initializes to 0
+
 	// Compression tracking for stats panel
 	compressionCount   int
 	lastCompressFrom   float64 // before utilization (0.0–1.0)

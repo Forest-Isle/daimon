@@ -50,6 +50,12 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 				m.showStats = false
 			}
 			m.showModelPanel = !m.showModelPanel
+			if m.showModelPanel {
+				m.modelItems = append(getAnthropicModels(), getOpenAIModels()...)
+				if len(m.modelItems) > 0 {
+					m.modelSelectionIdx = 0
+				}
+			}
 			return true, nil
 		}
 		// /model <name> — let the gateway handle the switch

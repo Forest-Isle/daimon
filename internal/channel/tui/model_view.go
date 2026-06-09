@@ -415,13 +415,12 @@ func orDefault(envKey, defaultVal string) string {
 	return defaultVal
 }
 
-// renderModelPanel renders the model info and reference panel.
+// renderModelPanel renders the interactive model selection panel.
 func (m Model) renderModelPanel() string {
 	var b strings.Builder
 	b.WriteString(statsHeaderStyle.Render("Model"))
 	b.WriteString("\n\n")
 
-	// Current model
 	current := m.metrics.model
 	if current == "" {
 		current = "pending first request"
@@ -436,35 +435,19 @@ func (m Model) renderModelPanel() string {
 	}
 	b.WriteString("\n")
 
-	// Anthropic models (with env var overrides)
-	anthroLabel := "Anthropic"
-	if os.Getenv("ANTHROPIC_DEFAULT_SONNET_MODEL") != "" {
-		anthroLabel += " (custom via env)"
-	}
-	b.WriteString(statsLabelStyle.Render(anthroLabel + ":"))
+	b.WriteString(statsLabelStyle.Render("Available:"))
 	b.WriteString("\n")
-	for _, mi := range getAnthropicModels() {
-		b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %s", mi.name)))
+	for i, mi := range m.modelItems {
+		if i == m.modelSelectionIdx {
+			b.WriteString(selectedSuggestionStyle.Render(fmt.Sprintf("▶ %-24s  %s", mi.name, mi.role)))
+		} else {
+			b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %-24s  %s", mi.name, mi.role)))
+		}
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
-	// OpenAI models
-	openaiLabel := "OpenAI-compatible"
-	if os.Getenv("OPENAI_DEFAULT_GPT5_MODEL") != "" {
-		openaiLabel += " (custom via env)"
-	}
-	b.WriteString(statsLabelStyle.Render(openaiLabel + ":"))
-	b.WriteString("\n")
-	for _, mi := range getOpenAIModels() {
-		b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %s", mi.name)))
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
-
-	b.WriteString(suggestionHintStyle.Render("  /model <name> to switch  [Esc] dismiss"))
-	b.WriteString("\n")
-	b.WriteString(suggestionHintStyle.Render("  Set ANTHROPIC_DEFAULT_* / OPENAI_DEFAULT_* env vars to customize"))
+	b.WriteString(suggestionHintStyle.Render("  [↑↓] Navigate  [Enter] Switch  [Esc] Dismiss"))
 
 	return statsPanelStyle.Width(m.width - 2).Render(b.String())
 }
