@@ -477,6 +477,6 @@ agent 编排器过度抽象，可在 agent_manager 中直接管理。
 |-------|------|------|-------------|------|
 | Phase 1 | 2026-06-09 | ✅ 完成 | 1,282 行 | eval(657) + discord(625), 零 import 引用, build/vet/test 全绿 |
 | Phase 2 | 2026-06-09 | ✅ 完成 | ~2,600 行 | logging→mcp, health→gateway, 删 ratelimit/dag/plan_task/tool_bridge, 消灭4包 |
-| Phase 3 | — | 待执行 | — | — |
+| Phase 3 | 2026-06-09 | ✅ 完成 | ~2,546 行 | 删13文件(backend×3+fork+trace+plan_mode+speculative+team×4+orchestrator核心),改12文件。inproc_bus/backend_ipc保留(有消费者),emitter/circuit_breaker/cache_metrics/message_bus/codebase_index保留(活跃使用) |
 | Phase 4 | — | 待执行 | — | — |
 | Phase 5 | — | 待执行 | — | — |
