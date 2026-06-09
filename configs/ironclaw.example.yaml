@@ -58,7 +58,7 @@ agent:
     Always explain what you're about to do before using tools.
 
 store:
-  path: "./data/ironclaw.db"
+  path: "${HOME}/.ironclaw/data/ironclaw.db"
 
 memory:
   # enabled: true                      # 默认开启，无需显式设置

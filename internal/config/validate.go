@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"reflect"
 
 	"gopkg.in/yaml.v3"
@@ -77,7 +78,7 @@ func validate(cfg *Config) error {
 		cfg.Agent.MaxIterations = 20
 	}
 	if cfg.Store.Path == "" {
-		cfg.Store.Path = "./data/ironclaw.db"
+		cfg.Store.Path = filepath.Join(homeDir(), ".ironclaw", "data", "ironclaw.db")
 	}
 
 	// Validate MCP server configs

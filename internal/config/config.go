@@ -170,7 +170,7 @@ func defaultConfig() Config {
 			Enabled: true,
 		},
 		Store: StoreConfig{
-			Path: "./data/ironclaw.db",
+			Path: filepath.Join(homeDir(), ".ironclaw", "data", "ironclaw.db"),
 		},
 		Health: HealthConfig{
 			Port: 9090,
@@ -227,6 +227,15 @@ func defaultConfig() Config {
 // bootstrapProjectConfig copies the global config to the project directory
 // as .ironclaw/ironclaw.yaml. The project copy starts identical to the global
 // config so the user can customize it independently. Returns nil on success.
+// homeDir returns the user's home directory, or "." if unavailable.
+func homeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	return home
+}
+
 func bootstrapProjectConfig(globalPath, projectPath string) error {
 	data, err := os.ReadFile(globalPath)
 	if err != nil {

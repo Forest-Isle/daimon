@@ -177,7 +177,7 @@ agent:
     token_estimate_ratio: 0.25
 
 store:
-  path: "./data/ironclaw.db"
+  path: "${HOME}/.ironclaw/data/ironclaw.db"
 
 memory:
   storage_type: file
