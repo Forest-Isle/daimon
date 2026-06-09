@@ -97,7 +97,8 @@ type Model struct {
 	toolHistory []toolHistoryEntry
 	toolCount   int // total tools executed this session
 	metrics     metricsState
-	showStats   bool   // toggle for detailed stats panel
+	showStats    bool // toggle for detailed stats panel
+	showHelpPanel bool // toggle for help/commands panel
 
 	// Compression tracking for stats panel
 	compressionCount   int

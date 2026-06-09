@@ -33,8 +33,10 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 		return true, nil
 
 	case "help", "h", "?":
-		m.showHelp()
-		m.updateViewportKeepScroll()
+		if m.showStats {
+			m.showStats = false
+		}
+		m.showHelpPanel = !m.showHelpPanel
 		return true, nil
 
 	case "version", "v":

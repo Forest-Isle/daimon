@@ -49,6 +49,11 @@ func (m Model) View() string {
 			b.WriteString("\n")
 		}
 
+		if m.showHelpPanel {
+			b.WriteString(m.renderHelpPanel())
+			b.WriteString("\n")
+		}
+
 		if m.showStats {
 			b.WriteString(m.renderStatsPanel())
 			b.WriteString("\n")
@@ -357,6 +362,39 @@ func (m Model) renderSuggestions() string {
 	b.WriteString(suggestionHintStyle.Render("  [↑↓] Navigate  [Tab] Accept  [Enter] Execute  [Esc] Dismiss"))
 
 	return suggestionBoxStyle.Width(m.width - 4).Render(b.String())
+}
+
+// renderHelpPanel renders the commands reference panel.
+func (m Model) renderHelpPanel() string {
+	var b strings.Builder
+	b.WriteString(statsHeaderStyle.Render("Commands"))
+	b.WriteString("\n\n")
+
+	categories := make(map[string][]Command)
+	for _, cmd := range GetCommands() {
+		categories[cmd.Category] = append(categories[cmd.Category], cmd)
+	}
+
+	// Builtin commands
+	if cmds, ok := categories["builtin"]; ok {
+		b.WriteString(statsLabelStyle.Render("Built-in"))
+		b.WriteString("\n")
+		for _, cmd := range cmds {
+			name := statsValueStyle.Render(fmt.Sprintf("  /%-14s", cmd.Name))
+			var desc string
+			if cmd.ArgHint != "" {
+				desc = cmd.ArgHint + " — " + cmd.Description
+			} else {
+				desc = cmd.Description
+			}
+			b.WriteString(fmt.Sprintf("%s  %s\n", name, statsLabelStyle.Render(desc)))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(suggestionHintStyle.Render("  [Esc] dismiss"))
+
+	return statsPanelStyle.Width(m.width - 2).Render(b.String())
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────

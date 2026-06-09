@@ -224,6 +224,10 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
 		// Priority: close panels first, then cancel running request
+		if m.showHelpPanel {
+			m.showHelpPanel = false
+			return m, nil
+		}
 		if m.showStats {
 			m.showStats = false
 			return m, nil
