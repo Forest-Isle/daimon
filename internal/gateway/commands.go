@@ -5,58 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
-	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 )
-
-// handleTasks lists running and pending tasks from the task ledger.
-func (gw *Gateway) handleTasks(ctx context.Context, _ channel.Channel, msg channel.InboundMessage) (string, error) {
-	if gw.tasks.TaskLedger() == nil {
-		return "Task ledger not available.", nil
-	}
-
-	running := taskledger.TaskStateRunning
-	runningTasks, err := gw.tasks.TaskLedger().List(ctx, taskledger.TaskFilter{State: &running})
-	if err != nil {
-		return "", fmt.Errorf("failed to list tasks: %w", err)
-	}
-
-	pending := taskledger.TaskStatePending
-	pendingTasks, err := gw.tasks.TaskLedger().List(ctx, taskledger.TaskFilter{State: &pending})
-	if err != nil {
-		return "", fmt.Errorf("failed to list tasks: %w", err)
-	}
-
-	var b strings.Builder
-	b.WriteString("**Task Ledger**\n\n")
-
-	if len(runningTasks) == 0 && len(pendingTasks) == 0 {
-		b.WriteString("No active tasks.")
-	} else {
-		if len(runningTasks) > 0 {
-			fmt.Fprintf(&b, "Running (%d):\n", len(runningTasks))
-			for _, t := range runningTasks {
-				age := time.Since(t.CreatedAt).Truncate(time.Second)
-				fmt.Fprintf(&b, "  ▶ [%s] %s (%s ago)\n", t.Kind, t.Title, age)
-			}
-		}
-		if len(pendingTasks) > 0 {
-			if len(runningTasks) > 0 {
-				b.WriteString("\n")
-			}
-			fmt.Fprintf(&b, "Pending (%d):\n", len(pendingTasks))
-			for _, t := range pendingTasks {
-				fmt.Fprintf(&b, "  ○ [%s] %s\n", t.Kind, t.Title)
-			}
-		}
-	}
-
-	return b.String(), nil
-}
-
 
 // handleMode processes the /mode command.
 func (gw *Gateway) handleMode(ctx context.Context, _ channel.Channel, msg channel.InboundMessage) (string, error) {

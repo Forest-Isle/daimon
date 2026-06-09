@@ -12,9 +12,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
-	"github.com/Forest-Isle/IronClaw/internal/util"
 )
 
 // ApprovalFunc is called when a tool requires user approval.
@@ -90,28 +88,6 @@ func (a *Agent) Sessions() *session.Manager { return a.deps.Core.Sessions }
 // HandleMessage is the single entry point for all agent modes.
 func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
 	ctx = AgentToContext(ctx, a)
-
-	// Task ledger registration
-	if a.deps.MultiAgent.TaskLedger != nil {
-		task := taskledger.Task{
-			ID:    fmt.Sprintf("req_%d", time.Now().UnixNano()),
-			Kind:  taskledger.TaskKindUserRequest,
-			State: taskledger.TaskStateRunning,
-			Title: util.TruncateStr(msg.Text, 100),
-		}
-		if err := a.deps.MultiAgent.TaskLedger.Register(ctx, task); err != nil {
-			slog.Warn("agent: failed to register task", "err", err)
-		} else {
-			defer func() {
-				task.State = taskledger.TaskStateCompleted
-				now := time.Now()
-				task.CompletedAt = &now
-				if err := a.deps.MultiAgent.TaskLedger.Update(ctx, task); err != nil {
-					slog.Warn("agent: failed to complete task", "err", err)
-				}
-			}()
-		}
-	}
 
 	sess, err := a.deps.Core.Sessions.Get(ctx, msg.Channel, msg.ChannelID)
 	if err != nil {

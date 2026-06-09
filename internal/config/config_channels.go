@@ -11,14 +11,6 @@ type LLMConfig struct {
 	Retry     RetryConfig `yaml:"retry"`
 }
 
-type ObservabilityConfig struct {
-	Enabled     bool    `yaml:"enabled"`
-	ServiceName string  `yaml:"service_name"`
-	Exporter    string  `yaml:"exporter"`
-	Endpoint    string  `yaml:"endpoint"`
-	SampleRate  float64 `yaml:"sample_rate"`
-}
-
 // RetryConfig controls retry behavior for LLM API calls.
 type RetryConfig struct {
 	MaxRetries int           `yaml:"max_retries"`

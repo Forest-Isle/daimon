@@ -1,13 +1,10 @@
 package gateway
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
-	"github.com/Forest-Isle/IronClaw/internal/sandbox"
-	"github.com/Forest-Isle/IronClaw/internal/worktree"
 )
 
 func registerFeatures(cfg *config.Config) *feature.Registry {
@@ -29,26 +26,9 @@ func registerFeatures(cfg *config.Config) *feature.Registry {
 		Default:     true,
 	})
 	r.Register(feature.Feature{
-		Name:        "scheduler",
-		Description: "Scheduled task execution",
-		Default:     true,
-	})
-	r.Register(feature.Feature{
-		Name:        "sandbox",
-		Description: "Docker container isolation for bash execution",
-		Default:     true,
-		AutoDetect:  sandbox.ProbeDocker,
-	})
-	r.Register(feature.Feature{
 		Name:        "server",
 		Description: "Standalone HTTP admin server",
 		Default:     false,
-	})
-	r.Register(feature.Feature{
-		Name:        "worktree",
-		Description: "Git worktree-based code isolation for safe file modifications",
-		Default:     true,
-		AutoDetect:  func(ctx context.Context) bool { return worktree.Available() },
 	})
 
 	// MCP servers — each configured server gets its own feature
@@ -71,8 +51,6 @@ func configToOverrides(cfg *config.Config) map[string]bool {
 		"memory":          cfg.Memory.Enabled,
 		"skills":          cfg.Skills.Enabled,
 		"multi_agent":     cfg.Agents.Enabled,
-		"scheduler":       cfg.Scheduler.Enabled,
-		"sandbox":         cfg.Sandbox.Enabled,
 		"server":          cfg.Server.Enabled,
 	}
 }

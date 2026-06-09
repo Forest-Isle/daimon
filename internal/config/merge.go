@@ -109,14 +109,6 @@ func mergeConfig(base *Config, overlay *Config) {
 		base.Memory.VectorDimension = overlay.Memory.VectorDimension
 	}
 
-	// Scheduler
-	if overlay.Scheduler.Enabled {
-		base.Scheduler.Enabled = true
-	}
-	if overlay.Scheduler.PollInterval > 0 {
-		base.Scheduler.PollInterval = overlay.Scheduler.PollInterval
-	}
-
 	// Tools.Bash
 	if overlay.Tools.Bash.Timeout > 0 {
 		base.Tools.Bash.Timeout = overlay.Tools.Bash.Timeout
@@ -191,29 +183,6 @@ func mergeConfig(base *Config, overlay *Config) {
 	}
 	if len(overlay.Permissions.Rules) > 0 {
 		base.Permissions.Rules = MergePermissionRules(base.Permissions.Rules, overlay.Permissions.Rules)
-	}
-
-	// Sandbox
-	if overlay.Sandbox.Enabled {
-		base.Sandbox.Enabled = true
-	}
-	if len(overlay.Sandbox.AllowedDirectories) > 0 {
-		base.Sandbox.AllowedDirectories = append(base.Sandbox.AllowedDirectories, overlay.Sandbox.AllowedDirectories...)
-	}
-	if len(overlay.Sandbox.ReadonlyDirectories) > 0 {
-		base.Sandbox.ReadonlyDirectories = append(base.Sandbox.ReadonlyDirectories, overlay.Sandbox.ReadonlyDirectories...)
-	}
-	if overlay.Sandbox.Bash.Backend != "" {
-		base.Sandbox.Bash.Backend = overlay.Sandbox.Bash.Backend
-	}
-	if overlay.Sandbox.Network.Mode != "" {
-		base.Sandbox.Network.Mode = overlay.Sandbox.Network.Mode
-	}
-	if len(overlay.Sandbox.Network.Blacklist) > 0 {
-		base.Sandbox.Network.Blacklist = append(base.Sandbox.Network.Blacklist, overlay.Sandbox.Network.Blacklist...)
-	}
-	if len(overlay.Sandbox.Network.Whitelist) > 0 {
-		base.Sandbox.Network.Whitelist = append(base.Sandbox.Network.Whitelist, overlay.Sandbox.Network.Whitelist...)
 	}
 
 	// Hooks — append handlers from overlay

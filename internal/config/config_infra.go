@@ -39,11 +39,6 @@ type FileStorageConfig struct {
 	Compression    bool          `yaml:"compression"`     // enable gzip compression for large files
 }
 
-type SchedulerConfig struct {
-	Enabled      bool          `yaml:"enabled"`
-	PollInterval time.Duration `yaml:"poll_interval"`
-}
-
 type ServerConfig struct {
 	Addr    string `yaml:"addr"`
 	Enabled bool   `yaml:"enabled"`

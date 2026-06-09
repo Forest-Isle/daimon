@@ -31,7 +31,6 @@ func (gw *Gateway) initMultiAgent() error {
 		deps.Core.AgentID = "subagent-manager"
 
 		subAgentMgr := agent.NewSubAgentManager(deps)
-		gw.tasks.subAgentMgr = subAgentMgr
 		gw.agentDeps.MultiAgent.SubAgentMgr = subAgentMgr
 
 		// Agent manager for loading agent specs

@@ -11,7 +11,7 @@ This file is a compact handoff for coding assistants working in this repository.
 
 ## Important Current Facts
 
-- Feature Registry defaults these core systems on: memory, skills, multi-agent, scheduler, sandbox, worktree.
+- Feature Registry defaults these core systems on: memory, skills, multi-agent.
 - Standalone admin server is opt-in.
 - `agent.mode` accepts `simple`, `unified`, and legacy `cognitive`; `cognitive` maps to UnifiedLoop behavior.
 - Sub-agents run in-process only. `internal/agent/spec.go` contains future A2A remote-agent fields; remote A2A execution is not implemented.

@@ -27,8 +27,8 @@ func (gw *Gateway) initAgentRuntime() error {
 
 	// Build interceptor chain helper
 	getInterceptor := func() *tool.InterceptorChain {
-		if gw.sandbox.InterceptorChain() != nil {
-			return gw.sandbox.InterceptorChain()
+		if gw.interceptorChain != nil {
+			return gw.interceptorChain
 		}
 		return tool.NewInterceptorChain(nil)
 	}

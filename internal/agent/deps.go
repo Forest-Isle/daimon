@@ -7,7 +7,6 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/Forest-Isle/IronClaw/internal/store"
-	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
@@ -103,16 +102,12 @@ type MultiAgentDeps struct {
 	SubAgentMgr  *SubAgentManager // nil = no sub-agents
 	AgentMCP     *AgentMCPManager
 	ResultStore  *tool.ResultStore
-	TaskLedger   taskledger.TaskLedger // default: taskledger.NoopTaskLedger()
-	BgManager    *BackgroundManager    // nil = disabled
-	PromptCache  *PromptCache          // nil = disabled
+	BgManager    *BackgroundManager // nil = disabled
+	PromptCache  *PromptCache       // nil = disabled
 }
 
 // WithDefaults returns a copy of MultiAgentDeps with nil interface fields filled.
 func (d MultiAgentDeps) WithDefaults() MultiAgentDeps {
-	if d.TaskLedger == nil {
-		d.TaskLedger = taskledger.NoopTaskLedger()
-	}
 	return d
 }
 

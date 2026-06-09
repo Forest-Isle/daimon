@@ -19,12 +19,9 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/feature"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/mcp"
-	"github.com/Forest-Isle/IronClaw/internal/sandbox"
-	"github.com/Forest-Isle/IronClaw/internal/scheduler"
 	"github.com/Forest-Isle/IronClaw/internal/session"
 	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/Forest-Isle/IronClaw/internal/store"
-	"github.com/Forest-Isle/IronClaw/internal/taskledger"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
 	"github.com/Forest-Isle/IronClaw/internal/userdir"
 )
@@ -40,6 +37,7 @@ type Gateway struct {
 	provider         agent.Provider // stored for completerAdapter use
 	agent            *agent.Agent
 	tools            *tool.Registry
+	interceptorChain *tool.InterceptorChain
 	hookMgr          *hook.Manager
 	permEngine       *tool.PermissionEngine
 	skillMgr         *skill.Manager
@@ -58,11 +56,8 @@ type Gateway struct {
 	initCancel       context.CancelFunc
 
 	// Subsystems — each manages a group of related fields
-	memory        *MemorySubsystem
-	channels      *ChannelSubsystem
-	sandbox       *SandboxSubsystem
-	tasks         *TaskSubsystem
-	observability *ObservabilitySubsystem
+	memory   *MemorySubsystem
+	channels *ChannelSubsystem
 
 	// emitter is the active ObservabilityEmitter shared by the agent runtime,
 	// context manager, and channel consumers (e.g. TUI status bar). Nil means
@@ -100,11 +95,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// by the init* methods below.
 	gw.memory = &MemorySubsystem{}
 	gw.channels = &ChannelSubsystem{channels: make(map[string]channel.Channel)}
-	gw.sandbox = &SandboxSubsystem{}
-	gw.tasks = &TaskSubsystem{}
-	gw.observability = &ObservabilitySubsystem{
-		obsShutdown: func(context.Context) {},
-	}
 	gw.currentMode.Store(cfg.Agent.Mode)
 	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
 
@@ -118,13 +108,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.healthRegistry.Register("database", CheckerFunc(func(ctx context.Context) error {
 		return gw.db.PingContext(ctx)
 	}))
-
-	obsShutdown, err := initObservability(gw.initCtx, *cfg)
-	if err != nil {
-		slog.Warn("observability init failed, continuing without telemetry", "err", err)
-		obsShutdown = func(context.Context) {}
-	}
-	gw.observability.obsShutdown = obsShutdown
 
 	opt := GatewayOptions{}
 	if len(opts) > 0 {
@@ -147,16 +130,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	if err = gw.initToolsAndHooks(); err != nil {
 		return nil, fmt.Errorf("tools: %w", err)
-	}
-
-	// Register Docker health check if Docker sandbox is available
-	if gw.sandbox.DockerSessionManager() != nil {
-		gw.healthRegistry.Register("docker", CheckerFunc(func(ctx context.Context) error {
-			if !sandbox.ProbeDocker(ctx) {
-				return fmt.Errorf("docker daemon not reachable")
-			}
-			return nil
-		}))
 	}
 
 	if err = gw.initAgentRuntime(); err != nil {
@@ -187,29 +160,13 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		return nil, fmt.Errorf("multi-agent: %w", err)
 	}
 
-	// Task ledger
-	gw.tasks.taskLedger = taskledger.NewSQLiteTaskLedger(gw.db)
-	gw.agentDeps.MultiAgent.TaskLedger = gw.tasks.TaskLedger()
-
-	// Scheduler
-	gw.channels.sched = scheduler.New(gw.db, cfg.Scheduler.PollInterval)
 	gw.mcpManager = mcp.NewManager()
 
 	// Approval wiring
 	gw.agent.SetApprovalFunc(gw.handleApproval)
 
-	// Scheduler handler
-	sched := gw.channels.Scheduler()
-	sched.SetHandler(func(ctx context.Context, task scheduler.Task) {
-		gw.handleInbound(ctx, channel.InboundMessage{
-			Channel: task.Channel, ChannelID: task.ChannelID,
-			UserID: "scheduler", UserName: "scheduler", Text: task.Prompt,
-		})
-	})
-
 	// Populate command table
 	gw.cmdTable = commandTable{
-		"/tasks":   {gw.handleTasks, true},
 		"/mode":    {gw.handleMode, false},
 		"/feature": {gw.handleFeature, false},
 		"/config":  {gw.handleConfig, true},
@@ -221,10 +178,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	// Build subsystems list in dependency order
 	gw.subsystems = Subsystems{
-		gw.observability, // shutdown last, start first
 		gw.memory,
-		gw.sandbox,
-		gw.tasks,
 		gw.channels,
 	}
 
@@ -319,24 +273,10 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		slog.Info("channel started", "name", name)
 	}
 
-	// Start scheduler
-	if gw.features.IsEnabled("scheduler") {
-		gw.channels.Scheduler().Start(ctx)
-		slog.Info("scheduler started")
-	}
-
 	// Start HTTP admin server if enabled (standalone)
 	if gw.features.IsEnabled("server") {
 		go startHTTPServer(gw.Config().Server.Addr, gw.db)
 	}
-
-	// Start stale task detector
-	if gw.tasks.TaskLedger() != nil {
-		if err := gw.tasks.Start(ctx); err != nil {
-			slog.Warn("gateway: stale detector start failed", "err", err)
-		}
-	}
-
 
 	slog.Info("gateway started")
 	return nil

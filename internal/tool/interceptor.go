@@ -2,13 +2,6 @@ package tool
 
 import (
 	"context"
-	"time"
-
-	"github.com/Forest-Isle/IronClaw/internal/observability"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // InterceptorFunc is the function signature for the next step in the chain.
@@ -48,19 +41,8 @@ func NewInterceptorChain(interceptors []ToolInterceptor) *InterceptorChain {
 
 // Execute runs the interceptor chain, ending with the final function.
 func (c *InterceptorChain) Execute(ctx context.Context, call *ToolCall, final InterceptorFunc) (*ToolResult, error) {
-	ctx, span := observability.StartSpan(ctx, "tool.execute",
-		observability.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			attribute.String("tool.name", call.ToolName),
-			attribute.String("session.id", call.SessionID),
-		))
-	start := time.Now()
-	defer span.End()
-
 	if len(c.interceptors) == 0 {
-		result, err := final(ctx, call)
-		recordToolExecution(ctx, span, start, call, result, err)
-		return result, err
+		return final(ctx, call)
 	}
 	handler := final
 	for i := len(c.interceptors) - 1; i >= 0; i-- {
@@ -70,30 +52,5 @@ func (c *InterceptorChain) Execute(ctx context.Context, call *ToolCall, final In
 			return ic.Intercept(ctx, call, next)
 		}
 	}
-	result, err := handler(ctx, call)
-	recordToolExecution(ctx, span, start, call, result, err)
-	return result, err
-}
-
-func recordToolExecution(
-	ctx context.Context,
-	span trace.Span,
-	start time.Time,
-	call *ToolCall,
-	result *ToolResult,
-	err error,
-) {
-	status := "success"
-	if err != nil {
-		status = "error"
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-	} else if result != nil && result.Error != "" {
-		status = "error"
-	}
-	observability.ToolExecutionDuration.Record(ctx, time.Since(start).Milliseconds(),
-		metric.WithAttributes(
-			attribute.String("tool.name", call.ToolName),
-			attribute.String("status", status),
-		))
+	return handler(ctx, call)
 }

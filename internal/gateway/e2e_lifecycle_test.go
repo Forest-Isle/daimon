@@ -42,10 +42,6 @@ func TestGatewayFullLifecycle(t *testing.T) {
 	cfg.Agent.Mode = "simple"
 	// Enable memory so the memory-backed tools (core_memory, amp_memory) wire up.
 	cfg.Memory.Enabled = true
-	// Keep scheduler enabled (default) so Start() boots its goroutine.
-	cfg.Scheduler.Enabled = true
-	cfg.Scheduler.PollInterval = time.Hour // long interval — we only verify boot/teardown
-
 	gw, err := New(cfg)
 	require.NoError(t, err)
 
@@ -54,8 +50,6 @@ func TestGatewayFullLifecycle(t *testing.T) {
 	assert.NotNil(t, gw.tools, "tool registry")
 	assert.NotNil(t, gw.sessions, "session manager")
 	assert.NotNil(t, gw.features, "feature registry")
-	assert.NotNil(t, gw.channels.Scheduler(), "scheduler")
-	assert.NotNil(t, gw.tasks.TaskLedger(), "task ledger")
 	assert.NotNil(t, gw.healthRegistry, "health registry")
 
 	// Core tools must be registered end-to-end.

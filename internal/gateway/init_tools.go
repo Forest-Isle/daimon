@@ -10,9 +10,7 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
-	"github.com/Forest-Isle/IronClaw/internal/sandbox"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
-	"github.com/Forest-Isle/IronClaw/internal/worktree"
 )
 
 func (gw *Gateway) initToolsAndHooks() error {
@@ -36,9 +34,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 		gw.tools.Register(tool.NewListImportsTool("."))
 	}
 	if cfg.Tools.HTTP.Enabled {
-		httpTool := tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval)
-		gw.tools.Register(httpTool)
-		gw.sandbox.httpTool = httpTool // stored for redirect-check injection after network policy is created
+		gw.tools.Register(tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval))
 	}
 	if gw.codebaseIndex == nil {
 		gw.codebaseIndex = newCodebaseIndexFromConfig(gw)
@@ -73,10 +69,6 @@ func (gw *Gateway) initToolsAndHooks() error {
 		))
 	}
 
-	// Worktree tools for isolated code changes
-	if gw.featureEnabled("worktree") {
-		worktree.RegisterTools(gw.tools, ".")
-	}
 	// Hook event system
 	hookCfg := cfg.Hooks
 	preToolUseCfg := make([]hook.HandlerConfig, len(hookCfg.PreToolUse))
@@ -114,56 +106,13 @@ func (gw *Gateway) initToolsAndHooks() error {
 		}
 	}
 	gw.permEngine = tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
-	// Sandbox components
-	var fileGuard *sandbox.FileGuard
-	var networkPolicy *sandbox.NetworkPolicy
-	sandboxEnabled := gw.featureEnabled("sandbox")
 
-	if sandboxEnabled {
-		if len(cfg.Sandbox.AllowedDirectories) > 0 {
-			var err error
-			fileGuard, err = sandbox.NewFileGuard(cfg.Sandbox.AllowedDirectories, cfg.Sandbox.ReadonlyDirectories)
-			if err != nil {
-				slog.Warn("sandbox: FileGuard init failed, disabled", "err", err)
-			}
-		}
-		networkPolicy = sandbox.NewNetworkPolicy(
-			cfg.Sandbox.Network.Mode,
-			cfg.Sandbox.Network.Whitelist,
-			cfg.Sandbox.Network.Blacklist,
-		)
-
-	// Inject redirect validation into HTTP tool so that HTTP redirects
-	// are re-checked against the network policy (SSRF protection).
-	if gw.sandbox.httpTool != nil && networkPolicy != nil {
-		gw.sandbox.httpTool.SetCheckRedirect(networkPolicy.CheckURL)
-	}
-		if cfg.Sandbox.Bash.Backend == "docker" {
-			sandbox.CleanupOrphans(gw.initCtx)
-			available := sandbox.ProbeDocker(gw.initCtx)
-			if !available {
-				slog.Warn("sandbox: Docker not available, bash will run on host")
-			}
-			gw.sandbox.dockerSessionMgr = sandbox.NewDockerSessionManager(sandbox.DockerSessionConfig{
-				Image:        cfg.Sandbox.Bash.Docker.Image,
-				NetworkMode:  cfg.Sandbox.Bash.Docker.Network,
-				MemoryLimit:  cfg.Sandbox.Bash.Docker.MemoryLimit,
-				CPULimit:     cfg.Sandbox.Bash.Docker.CPULimit,
-				AllowedDirs:  cfg.Sandbox.AllowedDirectories,
-				ReadonlyDirs: cfg.Sandbox.ReadonlyDirectories,
-				IdleTimeout:  cfg.Sandbox.Bash.Docker.IdleTimeout,
-			}, available)
-		}
-	}
-
-	// Build interceptor chain: permission -> hook -> sandbox -> verify -> audit
+	// Build interceptor chain: permission -> hook -> user-hook -> verify -> audit
 	auditInterceptor, err := tool.NewAuditInterceptor("")
 	if err != nil {
 		slog.Warn("audit interceptor init failed, continuing without audit", "err", err)
 	}
 	verifyInterceptor := tool.NewVerifyInterceptor(".")
-
-	// Progressive trust tracker removed (Phase 4 — trust accumulation over-designed)
 
 	interceptors := []tool.ToolInterceptor{
 		tool.NewPermissionInterceptor(gw.permEngine,
@@ -171,7 +120,6 @@ func (gw *Gateway) initToolsAndHooks() error {
 			tool.WithApprover(NewGatewayToolApprover(gw.sessions, gw.channels))),
 		tool.NewHookInterceptor(gw.hookMgr),
 		newUserHookInterceptor(gw.userHookMgr),
-		tool.NewSandboxInterceptor(gw.sandbox.dockerSessionMgr, fileGuard, networkPolicy, sandboxEnabled),
 	}
 	if cfg.Tools.Verify.Enabled {
 		interceptors = append(interceptors, verifyInterceptor)
@@ -179,9 +127,7 @@ func (gw *Gateway) initToolsAndHooks() error {
 	if auditInterceptor != nil {
 		interceptors = append(interceptors, auditInterceptor)
 	}
-	gw.sandbox.interceptorChain = tool.NewInterceptorChain(interceptors)
-
-	slog.Info("sandbox system initialized", "enabled", sandboxEnabled)
+	gw.interceptorChain = tool.NewInterceptorChain(interceptors)
 
 	return nil
 }

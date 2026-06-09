@@ -7,16 +7,10 @@ import (
 	"log/slog"
 	"strings"
 	"sync/atomic"
-	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/observability"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // APIPromptCacheStats tracks Anthropic API-level prompt caching metrics across calls.
@@ -83,59 +77,24 @@ func (c *ClaudeProvider) Complete(ctx context.Context, req CompletionRequest) (*
 	if model == "" {
 		model = c.model
 	}
-	ctx, span := observability.StartSpan(ctx, "llm.complete",
-		observability.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			attribute.String("provider", "claude"),
-			attribute.String("model", model),
-		))
-	start := time.Now()
-	defer span.End()
-	defer func() {
-		observability.LLMRequestDuration.Record(ctx, time.Since(start).Milliseconds(),
-			metric.WithAttributes(
-				attribute.String("provider", "claude"),
-				attribute.String("model", model),
-				attribute.String("operation", "complete"),
-			))
-	}()
-
 	params := c.buildParams(req)
 	resp, err := c.client.Messages.New(ctx, params)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("claude complete: %w", err)
 	}
 
 	// Track prompt cache token usage
 	c.trackCacheUsage(resp.Usage)
-	recordClaudeTokenMetrics(ctx, model, resp.Usage)
 
 	return c.parseResponse(resp), nil
 }
 
 func (c *ClaudeProvider) Stream(ctx context.Context, req CompletionRequest) (StreamIterator, error) {
-	model := req.Model
-	if model == "" {
-		model = c.model
-	}
-	ctx, span := observability.StartSpan(ctx, "llm.complete",
-		observability.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			attribute.String("provider", "claude"),
-			attribute.String("model", model),
-		))
-	start := time.Now()
 	params := c.buildParams(req)
 	stream := c.client.Messages.NewStreaming(ctx, params)
 	return &claudeStreamIterator{
 		stream:    stream,
 		provider:  c,
-		ctx:       ctx,
-		span:      span,
-		start:     start,
-		model:     model,
 		finalized: false,
 	}, nil
 }
@@ -301,10 +260,6 @@ type claudeStreamIterator struct {
 	done      bool
 	accum     anthropic.Message
 	provider  *ClaudeProvider // back-reference for tracking cache usage
-	ctx       context.Context
-	span      trace.Span
-	start     time.Time
-	model     string
 	finalized bool
 }
 
@@ -330,7 +285,6 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 			if it.provider != nil {
 				it.provider.trackCacheUsage(it.accum.Usage)
 			}
-			recordClaudeTokenMetrics(it.ctx, it.model, it.accum.Usage)
 			resp := parseStreamedMessage(&it.accum)
 			delta := StreamDelta{
 				Done:       true,
@@ -357,7 +311,6 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 	if it.provider != nil {
 		it.provider.trackCacheUsage(it.accum.Usage)
 	}
-	recordClaudeTokenMetrics(it.ctx, it.model, it.accum.Usage)
 	resp := parseStreamedMessage(&it.accum)
 	delta := StreamDelta{Done: true, StopReason: resp.StopReason, ToolCalls: resp.ToolCalls}
 	if len(resp.ToolCalls) > 0 {
@@ -374,30 +327,11 @@ func (it *claudeStreamIterator) Close() {
 	it.finish(nil)
 }
 
-func (it *claudeStreamIterator) finish(err error) {
+func (it *claudeStreamIterator) finish(_ error) {
 	if it.finalized {
 		return
 	}
 	it.finalized = true
-	if err != nil && it.span != nil {
-		it.span.RecordError(err)
-		it.span.SetStatus(codes.Error, err.Error())
-	}
-	observability.LLMRequestDuration.Record(it.ctx, time.Since(it.start).Milliseconds(),
-		metric.WithAttributes(
-			attribute.String("provider", "claude"),
-			attribute.String("model", it.model),
-			attribute.String("operation", "stream"),
-		))
-	if it.span != nil {
-		if it.accum.Usage.InputTokens > 0 || it.accum.Usage.OutputTokens > 0 {
-			it.span.SetAttributes(
-				attribute.Int("gen_ai.usage.input_tokens", int(it.accum.Usage.InputTokens)),
-				attribute.Int("gen_ai.usage.output_tokens", int(it.accum.Usage.OutputTokens)),
-			)
-		}
-		it.span.End()
-	}
 }
 
 func parseStreamedMessage(msg *anthropic.Message) *CompletionResponse {
@@ -447,21 +381,3 @@ func (c *ClaudeProvider) trackCacheUsage(usage anthropic.Usage) {
 	}
 }
 
-func recordClaudeTokenMetrics(ctx context.Context, model string, usage anthropic.Usage) {
-	if usage.InputTokens > 0 {
-		observability.LLMTokensTotal.Add(ctx, usage.InputTokens,
-			metric.WithAttributes(
-				attribute.String("provider", "claude"),
-				attribute.String("model", model),
-				attribute.String("token_type", "input"),
-			))
-	}
-	if usage.OutputTokens > 0 {
-		observability.LLMTokensTotal.Add(ctx, usage.OutputTokens,
-			metric.WithAttributes(
-				attribute.String("provider", "claude"),
-				attribute.String("model", model),
-				attribute.String("token_type", "output"),
-			))
-	}
-}

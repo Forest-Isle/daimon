@@ -151,16 +151,13 @@ func TestMergeConfig_NilOverlay(t *testing.T) {
 func TestMergeConfig_SlicesAppend(t *testing.T) {
 	base := defaultConfig()
 	base.Tools.Bash.BlockedCommands = []string{"rm"}
-	base.Sandbox.AllowedDirectories = []string{"/home"}
 
 	overlay := &Config{}
 	overlay.Tools.Bash.BlockedCommands = []string{"dd"}
-	overlay.Sandbox.AllowedDirectories = []string{"/tmp"}
 
 	mergeConfig(&base, overlay)
 
 	assert.Equal(t, []string{"rm", "dd"}, base.Tools.Bash.BlockedCommands)
-	assert.Equal(t, []string{"/home", "/tmp"}, base.Sandbox.AllowedDirectories)
 }
 
 func TestMergeConfig_PermissionsDenyFirst(t *testing.T) {

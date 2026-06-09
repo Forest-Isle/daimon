@@ -17,16 +17,13 @@ type Config struct {
 	Agent         AgentConfig         `yaml:"agent"`
 	Store         StoreConfig         `yaml:"store"`
 	Memory        MemoryConfig        `yaml:"memory"`
-	Scheduler     SchedulerConfig     `yaml:"scheduler"`
 	Tools         ToolsConfig         `yaml:"tools"`
 	Server        ServerConfig        `yaml:"server"`
 	Health        HealthConfig        `yaml:"health"`
 	Log           LogConfig           `yaml:"log"`
-	Observability ObservabilityConfig `yaml:"observability"`
 	Skills        SkillsConfig        `yaml:"skills"`
 	Agents        AgentsConfig        `yaml:"agents"`
 	Permissions   PermissionsConfig   `yaml:"permissions"`
-	Sandbox       SandboxConfig       `yaml:"sandbox"`
 	Hooks         HooksConfig         `yaml:"hooks"`
 
 }
@@ -124,10 +121,6 @@ func defaultConfig() Config {
 			Level:  "info",
 			Format: "text",
 		},
-		Scheduler: SchedulerConfig{
-			Enabled:      true,
-			PollInterval: 30 * time.Second,
-		},
 		Tools: ToolsConfig{
 			Bash: BashToolConfig{
 				Enabled:          true,
@@ -166,22 +159,6 @@ func defaultConfig() Config {
 		},
 		Permissions: PermissionsConfig{
 			Default: "ask",
-		},
-		Sandbox: SandboxConfig{
-			Enabled: false,
-			Bash: BashSandboxConfig{
-				Backend: "host",
-				Docker: DockerSandboxConfig{
-					Image:       "ironclaw-sandbox:latest",
-					Network:     "none",
-					MemoryLimit: "512m",
-					CPULimit:    "1.0",
-					IdleTimeout: 30 * time.Minute,
-				},
-			},
-			Network: NetworkConfig{
-				Mode: "blacklist",
-			},
 		},
 	}
 }
