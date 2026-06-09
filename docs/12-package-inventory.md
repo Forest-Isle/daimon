@@ -13,7 +13,7 @@ This inventory is based on `go list ./...`.
 | Package | Role |
 |---|---|
 | `internal/gateway` | Composition root, feature lifecycle, subsystem init/start/stop, slash commands, config hot reload. |
-| `internal/agent` | Agent runtime, provider adapters, loop strategies, context compression, sub-agents, teams, speculative execution, prompt cache, codebase index. |
+| `internal/agent` | Agent runtime, provider adapters, loop strategies, context compression, sub-agents, prompt cache, codebase index. |
 | `internal/dag` | DAG executor support for structured task execution. |
 | `internal/feature` | Feature registry, dependency resolution, persistence of runtime feature overrides. |
 | `internal/config` | YAML config structs, defaults, env expansion, hierarchy overlays, validation, permission merge rules. |
@@ -53,7 +53,7 @@ This inventory is based on `go list ./...`.
 |---|---|
 | `internal/store` | SQLite open/migration/audit helpers. |
 | `internal/session` | Session model, history, persistence manager. |
-| `internal/taskledger` | Task ledger, stale detector, team coordinator/planner, noop implementation. |
+| `internal/taskledger` | Task ledger, stale detector, noop implementation. |
 | `internal/scheduler` | Scheduled task model and poller. |
 
 ## Observability

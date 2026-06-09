@@ -229,18 +229,9 @@ log:
   level: info
   format: text
 
-# Multi-agent system — sub-agent execution backends
-# Each agent spec can specify a `backend` field:
-#   in_process  — goroutine execution (default, lowest latency)
-#   subprocess  — child process isolation (shared DB, no MCP tools)
-#   docker      — container isolation (independent DB, full isolation)
+# Multi-agent system — sub-agents run in-process (goroutine execution).
 #
 # multi_agent:
 #   agents:
 #     researcher:
 #       backend: in_process
-#     code_runner:
-#       backend: subprocess
-#     sandbox:
-#       backend: docker
-#       # Requires: docker pull ironclaw:latest

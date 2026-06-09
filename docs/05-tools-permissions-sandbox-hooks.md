@@ -18,7 +18,7 @@ type Tool interface {
 
 Optional interfaces add runtime behavior:
 
-- `ReadOnlyTool`: eligible for read-only concurrency and speculative execution.
+- `ReadOnlyTool`: eligible for read-only concurrency.
 - `CapableTool`: declares read-only/destructive/network/approval/parallel-safety metadata.
 - `PathScopedTool`: allows path conflict detection for concurrent file operations.
 - `AvailableTool`: hides a tool when runtime prerequisites are missing.
@@ -36,7 +36,6 @@ Gateway registers built-ins based on `cfg.Tools`:
 | `worktree` feature | `worktree_create`, `worktree_diff`, `worktree_merge`, `worktree_list` |
 | memory init | `memory_manage`, later `core_memory`, AMP memory tool |
 | skill init | `read_skill` |
-| agent init | `plan_task` |
 | agent manager | `agent_<name>` tools for loaded agent specs |
 | MCP manager | `mcp_<server>_<tool>` adapters |
 

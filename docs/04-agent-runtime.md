@@ -12,7 +12,7 @@ flowchart TB
     AgentDeps --> Memory[MemoryDeps: store/lifecycle/profile/context/facts]
     AgentDeps --> Security[SecurityDeps: interceptor/hooks/permissions]
     AgentDeps --> Observability[ObservabilityDeps: emitters/metrics]
-    AgentDeps --> Multi[MultiAgentDeps: skills/agents/subagents/task ledger/speculative]
+    AgentDeps --> Multi[MultiAgentDeps: skills/agents/subagents/task ledger]
 ```
 
 This pointer-based design prevents stale copies. For example, Agent is created before Memory, but after `initMemorySystem` Gateway updates `gw.agentDeps.Memory.Store`, and Agent sees the real store on the next access.
@@ -120,20 +120,7 @@ Agent specs are loaded from:
 Each spec can become an `agent_<name>` tool. Supported local execution concepts include:
 
 - `spawn`: independent runtime.
-- `fork`: inherits parent context.
 - `background`: asynchronous goroutine mode.
-- backends: in-process, subprocess, Docker.
+- backend: in-process only (goroutine execution).
 
 `AgentSpec.Remote` is present for future A2A support but is not an active remote execution backend.
-
-## Team Coordination
-
-When `team` is enabled, Gateway creates a task-ledger-backed team coordinator. Team tasks can execute through sub-agents when available or fall back to direct Gateway execution. Task state is recorded in `internal/taskledger`.
-
-## Plan Task Tool
-
-`plan_task` is registered during Agent initialization. It lets the model decompose a task and execute subtasks with bounded parallelism through an `agent.ToolExecutor`.
-
-## Speculative Execution
-
-When `speculative` is enabled, `SpeculativeExecutor` can launch read-only tools during streaming before the final assistant response is complete. Only tools that declare read-only capability are eligible, and the executor enforces a max in-flight limit.

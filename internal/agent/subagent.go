@@ -24,22 +24,20 @@ import (
 // It handles spawning sub-agents with isolated sessions, scoped tools,
 // and optional model overrides.
 type SubAgentManager struct {
-	deps       AgentDeps
-	MessageBus *MessageBus // shared across parallel spawns for inter-agent communication
+	deps AgentDeps
 }
 
 // NewSubAgentManager creates a new SubAgentManager.
 func NewSubAgentManager(deps AgentDeps) *SubAgentManager {
-	return &SubAgentManager{deps: deps, MessageBus: NewMessageBus()}
+	return &SubAgentManager{deps: deps}
 }
 
 // SpawnRequest holds the parameters for spawning a sub-agent.
 type SpawnRequest struct {
-	Spec            *AgentSpec
-	Task            string
-	TaskContext     string
-	SharedChannelID string // when set, the sub-agent gets an agent_message tool on this channel
-	ParentID        string
+	Spec        *AgentSpec
+	Task        string
+	TaskContext string
+	ParentID    string
 	ParentDepth int
 	ChainID     string
 }
@@ -69,12 +67,6 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 	}
 
 	scopedTools := buildScopedRegistryStandalone(m.deps.Core.Tools, req.Spec.Tools)
-
-	// Inject agent_message tool for inter-agent communication on shared channels
-	if req.SharedChannelID != "" && m.MessageBus != nil {
-		msgTool := NewAgentMessageTool(m.MessageBus, req.SharedChannelID, req.Spec.Name)
-		scopedTools.Register(msgTool)
-	}
 
 	subCfg, subLLMCfg := m.buildSubConfig(req.Spec)
 	agentID := uuid.New().String()

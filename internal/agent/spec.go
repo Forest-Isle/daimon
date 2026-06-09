@@ -78,13 +78,12 @@ type AgentSpec struct {
 	RequiresApproval bool     `yaml:"requires_approval"` // require user approval before execution
 	MaxRetries       int      `yaml:"max_retries"`       // retry count on failure, default 0
 
-	ExecutionMode   ExecutionMode   `yaml:"execution_mode"`    // "spawn" (default) | "fork" | "background"
+	ExecutionMode   ExecutionMode   `yaml:"execution_mode"`    // "spawn" (default) | "background"
 	PermissionMode  PermissionMode  `yaml:"permission_mode"`   // "" | "bubble" | "accept_edits" | "bypass"
 	FailureStrategy FailureStrategy `yaml:"failure_strategy"`  // "best_effort" (default) | "fail_fast"
-	InheritContext  bool            `yaml:"inherit_context"`   // fork mode: inherit parent context
 	MaxOutputTokens int             `yaml:"max_output_tokens"` // limit output tokens (0 = no limit)
 
-	Backend    BackendType      `yaml:"backend"`     // "in_process" (default) | "subprocess" | "docker"
+	Backend    BackendType      `yaml:"backend"`     // "in_process" (only supported backend)
 	Hooks      AgentHookConfig  `yaml:"hooks"`       // lifecycle hooks
 	MCPServers []AgentMCPConfig `yaml:"mcp_servers"` // per-agent MCP servers
 }

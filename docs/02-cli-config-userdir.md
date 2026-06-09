@@ -11,7 +11,6 @@ The root command is `ironclaw`. The main command group is built in `cmd/ironclaw
 | `ironclaw version` | Print version, commit, and build date from linker flags. |
 | `ironclaw skill list/search/install/update/remove` | Manage skills, using local skill loading and the external `clawhub` CLI for registry operations. |
 | `ironclaw memory reindex` | Rebuild the file memory index from `~/.IronClaw/memory`. |
-| `ironclaw agent run` | Subprocess backend entry point. Reads a JSON request from stdin and writes a JSON response to stdout. |
 | `ironclaw mcp serve` | Start a standalone IronClaw MCP server over stdio or Streamable HTTP. Current standalone mode has minimal dependency wiring. |
 
 ## Config Load Order
@@ -51,7 +50,7 @@ Important consequence: boolean fields that default to true are not always easy t
 |---|---|---|
 | `llm` | `provider`, `api_key`, `base_url`, `model`, `max_tokens`, `retry` | Selects Claude or OpenAI-compatible provider and retry wrapper. |
 | `telegram`, `tui` | tokens, allowed users, auto approve, timeout | Channel adapter setup. |
-| `agent` | `mode`, `max_iterations`, `system_prompt`, compression, speculative, team | Controls loop strategy, prompt, context compression, speculative execution, team workers. |
+| `agent` | `mode`, `max_iterations`, `system_prompt`, compression | Controls loop strategy, prompt, and context compression. |
 | `store` | `path` | SQLite database path. |
 | `memory` | storage dir, embedding model/base URL/API key, fact extraction, lifecycle, cache, retention | File memory store, embeddings, fact extraction, reflection, compaction, retention. |
 | `scheduler` | enabled, poll interval | Scheduled prompt execution. |
