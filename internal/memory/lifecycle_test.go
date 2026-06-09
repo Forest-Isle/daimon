@@ -35,7 +35,7 @@ func (m *mockStore) Delete(_ context.Context, id string) error {
 
 func TestLifecycleProcessReturnsResult_ADD(t *testing.T) {
 	store := &mockStore{}
-	lm := NewLifecycleManager(store, nil, nil, MemoryConfig{}, nil)
+	lm := NewLifecycleManager(store, nil, nil, MemoryConfig{})
 
 	fact := ExtractedFact{
 		Content:  "user likes Go programming",
@@ -75,7 +75,7 @@ func TestLifecycleProcessNOOP(t *testing.T) {
 		},
 	}
 
-	lm := NewLifecycleManager(searchStore, nil, completer, MemoryConfig{SimilarityThreshold: 0.8}, nil)
+	lm := NewLifecycleManager(searchStore, nil, completer, MemoryConfig{SimilarityThreshold: 0.8})
 
 	fact := ExtractedFact{
 		Content:  "user likes Go",
@@ -92,26 +92,6 @@ func TestLifecycleProcessNOOP(t *testing.T) {
 	if result.Action != ActionNOOP {
 		t.Errorf("expected NOOP, got %s", result.Action)
 	}
-}
-
-func TestLifecycleAuditLoggerCalled(t *testing.T) {
-	store := &mockStore{}
-	lm := NewLifecycleManager(store, nil, nil, MemoryConfig{}, nil)
-	lm.SetAuditLogger(&AuditLogger{db: nil}) // nil-db is safe
-
-	fact := ExtractedFact{
-		Content:  "test fact",
-		Category: "test",
-	}
-
-	result, err := lm.Process(context.Background(), fact, "sess1", "user1", ScopeSession)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Action != ActionADD {
-		t.Errorf("expected ADD, got %s", result.Action)
-	}
-	// AuditLogger with nil db is a no-op — just verify no panic
 }
 
 func TestMemoryOperationSummary(t *testing.T) {

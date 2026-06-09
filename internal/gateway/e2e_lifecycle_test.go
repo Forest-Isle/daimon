@@ -60,7 +60,7 @@ func TestGatewayFullLifecycle(t *testing.T) {
 	assert.NotNil(t, gw.healthRegistry, "health registry")
 
 	// Core tools must be registered end-to-end.
-	for _, name := range []string{"core_memory", "amp_memory", "plan_task"} {
+	for _, name := range []string{"memory", "plan_task"} {
 		_, err := gw.tools.Get(name)
 		assert.NoError(t, err, "tool %q must be registered", name)
 	}

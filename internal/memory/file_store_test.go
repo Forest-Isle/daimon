@@ -131,15 +131,18 @@ func TestFileMemoryStore_RebuildIndex(t *testing.T) {
 		}
 	}
 
-	// Rebuild index
+	// Rebuild index — rebuilds SQLite index tables only.
 	if err := fileStore.RebuildIndex(ctx); err != nil {
 		t.Fatalf("RebuildIndex failed: %v", err)
 	}
 
-	// Verify MEMORY.md exists
-	indexPath := filepath.Join(memDir, "MEMORY.md")
-	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
-		t.Error("MEMORY.md not created")
+	// Verify entries are searchable after rebuild.
+	results, err := fileStore.Search(ctx, SearchQuery{Text: "Memory A", Limit: 5})
+	if err != nil {
+		t.Fatalf("Search after rebuild failed: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("expected results after rebuild")
 	}
 }
 

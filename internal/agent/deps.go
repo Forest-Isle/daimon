@@ -32,7 +32,6 @@ type CoreDeps struct {
 type MemoryDeps struct {
 	Store         memory.Store             // default: memory.NoopStore()
 	LifecycleMgr  *memory.LifecycleManager // nil = NOOP lifecycle decisions
-	Profiler      *memory.Profiler         // nil = no profile updates
 	ContextMgr    ContextManager           // default: noopContextManager{}
 	FactExtractor *memory.LLMFactExtractor // nil = no extraction
 	BaseDir       string                   // base directory for file-based memory storage

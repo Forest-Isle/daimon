@@ -215,22 +215,6 @@ func (a *Agent) buildSystemPrompt(ctx context.Context, userText string) string {
 		}
 	}
 
-	// Profile
-	if a.deps.Memory.BaseDir != "" {
-		profileContent, err := memory.LoadProfileSections(a.deps.Memory.BaseDir)
-		if err == nil && profileContent != "" {
-			sb.WriteString("\n\n## User Profile\n")
-			sb.WriteString(profileContent)
-		}
-	}
-
-	// Cold-start profile
-	if a.deps.Memory.Profiler != nil {
-		if coldStart := a.deps.Memory.Profiler.ColdStartPrompt(); coldStart != "" {
-			sb.WriteString("\n\n")
-			sb.WriteString(coldStart)
-		}
-	}
 
 	// Skills
 	if a.deps.MultiAgent.SkillMgr != nil {
@@ -399,9 +383,6 @@ func (a *Agent) extractFacts(ctx context.Context, sessID, userID string, history
 	for _, fact := range facts {
 		if _, err := a.deps.Memory.LifecycleMgr.Process(bgCtx, fact, sessID, userID, memory.ScopeSession); err != nil {
 			slog.Warn("agent: lifecycle process failed", "err", err, "fact", fact.Content)
-		}
-		if a.deps.Memory.Profiler != nil {
-			a.deps.Memory.Profiler.RouteFact(bgCtx, fact)
 		}
 	}
 }

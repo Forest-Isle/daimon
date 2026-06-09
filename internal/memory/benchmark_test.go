@@ -63,7 +63,7 @@ func benchmarkFileStoreSearch(b *testing.B, dataSize int) {
 	_ = f.Close()
 
 	embedder := &mockEmbedder{dimension: 128, delay: 0}
-	cfg := MemoryConfig{VectorDimension: 128}
+	cfg := MemoryConfig{EmbeddingDimension: 128}
 
 	fileStore, err := NewFileMemoryStore(memDir, nil, embedder, cfg)
 	if err != nil {
@@ -79,7 +79,6 @@ func benchmarkFileStoreSearch(b *testing.B, dataSize int) {
 			UserID:    "test_user",
 			Scope:     ScopeUser,
 			Content:   fmt.Sprintf("Test fact number %d with some content", i),
-			Version:   1,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}

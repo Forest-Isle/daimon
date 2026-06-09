@@ -13,10 +13,10 @@ import (
 // LifecycleDecision represents the action to take for a new fact candidate.
 type LifecycleDecision struct {
 	Action         MemoryAction
-	TargetID       string // for UPDATE/DELETE: the existing entry ID
+	TargetID       string
 	Reason         string
-	ConflictingIDs []string // IDs of conflicting memories
-	RelatedTo      string   // ID of related memory for complementary facts
+	ConflictingIDs []string
+	RelatedTo      string
 }
 
 // LifecycleResult describes the outcome of a single Process() call.
@@ -33,12 +33,10 @@ type MemoryOperationSummary struct {
 	Deleted int
 }
 
-// HasChanges returns true if any memory operations were performed.
 func (s MemoryOperationSummary) HasChanges() bool {
 	return s.Added > 0 || s.Updated > 0 || s.Deleted > 0
 }
 
-// String returns a human-readable summary of memory operations.
 func (s MemoryOperationSummary) String() string {
 	var parts []string
 	if s.Added > 0 {
@@ -54,34 +52,22 @@ func (s MemoryOperationSummary) String() string {
 }
 
 // LifecycleManager implements the ADD/UPDATE/DELETE/NOOP decision loop.
-// It mirrors the mem0 core design: new fact -> similarity search -> LLM decision -> execute.
+// For each fact: similarity search → LLM decision → execute.
 type LifecycleManager struct {
 	store     Store
 	embedder  EmbeddingProvider
 	completer Completer
 	cfg       MemoryConfig
-	reflector *ReflectionTracker
-	audit     *AuditLogger
 }
 
 // NewLifecycleManager creates a new LifecycleManager.
-// The reflector parameter is optional (can be nil) — when provided, each processed
-// fact is tracked for reflection trigger evaluation.
-func NewLifecycleManager(store Store, embedder EmbeddingProvider, completer Completer, cfg MemoryConfig, reflector *ReflectionTracker) *LifecycleManager {
+func NewLifecycleManager(store Store, embedder EmbeddingProvider, completer Completer, cfg MemoryConfig) *LifecycleManager {
 	return &LifecycleManager{
 		store:     store,
 		embedder:  embedder,
 		completer: completer,
 		cfg:       cfg,
-		reflector: reflector,
 	}
-}
-
-// SetAuditLogger attaches an optional audit logger to the lifecycle manager.
-// This is called after construction because the logger may be initialized after
-// the lifecycle manager is created.
-func (lm *LifecycleManager) SetAuditLogger(al *AuditLogger) {
-	lm.audit = al
 }
 
 const lifecycleSystemPrompt = `You are a memory lifecycle manager. Given a new fact candidate and existing similar memories, decide what action to take.
@@ -107,7 +93,6 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 		threshold = 0.85
 	}
 
-	// Search for similar existing facts.
 	similar, err := lm.store.Search(ctx, SearchQuery{
 		Text:   fact.Content,
 		Limit:  5,
@@ -119,7 +104,6 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 		similar = nil
 	}
 
-	// Filter to truly similar results above threshold.
 	var candidates []SearchResult
 	for _, r := range similar {
 		if r.Score >= threshold {
@@ -127,14 +111,10 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 		}
 	}
 
-	// Determine lifecycle decision.
 	var decision *LifecycleDecision
-
 	if lm.completer == nil || len(candidates) == 0 {
-		// No similar facts or no LLM — default to ADD.
 		decision = &LifecycleDecision{Action: ActionADD}
 	} else {
-		// Ask LLM to decide.
 		decision, err = lm.decide(ctx, fact, candidates)
 		if err != nil {
 			slog.Warn("lifecycle: LLM decision failed, defaulting to ADD", "err", err)
@@ -146,13 +126,8 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 	if len(contentPreview) > 50 {
 		contentPreview = contentPreview[:50]
 	}
-	slog.Info("lifecycle decision",
-		"action", decision.Action,
-		"fact", contentPreview,
-		"reason", decision.Reason,
-	)
+	slog.Info("lifecycle decision", "action", decision.Action, "fact", contentPreview, "reason", decision.Reason)
 
-	// Execute the lifecycle action.
 	var memoryID string
 	var execErr error
 	switch decision.Action {
@@ -170,36 +145,24 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 			execErr = lm.executeDelete(ctx, decision.TargetID)
 		}
 	case ActionNOOP:
-		// Nothing to do.
-	}
-
-	// Trigger reflection check if reflector is available
-	if lm.reflector != nil && decision.Action != ActionNOOP {
-		trackID := fmt.Sprintf("fact_%d", time.Now().UnixNano())
-		if err := lm.reflector.Track(ctx, trackID, fact.Content, userID); err != nil {
-			slog.Warn("lifecycle: reflection tracking failed", "err", err)
-		}
 	}
 
 	if execErr != nil {
 		return nil, execErr
 	}
 
-	result := &LifecycleResult{
+	return &LifecycleResult{
 		Action:   decision.Action,
 		MemoryID: memoryID,
 		Reason:   decision.Reason,
-	}
-	return result, nil
+	}, nil
 }
 
-// decide calls the LLM to choose ADD/UPDATE/DELETE/NOOP for the given fact and candidates.
 func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, candidates []SearchResult) (*LifecycleDecision, error) {
 	var sb strings.Builder
 	_, _ = fmt.Fprintf(&sb, "NEW FACT: %s\n\nEXISTING SIMILAR MEMORIES:\n", fact.Content)
 	for _, c := range candidates {
-		_, _ = fmt.Fprintf(&sb, "- ID: %s, Score: %.3f\n  Content: %s\n",
-			c.Entry.ID, c.Score, c.Entry.Content)
+		_, _ = fmt.Fprintf(&sb, "- ID: %s, Score: %.3f\n  Content: %s\n", c.Entry.ID, c.Score, c.Entry.Content)
 	}
 
 	resp, err := lm.completer.Complete(ctx, lifecycleSystemPrompt, sb.String())
@@ -231,10 +194,8 @@ func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, cand
 	return &LifecycleDecision{Action: ActionADD}, nil
 }
 
-// executeAdd stores a new fact entry as a Markdown file.
 func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, sessionID, userID string, scope MemoryScope, relatedTo string) (string, error) {
 	now := time.Now()
-	// Generate a predictable ID so we can pass it to both store.Save and the audit log.
 	factID := fmt.Sprintf("fact_%d", now.UnixNano())
 
 	metadata := map[string]string{
@@ -267,27 +228,14 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 	}); err != nil {
 		return "", err
 	}
-
-	// Audit log
-	if lm.audit != nil {
-		contentPreview := fact.Content
-		if len(contentPreview) > 100 {
-			contentPreview = contentPreview[:100]
-		}
-		lm.audit.Log(ctx, factID, "ADD", "lifecycle", contentPreview)
-	}
-
 	return factID, nil
 }
 
-// executeUpdate archives old file and creates new file with updated content.
 func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, fact ExtractedFact, sessionID, userID string, scope MemoryScope) (string, error) {
-	// Delete (archive) old entry
 	if err := lm.store.Delete(ctx, targetID); err != nil {
 		return "", fmt.Errorf("archive old entry: %w", err)
 	}
 
-	// Create new entry with a predictable ID
 	now := time.Now()
 	newFactID := fmt.Sprintf("fact_%d", now.UnixNano())
 
@@ -319,29 +267,9 @@ func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, 
 	}); err != nil {
 		return "", err
 	}
-
-	// Audit log
-	if lm.audit != nil {
-		contentPreview := fact.Content
-		if len(contentPreview) > 100 {
-			contentPreview = contentPreview[:100]
-		}
-		lm.audit.Log(ctx, newFactID, "UPDATE", "lifecycle", fmt.Sprintf("from %s: %s", targetID, contentPreview))
-	}
-
 	return newFactID, nil
 }
 
-// executeDelete moves file to archived/ subdirectory.
 func (lm *LifecycleManager) executeDelete(ctx context.Context, targetID string) error {
-	if err := lm.store.Delete(ctx, targetID); err != nil {
-		return err
-	}
-
-	// Audit log
-	if lm.audit != nil {
-		lm.audit.Log(ctx, targetID, "DELETE", "lifecycle", "memory deleted")
-	}
-
-	return nil
+	return lm.store.Delete(ctx, targetID)
 }

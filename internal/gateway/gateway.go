@@ -16,7 +16,6 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
 	"github.com/Forest-Isle/IronClaw/internal/memory"
-	"github.com/Forest-Isle/IronClaw/internal/memorywire"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
 	"github.com/Forest-Isle/IronClaw/internal/health"
 	"github.com/Forest-Isle/IronClaw/internal/hook"
@@ -210,16 +209,8 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	if gw.memory.Store() != nil {
 		procedural := memory.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
 		gw.memory.cortex = memory.NewUnifiedRetriever(gw.memory.Store(), procedural, gw.memory.Embedder())
-		// Register core_memory tool so the LLM can actively manage its own
-		// persistent memory (Mem0/Letta pattern — agentic memory writes).
-		gw.tools.Register(tool.NewCoreMemoryTool(gw.memory.Store(), gw.memory.LifecycleManager()))
-
-		// Initialize AMP (Agent Memory Protocol) adapter for standards-compliant
-		// memory operations (Memorywire: remember/recall/forget/merge/expire).
-		gw.memory.ampAdapter = memorywire.NewAdapter(gw.memory.Store(), gw.memory.Embedder())
-
-		// Register AMP memory tool so the LLM can use standardized AMP operations.
-		gw.tools.Register(tool.NewAMPMemoryTool(gw.memory.ampAdapter))
+		// Register unified memory tool so the LLM can manage persistent memory.
+		gw.tools.Register(tool.NewMemoryTool(gw.memory.Store(), gw.memory.LifecycleManager()))
 	}
 
 	if err = gw.initSkillManager(); err != nil {
@@ -420,7 +411,7 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 	// Start HTTP admin server if enabled (standalone)
 	if gw.features.IsEnabled("server") {
-		go startHTTPServer(gw.Config().Server.Addr, gw.db, gw.memory.Store())
+		go startHTTPServer(gw.Config().Server.Addr, gw.db)
 	}
 
 	// Start stale task detector

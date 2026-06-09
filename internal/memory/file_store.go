@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/Forest-Isle/IronClaw/internal/util"
 	"log/slog"
 	"math"
 	"os"
@@ -12,23 +11,22 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
+	"github.com/Forest-Isle/IronClaw/internal/util"
 	"gopkg.in/yaml.v3"
 )
 
-// FileMemoryStore implements Store with Markdown files as primary storage.
+// FileMemoryStore implements Store with Markdown files as primary storage
+// and SQLite tables for indexing (FTS5 + vector embeddings).
+var _ Store = (*FileMemoryStore)(nil)
+
 type FileMemoryStore struct {
 	baseDir  string
 	db       *sql.DB
 	embedder EmbeddingProvider
 	cfg      MemoryConfig
-
-	indexCacheMu    sync.RWMutex
-	indexCache      map[string][]IndexEntry
-	indexCacheMtime time.Time
 }
 
 // MemoryFile represents a memory stored as Markdown with YAML frontmatter.
@@ -41,15 +39,15 @@ type MemoryFile struct {
 	UpdatedAt    time.Time         `yaml:"updated_at"`
 	LastAccessed *time.Time        `yaml:"last_accessed_at,omitempty"`
 	Strength     float64           `yaml:"strength,omitempty"`
-	Type         string            `yaml:"type,omitempty"`        // episodic, semantic, procedural, reflection, summary, profile
-	Importance   int               `yaml:"importance,omitempty"`  // 1-10
-	Emotion      string            `yaml:"emotion,omitempty"`     // positive, negative, neutral
-	Sensitivity  string            `yaml:"sensitivity,omitempty"` // public, private, secret
+	Type         string            `yaml:"type,omitempty"`
+	Importance   int               `yaml:"importance,omitempty"`
+	Emotion      string            `yaml:"emotion,omitempty"`
+	Sensitivity  string            `yaml:"sensitivity,omitempty"`
 	RelatedTo    string            `yaml:"related_to,omitempty"`
 	PromotedFrom string            `yaml:"promoted_from,omitempty"`
 	PromotedAt   *time.Time        `yaml:"promoted_at,omitempty"`
-	ValidFrom    *time.Time        `yaml:"valid_from,omitempty"` // when this fact became true
-	ValidTo      *time.Time        `yaml:"valid_to,omitempty"`   // when this fact was superseded (soft invalidation)
+	ValidFrom    *time.Time        `yaml:"valid_from,omitempty"`
+	ValidTo      *time.Time        `yaml:"valid_to,omitempty"`
 	Metadata     map[string]string `yaml:"metadata,omitempty"`
 	Content      string            `yaml:"-"`
 }
@@ -65,58 +63,7 @@ func NewFileMemoryStore(baseDir string, db *sql.DB, embedder EmbeddingProvider, 
 	if err := store.initDirectories(); err != nil {
 		return nil, err
 	}
-	if err := store.checkIndexStaleness(); err != nil {
-		return nil, err
-	}
 	return store, nil
-}
-
-func (s *FileMemoryStore) checkIndexStaleness() error {
-	ctx := context.Background() // deliberate: staleness check runs at startup before any caller context exists
-
-	// Get newest file mtime
-	var newestMtime time.Time
-	scopes := []string{"user", "session", "feedback", "global"}
-	for _, scope := range scopes {
-		scopeDir := filepath.Join(s.baseDir, scope)
-		files, err := filepath.Glob(filepath.Join(scopeDir, "*.md"))
-		if err != nil {
-			continue
-		}
-		for _, file := range files {
-			info, err := os.Stat(file)
-			if err != nil {
-				continue
-			}
-			if info.ModTime().After(newestMtime) {
-				newestMtime = info.ModTime()
-			}
-		}
-	}
-
-	// Get index last update time
-	var indexTimeStr sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT MAX(updated_at) FROM memory_index`).Scan(&indexTimeStr)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("check index time: %w", err)
-	}
-
-	// Parse timestamp if present
-	var indexTime time.Time
-	if indexTimeStr.Valid {
-		// SQLite TIMESTAMP format: "YYYY-MM-DD HH:MM:SS+TZ"
-		indexTime, err = time.Parse("2006-01-02 15:04:05-07:00", indexTimeStr.String)
-		if err != nil {
-			return fmt.Errorf("parse index time: %w", err)
-		}
-	}
-
-	// Rebuild if index is stale (>24h older than newest file) or empty
-	if !indexTimeStr.Valid || newestMtime.Sub(indexTime) > 24*time.Hour {
-		return s.RebuildIndex(ctx)
-	}
-
-	return nil
 }
 
 func (s *FileMemoryStore) initDirectories() error {
@@ -130,6 +77,7 @@ func (s *FileMemoryStore) initDirectories() error {
 	return nil
 }
 
+// Save writes a memory entry as a Markdown file and syncs SQLite indexes.
 func (s *FileMemoryStore) Save(ctx context.Context, entry Entry) error {
 	mf := MemoryFile{
 		ID:        entry.ID,
@@ -141,8 +89,6 @@ func (s *FileMemoryStore) Save(ctx context.Context, entry Entry) error {
 		Metadata:  entry.Metadata,
 		Content:   entry.Content,
 	}
-
-	// Populate MemoryFile fields from entry metadata
 	if entry.Metadata != nil {
 		if t, ok := entry.Metadata["type"]; ok {
 			mf.Type = t
@@ -164,82 +110,11 @@ func (s *FileMemoryStore) Save(ctx context.Context, entry Entry) error {
 	if err := s.writeFileAtomic(filePath, mf); err != nil {
 		return err
 	}
-
 	return s.syncIndex(ctx, entry, filePath)
 }
 
-// indexResult holds a row from memory_index used during search.
-type indexResult struct {
-	id       string
-	filePath string
-	strength float64
-}
-
-func (s *FileMemoryStore) invalidateIndexCache() {
-	s.indexCacheMu.Lock()
-	s.indexCache = nil
-	s.indexCacheMu.Unlock()
-}
-
-func (s *FileMemoryStore) cachedIndex() (map[string][]IndexEntry, error) {
-	indexPath := filepath.Join(s.baseDir, "MEMORY.md")
-	info, err := os.Stat(indexPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make(map[string][]IndexEntry), nil
-		}
-		return nil, err
-	}
-	mtime := info.ModTime()
-
-	s.indexCacheMu.RLock()
-	if s.indexCache != nil && !mtime.After(s.indexCacheMtime) {
-		cached := s.indexCache
-		s.indexCacheMu.RUnlock()
-		return cached, nil
-	}
-	s.indexCacheMu.RUnlock()
-
-	s.indexCacheMu.Lock()
-	defer s.indexCacheMu.Unlock()
-	if s.indexCache != nil && !mtime.After(s.indexCacheMtime) {
-		return s.indexCache, nil
-	}
-	idx := NewMemoryIndex(s.baseDir)
-	entries, parseErr := idx.Parse()
-	if parseErr != nil {
-		return nil, parseErr
-	}
-	s.indexCache = entries
-	s.indexCacheMtime = mtime
-	return entries, nil
-}
-
+// Search performs hybrid search (BM25 FTS5 + vector cosine + RRF fusion).
 func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]SearchResult, error) {
-	// Step 1: Parse MEMORY.md for quick filtering
-	indexEntries, err := s.cachedIndex()
-	if err != nil {
-		return nil, fmt.Errorf("parse MEMORY.md: %w", err)
-	}
-
-	// Filter by scope if specified
-	var candidateIDs []string
-	if len(query.Scopes) > 0 {
-		for _, scope := range query.Scopes {
-			entries := indexEntries[string(scope)]
-			for _, entry := range entries {
-				// Extract ID from file path
-				base := filepath.Base(entry.FilePath)
-				parts := strings.Split(base, "_")
-				if len(parts) >= 3 {
-					id := strings.TrimSuffix(parts[2], ".md")
-					candidateIDs = append(candidateIDs, id)
-				}
-			}
-		}
-	}
-
-	// Step 2: Query memory_index for metadata filtering
 	whereClause := []string{"1=1"}
 	args := []interface{}{}
 
@@ -251,21 +126,10 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 		whereClause = append(whereClause, "session_id = ?")
 		args = append(args, query.SessionID)
 	}
-	if len(candidateIDs) > 0 {
-		placeholders := strings.Repeat("?,", len(candidateIDs))
-		placeholders = placeholders[:len(placeholders)-1]
-		whereClause = append(whereClause, fmt.Sprintf("memory_id IN (%s)", placeholders))
-		for _, id := range candidateIDs {
-			args = append(args, id)
-		}
-	}
-
-	// TypeFilter: filter by memory type (e.g., "summary")
 	if query.TypeFilter != "" {
 		whereClause = append(whereClause, "memory_type = ?")
 		args = append(args, query.TypeFilter)
 	}
-
 	if len(query.ExcludeTypes) > 0 {
 		placeholders := strings.Repeat("?,", len(query.ExcludeTypes))
 		placeholders = placeholders[:len(placeholders)-1]
@@ -274,135 +138,96 @@ func (s *FileMemoryStore) Search(ctx context.Context, query SearchQuery) ([]Sear
 			args = append(args, t)
 		}
 	}
-
-	// Temporal filtering: by default, only return currently-valid facts (valid_to IS NULL).
-	// IncludeHistorical=true includes superseded/expired facts for audit or trend analysis.
 	if !query.IncludeHistorical {
 		whereClause = append(whereClause, "valid_to IS NULL")
 	}
-	// Sensitivity filtering: exclude secret memories from automated searches
 	whereClause = append(whereClause, "sensitivity != 'secret'")
-
-	// If no user filter, also exclude private memories
 	if query.UserID == "" {
 		whereClause = append(whereClause, "sensitivity != 'private'")
 	}
 
-	sqlQuery := fmt.Sprintf("SELECT memory_id, file_path, strength FROM memory_index WHERE %s", strings.Join(whereClause, " AND "))
+	sqlQuery := fmt.Sprintf(
+		"SELECT memory_id, file_path, strength FROM memory_index WHERE %s",
+		strings.Join(whereClause, " AND "),
+	)
 	rows, err := s.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query memory_index: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var indexResults []indexResult
+	var indexResults []idxRow
 	for rows.Next() {
-		var r indexResult
+		var r idxRow
 		if err := rows.Scan(&r.id, &r.filePath, &r.strength); err != nil {
 			return nil, err
 		}
 		indexResults = append(indexResults, r)
 	}
-
 	if len(indexResults) == 0 {
 		return []SearchResult{}, nil
 	}
 
-	// Step 3: Perform hybrid search (BM25 + vector) with RRF fusion
-	results, err := s.hybridSearch(ctx, query, indexResults)
+	// Hybrid search: BM25 + vector with RRF fusion.
+	scored, err := s.hybridSearch(ctx, query, indexResults)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 4: Read Markdown files for top-k results
+	// Trim to limit.
 	limit := query.Limit
 	if limit <= 0 {
 		limit = 10
 	}
-	if len(results) > limit {
-		results = results[:limit]
+	if len(scored) > limit {
+		scored = scored[:limit]
 	}
 
-	for i := range results {
-		filePath := string(results[i].Entry.Scope)
-
-		mf, err := s.parseFile(filePath)
+	// Load content from Markdown files.
+	results := make([]SearchResult, 0, len(scored))
+	for i := range scored {
+		mf, err := s.parseFile(scored[i].filePath)
 		if err != nil {
+			slog.Warn("memory: failed to parse result file", "path", scored[i].filePath, "err", err)
 			continue
 		}
-		results[i].Entry.Content = mf.Content
-		results[i].Entry.Metadata = mf.Metadata
-		results[i].Entry.Scope = MemoryScope(mf.Scope)
-		results[i].Entry.UserID = mf.UserID
-		results[i].Entry.SessionID = mf.SessionID
-		results[i].Entry.CreatedAt = mf.CreatedAt
-		results[i].Entry.UpdatedAt = mf.UpdatedAt
-
-		go func(id, fp string, mf *MemoryFile) {
-			if err := s.trackAccess(ctx, id, fp, mf); err != nil {
-				slog.Warn("memory: track access", "id", id, "err", err)
-			}
-		}(results[i].Entry.ID, filePath, mf)
+		results = append(results, SearchResult{
+			Entry: Entry{
+				ID:        scored[i].Entry.ID,
+				Scope:     MemoryScope(mf.Scope),
+				UserID:    mf.UserID,
+				SessionID: mf.SessionID,
+				Content:   mf.Content,
+				Metadata:  mf.Metadata,
+				CreatedAt: mf.CreatedAt,
+				UpdatedAt: mf.UpdatedAt,
+			},
+			Score: scored[i].Score,
+		})
 	}
-
 	return results, nil
 }
 
-func (s *FileMemoryStore) trackAccess(ctx context.Context, id, filePath string, mf *MemoryFile) error {
-	now := time.Now()
-	mf.LastAccessed = &now
-
-	// Update file frontmatter
-	if err := s.writeFileAtomic(filePath, *mf); err != nil {
-		return err
-	}
-
-	// Invalidate in-memory index cache so concurrent searches see fresh data.
-	s.invalidateIndexCache()
-
-	// Update memory_index strength cache
-	_, err := s.db.ExecContext(ctx, `UPDATE memory_index SET strength = ? WHERE memory_id = ?`, mf.Strength, id)
-	return err
+// idxRow holds a row from memory_index used during search.
+type idxRow struct {
+	id       string
+	filePath string
+	strength float64
 }
 
-// sanitizeFTS5Query removes characters that FTS5 treats as syntax (operators,
-// quotes, punctuation) so that arbitrary natural-language text can be safely
-// passed to a MATCH expression. Each remaining word becomes an implicit AND term.
-func sanitizeFTS5Query(text string) string {
-	if text == "" {
-		return ""
-	}
-	// Replace non-alphanumeric, non-hyphen, non-underscore chars with spaces.
-	var b strings.Builder
-	for _, r := range text {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune(' ')
-		}
-	}
-	// Drop FTS5 boolean operators (case-insensitive) and very short tokens.
-	words := strings.Fields(b.String())
-	clean := make([]string, 0, len(words))
-	for _, w := range words {
-		switch strings.ToUpper(w) {
-		case "AND", "OR", "NOT", "NEAR":
-			continue
-		}
-		if len(w) >= 2 {
-			clean = append(clean, w)
-		}
-	}
-	return strings.Join(clean, " ")
+// scoredResult pairs a result with its file path for later content loading.
+type scoredResult struct {
+	SearchResult
+	filePath string
 }
 
-func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, indexResults []indexResult) ([]SearchResult, error) {
-	idMap := make(map[string]indexResult)
+func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, indexResults []idxRow) ([]scoredResult, error) {
+	idMap := make(map[string]idxRow)
 	for _, r := range indexResults {
 		idMap[r.id] = r
 	}
 
-	// BM25 search via FTS5
+	// BM25 via FTS5.
 	bm25Results := make(map[string]float64)
 	if query.Text != "" {
 		ftsQuery := sanitizeFTS5Query(query.Text)
@@ -431,7 +256,7 @@ func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, i
 		}
 	}
 
-	// Vector search
+	// Vector similarity search.
 	vectorResults := make(map[string]float64)
 	if len(query.Embedding) > 0 && len(idMap) > 0 {
 		ids := make([]string, 0, len(idMap))
@@ -459,75 +284,44 @@ func (s *FileMemoryStore) hybridSearch(ctx context.Context, query SearchQuery, i
 		}
 	}
 
-	// RRF fusion
-	results := s.rrfFusion(bm25Results, vectorResults, idMap)
-	return results, nil
+	return s.rrfFusion(bm25Results, vectorResults, idMap), nil
 }
 
-func deserializeEmbedding(buf []byte) []float32 {
-	vec := make([]float32, len(buf)/4)
-	for i := range vec {
-		bits := uint32(buf[i*4]) | uint32(buf[i*4+1])<<8 | uint32(buf[i*4+2])<<16 | uint32(buf[i*4+3])<<24
-		vec[i] = float32(bits) / 1e6
-	}
-	return vec
-}
-
-func cosineSimilarity(a, b []float32) float64 {
-	if len(a) != len(b) {
-		return 0
-	}
-	var dot, normA, normB float64
-	for i := range a {
-		dot += float64(a[i] * b[i])
-		normA += float64(a[i] * a[i])
-		normB += float64(b[i] * b[i])
-	}
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
-}
-
-func (s *FileMemoryStore) rrfFusion(bm25Results, vectorResults map[string]float64, idMap map[string]indexResult) []SearchResult {
+func (s *FileMemoryStore) rrfFusion(bm25Results, vectorResults map[string]float64, idMap map[string]idxRow) []scoredResult {
 	const k = 60.0
 	scores := make(map[string]float64)
 
-	// RRF for BM25
 	bm25Sorted := sortByScore(bm25Results)
 	for rank, id := range bm25Sorted {
 		scores[id] += 1.0 / (k + float64(rank+1))
 	}
-
-	// RRF for vector
 	vectorSorted := sortByScore(vectorResults)
 	for rank, id := range vectorSorted {
 		scores[id] += 1.0 / (k + float64(rank+1))
 	}
 
-	// Apply strength weighting: final_score = relevance × 0.7 + strength × 0.3
 	for id, score := range scores {
 		if r, ok := idMap[id]; ok {
 			scores[id] = score*0.7 + r.strength*0.3
 		}
 	}
 
-	// Sort by final score
 	finalSorted := sortByScore(scores)
-	results := make([]SearchResult, 0, len(finalSorted))
+	results := make([]scoredResult, 0, len(finalSorted))
 	for _, id := range finalSorted {
 		if r, ok := idMap[id]; ok {
-			results = append(results, SearchResult{
-				Entry: Entry{
-					ID:        id,
-					Scope:     MemoryScope(r.filePath),
-					CreatedAt: time.Now(),
+			results = append(results, scoredResult{
+				SearchResult: SearchResult{
+					Entry: Entry{
+						ID:        id,
+						CreatedAt: time.Now(),
+					},
+					Score: scores[id],
 				},
-				Score: scores[id],
+				filePath: r.filePath,
 			})
 		}
 	}
-
 	return results
 }
 
@@ -540,9 +334,7 @@ func sortByScore(m map[string]float64) []string {
 	for k, v := range m {
 		sorted = append(sorted, kv{k, v})
 	}
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].value > sorted[j].value
-	})
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].value > sorted[j].value })
 	ids := make([]string, len(sorted))
 	for i, kv := range sorted {
 		ids[i] = kv.key
@@ -550,6 +342,7 @@ func sortByScore(m map[string]float64) []string {
 	return ids
 }
 
+// ListByScope returns entries filtered by scope and optional userID.
 func (s *FileMemoryStore) ListByScope(ctx context.Context, scope MemoryScope, userID string) ([]Entry, error) {
 	scopeDir := filepath.Join(s.baseDir, string(scope))
 	files, err := filepath.Glob(filepath.Join(scopeDir, "*.md"))
@@ -581,21 +374,19 @@ func (s *FileMemoryStore) ListByScope(ctx context.Context, scope MemoryScope, us
 	return entries, nil
 }
 
+// Update replaces the content of an existing memory entry with optimistic locking.
 func (s *FileMemoryStore) Update(ctx context.Context, id string, content string, version int) error {
-	// Look up the file path from the index.
 	var filePath string
 	err := s.db.QueryRowContext(ctx, `SELECT file_path FROM memory_index WHERE memory_id = ?`, id).Scan(&filePath)
 	if err != nil {
 		return fmt.Errorf("find memory file: %w", err)
 	}
 
-	// Read the current file.
 	mf, err := s.parseFile(filePath)
 	if err != nil {
 		return fmt.Errorf("parse memory file: %w", err)
 	}
 
-	// Optimistic lock: caller must supply the current version.
 	currentVersion := 1
 	if mf.Metadata != nil {
 		if v, ok := mf.Metadata["version"]; ok {
@@ -608,7 +399,7 @@ func (s *FileMemoryStore) Update(ctx context.Context, id string, content string,
 		return fmt.Errorf("version conflict: file is at version %d, caller expected %d", currentVersion, version)
 	}
 
-	// Archive the old file.
+	// Archive old file.
 	archivedDir := filepath.Join(s.baseDir, "archived")
 	if err := os.MkdirAll(archivedDir, 0755); err != nil {
 		return fmt.Errorf("create archived dir: %w", err)
@@ -618,7 +409,7 @@ func (s *FileMemoryStore) Update(ctx context.Context, id string, content string,
 		return fmt.Errorf("archive old file: %w", err)
 	}
 
-	// Write updated file with incremented version.
+	// Write updated file.
 	newVersion := version + 1
 	if mf.Metadata == nil {
 		mf.Metadata = make(map[string]string)
@@ -632,7 +423,7 @@ func (s *FileMemoryStore) Update(ctx context.Context, id string, content string,
 		return fmt.Errorf("write updated file: %w", err)
 	}
 
-	// Update the SQLite index.
+	// Update SQLite index.
 	_, err = s.db.ExecContext(ctx, `
 		UPDATE memory_index
 		SET file_path = ?, updated_at = ?
@@ -642,17 +433,15 @@ func (s *FileMemoryStore) Update(ctx context.Context, id string, content string,
 		return fmt.Errorf("update memory_index: %w", err)
 	}
 
-	// Refresh the FTS index (FTS5 has no UPSERT, so delete + insert).
+	// Refresh FTS index.
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, id); err != nil {
 		slog.Warn("memory: FTS index update failed", "err", err)
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)`, id, content)
-	if err != nil {
-		slog.Warn("memory: FTS index update failed", "err", err)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)`, id, content); err != nil {
 		return fmt.Errorf("update memory_fts: %w", err)
 	}
 
-	// Re-embed if an embedder is configured.
+	// Re-embed.
 	if s.embedder != nil {
 		if embedding, embErr := s.embedder.Embed(ctx, content); embErr == nil {
 			embBytes := serializeEmbedding(embedding)
@@ -669,42 +458,28 @@ func (s *FileMemoryStore) Update(ctx context.Context, id string, content string,
 	return nil
 }
 
+// Delete archives a memory entry and removes it from all indexes.
 func (s *FileMemoryStore) Delete(ctx context.Context, id string) error {
-	// Find file path from index
 	var filePath string
 	err := s.db.QueryRowContext(ctx, `SELECT file_path FROM memory_index WHERE memory_id = ?`, id).Scan(&filePath)
 	if err != nil {
 		return fmt.Errorf("find memory file: %w", err)
 	}
 
-	// Move file to archived/
 	archivedPath := filepath.Join(s.baseDir, "archived", filepath.Base(filePath))
 	if err := os.Rename(filePath, archivedPath); err != nil {
 		return fmt.Errorf("archive file: %w", err)
 	}
 
-	// Remove from all index tables
-	_, err = s.db.ExecContext(ctx, `DELETE FROM memory_index WHERE memory_id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete from memory_index: %w", err)
+	for _, table := range []string{"memory_index", "memory_fts", "memory_embeddings"} {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM `+table+` WHERE memory_id = ?`, id); err != nil {
+			return fmt.Errorf("delete from %s: %w", table, err)
+		}
 	}
-
-	_, err = s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete from memory_fts: %w", err)
-	}
-
-	_, err = s.db.ExecContext(ctx, `DELETE FROM memory_embeddings WHERE memory_id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete from memory_embeddings: %w", err)
-	}
-
 	return nil
 }
 
 // SoftInvalidate marks a memory fact as superseded without deleting it.
-// Sets valid_to = now, preserving the fact for audit trails and historical queries.
-// Use this when a newer fact contradicts or replaces an existing one.
 func (s *FileMemoryStore) SoftInvalidate(ctx context.Context, id string) error {
 	now := time.Now().UTC()
 	result, err := s.db.ExecContext(ctx,
@@ -717,20 +492,62 @@ func (s *FileMemoryStore) SoftInvalidate(ctx context.Context, id string) error {
 	if n == 0 {
 		return fmt.Errorf("soft invalidate %s: already invalidated or not found", id)
 	}
-	s.invalidateIndexCache()
-	slog.Info("memory: fact soft-invalidated", "id", id, "valid_to", now)
+	slog.Info("memory: fact soft-invalidated", "id", id)
 	return nil
 }
 
+// RebuildIndex scans all memory files and rebuilds the SQLite index tables.
+func (s *FileMemoryStore) RebuildIndex(ctx context.Context) error {
+	for _, table := range []string{"memory_index", "memory_fts", "memory_embeddings"} {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			return fmt.Errorf("clear %s: %w", table, err)
+		}
+	}
+
+	scopes := []string{"user", "session", "feedback", "global"}
+	for _, scope := range scopes {
+		scopeDir := filepath.Join(s.baseDir, scope)
+		files, err := filepath.Glob(filepath.Join(scopeDir, "*.md"))
+		if err != nil {
+			continue
+		}
+		for _, filePath := range files {
+			mf, err := s.parseFile(filePath)
+			if err != nil {
+				continue
+			}
+			entry := Entry{
+				ID:        mf.ID,
+				Scope:     MemoryScope(mf.Scope),
+				UserID:    mf.UserID,
+				SessionID: mf.SessionID,
+				Content:   mf.Content,
+				CreatedAt: mf.CreatedAt,
+				UpdatedAt: mf.UpdatedAt,
+			}
+			if s.embedder != nil {
+				embedding, err := s.embedder.Embed(ctx, mf.Content)
+				if err == nil {
+					entry.Embedding = embedding
+				}
+			}
+			if err := s.syncIndex(ctx, entry, filePath); err != nil {
+				return fmt.Errorf("sync index for %s: %w", filePath, err)
+			}
+		}
+	}
+	return nil
+}
+
+// --- Internal helpers ---
+
 func (s *FileMemoryStore) buildFilePath(scope MemoryScope, id string, createdAt time.Time) string {
-	category := "memory"
 	dateStr := createdAt.Format("20060102")
-	filename := fmt.Sprintf("%s_%s_%s.md", category, dateStr, id)
+	filename := fmt.Sprintf("memory_%s_%s.md", dateStr, id)
 	return filepath.Join(s.baseDir, string(scope), filename)
 }
 
 func (s *FileMemoryStore) writeFileAtomic(path string, mf MemoryFile) error {
-	// Ensure parent directory exists before writing — defensive against scope path mismatches.
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("create parent dir for %s: %w", path, err)
 	}
@@ -745,7 +562,6 @@ func (s *FileMemoryStore) writeFileAtomic(path string, mf MemoryFile) error {
 	if _, err := f.WriteString("---\n"); err != nil {
 		return err
 	}
-
 	enc := yaml.NewEncoder(f)
 	if err := enc.Encode(mf); err != nil {
 		return err
@@ -755,18 +571,15 @@ func (s *FileMemoryStore) writeFileAtomic(path string, mf MemoryFile) error {
 	if _, err := f.WriteString("---\n\n"); err != nil {
 		return err
 	}
-
 	if _, err := f.WriteString(mf.Content); err != nil {
 		return err
 	}
-
 	if err := f.Sync(); err != nil {
 		return err
 	}
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
 	}
-
 	return os.Rename(tmpPath, path)
 }
 
@@ -775,36 +588,19 @@ func (s *FileMemoryStore) parseFile(path string) (*MemoryFile, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	parts := strings.SplitN(string(data), "---\n", 3)
 	if len(parts) < 3 {
 		return nil, fmt.Errorf("invalid frontmatter format")
 	}
-
 	var mf MemoryFile
 	if err := yaml.Unmarshal([]byte(parts[1]), &mf); err != nil {
 		return nil, err
 	}
-
 	mf.Content = strings.TrimSpace(parts[2])
 	return &mf, nil
 }
 
 func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath string) error {
-	s.invalidateIndexCache()
-
-	// Update MEMORY.md index
-	idx := NewMemoryIndex(s.baseDir)
-	title := fmt.Sprintf("%s_%s", entry.ID, entry.CreatedAt.Format("20060102"))
-	summary := entry.Content
-	if len(summary) > 80 {
-		summary = summary[:77] + "..."
-	}
-	if err := idx.AddEntry(string(entry.Scope), filePath, title, summary); err != nil {
-		return fmt.Errorf("update MEMORY.md: %w", err)
-	}
-
-	// Update memory_index table
 	memType := "semantic"
 	emotion := "neutral"
 	sensitivity := "public"
@@ -815,8 +611,8 @@ func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath s
 		if e, ok := entry.Metadata["emotion"]; ok && e != "" {
 			emotion = e
 		}
-		if s, ok := entry.Metadata["sensitivity"]; ok && s != "" {
-			sensitivity = s
+		if sens, ok := entry.Metadata["sensitivity"]; ok && sens != "" {
+			sensitivity = sens
 		}
 	}
 
@@ -837,91 +633,63 @@ func (s *FileMemoryStore) syncIndex(ctx context.Context, entry Entry, filePath s
 		return fmt.Errorf("update memory_index: %w", err)
 	}
 
-	// Update memory_fts table (FTS5 doesn't support UPSERT, use DELETE+INSERT)
+	// FTS5: no UPSERT, use DELETE+INSERT.
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_fts WHERE memory_id = ?`, entry.ID); err != nil {
 		slog.Warn("memory: FTS index update failed", "err", err)
 	}
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)
-	`, entry.ID, entry.Content)
-	if err != nil {
-		slog.Warn("memory: FTS index update failed", "err", err)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO memory_fts (memory_id, content) VALUES (?, ?)`, entry.ID, entry.Content); err != nil {
 		return fmt.Errorf("update memory_fts: %w", err)
 	}
 
-	// Update memory_embeddings table (async via embedder)
+	// Embedding index.
 	if s.embedder != nil && len(entry.Embedding) > 0 {
 		embBytes := serializeEmbedding(entry.Embedding)
-		_, err = s.db.ExecContext(ctx, `
+		if _, err := s.db.ExecContext(ctx, `
 			INSERT INTO memory_embeddings (memory_id, embedding, dimension)
 			VALUES (?, ?, ?)
 			ON CONFLICT(memory_id) DO UPDATE SET embedding = excluded.embedding
-		`, entry.ID, embBytes, len(entry.Embedding))
-		if err != nil {
+		`, entry.ID, embBytes, len(entry.Embedding)); err != nil {
 			return fmt.Errorf("update memory_embeddings: %w", err)
 		}
 	}
-
 	return nil
 }
 
-// RebuildIndex scans all memory files and rebuilds the SQLite index.
-func (s *FileMemoryStore) RebuildIndex(ctx context.Context) error {
-	s.invalidateIndexCache()
+// --- Utility functions ---
 
-	// Clear existing index
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_index`); err != nil {
-		return fmt.Errorf("clear memory_index: %w", err)
+func sanitizeFTS5Query(text string) string {
+	if text == "" {
+		return ""
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_fts`); err != nil {
-		return fmt.Errorf("clear memory_fts: %w", err)
+	var b strings.Builder
+	for _, r := range text {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune(' ')
+		}
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM memory_embeddings`); err != nil {
-		return fmt.Errorf("clear memory_embeddings: %w", err)
-	}
-
-	// Scan all scope directories
-	scopes := []string{"user", "session", "feedback", "global"}
-	for _, scope := range scopes {
-		scopeDir := filepath.Join(s.baseDir, scope)
-		files, err := filepath.Glob(filepath.Join(scopeDir, "*.md"))
-		if err != nil {
+	words := strings.Fields(b.String())
+	clean := make([]string, 0, len(words))
+	for _, w := range words {
+		switch strings.ToUpper(w) {
+		case "AND", "OR", "NOT", "NEAR":
 			continue
 		}
-
-		for _, filePath := range files {
-			mf, err := s.parseFile(filePath)
-			if err != nil {
-				continue
-			}
-
-			entry := Entry{
-				ID:        mf.ID,
-				Scope:     MemoryScope(mf.Scope),
-				UserID:    mf.UserID,
-				SessionID: mf.SessionID,
-				Content:   mf.Content,
-				CreatedAt: mf.CreatedAt,
-				UpdatedAt: mf.UpdatedAt,
-			}
-
-			// Generate embedding if needed
-			if s.embedder != nil {
-				embedding, err := s.embedder.Embed(ctx, mf.Content)
-				if err == nil {
-					entry.Embedding = embedding
-				}
-			}
-
-			if err := s.syncIndex(ctx, entry, filePath); err != nil {
-				return fmt.Errorf("sync index for %s: %w", filePath, err)
-			}
+		if len(w) >= 2 {
+			clean = append(clean, w)
 		}
 	}
+	return strings.Join(clean, " ")
+}
 
-	// Rebuild MEMORY.md
-	idx := NewMemoryIndex(s.baseDir)
-	return idx.Rebuild()
+func deserializeEmbedding(buf []byte) []float32 {
+	vec := make([]float32, len(buf)/4)
+	for i := range vec {
+		bits := uint32(buf[i*4]) | uint32(buf[i*4+1])<<8 | uint32(buf[i*4+2])<<16 | uint32(buf[i*4+3])<<24
+		vec[i] = float32(bits) / 1e6
+	}
+	return vec
 }
 
 func serializeEmbedding(vec []float32) []byte {
@@ -937,4 +705,20 @@ func serializeEmbedding(vec []float32) []byte {
 		buf[i*4+3] = byte(bits >> 24)
 	}
 	return buf
+}
+
+func cosineSimilarity(a, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		dot += float64(a[i] * b[i])
+		normA += float64(a[i] * a[i])
+		normB += float64(b[i] * b[i])
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
