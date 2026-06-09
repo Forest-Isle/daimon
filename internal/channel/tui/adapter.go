@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/user"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -84,7 +86,10 @@ func (a *Adapter) Name() string { return "tui" }
 func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) error {
 	a.handler = handler
 
-	m := NewModel(a.agentMode, a.version)
+	username := getUsername()
+	cwd, _ := os.Getwd()
+
+	m := NewModel(a.agentMode, a.version, username, cwd)
 	if a.argCompleter != nil {
 		m.SetArgCompleter(a.argCompleter)
 	}
@@ -418,4 +423,13 @@ func (s *tuiStreamUpdater) pump() {
 			}
 		}
 	}
+}
+
+// getUsername returns the current OS username, or "you" if unavailable.
+func getUsername() string {
+	u, err := user.Current()
+	if err != nil || u.Username == "" {
+		return "you"
+	}
+	return u.Username
 }

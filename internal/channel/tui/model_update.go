@@ -25,7 +25,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		updateRendererWidth(m.width)
 
 		headerHeight := 1
-		inputHeight := 5 // textarea + border (3 lines + 2 border)
+		inputHeight := 3 // textarea + border (1 line + 2 border)
 		statusHeight := 1
 		vpHeight := m.height - headerHeight - inputHeight - statusHeight
 		if vpHeight < 1 {
@@ -42,6 +42,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.renderChat()) // Re-render with new width
 		}
 		m.textarea.SetWidth(m.width - 4) // account for input box padding+border
+
+	case tickMsg:
+		m.typingTick = (m.typingTick + 1) % 3
+		if m.waitingForResponse && m.streamingID == "" {
+			cmds = append(cmds, typingTick())
+		}
 
 	case tea.KeyMsg:
 		switch m.mode {
@@ -67,15 +73,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// --- Custom messages from adapter goroutines ---
 
 	case agentResponseMsg:
+		m.waitingForResponse = false
 		m.addMessage("agent", msg.text)
 		m.updateViewportKeepScroll()
 
 	case streamUpdateMsg:
+		m.waitingForResponse = false
 		m.streamingID = msg.id
 		m.streamingText = msg.text
 		m.updateViewportKeepScroll()
 
 	case streamFinishMsg:
+		m.waitingForResponse = false
 		if msg.text != "" {
 			m.addMessage("agent", msg.text)
 		}
@@ -105,6 +114,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 
 	case errorMsg:
+		m.waitingForResponse = false
 		m.addMessage("system", "Error: "+msg.err.Error())
 		m.updateViewportKeepScroll()
 
@@ -218,11 +228,12 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showStats = false
 			return m, nil
 		}
-		if m.streamingID != "" || m.activeTool != "" {
+		if m.streamingID != "" || m.activeTool != "" || m.waitingForResponse {
 			m.addMessage("system", "⏹ Request cancelled.")
 			m.streamingID = ""
 			m.streamingText = ""
 			m.activeTool = ""
+			m.waitingForResponse = false
 			m.refreshViewport()
 			return m, func() tea.Msg { return cancelRequestMsg{} }
 		}
@@ -296,9 +307,11 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		m.waitingForResponse = true
+		m.typingTick = 0
 		m.addMessage("user", text)
 		m.refreshViewport()
-		return m, nil
+		return m, typingTick()
 	}
 
 	// Update textarea and refresh suggestions

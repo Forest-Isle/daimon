@@ -4,24 +4,35 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // View renders the full TUI.
 func (m Model) View() string {
 	if !m.ready {
-		return "Initializing..."
+		return "Initializing…"
 	}
 
 	var b strings.Builder
 
-	// Header — headerStyle has Padding(0,1), so content width = m.width - 2
-	left := fmt.Sprintf(" IronClaw %s  [%s]", m.version, m.agentMode)
-	header := headerStyle.Width(m.width).Render(left)
-	b.WriteString(header)
+	// Header
+	b.WriteString(m.renderHeader())
 	b.WriteString("\n")
 
-	// Chat viewport
-	b.WriteString(m.viewport.View())
+	// Welcome screen or chat viewport
+	if len(m.messages) == 0 && m.streamingID == "" && !m.waitingForResponse {
+		b.WriteString(m.renderWelcome())
+	} else {
+		b.WriteString(m.viewport.View())
+	}
+
+	// Typing indicator between chat and input
+	if m.waitingForResponse && m.streamingID == "" {
+		b.WriteString("\n")
+		b.WriteString(m.renderTypingIndicator())
+	}
+
 	b.WriteString("\n")
 
 	// Approval / Reflection overlay or Input area
@@ -33,69 +44,192 @@ func (m Model) View() string {
 	case modeReflection:
 		b.WriteString(m.renderReflectionDialog())
 	default:
-		// Show suggestions if available
 		if m.showingSuggestions && len(m.suggestions) > 0 {
 			b.WriteString(m.renderSuggestions())
 			b.WriteString("\n")
 		}
 
-		// Stats panel (above input when visible)
 		if m.showStats {
 			b.WriteString(m.renderStatsPanel())
 			b.WriteString("\n")
 		}
 
-		// Input box with styled border
 		b.WriteString(inputBoxStyle.Width(m.width - 2).Render(m.textarea.View()))
 	}
 
-	// Status bar (always visible at the bottom)
+	// Status bar
 	b.WriteString("\n")
 	b.WriteString(m.renderStatusBar())
 
 	return b.String()
 }
 
+// renderHeader renders the top bar with session context.
+func (m Model) renderHeader() string {
+	left := fmt.Sprintf(" IronClaw %s ", m.version)
+
+	// Right side: mode + CWD
+	var rightParts []string
+	rightParts = append(rightParts, headerLabelStyle.Render("mode:")+" "+m.agentMode)
+	if m.cwd != "" {
+		shortCwd := shortenPath(m.cwd, 30)
+		rightParts = append(rightParts, headerLabelStyle.Render(shortCwd))
+	}
+	right := strings.Join(rightParts, "  ")
+
+	// Calculate spacing
+	leftLen := lipgloss.Width(left)
+	rightLen := lipgloss.Width(right)
+	spacer := m.width - leftLen - rightLen - 2 // -2 for padding
+	if spacer < 1 {
+		spacer = 1
+	}
+
+	return headerStyle.Width(m.width).Render(left + strings.Repeat(" ", spacer) + right)
+}
+
+// renderWelcome renders the branded welcome screen.
+func (m Model) renderWelcome() string {
+	logo := welcomeTitleStyle.Render("🦾  IronClaw")
+
+	subtitle := welcomeSubtitleStyle.Render("Local-first AI Agent Runtime")
+
+	shortcuts := []struct{ key, desc string }{
+		{"/help", "Show available commands"},
+		{"/mode", "Switch agent mode (simple / cognitive)"},
+		{"/stats", "Toggle metrics panel"},
+		{"/clear", "Clear conversation history"},
+		{"/quit", "Exit IronClaw"},
+	}
+
+	var hintLines string
+	for _, s := range shortcuts {
+		hintLines += fmt.Sprintf("  %s  %s\n",
+			welcomeKeyStyle.Render(s.key),
+			welcomeHintStyle.Render(s.desc))
+	}
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Center,
+		logo,
+		subtitle,
+		"",
+		hintLines,
+	)
+
+	// Center vertically by padding top
+	availableHeight := m.viewport.Height
+	contentHeight := lipgloss.Height(content)
+	topPad := (availableHeight - contentHeight) / 2
+	if topPad < 0 {
+		topPad = 0
+	}
+
+	return strings.Repeat("\n", topPad) + welcomeBoxStyle.Render(content)
+}
+
+// renderChat renders the message history with visual distinction.
+func (m Model) renderChat() string {
+	var b strings.Builder
+	for i, msg := range m.messages {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		ts := timestampStyle.Render(msg.timestamp.Format("15:04"))
+		contentWidth := m.width - 10 // account for timestamp + bar + padding
+
+		switch msg.role {
+		case "user":
+			bar := userBarStyle.Render("▌")
+			label := userLabelStyle.Render(m.username)
+			wrapped := wrapText(msg.content, contentWidth)
+			b.WriteString(fmt.Sprintf("%s %s %s\n%s  %s",
+				ts, bar, label, bar, wrapped))
+
+		case "agent":
+			bar := agentBarStyle.Render("▌")
+			label := agentLabelStyle.Render("IronClaw")
+			// Full markdown rendering for agent messages
+			rendered := renderMarkdown(msg.content)
+			// Prefix each line with bar accent
+			indentedRendered := indentWithBar(rendered, bar)
+			b.WriteString(fmt.Sprintf("%s %s %s\n%s",
+				ts, bar, label, indentedRendered))
+
+		case "system":
+			bar := systemBarStyle.Render("·")
+			wrapped := wrapText(msg.content, contentWidth)
+			b.WriteString(fmt.Sprintf("%s %s %s", ts, bar, systemStyle.Render(wrapped)))
+		}
+	}
+
+	// Streaming text
+	if m.streamingID != "" && m.streamingText != "" {
+		b.WriteString("\n")
+		ts := timestampStyle.Render(time.Now().Format("15:04"))
+		bar := agentBarStyle.Render("▌")
+		label := agentLabelStyle.Render("IronClaw")
+		indicator := streamingStyle.Render(" ▊")
+		rendered := renderMarkdown(m.streamingText)
+		indentedRendered := indentWithBar(rendered, bar)
+		b.WriteString(fmt.Sprintf("%s %s %s\n%s%s",
+			ts, bar, label, indentedRendered, indicator))
+	}
+
+	return b.String()
+}
+
+// renderTypingIndicator renders the animated "waiting" dots.
+func (m Model) renderTypingIndicator() string {
+	dots := []string{"○", "○", "○"}
+	dots[m.typingTick] = typingDotActiveStyle.Render("●")
+	for i := range dots {
+		if i != m.typingTick {
+			dots[i] = typingDotInactiveStyle.Render(dots[i])
+		}
+	}
+	return "  " + agentLabelStyle.Render("IronClaw") + " " +
+		strings.Join(dots, " ") + "  " + statusDimStyle.Render("thinking…")
+}
+
 // renderStatusBar renders the compact one-line status bar below the input.
 func (m Model) renderStatusBar() string {
 	var parts []string
 
-	// Model identifier (shown once metrics arrive)
-	if m.metrics.model != "" {
-		parts = append(parts, statusPhaseStyle.Render(m.metrics.model))
-	}
-
-	// Tool status
+	// Tool status with icon
 	if m.activeTool != "" {
-		parts = append(parts, statusToolRunningStyle.Render("⏳ "+m.activeTool+"..."))
+		parts = append(parts, statusToolRunningStyle.Render("⏳ "+m.activeTool))
 	} else if m.lastTool != "" {
 		if m.lastToolOK {
-			parts = append(parts, statusToolOKStyle.Render(fmt.Sprintf("✓ %s %dms", m.lastTool, m.lastToolMs)))
+			parts = append(parts, statusToolOKStyle.Render(
+				fmt.Sprintf("✓ %s (%dms)", m.lastTool, m.lastToolMs)))
 		} else {
-			parts = append(parts, statusToolFailStyle.Render(fmt.Sprintf("✗ %s %dms", m.lastTool, m.lastToolMs)))
+			parts = append(parts, statusToolFailStyle.Render(
+				fmt.Sprintf("✗ %s (%dms)", m.lastTool, m.lastToolMs)))
 		}
 	}
 
-	// Context utilization
+	// Context utilization with visual bar
 	if m.metrics.utilization > 0 {
 		pct := int(m.metrics.utilization * 100)
+		bar := renderMiniBar(m.metrics.utilization, 10)
 		style := statusDimStyle
 		if pct >= 90 {
 			style = statusToolFailStyle
 		} else if pct >= 70 {
 			style = statusToolRunningStyle
 		}
-		parts = append(parts, style.Render(fmt.Sprintf("ctx:%d%%", pct)))
+		parts = append(parts, style.Render(fmt.Sprintf("ctx %s %d%%", bar, pct)))
 	}
 
 	// Token usage
 	totalTokens := m.metrics.inputTokens + m.metrics.outputTokens
 	if totalTokens > 0 {
 		parts = append(parts, statusDimStyle.Render(
-			fmt.Sprintf("tok:%s", formatTokenCount(totalTokens))))
+			fmt.Sprintf("↥%s", formatTokenCount(totalTokens))))
 	}
 
-	// Iteration
+	// Iteration counter
 	if m.metrics.maxIter > 0 {
 		parts = append(parts, statusDimStyle.Render(
 			fmt.Sprintf("i%d/%d", m.metrics.iteration+1, m.metrics.maxIter)))
@@ -103,46 +237,16 @@ func (m Model) renderStatusBar() string {
 
 	// Tool count
 	if m.toolCount > 0 {
-		parts = append(parts, statusDimStyle.Render(fmt.Sprintf("tools:%d", m.toolCount)))
+		parts = append(parts, statusDimStyle.Render(fmt.Sprintf("⚒%d", m.toolCount)))
 	}
 
-	// Hint
-	parts = append(parts, statusDimStyle.Render("/stats"))
+	// Shortcuts hint
+	if m.activeTool != "" || m.waitingForResponse {
+		parts = append(parts, statusDimStyle.Render("Esc cancel"))
+	}
 
-	line := strings.Join(parts, statusDimStyle.Render("  │  "))
+	line := strings.Join(parts, statusDimStyle.Render(" │ "))
 	return statusBarStyle.Width(m.width).Render(line)
-}
-
-// renderChat renders the message history.
-func (m Model) renderChat() string {
-	var b strings.Builder
-	for _, msg := range m.messages {
-		ts := timestampStyle.Render(msg.timestamp.Format("15:04"))
-		switch msg.role {
-		case "user":
-			label := userLabelStyle.Render("You")
-			// Wrap user input text
-			wrappedContent := wrapText(msg.content, m.width-20) // Reserve space for timestamp and label
-			_, _ = fmt.Fprintf(&b, "%s %s: %s\n\n", ts, label, wrappedContent)
-		case "agent":
-			label := agentLabelStyle.Render("Agent")
-			rendered := renderMarkdown(msg.content)
-			_, _ = fmt.Fprintf(&b, "%s %s:\n%s\n", ts, label, rendered)
-		case "system":
-			wrappedContent := wrapText(msg.content, m.width-10) // Reserve space for timestamp
-			_, _ = fmt.Fprintf(&b, "%s %s\n\n", ts, systemStyle.Render(wrappedContent))
-		}
-	}
-
-	// Show streaming text
-	if m.streamingID != "" && m.streamingText != "" {
-		ts := timestampStyle.Render(time.Now().Format("15:04"))
-		label := agentLabelStyle.Render("Agent")
-		indicator := streamingStyle.Render(" ▊")
-		_, _ = fmt.Fprintf(&b, "%s %s:\n%s%s\n", ts, label, m.streamingText, indicator)
-	}
-
-	return b.String()
 }
 
 // renderApprovalDialog renders the tool approval overlay.
@@ -189,14 +293,12 @@ func (m Model) renderSuggestions() string {
 	}
 
 	var b strings.Builder
-	maxDisplay := 5 // Show max 5 suggestions at a time
+	maxDisplay := 5
 	totalSuggestions := len(m.suggestions)
 
-	// Calculate the visible window based on selected index
 	startIdx := 0
 	endIdx := totalSuggestions
 	if totalSuggestions > maxDisplay {
-		// Center the selected item in the visible window
 		startIdx = m.selectedSuggestion - maxDisplay/2
 		if startIdx < 0 {
 			startIdx = 0
@@ -211,7 +313,6 @@ func (m Model) renderSuggestions() string {
 		}
 	}
 
-	// Header changes based on whether we're completing a command or an argument
 	isArgCompletion := len(m.suggestions) > 0 && m.suggestions[0].ArgValue != ""
 	header := "Commands:"
 	if isArgCompletion {
@@ -220,19 +321,15 @@ func (m Model) renderSuggestions() string {
 	b.WriteString(suggestionHeaderStyle.Render(header))
 	b.WriteString("\n")
 
-	// Show indicator if there are items above
 	if startIdx > 0 {
 		b.WriteString(suggestionHintStyle.Render(fmt.Sprintf("  ↑ %d more above", startIdx)))
 		b.WriteString("\n")
 	}
 
-	// Render visible suggestions
 	for i := startIdx; i < endIdx; i++ {
 		suggestion := m.suggestions[i]
 		isSelected := i == m.selectedSuggestion
 
-		// For arg completions show the arg value + full completion line as hint.
-		// For command completions show the command name + description.
 		var primary, secondary string
 		if suggestion.ArgValue != "" {
 			primary = suggestion.ArgValue
@@ -252,7 +349,6 @@ func (m Model) renderSuggestions() string {
 		b.WriteString("\n")
 	}
 
-	// Show indicator if there are items below
 	if endIdx < totalSuggestions {
 		b.WriteString(suggestionHintStyle.Render(fmt.Sprintf("  ↓ %d more below", totalSuggestions-endIdx)))
 		b.WriteString("\n")
@@ -263,10 +359,60 @@ func (m Model) renderSuggestions() string {
 	return suggestionBoxStyle.Width(m.width - 4).Render(b.String())
 }
 
+// ─── Helpers ────────────────────────────────────────────────────────────
+
 // formatTokenCount formats a token count with k-suffix for large values.
 func formatTokenCount(n int64) string {
 	if n >= 1000 {
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	}
 	return fmt.Sprintf("%d", n)
+}
+
+// shortenPath truncates a path to maxLen by replacing the middle with "…".
+func shortenPath(path string, maxLen int) string {
+	if len(path) <= maxLen {
+		return path
+	}
+	half := (maxLen - 1) / 2
+	return path[:half] + "…" + path[len(path)-half:]
+}
+
+// renderMiniBar draws a compact horizontal bar for status line use.
+func renderMiniBar(ratio float64, width int) string {
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	filled := int(ratio * float64(width))
+	bar := ""
+	for i := 0; i < width; i++ {
+		if i < filled {
+			if ratio >= 0.9 {
+				bar += statusToolFailStyle.Render("█")
+			} else if ratio >= 0.7 {
+				bar += statusToolRunningStyle.Render("█")
+			} else {
+				bar += statusToolOKStyle.Render("█")
+			}
+		} else {
+			bar += statsBarEmptyStyle.Render("░")
+		}
+	}
+	return bar
+}
+
+// indentWithBar prefixes each line of s with the bar rune for visual alignment.
+func indentWithBar(s string, bar string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line == "" {
+			lines[i] = bar
+		} else {
+			lines[i] = bar + " " + line
+		}
+	}
+	return strings.Join(lines, "\n")
 }

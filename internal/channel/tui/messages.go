@@ -1,6 +1,11 @@
 package tui
 
-import "github.com/Forest-Isle/IronClaw/internal/channel"
+import (
+	"time"
+
+	"github.com/Forest-Isle/IronClaw/internal/channel"
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 // Custom tea.Msg types for communication between the adapter goroutines
 // and the Bubble Tea main loop.
@@ -96,4 +101,13 @@ type compressionNotificationMsg struct {
 	layersRun int
 	beforePct float64
 	afterPct  float64
+}
+
+// tickMsg fires periodically to drive typing indicator animation.
+type tickMsg struct{}
+
+func typingTick() tea.Cmd {
+	return tea.Tick(350*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg{}
+	})
 }

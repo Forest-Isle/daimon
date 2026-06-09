@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/channel"
@@ -104,6 +105,14 @@ type Model struct {
 	lastCompressTo     float64 // after utilization (0.0–1.0)
 	lastCompressReason string
 
+	// Typing indicator
+	waitingForResponse bool
+	typingTick         int // animation frame 0-2
+
+	// Environment
+	username string
+	cwd      string
+
 	// Layout
 	width  int
 	height int
@@ -111,14 +120,14 @@ type Model struct {
 }
 
 // NewModel creates a new TUI model.
-func NewModel(agentMode, version string) Model {
+func NewModel(agentMode, version, username, cwd string) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Type a message... (Enter to send, /help for commands)"
+	ta.Placeholder = fmt.Sprintf("Message IronClaw… (/help for commands)")
 	ta.Focus()
 	ta.CharLimit = 4096
-	ta.SetHeight(3)
+	ta.SetHeight(1) // single-line chat input
 	ta.ShowLineNumbers = false
-	ta.Prompt = "  "
+	ta.Prompt = userBarStyle.Render("❯")
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 
 	return Model{
@@ -126,6 +135,8 @@ func NewModel(agentMode, version string) Model {
 		messages:           make([]chatMessage, 0),
 		agentMode:          agentMode,
 		version:            version,
+		username:           username,
+		cwd:                cwd,
 		selectedSuggestion: -1,
 		autoScroll:         true,
 	}
