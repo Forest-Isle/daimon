@@ -183,7 +183,6 @@ func (m *Model) SetModelRoles(provider, opusModel, sonnetModel, haikuModel strin
 		m.modelItems = append(m.modelItems,
 			ModelRoleEntry{Role: "Opus", Name: opus},
 			ModelRoleEntry{Role: "Sonnet", Name: sonnet},
-			ModelRoleEntry{Role: "Sonnet 4", Name: "claude-sonnet-4-20250514"},
 			ModelRoleEntry{Role: "Haiku", Name: haiku},
 		)
 	}
