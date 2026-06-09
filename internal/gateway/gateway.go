@@ -255,7 +255,7 @@ func (a *completerAdapter) Complete(ctx context.Context, systemPrompt, userMessa
 func defaultSkillsDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil { return "" }
-	return filepath.Join(home, ".IronClaw", "skills")
+	return filepath.Join(home, ".ironclaw", "skills")
 }
 
 func defToSpec(def config.AgentDefinition) *agent.AgentSpec {

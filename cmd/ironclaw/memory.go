@@ -45,7 +45,7 @@ func newMemoryReindexCmd() *cobra.Command {
 			defer func() { _ = db.Close() }()
 
 			home, _ := os.UserHomeDir()
-			memoryDir := filepath.Join(home, ".IronClaw", "memory")
+			memoryDir := filepath.Join(home, ".ironclaw", "memory")
 
 			fileStore, err := memory.NewFileMemoryStore(memoryDir, db.DB, &memory.NoopEmbedding{}, memory.MemoryConfig{})
 			if err != nil {

@@ -11,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// MCPServerFile represents a single MCP server definition loaded from ~/.IronClaw/mcp/*.yaml.
+// MCPServerFile represents a single MCP server definition loaded from ~/.ironclaw/mcp/*.yaml.
 type MCPServerFile struct {
 	Name             string            `yaml:"name"`
 	Command          string            `yaml:"command"`
@@ -20,17 +20,17 @@ type MCPServerFile struct {
 	RequiresApproval bool              `yaml:"requires_approval"`
 }
 
-// Apply merges ~/.IronClaw/ personality files and MCP server definitions into cfg.
+// Apply merges ~/.ironclaw/ personality files and MCP server definitions into cfg.
 // If the directory does not exist it is initialized with default templates.
 func Apply(cfg *config.Config) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("userdir: resolve home dir: %w", err)
 	}
-	base := filepath.Join(home, ".IronClaw")
+	base := filepath.Join(home, ".ironclaw")
 
 	if _, err := os.Stat(base); os.IsNotExist(err) {
-		slog.Info("userdir: ~/.IronClaw not found, initializing default structure", "path", base)
+		slog.Info("userdir: ~/.ironclaw not found, initializing default structure", "path", base)
 		if err := initDir(base); err != nil {
 			return fmt.Errorf("userdir: init: %w", err)
 		}
@@ -45,7 +45,7 @@ func Apply(cfg *config.Config) error {
 	return nil
 }
 
-// ensureSkillsDir creates ~/.IronClaw/skills/ if it does not already exist.
+// ensureSkillsDir creates ~/.ironclaw/skills/ if it does not already exist.
 func ensureSkillsDir(base string) {
 	skillsDir := filepath.Join(base, "skills")
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
@@ -53,7 +53,7 @@ func ensureSkillsDir(base string) {
 	}
 }
 
-// ensureAgentsDir creates ~/.IronClaw/agents/ if it does not already exist.
+// ensureAgentsDir creates ~/.ironclaw/agents/ if it does not already exist.
 func ensureAgentsDir(base string) {
 	agentsDir := filepath.Join(base, "agents")
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
@@ -61,13 +61,13 @@ func ensureAgentsDir(base string) {
 	}
 }
 
-// AgentsDir returns the path to ~/.IronClaw/agents/.
+// AgentsDir returns the path to ~/.ironclaw/agents/.
 func AgentsDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".IronClaw", "agents")
+	return filepath.Join(home, ".ironclaw", "agents")
 }
 
 // applyPersonality reads Soul.md, Memory.md, Agent.md and injects them into
@@ -110,7 +110,7 @@ func applyPersonality(cfg *config.Config, base string) error {
 	return nil
 }
 
-// applyMCP reads ~/.IronClaw/mcp/*.yaml and appends new server definitions to cfg.
+// applyMCP reads ~/.ironclaw/mcp/*.yaml and appends new server definitions to cfg.
 // Servers whose name already exists in cfg are skipped (project config takes priority).
 // If the mcp directory does not exist, it is created with an example config file.
 func applyMCP(cfg *config.Config, base string) {
@@ -138,7 +138,7 @@ func applyMCP(cfg *config.Config, base string) {
 	}
 }
 
-// ScanMCPDir reads all MCP server definitions from ~/.IronClaw/mcp/*.yaml.
+// ScanMCPDir reads all MCP server definitions from ~/.ironclaw/mcp/*.yaml.
 // It returns a map of server name → config, suitable for passing to mcp.Manager.SyncServers.
 func ScanMCPDir() map[string]config.MCPServerConfig {
 	home, err := os.UserHomeDir()
@@ -146,7 +146,7 @@ func ScanMCPDir() map[string]config.MCPServerConfig {
 		slog.Warn("userdir: resolve home dir for mcp scan", "err", err)
 		return nil
 	}
-	mcpDir := filepath.Join(home, ".IronClaw", "mcp")
+	mcpDir := filepath.Join(home, ".ironclaw", "mcp")
 	return scanMCPFiles(mcpDir)
 }
 
@@ -217,7 +217,7 @@ func scanMCPFiles(mcpDir string) map[string]config.MCPServerConfig {
 	return servers
 }
 
-// initDir creates the ~/.IronClaw/ directory structure with default template files.
+// initDir creates the ~/.ironclaw/ directory structure with default template files.
 func initDir(base string) error {
 	dirs := []string{
 		base,
@@ -246,7 +246,7 @@ func initDir(base string) error {
 		}
 	}
 
-	slog.Info("userdir: initialized ~/.IronClaw with default templates", "path", base)
+	slog.Info("userdir: initialized ~/.ironclaw with default templates", "path", base)
 	return nil
 }
 
@@ -263,11 +263,11 @@ You are a helpful coding assistant who speaks concisely.
 
 const defaultMemory = `# Memory — Persistent Rules
 
-- Configuration directory: ~/.IronClaw/
-- Add custom skills by placing SKILL.md files in ~/.IronClaw/skills/
-- Add MCP tool servers by placing *.yaml configs in ~/.IronClaw/mcp/
-- **NEVER run global package installations** (npm install -g, pip install, etc.) on the user's machine. To add MCP tools, only create YAML config files in ~/.IronClaw/mcp/ using on-demand runners (npx -y, uvx, docker run).
-- To install skills, use ` + "`ironclaw skill install <slug>`" + ` from ClawHub, or manually create SKILL.md files in ~/.IronClaw/skills/. Skills are pure markdown, never use package managers.
+- Configuration directory: ~/.ironclaw/
+- Add custom skills by placing SKILL.md files in ~/.ironclaw/skills/
+- Add MCP tool servers by placing *.yaml configs in ~/.ironclaw/mcp/
+- **NEVER run global package installations** (npm install -g, pip install, etc.) on the user's machine. To add MCP tools, only create YAML config files in ~/.ironclaw/mcp/ using on-demand runners (npx -y, uvx, docker run).
+- To install skills, use ` + "`ironclaw skill install <slug>`" + ` from ClawHub, or manually create SKILL.md files in ~/.ironclaw/skills/. Skills are pure markdown, never use package managers.
 `
 
 const defaultAgent = `# Agent — Core System Prompt
@@ -282,10 +282,10 @@ You are IronClaw, a local-first AI assistant with tool-use capabilities.
 
 ## MCP Tool Management
 
-You can manage your own MCP tool servers. **NEVER install packages globally** (no npm install -g, pip install, etc.) on the user's machine. Instead, create YAML config files in ~/.IronClaw/mcp/.
+You can manage your own MCP tool servers. **NEVER install packages globally** (no npm install -g, pip install, etc.) on the user's machine. Instead, create YAML config files in ~/.ironclaw/mcp/.
 
 When the user asks to "install" or "add" an MCP tool:
-1. Create a .yaml file in ~/.IronClaw/mcp/ with the server definition
+1. Create a .yaml file in ~/.ironclaw/mcp/ with the server definition
 2. Use on-demand runners like npx -y, uvx, or docker run as the command
 3. The hot-reload watcher picks up new configs automatically (within 30 seconds)
 
@@ -305,7 +305,7 @@ To remove an MCP tool, delete or rename its .yaml file (e.g., append .disabled).
 
 ## Skill Management
 
-Skills are SKILL.md files (YAML frontmatter + markdown body) stored in ~/.IronClaw/skills/.
+Skills are SKILL.md files (YAML frontmatter + markdown body) stored in ~/.ironclaw/skills/.
 A built-in ` + "`clawhub`" + ` skill is always available — it teaches you how to search and install skills from the ClawHub public registry using ` + "`clawhub`" + ` CLI.
 
 When the user asks to "install" or "add" a skill:
@@ -313,7 +313,7 @@ When the user asks to "install" or "add" a skill:
 2. Or use the CLI shorthand: ` + "`ironclaw skill search <query>`" + ` / ` + "`ironclaw skill install <slug>`" + `
 3. Skills are loaded automatically at startup
 
-To create a custom skill manually, write a SKILL.md file in ~/.IronClaw/skills/<name>/SKILL.md with YAML frontmatter (name, description, version, tags) and markdown body.
+To create a custom skill manually, write a SKILL.md file in ~/.ironclaw/skills/<name>/SKILL.md with YAML frontmatter (name, description, version, tags) and markdown body.
 
 Other CLI commands:
 - ` + "`ironclaw skill list`" + ` — list installed skills

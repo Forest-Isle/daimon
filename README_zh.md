@@ -9,7 +9,7 @@ IronClaw 是一个本地优先的 AI Agent Runtime。它不是单一聊天机器
 ```mermaid
 flowchart TB
     CLI[cmd/ironclaw CLI] --> Config[Config loader]
-    Config --> UserDir[~/.IronClaw userdir]
+    Config --> UserDir[~/.ironclaw userdir]
     Config --> Gateway[Gateway composition root]
     UserDir --> Gateway
 
@@ -72,5 +72,5 @@ make test
 2. 通过 `-c` 指定的 YAML。
 3. 当前工作目录下 `.ironclaw/ironclaw.yaml`。
 4. 当前工作目录下 `.ironclaw/local.yaml`。
-5. `~/.IronClaw` 用户目录注入：`Soul.md`、`Memory.md`、`Agent.md`、`mcp/*.yaml`、`skills/`、`agents/`。
-6. 持久化功能开关 `~/.IronClaw/feature_state.json`，调用方可选择跳过。
+5. `~/.ironclaw` 用户目录注入：`Soul.md`、`Memory.md`、`Agent.md`、`mcp/*.yaml`、`skills/`、`agents/`。
+6. 持久化功能开关 `~/.ironclaw/feature_state.json`，调用方可选择跳过。

@@ -33,7 +33,7 @@ store:
 
 memory:
   storage_type: file
-  storage_dir: ~/.IronClaw/memory
+  storage_dir: ~/.ironclaw/memory
   embedding_model: text-embedding-3-small
   openai_api_key: ${OPENAI_API_KEY}
 

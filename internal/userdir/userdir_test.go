@@ -16,7 +16,7 @@ func TestAgentsDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserHomeDir: %v", err)
 	}
-	expected := filepath.Join(home, ".IronClaw", "agents")
+	expected := filepath.Join(home, ".ironclaw", "agents")
 	got := AgentsDir()
 	if got != expected {
 		t.Errorf("AgentsDir() = %q, want %q", got, expected)
@@ -34,9 +34,9 @@ func TestApply_InitializesDir(t *testing.T) {
 	}
 
 	// Verify directory created
-	base := filepath.Join(home, ".IronClaw")
+	base := filepath.Join(home, ".ironclaw")
 	if _, err := os.Stat(base); os.IsNotExist(err) {
-		t.Error("expected .IronClaw directory to be created")
+		t.Error("expected .ironclaw directory to be created")
 	}
 	if _, err := os.Stat(filepath.Join(base, "Soul.md")); os.IsNotExist(err) {
 		t.Error("expected Soul.md to be created")
@@ -53,7 +53,7 @@ func TestApply_ReadsPersonality(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".IronClaw")
+	base := filepath.Join(home, ".ironclaw")
 	os.MkdirAll(base, 0755)
 	os.WriteFile(filepath.Join(base, "Soul.md"), []byte("You are a helpful assistant"), 0644)
 	os.WriteFile(filepath.Join(base, "Memory.md"), []byte("Important: never modify system files"), 0644)
@@ -80,7 +80,7 @@ func TestApply_PrependsAgentMDFromFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".IronClaw")
+	base := filepath.Join(home, ".ironclaw")
 	os.MkdirAll(base, 0755)
 	os.WriteFile(filepath.Join(base, "Agent.md"), []byte("Custom prompt"), 0644)
 	os.MkdirAll(filepath.Join(base, "mcp"), 0755)
@@ -98,7 +98,7 @@ func TestApply_PrependsAgentMDToExisting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".IronClaw")
+	base := filepath.Join(home, ".ironclaw")
 	os.MkdirAll(base, 0755)
 	os.WriteFile(filepath.Join(base, "Agent.md"), []byte("File prompt"), 0644)
 	os.MkdirAll(filepath.Join(base, "mcp"), 0755)
@@ -117,7 +117,7 @@ func TestApply_MissingFiles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".IronClaw")
+	base := filepath.Join(home, ".ironclaw")
 	os.MkdirAll(base, 0755)
 	os.MkdirAll(filepath.Join(base, "mcp"), 0755)
 	// No personality files
@@ -136,7 +136,7 @@ func TestApply_MCPFiles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".IronClaw")
+	base := filepath.Join(home, ".ironclaw")
 	os.MkdirAll(base, 0755)
 	os.MkdirAll(filepath.Join(base, "mcp"), 0755)
 	os.WriteFile(filepath.Join(base, "mcp", "server.yaml"), []byte(`
@@ -172,7 +172,7 @@ func TestScanMCPDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	mcpDir := filepath.Join(home, ".IronClaw", "mcp")
+	mcpDir := filepath.Join(home, ".ironclaw", "mcp")
 	os.MkdirAll(mcpDir, 0755)
 	os.WriteFile(filepath.Join(mcpDir, "github.yaml"), []byte(`
 name: github
@@ -197,7 +197,7 @@ func TestScanMCPDir_InvalidFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	mcpDir := filepath.Join(home, ".IronClaw", "mcp")
+	mcpDir := filepath.Join(home, ".ironclaw", "mcp")
 	os.MkdirAll(mcpDir, 0755)
 	os.WriteFile(filepath.Join(mcpDir, "bad.yaml"), []byte("invalid: yaml: [[["), 0644)
 

@@ -63,7 +63,7 @@ store:
 memory:
   # enabled: true                      # 默认开启，无需显式设置
   storage_type: file                   # "file" (推荐) 或 "sqlite" (传统)
-  storage_dir: ~/.IronClaw/memory      # 文件存储目录（默认）
+  storage_dir: ~/.ironclaw/memory      # 文件存储目录（默认）
   embedding_model: text-embedding-3-small  # 或 text-embedding-3-large（3072维，更高精度）
   openai_api_key: ${OPENAI_API_KEY}
   # fact_extraction: true          # 启用 mem0 风格的事实提取

@@ -9,7 +9,7 @@ type StoreConfig struct {
 type MemoryConfig struct {
 	Enabled                  bool              `yaml:"enabled"`
 	StorageType              string            `yaml:"storage_type"` // "file" or "sqlite" (default: "file")
-	StorageDir               string            `yaml:"storage_dir"`  // directory for file-based storage (default: ~/.IronClaw/memory)
+	StorageDir               string            `yaml:"storage_dir"`  // directory for file-based storage (default: ~/.ironclaw/memory)
 	EmbeddingModel           string            `yaml:"embedding_model"`
 	EmbeddingBaseURL         string            `yaml:"embedding_base_url"` // base URL for embedding API (default: https://api.openai.com/v1/embeddings)
 	OpenAIAPIKey             string            `yaml:"openai_api_key"`

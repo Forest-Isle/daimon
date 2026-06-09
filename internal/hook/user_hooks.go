@@ -281,9 +281,9 @@ func parseUserHook(path, name string) (UserHook, bool) {
 func defaultHooksDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join("~", ".IronClaw", "hooks")
+		return filepath.Join("~", ".ironclaw", "hooks")
 	}
-	return filepath.Join(home, ".IronClaw", "hooks")
+	return filepath.Join(home, ".ironclaw", "hooks")
 }
 
 func exitCode(err error) int {

@@ -56,7 +56,7 @@ func InitMemorySystem(features *FeatureSubsystem, cfg *config.Config, builder *a
 	if storageDir == "" {
 		home, _ := os.UserHomeDir()
 		if home == "" { return ms }
-		storageDir = filepath.Join(home, ".IronClaw", "memory")
+		storageDir = filepath.Join(home, ".ironclaw", "memory")
 	} else if strings.HasPrefix(storageDir, "~/") {
 		home, _ := os.UserHomeDir()
 		if home == "" { return ms }

@@ -89,7 +89,7 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	slog.Info("hook system initialized")
 
 	if home, err := os.UserHomeDir(); err == nil {
-		hooksDir := filepath.Join(home, ".IronClaw", "hooks")
+		hooksDir := filepath.Join(home, ".ironclaw", "hooks")
 		ts.UserHookMgr = hook.NewUserHookManager(hooksDir, 30*time.Second)
 		slog.Info("user hook system initialized", "dir", hooksDir, "hooks", len(ts.UserHookMgr.ListHooks()))
 	}

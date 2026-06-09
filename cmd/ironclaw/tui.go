@@ -114,7 +114,7 @@ func tuiLogPath() string {
 	if err != nil {
 		return "tui.log"
 	}
-	dir := filepath.Join(home, ".IronClaw")
+	dir := filepath.Join(home, ".ironclaw")
 	os.MkdirAll(dir, 0755) //nolint:errcheck
 	return filepath.Join(dir, "tui.log")
 }

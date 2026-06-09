@@ -59,13 +59,13 @@ func main() {
 	}
 }
 
-// skillsDir returns the path to ~/.IronClaw/skills/.
+// skillsDir returns the path to ~/.ironclaw/skills/.
 func skillsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home dir: %w", err)
 	}
-	dir := filepath.Join(home, ".IronClaw", "skills")
+	dir := filepath.Join(home, ".ironclaw", "skills")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create skills dir: %w", err)
 	}
@@ -73,7 +73,7 @@ func skillsDir() (string, error) {
 }
 
 // resolveWorkdir returns the workdir for clawhub CLI.
-// If dir is empty, defaults to ~/.IronClaw.
+// If dir is empty, defaults to ~/.ironclaw.
 func resolveWorkdir(dir string) (string, error) {
 	if dir != "" {
 		return dir, nil
@@ -82,7 +82,7 @@ func resolveWorkdir(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".IronClaw"), nil
+	return filepath.Join(home, ".ironclaw"), nil
 }
 
 // newSkillCmd builds the `ironclaw skill` subcommand group.
@@ -180,7 +180,7 @@ func newSkillInstallCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&workdir, "workdir", "", "skills working directory (default: ~/.IronClaw)")
+	cmd.Flags().StringVar(&workdir, "workdir", "", "skills working directory (default: ~/.ironclaw)")
 	return cmd
 }
 
@@ -211,7 +211,7 @@ func newSkillUpdateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&workdir, "workdir", "", "skills working directory (default: ~/.IronClaw)")
+	cmd.Flags().StringVar(&workdir, "workdir", "", "skills working directory (default: ~/.ironclaw)")
 	return cmd
 }
 

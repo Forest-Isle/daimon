@@ -65,8 +65,8 @@ The example configuration lives at `configs/ironclaw.example.yaml`. Runtime load
 1. Built-in defaults from `internal/config`.
 2. The explicit YAML passed with `-c`.
 3. Project overlays: `.ironclaw/ironclaw.yaml`, then `.ironclaw/local.yaml`.
-4. User directory injection from `~/.IronClaw`: `Soul.md`, `Memory.md`, `Agent.md`, MCP server files, skills, and agent specs.
-5. Persisted runtime feature overrides from `~/.IronClaw/feature_state.json`, unless the caller opts out.
+4. User directory injection from `~/.ironclaw`: `Soul.md`, `Memory.md`, `Agent.md`, MCP server files, skills, and agent specs.
+5. Persisted runtime feature overrides from `~/.ironclaw/feature_state.json`, unless the caller opts out.
 
 Most core runtime features are on by default; the standalone admin server is opt-in.
 
