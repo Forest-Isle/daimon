@@ -17,12 +17,11 @@ func isInteractive() bool {
 
 // runSetupWizard guides a new user through interactive configuration.
 // Always saves to ~/.ironclaw/config.yaml (global user config).
-// Project-level .ironclaw/ironclaw.yaml takes priority and is created
-// manually by the user when they need project-specific overrides.
 func runSetupWizard() (string, error) {
 	var (
-		provider  string
+		apiFormat string
 		apiKey    string
+		baseURL   string
 		model     string
 		agentMode string
 	)
@@ -40,22 +39,22 @@ func runSetupWizard() (string, error) {
 		Render("  Local-first AI Agent Runtime — let's get you set up."))
 	fmt.Println()
 
-	// ── Step 1: Provider ───────────────────────────────────────────
+	// ── Step 1: API Format ─────────────────────────────────────────
 	err := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
-				Title("Step 1/4").
-				Description("Choose your LLM provider"),
+				Title("Step 1/5").
+				Description("Choose API format"),
 			huh.NewSelect[string]().
-				Title("Provider").
-				Description("Which AI backend will power IronClaw?").
+				Title("Format").
+				Description("Which API format does your provider use?").
 				Options(
-					huh.NewOption("Anthropic Claude (Sonnet 4)", "claude"),
-					huh.NewOption("OpenAI (GPT-4o)", "openai"),
+					huh.NewOption("Anthropic (Claude Sonnet 4, Opus, Haiku)", "claude"),
+					huh.NewOption("OpenAI-compatible (GPT-4o, o4-mini, Ollama, vLLM, etc.)", "openai"),
 				).
-				Height(0).Value(&provider),
+				Height(0).Value(&apiFormat),
 		),
-	).WithTheme(theme).WithWidth(64).Run()
+	).WithTheme(theme).WithWidth(68).Run()
 	if err != nil {
 		return "", err
 	}
@@ -63,7 +62,7 @@ func runSetupWizard() (string, error) {
 	// ── Step 2: API Key ────────────────────────────────────────────
 	defaultKey := "${ANTHROPIC_API_KEY}"
 	defaultKeyHint := "uses $ANTHROPIC_API_KEY env var"
-	if provider == "openai" {
+	if apiFormat == "openai" {
 		defaultKey = "${OPENAI_API_KEY}"
 		defaultKeyHint = "uses $OPENAI_API_KEY env var"
 	}
@@ -71,15 +70,15 @@ func runSetupWizard() (string, error) {
 	err = huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
-				Title("Step 2/4").
-				Description("Configure your API key"),
+				Title("Step 2/5").
+				Description("Set your API key"),
 			huh.NewInput().
 				Title("API Key").
 				Description("Leave empty to " + defaultKeyHint).
 				Placeholder(defaultKey).
 				Value(&apiKey),
 		),
-	).WithTheme(theme).WithWidth(64).Run()
+	).WithTheme(theme).WithWidth(68).Run()
 	if err != nil {
 		return "", err
 	}
@@ -87,37 +86,50 @@ func runSetupWizard() (string, error) {
 		apiKey = defaultKey
 	}
 
-	// ── Step 3: Model ──────────────────────────────────────────────
-	defaultModel := "claude-sonnet-4-20250514"
-	if provider == "openai" {
-		defaultModel = "gpt-4o"
+	// ── Step 3: Base URL ───────────────────────────────────────────
+	defaultBaseURL := "https://api.anthropic.com"
+	defaultBaseHint := "official Anthropic API"
+	if apiFormat == "openai" {
+		defaultBaseURL = "https://api.openai.com/v1"
+		defaultBaseHint = "official OpenAI API"
 	}
 
 	err = huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
-				Title("Step 3/4").
-				Description("Select or enter a model name"),
-			huh.NewSelect[string]().
-				Title("Model").
-				Description("Which model should IronClaw use?").
-				OptionsFunc(func() []huh.Option[string] {
-					if provider == "claude" {
-						return huh.NewOptions(
-							"claude-sonnet-4-20250514",
-							"claude-opus-4-20250514",
-							"claude-3.5-haiku-20241022",
-						)
-					}
-					return huh.NewOptions(
-						"gpt-4o",
-						"gpt-4-turbo",
-						"gpt-3.5-turbo",
-					)
-				}, &provider).
-				Height(0).Value(&model),
+				Title("Step 3/5").
+				Description("Set API endpoint (optional)"),
+			huh.NewInput().
+				Title("Base URL").
+				Description("Leave empty for " + defaultBaseHint).
+				Placeholder(defaultBaseURL).
+				Value(&baseURL),
 		),
-	).WithTheme(theme).WithWidth(64).Run()
+	).WithTheme(theme).WithWidth(68).Run()
+	if err != nil {
+		return "", err
+	}
+
+	// ── Step 4: Model ──────────────────────────────────────────────
+	defaultModel := "claude-sonnet-4-20250514"
+	modelHint := "latest Sonnet — great balance of speed & intelligence"
+	if apiFormat == "openai" {
+		defaultModel = "gpt-4o"
+		modelHint = "latest flagship — multimodal, 128K context"
+	}
+
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Step 4/5").
+				Description("Choose model (press Enter for default, or type any model name)"),
+			huh.NewInput().
+				Title("Model").
+				Description(modelHint).
+				Placeholder(defaultModel).
+				Value(&model),
+		),
+	).WithTheme(theme).WithWidth(68).Run()
 	if err != nil {
 		return "", err
 	}
@@ -125,11 +137,11 @@ func runSetupWizard() (string, error) {
 		model = defaultModel
 	}
 
-	// ── Step 4: Agent Mode ─────────────────────────────────────────
+	// ── Step 5: Agent Mode ─────────────────────────────────────────
 	err = huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
-				Title("Step 4/4").
+				Title("Step 5/5").
 				Description("Choose agent runtime mode"),
 			huh.NewSelect[string]().
 				Title("Mode").
@@ -140,7 +152,7 @@ func runSetupWizard() (string, error) {
 				).
 				Height(0).Value(&agentMode),
 		),
-	).WithTheme(theme).WithWidth(64).Run()
+	).WithTheme(theme).WithWidth(68).Run()
 	if err != nil {
 		return "", err
 	}
@@ -148,6 +160,12 @@ func runSetupWizard() (string, error) {
 	// ── Save to global config ──────────────────────────────────────
 	home, _ := os.UserHomeDir()
 	savePath := filepath.Join(home, ".ironclaw", "config.yaml")
+
+	// ── Build base_url line ────────────────────────────────────────
+	baseURLYAML := ""
+	if baseURL != "" {
+		baseURLYAML = fmt.Sprintf("\n  base_url: \"%s\"", baseURL)
+	}
 
 	// ── Generate config ────────────────────────────────────────────
 	configYAML := fmt.Sprintf(`# IronClaw configuration — generated by setup wizard.
@@ -158,8 +176,7 @@ func runSetupWizard() (string, error) {
 
 llm:
   provider: %s
-  api_key: "%s"
-  # base_url: ""   # custom endpoint for proxies/relays (e.g. http://localhost:11434/v1)
+  api_key: "%s"%s
   model: %s
   max_tokens: 8192
 
@@ -243,7 +260,7 @@ log:
   level: info
   format: text
 `,
-		provider, apiKey, model, agentMode)
+		apiFormat, apiKey, baseURLYAML, model, agentMode)
 
 	// ── Write config ───────────────────────────────────────────────
 	dir := filepath.Dir(savePath)
