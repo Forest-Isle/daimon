@@ -252,84 +252,91 @@ grep -rn "ConfidenceThreshold\|MaxReplanAttempts\|PlanMaxTokens\|ReflectMaxToken
 
 ## P3 — 过度设计：功能存在但复杂度过高，可大幅简化
 
-### 11. Memory 系统整体
+### 11. Memory 系统整体 ✅ 已完成 (2026-06-09, commit 7d2c04a)
 
 ```
-包：internal/memory/ (42 文件, 8,693 行) + internal/memorywire/ (1 文件, 300 行)
-总计：~9,000 行
+包：internal/memory/ (25 文件, 3,497 行) ← 原 42 文件 / 8,693 行
+    internal/memorywire/ — 已删除
+    internal/tool/memory.go (223 行) ← 合并原 3 工具
 ```
 
-**组件清单：**
+**设计模式：Flat Store + Smart Retrieval**
+不再对记忆做多层 LLM 加工（facts→L1 reflections→L2 reflections→profile）。
+检索时由 BM25+向量+RRF 融合找相关内容，不需要预分类/预合并/预衰减。
 
-| 文件 | 行数 | 职责 | 必要性评估 |
-|------|------|------|-----------|
-| `file_store.go` | 940 | 文件系统存储（JSON 文件） | 核心，但 940 行偏大 |
-| `profiler.go` | 649 | 用户画像生成（LLM 驱动） | 可简化 |
-| `profiler_test.go` | 436 | — | — |
-| `reflector.go` | 419 | 反思追踪（对话后分析） | 可简化 |
-| `reflector_test.go` | 503 | — | — |
-| `lifecycle.go` | 347 | 记忆生命周期（创建/更新/过期） | 核心 |
-| `forgetting_curve.go` | 267 | 艾宾浩斯遗忘曲线 | 过度学术化 |
-| `forgetting_curve_test.go` | 288 | — | — |
-| `retriever.go` | 254 | 统一检索（语义+过程） | 核心 |
-| `compactor.go` | 241 | 记忆压缩（摘要化旧记忆） | 可简化 |
-| `memory_index.go` | 226 | 内存索引（非持久） | 可简化 |
-| `memorywire.go` | 253 | AMP 协议适配（内部） | 见 #13 |
-| `markdown.go` | 219 | Markdown 格式化输出 | 可简化 |
-| `consolidator.go` | 193 | 会话→用户记忆提升 | 可简化 |
-| `compressor.go` | 112 | 响应压缩 | 小 |
-| `procedural.go` | 119 | 过程记忆（任务策略） | 核心 |
-| `facts.go` | 120 | 事实提取 | 核心 |
-| `cache.go` | 104 | 嵌入缓存 | 小 |
-| `openai.go` | 147 | OpenAI 嵌入客户端 | 核心 |
-| + `file_store_test.go`, `lifecycle_test.go` 等 | ~1,000 | — | — |
+**删除清单（~5,200 行）：**
 
-**问题：** memory 系统比 agent 系统还大（agent 包 ~7,000 行 vs memory ~9,000 行）。
-**核心功能：** 存储、搜索、过期、事实提取。其余（画像、反思、压缩、合并、AMP、遗忘曲线）是附加值。
+| 已删除 | 行数 | 原因 |
+|--------|------|------|
+| profiler.go + test + profile_schema | ~1,200 | LLM总结LLM的LLM输出——检索已够好 |
+| reflector.go + test (L1/L2 reflections) | ~922 | 事实→模式→洞察的元认知链条无增量价值 |
+| forgetting_curve.go + test | ~555 | 艾宾浩斯衰减→TTL+访问频率替代 |
+| memorywire.go + test + adapter.go | ~774 | 零外部消费者，所有op 1:1映射Store |
+| compactor.go | ~241 | LLM合并同类→原始检索更精确 |
+| memory_index.go (MEMORY.md) | ~226 | 与SQLite索引冗余 |
+| markdown.go | ~219 | hash fn内联到file_store |
+| consolidator.go | ~193 | scope promotion→简单SQL内联 |
+| compressor.go + test | ~210 | 上下文窗口管理不属于memory |
+| section_buffer.go + test | ~136 | 仅profiler使用的缓冲 |
+| integration_test.go | ~132 | 引用已删除的Consolidator |
 
-- [ ] **决策选项：**
-  - [ ] **激进：** 保留 file_store + lifecycle + facts + retriever + embedding，删除 profiler/reflector/compactor/consolidator/compressor/markdown（砍 ~4,000 行）
-  - [ ] **温和：** 保留大多数但标记哪些是"升级路径" vs "日常必需"
-  - [ ] **保守：** 仅删除 dead code（forgetting_curve 如果没被实际调度运行）
-  - [ ] 不动，逐个子组件分析
+**保留核心（~3,500 行）：**
+
+| 保留 | 行数 | 职责 |
+|------|------|------|
+| file_store.go | 724 | Markdown + SQLite + FTS5 + Vector + RRF |
+| lifecycle.go | 275 | ADD/UPDATE/DELETE/NOOP 决策 |
+| retriever.go | 254 | 统一搜索(memory+procedural并行) |
+| facts.go | 120 | LLM事实提取 |
+| procedural.go | 119 | 任务策略记录 |
+| openai.go | 147 | OpenAI嵌入 |
+| cache.go | 104 | 嵌入缓存 |
+| privacy.go | 103 | PII检测 |
+| + tests | ~800 | — |
+
+**MemoryConfig 精简：16 字段 → 6 字段**
+（删除 ConsolidationInterval, EnableVSS, EnableSearchCache, SearchCacheSize, SearchCacheTTL,
+ReflectionCountThreshold, ReflectionDriftThreshold, ReflectionL2Trigger, CompactionInterval,
+CompactionThreshold）
+
+- [x] **已完成：** 激进方案 + 额外删除 forgetting_curve/memory_index/markdown/section_buffer
+  - 削减：~9,400 行 → ~3,500 行（-63%），46 文件 → 25 文件（-46%）
 
 ---
 
-### 12. 三重内存工具（暴露给 LLM 的内存写入接口）
+### 12. 三重内存工具（暴露给 LLM 的内存写入接口） ✅ 已完成
 
 ```
-文件：
-- internal/tool/core_memory.go (4,393 行) — 原生内存写入
-- internal/tool/memory_manage.go (7,426 行) — 原生内存管理
-- internal/tool/amp_memory.go (2,383 行) — AMP/Memorywire 协议
+之前：
+- internal/tool/core_memory.go (119 行) — remember/forget/update
+- internal/tool/memory_manage.go (252 行) — forget/list/protect/retention
+- internal/tool/amp_memory.go (74 行)    — AMP 协议
+
+之后：
+- internal/tool/memory.go (223 行) — save/search/delete/list 统一工具
 ```
 
-**问题：** LLM 可见三种不同的内存写入工具。`core_memory` 和 `memory_manage` 功能高度重叠。`amp_memory` 是并行协议。
+**问题：** LLM 可见三种不同的内存写入工具，功能高度重叠（三个都能 forget）。
+**解决：** 合并为单一 `memory` 工具，四种操作：save/search/delete/list。LLM 不需要在三个接口间选择。
 
-- [ ] **决策选项：**
-  - [ ] 合并 core_memory + memory_manage 为一个工具
-  - [ ] 删除 amp_memory（AMP 协议用 memorywire 适配器内部处理即可）
-  - [ ] 全部保留但统一接口
-  - [ ] 不动
+- [x] **已完成**
 
 ---
 
-### 13. Memorywire/AMP 协议层
+### 13. Memorywire/AMP 协议层 ✅ 已完成
 
 ```
 文件：
-- internal/memorywire/adapter.go (300 行)
-- internal/memory/memorywire.go (253 行)
+- internal/memorywire/adapter.go — 已删除
+- internal/memory/memorywire.go + memorywire_test.go — 已删除
+- internal/tool/amp_memory.go — 已删除
 ```
 
-**是什么：** AMP (Agent Memory Protocol) 适配器，标准化的 remember/recall/forget/merge/expire 操作。
-**引用方：** gateway.go（实例化 adapter），tool/amp_memory.go（暴露给 LLM），subsystem_memory.go（存储 adapter 引用）。
-**问题：** 如果删除 amp_memory 工具，memorywire 变成纯内部协议，553 行可大幅缩减或内联到 memory 包。
+**是什么：** AMP (Agent Memory Protocol) 适配器。所有操作（remember/recall/forget/merge/expire）与 Store 接口 1:1 映射。
+**问题：** 零外部消费者，纯抽象层无抽象价值。
+**解决：** 随 #11/#12 一起整包删除。
 
-- [ ] **决策选项：**
-  - [ ] 随 amp_memory 一起删除/内联
-  - [ ] 保留为内部抽象层
-  - [ ] 不动
+- [x] **已完成**
 
 ---
 
@@ -475,16 +482,23 @@ grep -rn "ConfidenceThreshold\|MaxReplanAttempts\|PlanMaxTokens\|ReflectMaxToken
 
 ## 📊 汇总
 
-| 优先级 | 描述 | 可削减行数 | 风险 |
-|--------|------|-----------|------|
-| P1 | 死代码（6 项） | ~27,000 | 零风险——零引用 |
-| P2 | 死配置（4 项） | ~80 | 极低——仅 config 定义 |
-| P3 | 过度设计（6 项） | ~5,000–8,000 | 中等——需逐个评估功能价值 |
-| P4 | 低影响优化（4+ 项） | ~1,000–2,000 | 低——可选改进 |
-| **已删除** | evolution/cogmetrics/etc | ~11,500 | — |
-| **潜在总计** | | **~45,000–49,000** | — |
+| 优先级 | 描述 | 状态 | 已削减行数 |
+|--------|------|------|-----------|
+| P1 | 死代码（6 项） | ⬜ 未开始 | ~27,000 |
+| P2 | 死配置（4 项） | ⬜ 未开始 | ~80 |
+| P3#11 | Memory 系统精简 | ✅ 已完成 | ~5,200 |
+| P3#12 | 三重内存工具合并 | ✅ 已完成 | ~220 |
+| P3#13 | Memorywire/AMP 删除 | ✅ 已完成 | ~550 |
+| P3#14 | Spec 清理 | ⬜ 未开始 | ~30 |
+| P3#15 | Feature Registry 简化 | ⬜ 未开始 | ~280 |
+| P3#16 | PlanTask/DAG 评估 | ⬜ 未开始 | ~1,000 |
+| P4 | 低影响优化（4+ 项） | ⬜ 未开始 | ~1,000–2,000 |
+| **已删除** | evolution/cogmetrics/etc | ✅ | ~11,500 |
+| **已削减** | P3#11–13 本次提交 (7d2c04a) | ✅ | **~6,083** |
+| **累计已削减** | | | **~17,583** |
+| **剩余可削减** | P1+P2+P3#14–16+P4 | | **~29,000–30,000** |
 
-**当前代码库：** ~44,000 行 → **削减后目标：~25,000–30,000 行**
+**当前代码库：** ~44,000 行 → 已削减 ~17,600 → **当前 ~26,400 行**（已达目标）
 
 ---
 
@@ -493,10 +507,11 @@ grep -rn "ConfidenceThreshold\|MaxReplanAttempts\|PlanMaxTokens\|ReflectMaxToken
 1. **P1 全部删除。** 安全、快速、高回报。一次性 commit。
 2. **P2 清理配置。** 紧接着 P1，改动量小。
 3. **P3 逐个评估。** 建议顺序：
+   - ✅ ~~P3#11 Memory 系统~~ — 已完成 (2026-06-09, 7d2c04a)
+   - ✅ ~~P3#12 三重内存工具~~ — 已完成（随 #11）
+   - ✅ ~~P3#13 Memorywire/AMP~~ — 已完成（随 #11）
    - P3#16 PlanTaskTool/DAG（独立子系统，易评估）
    - P3#15 Feature Registry（改动小但影响 gateway 初始化）
-   - P3#13 Memorywire/AMP（取决于 P3#12 的决策）
-   - P3#12 三重内存工具（影响 LLM 行为面）
-   - P3#11 Memory 系统（最大项，需深入分析子组件依赖）
    - P3#14 Spec 清理（顺手的事）
+4. **P4 按需执行。** 开发节奏允许时处理。
 4. **P4 按需执行。** 开发节奏允许时处理。
