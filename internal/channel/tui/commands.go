@@ -162,6 +162,7 @@ var localCommands = map[string]bool{
 	"status": true, "stats": true,
 	"history": true, "hist": true,
 	"export": true,
+	"model": true,
 }
 
 // isLocalCommand returns true if text is a slash command handled locally.

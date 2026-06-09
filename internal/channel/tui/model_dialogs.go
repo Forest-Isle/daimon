@@ -44,6 +44,17 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 		m.updateViewportKeepScroll()
 		return true, nil
 
+	case "model":
+		if len(args) == 0 {
+			if m.showStats {
+				m.showStats = false
+			}
+			m.showModelPanel = !m.showModelPanel
+			return true, nil
+		}
+		// /model <name> — let the gateway handle the switch
+		return false, nil
+
 	case "stats", "status":
 		m.showStats = !m.showStats
 		return true, nil

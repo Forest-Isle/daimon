@@ -228,6 +228,10 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showHelpPanel = false
 			return m, nil
 		}
+		if m.showModelPanel {
+			m.showModelPanel = false
+			return m, nil
+		}
 		if m.showStats {
 			m.showStats = false
 			return m, nil

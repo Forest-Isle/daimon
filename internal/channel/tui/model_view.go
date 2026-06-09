@@ -54,6 +54,11 @@ func (m Model) View() string {
 			b.WriteString("\n")
 		}
 
+		if m.showModelPanel {
+			b.WriteString(m.renderModelPanel())
+			b.WriteString("\n")
+		}
+
 		if m.showStats {
 			b.WriteString(m.renderStatsPanel())
 			b.WriteString("\n")
@@ -362,6 +367,55 @@ func (m Model) renderSuggestions() string {
 	b.WriteString(suggestionHintStyle.Render("  [↑↓] Navigate  [Tab] Accept  [Enter] Execute  [Esc] Dismiss"))
 
 	return suggestionBoxStyle.Width(m.width - 4).Render(b.String())
+}
+
+// renderModelPanel renders the model info and reference panel.
+func (m Model) renderModelPanel() string {
+	var b strings.Builder
+	b.WriteString(statsHeaderStyle.Render("Model"))
+	b.WriteString("\n\n")
+
+	// Current model
+	current := m.metrics.model
+	if current == "" {
+		current = m.agentMode + " (pending first request)"
+	}
+	b.WriteString(statsLabelStyle.Render("Current: "))
+	b.WriteString(statsValueStyle.Render(current))
+	b.WriteString("\n")
+	if m.metrics.provider != "" {
+		b.WriteString(statsLabelStyle.Render("Provider: "))
+		b.WriteString(statsValueStyle.Render(m.metrics.provider))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	// Popular models reference
+	b.WriteString(statsLabelStyle.Render("Anthropic:"))
+	b.WriteString("\n")
+	for _, name := range []string{
+		"claude-opus-4-8", "claude-sonnet-4-6",
+		"claude-sonnet-4-5", "claude-haiku-4-5",
+	} {
+		b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %s", name)))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	b.WriteString(statsLabelStyle.Render("OpenAI-compatible:"))
+	b.WriteString("\n")
+	for _, name := range []string{
+		"gpt-5.4", "gpt-5.4-mini",
+		"gpt-4.1", "o4-mini", "gpt-4o",
+	} {
+		b.WriteString(statsValueStyle.Render(fmt.Sprintf("  %s", name)))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	b.WriteString(suggestionHintStyle.Render("  /model <name> to switch  [Esc] dismiss"))
+
+	return statsPanelStyle.Width(m.width - 2).Render(b.String())
 }
 
 // renderHelpPanel renders the commands reference panel.
