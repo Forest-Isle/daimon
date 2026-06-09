@@ -33,12 +33,16 @@ func main() {
 		Short: "IronClaw — Local-first AI Agent Runtime",
 	}
 
+	var startDevMode bool
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the IronClaw agent runtime",
-		RunE:  runStart,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStart(cfgPath, startDevMode)
+		},
 	}
 	startCmd.Flags().StringVarP(&cfgPath, "config", "c", "", "path to config file (auto-discovered if empty)")
+	startCmd.Flags().BoolVarP(&startDevMode, "dev", "d", false, "dev mode: use configs/ironclaw.yaml")
 
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -253,11 +257,11 @@ func truncate(s string, max int) string {
 	return s[:max-3] + "..."
 }
 
-func runStart(cmd *cobra.Command, args []string) error {
+func runStart(configPath string, devMode bool) error {
 	// Setup logging
 	setupLogging("info")
 
-	resolvedPath, err := config.FindConfigPath(cfgPath)
+	resolvedPath, err := config.FindConfigPath(configPath, devMode)
 	if err != nil {
 		return fmt.Errorf("find config: %w", err)
 	}

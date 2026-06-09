@@ -43,13 +43,15 @@ func ExpandEnv(data []byte) []byte {
 
 // FindConfigPath resolves the config file path by searching standard locations.
 // explicitPath comes from the -c flag; empty means "auto-discover".
+// devMode uses configs/ironclaw.yaml when no explicit path is given.
 //
-// Production mode (auto-discover when explicitPath is empty):
-//  1. .ironclaw/ironclaw.yaml in CWD (project-level convention)
-//  2. ~/.ironclaw/config.yaml (user global)
+// Production (devMode=false, explicitPath empty):
+//  1. .ironclaw/ironclaw.yaml in CWD
+//  2. ~/.ironclaw/config.yaml
 //
-// Development mode: pass -c configs/ironclaw.yaml explicitly.
-func FindConfigPath(explicitPath string) (string, error) {
+// Development (devMode=true, explicitPath empty):
+//  configs/ironclaw.yaml in CWD
+func FindConfigPath(explicitPath string, devMode bool) (string, error) {
 	if explicitPath != "" {
 		if _, err := os.Stat(explicitPath); err == nil {
 			return explicitPath, nil
@@ -60,6 +62,17 @@ func FindConfigPath(explicitPath string) (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "."
+	}
+
+	if devMode {
+		devPath := filepath.Join(cwd, "configs", "ironclaw.yaml")
+		if _, err := os.Stat(devPath); err == nil {
+			return devPath, nil
+		}
+		return "", fmt.Errorf(
+			"dev mode: configs/ironclaw.yaml not found.\n"+
+				"  Copy from configs/ironclaw.example.yaml and edit it.",
+		)
 	}
 
 	projectPath := filepath.Join(cwd, ".ironclaw", "ironclaw.yaml")
@@ -79,7 +92,7 @@ func FindConfigPath(explicitPath string) (string, error) {
 		"no config file found.\n\n"+
 			"  Production: create .ironclaw/ironclaw.yaml in your project,\n"+
 			"              or ~/.ironclaw/config.yaml for global defaults.\n"+
-			"  Development: ironclaw tui -c configs/ironclaw.yaml\n"+
+			"  Development: ironclaw tui --dev\n"+
 			"  Template:    cp configs/ironclaw.example.yaml .ironclaw/ironclaw.yaml",
 	)
 }

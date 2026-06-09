@@ -19,25 +19,27 @@ import (
 
 func newTUICmd() *cobra.Command {
 	var tuiCfgPath string
+	var tuiDevMode bool
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Start IronClaw with an interactive terminal UI",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI(tuiCfgPath)
+			return runTUI(tuiCfgPath, tuiDevMode)
 		},
 	}
 	cmd.Flags().StringVarP(&tuiCfgPath, "config", "c", "", "path to config file (auto-discovered if empty)")
+	cmd.Flags().BoolVarP(&tuiDevMode, "dev", "d", false, "dev mode: use configs/ironclaw.yaml")
 	return cmd
 }
 
-func runTUI(configPath string) error {
+func runTUI(configPath string, devMode bool) error {
 	// Redirect slog to a file so it doesn't interfere with Bubble Tea's raw mode.
 	logPath := tuiLogPath()
 	if err := setupTUILogging(logPath); err != nil {
 		return fmt.Errorf("setup TUI logging: %w", err)
 	}
 
-	resolvedPath, err := config.FindConfigPath(configPath)
+	resolvedPath, err := config.FindConfigPath(configPath, devMode)
 	if err != nil {
 		return fmt.Errorf("find config: %w", err)
 	}
