@@ -2,19 +2,7 @@
 
 IronClaw is a local-first AI agent runtime written in Go. It wires LLM providers, channels, tools, memory, sub-agents, scheduling, and observability behind one Gateway.
 
-The current codebase is a Go 1.25.9 project with a Vite frontend:
-
-
-## Current Status
-
-The current audit found no compilation, vet, short-test, frontend-build, or race-test failures.
-
-See:
-
-- [Code health report](CODE_HEALTH_REPORT.md)
-- [Documentation index](docs/README.md)
-- [System architecture](docs/01-system-architecture.md)
-- [Gateway lifecycle](docs/03-gateway-feature-lifecycle.md)
+The codebase is a Go 1.25.9 project.
 
 ## Architecture
 
@@ -26,7 +14,7 @@ flowchart LR
     Agent --> Provider[Claude or OpenAI-compatible provider]
     Agent --> Tools[Tool registry]
     Agent --> Memory[Memory system]
-    Agent --> Agents[Sub-agents and teams]
+    Agent --> Agents[Sub-agents]
     Tools --> Sandbox[Permission / Hook / Sandbox / Verify / Audit chain]
     Gateway --> Store[(SQLite WAL store)]
 ```
@@ -35,15 +23,15 @@ flowchart LR
 
 | Area | Packages | Responsibility |
 |---|---|---|
-| CLI | `cmd/ironclaw` | Cobra entry points: `start`, `tui`, `skill`, `memory`, `agent`, `insights`, `mcp`. |
+| CLI | `cmd/ironclaw` | Cobra entry points: `start`, `tui`, `skill`, `memory`, `mcp`. |
 | Gateway | `internal/gateway` | Central composition root, feature registry, subsystem lifecycle, slash command dispatch. |
-| Agent | `internal/agent`, `internal/dag` | LLM loop strategies, provider adapters, context compression, tool execution, sub-agent orchestration, task planning. |
+| Agent | `internal/agent` | LLM loop strategies, provider adapters, context compression, tool execution, sub-agent orchestration. |
 | Tools | `internal/tool`, `internal/worktree` | Built-in tools, MCP adapters, worktree tools, permission and sandbox interceptor chain. |
-| Memory | `internal/memory`, `internal/memorywire` | File memory, embeddings, lifecycle, AMP adapter, unified retrieval. |
-| Channels | `internal/channel/*` | Telegram, Discord, TUI, approval prompts, reflection prompts, feedback, streaming output. |
+| Memory | `internal/memory` | File memory, embeddings, lifecycle, unified retrieval. |
+| Channels | `internal/channel/*` | Telegram, TUI, approval prompts, reflection prompts, feedback, streaming output. |
 | State | `internal/store`, `internal/session`, `internal/taskledger`, `internal/scheduler` | SQLite migrations, sessions/messages, task ledger, stale detection, scheduled tasks. |
-| Observability | `internal/observability`, `internal/health`, `internal/ratelimit` | OpenTelemetry, health checks, rate limiting. |
-| Security | `internal/sandbox`, `internal/hook`, `internal/guardian`, `internal/logging` | Docker/host isolation, file/network policy, user hooks, safety checks, redaction. |
+| Observability | `internal/observability` | OpenTelemetry tracing and metrics. |
+| Security | `internal/sandbox`, `internal/hook` | Docker/host isolation, file/network policy, user hooks, safety checks. |
 
 ## Quick Start
 
@@ -80,20 +68,7 @@ The example configuration lives at `configs/ironclaw.example.yaml`. Runtime load
 4. User directory injection from `~/.IronClaw`: `Soul.md`, `Memory.md`, `Agent.md`, MCP server files, skills, and agent specs.
 5. Persisted runtime feature overrides from `~/.IronClaw/feature_state.json`, unless the caller opts out.
 
-Feature defaults are documented in [Gateway lifecycle](docs/03-gateway-feature-lifecycle.md). Most core runtime features are on by default; the standalone admin server is opt-in.
-
-## Developer Documentation
-
-Start with [docs/README.md](docs/README.md). The docs are source-of-truth notes regenerated from the current code, not a preserved history of old plans. They cover:
-
-- Current verification status and known limitations.
-- Gateway and feature lifecycle.
-- CLI, config hierarchy, and user directory.
-- Agent runtime and sub-agent model.
-- Tools, permissions, hooks, sandboxing, and MCP.
-- Memory system.
-- Channels, observability, store, sessions, task ledger, scheduler.
-- Frontend apps and developer workflows.
+Most core runtime features are on by default; the standalone admin server is opt-in.
 
 ## License
 

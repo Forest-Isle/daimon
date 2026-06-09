@@ -1,6 +1,6 @@
 # Contributing to IronClaw
 
-This repository is a Go-first agent runtime with a frontend workspace. Keep changes small, source-derived, and verified.
+This repository is a Go-first agent runtime. Keep changes small, source-derived, and verified.
 
 ## Local Setup
 
@@ -64,15 +64,11 @@ npm run build
 - Keep tool side effects behind the permission, hook, sandbox, verify, and audit chain.
 - Add tests close to the module you change. Use broader integration tests when changing cross-package contracts.
 
-## Documentation
-
-Update the numbered docs under `docs/` whenever behavior, config, wiring, or public developer workflow changes. Do not copy old plans into current-state docs. If a feature is prototype-only, future-only, or environment-dependent, document it as such.
-
 ## Pull Request Checklist
 
 - The change has a focused purpose.
 - `git status --short` has no accidental generated files.
-- Relevant Go and frontend verification commands have passed.
+- Relevant Go verification commands have passed.
 - Config keys added in code are represented in `configs/ironclaw.example.yaml` or documented as internal.
 - New tools declare capabilities and approval behavior.
-- New Gateway features are registered in `internal/gateway/features.go` and documented in `docs/03-gateway-feature-lifecycle.md`.
+- New Gateway features are registered in `internal/gateway/features.go`.

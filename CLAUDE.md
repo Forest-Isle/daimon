@@ -11,11 +11,10 @@ This file is a compact handoff for coding assistants working in this repository.
 
 ## Important Current Facts
 
-- Feature Registry defaults many core systems on: memory, skills, multi-agent, team, speculative, scheduler, worktree.
+- Feature Registry defaults these core systems on: memory, skills, multi-agent, scheduler, sandbox, worktree.
 - Standalone admin server is opt-in.
 - `agent.mode` accepts `simple`, `unified`, and legacy `cognitive`; `cognitive` maps to UnifiedLoop behavior.
-- `internal/agent/spec.go` contains future A2A remote-agent fields. Local sub-agent backends are current; remote A2A execution is not.
-- Vue Studio views contain prototype/demo state and should not be described as fully backend-persisted.
+- Sub-agents run in-process only. `internal/agent/spec.go` contains future A2A remote-agent fields; remote A2A execution is not implemented.
 
 ## Safe Verification Commands
 
@@ -35,10 +34,9 @@ make test
 
 ## Editing Guidance
 
-- Read `docs/README.md` before changing architecture docs.
 - Keep Gateway wiring explicit and local to the relevant `init_*.go` file.
 - Use `apply_patch` for manual file edits.
 - Do not revert unrelated user changes.
-- When adding config, update `configs/ironclaw.example.yaml` and `docs/02-cli-config-userdir.md`.
-- When adding a feature, update `internal/gateway/features.go` and `docs/03-gateway-feature-lifecycle.md`.
-- When adding a tool, define schema, approval behavior, capabilities, tests, and docs in `docs/05-tools-permissions-sandbox-hooks.md`.
+- When adding config, update `configs/ironclaw.example.yaml`.
+- When adding a feature, update `internal/gateway/features.go`.
+- When adding a tool, define its schema, approval behavior, capabilities, and tests.
