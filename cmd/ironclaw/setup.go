@@ -159,6 +159,7 @@ func runSetupWizard() (string, error) {
 llm:
   provider: %s
   api_key: "%s"
+  # base_url: ""   # custom endpoint for proxies/relays (e.g. http://localhost:11434/v1)
   model: %s
   max_tokens: 8192
 
