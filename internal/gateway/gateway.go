@@ -10,254 +10,152 @@ import (
 	"sync/atomic"
 	"time"
 
-	"net/http"
-
 	"github.com/Forest-Isle/IronClaw/internal/agent"
 	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
 	"github.com/Forest-Isle/IronClaw/internal/feature"
-	"github.com/Forest-Isle/IronClaw/internal/hook"
-	"github.com/Forest-Isle/IronClaw/internal/mcp"
 	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/skill"
 	"github.com/Forest-Isle/IronClaw/internal/store"
 	"github.com/Forest-Isle/IronClaw/internal/tool"
-	"github.com/Forest-Isle/IronClaw/internal/userdir"
 )
 
-// Gateway is the central coordinator that wires all modules together.
 type Gateway struct {
-	cfg              *config.Config
-	cfgMu            sync.RWMutex // protects cfg reads/writes (hot-reload swaps the pointer)
-	cfgPath          string
-	configWatcher    *config.ConfigWatcher
-	db               *store.DB
-	sessions         *session.Manager
-	provider         agent.Provider // stored for completerAdapter use
-	agent            *agent.Agent
-	tools            *tool.Registry
-	interceptorChain *tool.InterceptorChain
-	hookMgr          *hook.Manager
-	permEngine       *tool.PermissionEngine
-	skillMgr         *skill.Manager
-	resultStore      *tool.ResultStore
-	mcpManager       *mcp.Manager
-	userHookMgr      *hook.UserHookManager // user-configurable hook scripts
-	contextMgr       *agent.PipelineContextManager
-	features       *feature.Registry
-	healthRegistry *healthRegistry
-	healthSrv        *http.Server
-	currentMode      atomic.Value // stores string: "simple" | "unified"
-	codebaseIndex    *agent.CodebaseIndex
-	stopCh           chan struct{} // closed in Stop() to signal background goroutines
-	stopOnce         sync.Once     // ensures stopCh is closed exactly once
-	initCtx          context.Context
-	initCancel       context.CancelFunc
+	db        *store.DB
+	stopCh    chan struct{}
+	stopOnce  sync.Once
+	initCtx   context.Context
+	initCancel context.CancelFunc
 
-	// Subsystems — each manages a group of related fields
-	memory   *MemorySubsystem
-	channels *ChannelSubsystem
+	agent       *agent.Agent
+	sessions    *session.Manager
+	features    *feature.Registry
+	contextMgr  agent.ContextManager
+	currentMode atomic.Value
 
-	// emitter is the active ObservabilityEmitter shared by the agent runtime,
-	// context manager, and channel consumers (e.g. TUI status bar). Nil means
-	// no emitter is configured; agent deps substitute a discard emitter.
-	emitter agent.ObservabilityEmitter
+	config     *ConfigSubsystem
+	database   *DatabaseSubsystem
+	toolSub    *ToolSubsystem
+	memory     *MemorySubsystem
+	skills     *SkillSubsystem
+	channels   *ChannelSubsystem
+	multiAgent *MultiAgentSubsystem
+	mcpSub     *MCPSubsystem
+	health     *HealthSubsystem
+	commands   *CommandSubsystem
 
-	agentDeps agent.AgentDeps // shared dependency bundle
-	cmdTable  commandTable    // slash command routing table
-
-	subsystems Subsystems // ordered list for lifecycle management
+	subsystems Subsystems
 }
 
-// GatewayOptions configures optional behaviour for Gateway.New.
 type GatewayOptions struct {
-	// ConfigPath is the path to the YAML config file for hot-reload watching.
-	// When set, the gateway will start a ConfigWatcher that reloads the config
-	// on file changes and calls OnReload callbacks.
 	ConfigPath string
 }
 
 func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
-	gw := &Gateway{
-		cfg:    cfg,
-		stopCh: make(chan struct{}),
-	}
-	var rb rollbackStack
-	var err error
-	defer func() {
-		if err != nil {
-			rb.run()
-		}
-	}()
-
-	// Initialize subsystems with their zero values — fields will be populated
-	// by the init* methods below.
-	gw.memory = &MemorySubsystem{}
-	gw.channels = &ChannelSubsystem{channels: make(map[string]channel.Channel)}
-	gw.currentMode.Store(cfg.Agent.Mode)
-	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
-
-	if err = gw.initDatabase(); err != nil {
-		return nil, fmt.Errorf("database: %w", err)
-	}
-	rb.push(func() { gw.db.Close() })
-
-	// Health check registry — always available
-	gw.healthRegistry = newHealthRegistry()
-	gw.healthRegistry.Register("database", CheckerFunc(func(ctx context.Context) error {
-		return gw.db.PingContext(ctx)
-	}))
-
 	opt := GatewayOptions{}
-	if len(opts) > 0 {
-		opt = opts[0]
+	if len(opts) > 0 { opt = opts[0] }
+
+	gw := &Gateway{stopCh: make(chan struct{})}
+	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
+	gw.currentMode.Store(cfg.Agent.Mode)
+
+	gw.config = InitConfig(cfg, opt.ConfigPath)
+	featSub := InitFeatures(cfg)
+	gw.features = featSub.Registry
+	dbSub, err := InitDatabase(cfg.Store.Path)
+	if err != nil { return nil, fmt.Errorf("database: %w", err) }
+	gw.database = dbSub
+	gw.db = dbSub.DB
+	gw.sessions = dbSub.Sessions
+	gw.channels = &ChannelSubsystem{channels: make(map[string]channel.Channel)}
+
+	gw.toolSub = InitTools(gw.initCtx, cfg, featSub, gw.sessions, gw.channels, gw.db)
+
+	builder := agent.NewDepsBuilder()
+	builder.Core.Tools = gw.toolSub.Registry
+	builder.Core.Sessions = gw.sessions
+	builder.Core.DB = gw.db
+	builder.Security = agent.SecurityDeps{
+		Interceptor: gw.toolSub.InterceptorChain,
+		HookMgr:     gw.toolSub.HookMgr,
+		PermEngine:  gw.toolSub.PermEngine,
 	}
 
-	// Config hot-reload watcher — start after config is loaded, register callbacks later
-	if opt.ConfigPath != "" {
-		gw.cfgPath = opt.ConfigPath
-		gw.configWatcher, err = config.NewConfigWatcher(opt.ConfigPath)
-		if err != nil {
-			slog.Warn("config: hot-reload unavailable, using static config", "err", err)
-			gw.configWatcher = nil
-		}
-	}
+	agentSub := InitAgentRuntime(builder, cfg)
 
-	// Feature registry — register, apply config overrides, resolve
-	gw.features = registerFeatures(cfg)
-	gw.features.Resolve(gw.initCtx, configToOverrides(cfg))
-
-	if err = gw.initToolsAndHooks(); err != nil {
-		return nil, fmt.Errorf("tools: %w", err)
-	}
-
-	if err = gw.initAgentRuntime(); err != nil {
-		return nil, fmt.Errorf("agent: %w", err)
-	}
-	if err = gw.initMemorySystem(); err != nil {
-		return nil, fmt.Errorf("memory: %w", err)
-	}
-	// Update agentDeps with real memory store (initAgentRuntime used defaults)
+	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)
+	gw.memory.BuildCortex()
 	if gw.memory.Store() != nil {
-		gw.agentDeps.Memory.Store = gw.memory.Store()
-		gw.agentDeps.Memory.LifecycleMgr = gw.memory.LifecycleManager()
-		gw.agentDeps.Memory.FactExtractor = gw.memory.FactExtractor()
-		gw.agentDeps.Memory.BaseDir = gw.memory.MemoryDir()
+		gw.toolSub.Registry.Register(tool.NewMemoryTool(gw.memory.Store(), gw.memory.LifecycleManager()))
 	}
 
-	if gw.memory.Store() != nil {
-		procedural := memory.NewProceduralStore(gw.memory.Store(), gw.memory.Embedder())
-		gw.memory.cortex = memory.NewUnifiedRetriever(gw.memory.Store(), procedural, gw.memory.Embedder())
-		// Register unified memory tool so the LLM can manage persistent memory.
-		gw.tools.Register(tool.NewMemoryTool(gw.memory.Store(), gw.memory.LifecycleManager()))
-	}
+	gw.skills = InitSkills(featSub, cfg, gw.toolSub.Registry, builder)
 
-	if err = gw.initSkillManager(); err != nil {
-		return nil, fmt.Errorf("skills: %w", err)
-	}
-	if err = gw.initMultiAgent(); err != nil {
-		return nil, fmt.Errorf("multi-agent: %w", err)
-	}
+	gw.multiAgent = InitMultiAgent(featSub, cfg, builder, agentSub.Provider,
+		gw.sessions, gw.db, gw.memory.Store(), gw.toolSub.Registry, gw.toolSub.ResultStore)
+	gw.contextMgr = gw.multiAgent.ContextMgr
 
-	gw.mcpManager = mcp.NewManager()
+	gw.mcpSub = InitMCP()
 
-	// Approval wiring
+	deps := builder.Build()
+	gw.agent = agent.NewAgent(&deps, &agent.UnifiedLoop{}, agent.NewEventBus())
 	gw.agent.SetApprovalFunc(gw.handleApproval)
 
-	// Populate command table
-	gw.cmdTable = commandTable{
-		"/mode":    {gw.handleMode, false},
-		"/feature": {gw.handleFeature, false},
-		"/config":  {gw.handleConfig, true},
-		"/compact": {gw.handleCompact, true},
-		"/model":   {gw.handleModel, false},
-		"/new":     {gw.handleReset, true},
-		"/start":   {gw.handleReset, true},
-	}
+	gw.health = InitHealth(cfg, gw.db)
+	gw.commands = InitCommands(gw)
 
-	// Build subsystems list in dependency order
-	gw.subsystems = Subsystems{
-		gw.memory,
-		gw.channels,
-	}
+	gw.config.OnReload(func(newCfg *config.Config) {
+		if gw.agent != nil {
+			gw.agent.SetModel(newCfg.LLM.Model)
+			gw.agent.EventBus().Publish(agent.ConfigChanged{Path: opt.ConfigPath})
+		}
+	})
 
-	// Register config hot-reload callbacks now that all subsystems exist.
-	if gw.configWatcher != nil {
-		gw.configWatcher.OnReload(func(newCfg *config.Config) {
-			// Update the gateway's config pointer so all subsystems see the new values.
-			gw.cfgMu.Lock()
-			gw.cfg = newCfg
-			gw.cfgMu.Unlock()
-			// Update LLM model on agent
-			if gw.agent != nil {
-				gw.agent.SetModel(newCfg.LLM.Model)
-			}
-			// Publish config changed event
-			if gw.agent != nil {
-				gw.agent.EventBus().Publish(agent.ConfigChanged{
-					Path: gw.cfgPath,
-				})
-			}
-		})
-	}
-
-	rb.cleanups = nil // success — Stop() handles cleanup
+	gw.subsystems = Subsystems{gw.memory, gw.channels, gw.mcpSub, gw.health, gw.config}
 	return gw, nil
 }
 
-// Config returns the current configuration snapshot under a read lock.
-// Callers must NOT modify the returned pointer — it is shared across all readers.
-func (gw *Gateway) Config() *config.Config {
-	gw.cfgMu.RLock()
-	defer gw.cfgMu.RUnlock()
-	return gw.cfg
-}
+func (gw *Gateway) Config() *config.Config    { return gw.config.Config() }
+func (gw *Gateway) Features() *feature.Registry { return gw.features }
+func (gw *Gateway) CurrentMode() string        { return gw.currentMode.Load().(string) }
 
-// AddChannel registers a channel adapter. Call before Start().
 func (gw *Gateway) AddChannel(ch channel.Channel) {
 	gw.channels.channels[ch.Name()] = ch
 }
 
-// Start initializes all channels and begins processing.
-func (gw *Gateway) Start(ctx context.Context) error {
-	// Start health check HTTP server — always available
-	gw.startHealthServer()
-
-	// Start MCP servers asynchronously — npx/uvx process startup can take
-	// several seconds and should not block the TUI from appearing.
-	if len(gw.Config().Tools.MCP.Servers) > 0 {
-		go func() {
-			var wg sync.WaitGroup
-			cfg := gw.Config()
-			for name, srv := range cfg.Tools.MCP.Servers {
-				name, srv := name, srv
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					if err := gw.mcpManager.StartServer(ctx, name, srv, gw.tools); err != nil {
-						slog.Error("mcp server failed to start", "server", name, "err", err)
-					}
-				}()
-			}
-			wg.Wait()
-		}()
+func (gw *Gateway) SetMode(mode string) error {
+	switch mode {
+	case "unified", "cognitive":
+		if gw.agent != nil { gw.agent.SetStrategy(&agent.UnifiedLoop{}) }
+	default:
+		if mode != "simple" { return fmt.Errorf("unknown mode %q", mode) }
+		if gw.agent != nil { gw.agent.SetStrategy(&agent.SimpleLoop{}) }
 	}
+	gw.currentMode.Store(mode)
+	slog.Info("gateway: mode switched", "mode", mode)
+	return nil
+}
 
-	// Start MCP hot-reload watcher (polls ~/.IronClaw/mcp/ for new/removed configs)
-	go gw.watchMCPDir(ctx)
+func (gw *Gateway) SetObservabilityEmitter(e agent.ObservabilityEmitter) {}
+func (gw *Gateway) AddObservabilityEmitter(e agent.ObservabilityEmitter) {}
+func (gw *Gateway) SetMetricsEmitter(e agent.MetricsEmitter)             {}
 
-	// Start result store cleanup goroutine
-	if gw.resultStore != nil {
+func (gw *Gateway) Start(ctx context.Context) error {
+	gw.health.StartServer(gw.config.Config())
+
+	if len(gw.config.Config().Tools.MCP.Servers) > 0 {
+		go gw.mcpSub.StartServers(ctx, gw.config.Config(), gw.toolSub.Registry)
+	}
+	go gw.mcpSub.WatchDir(ctx, gw.config.Config())
+
+	if gw.toolSub.ResultStore != nil {
 		go func() {
 			ticker := time.NewTicker(1 * time.Hour)
 			defer ticker.Stop()
 			for {
 				select {
-				case <-ctx.Done():
-					return
+				case <-ctx.Done(): return
 				case <-ticker.C:
-					if err := gw.resultStore.Cleanup(); err != nil {
+					if err := gw.toolSub.ResultStore.Cleanup(); err != nil {
 						slog.Warn("gateway: result store cleanup failed", "err", err)
 					}
 				}
@@ -265,177 +163,66 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		}()
 	}
 
-	// Start channels
 	for name, ch := range gw.channels.Channels() {
-		if err := ch.Start(ctx, gw.handleInbound); err != nil {
-			return err
-		}
+		if err := ch.Start(ctx, gw.handleInbound); err != nil { return err }
 		slog.Info("channel started", "name", name)
 	}
 
-	// Start HTTP admin server if enabled (standalone)
 	if gw.features.IsEnabled("server") {
-		go startHTTPServer(gw.Config().Server.Addr, gw.db)
+		go startHTTPServer(gw.config.Config().Server.Addr, gw.db)
 	}
 
 	slog.Info("gateway started")
 	return nil
 }
 
-// SetObservabilityEmitter replaces the current ObservabilityEmitter on the agent deps
-// and context manager. Prefer AddObservabilityEmitter when multiple consumers must
-// coexist (e.g. TUI status bar alongside another consumer).
-func (gw *Gateway) SetObservabilityEmitter(e agent.ObservabilityEmitter) {
-	gw.emitter = e
-	gw.agentDeps.Observability.Emitter = e
-	if gw.contextMgr != nil {
-		gw.contextMgr.SetObservabilityEmitter(e)
-	}
-}
-
-// AddObservabilityEmitter merges e with the existing emitter so multiple
-// channel-specific consumers (e.g. TUI status bar) receive events.
-func (gw *Gateway) AddObservabilityEmitter(e agent.ObservabilityEmitter) {
-	merged := agent.NewMultiEmitter(gw.emitter, e)
-	gw.SetObservabilityEmitter(merged)
-}
-
-// SetMetricsEmitter sets a MetricsEmitter on the agent deps for TUI status reporting.
-func (gw *Gateway) SetMetricsEmitter(e agent.MetricsEmitter) {
-	gw.agentDeps.Observability.MetricsEmitter = e
-}
-
-// Stop gracefully shuts down all components.
 func (gw *Gateway) Stop(ctx context.Context) error {
-	// Stop subsystems in reverse order
 	gw.subsystems.StopAll(ctx)
-
-	_ = gw.mcpManager.Close()
-
-
-	if gw.healthSrv != nil {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = gw.healthSrv.Shutdown(shutCtx)
-	}
-
+	if gw.mcpSub.Manager != nil { _ = gw.mcpSub.Manager.Close() }
 	gw.stopOnce.Do(func() { close(gw.stopCh) })
-	if gw.initCancel != nil {
-		gw.initCancel()
-	}
-
-	if gw.configWatcher != nil {
-		gw.configWatcher.Stop()
-	}
-
+	if gw.initCancel != nil { gw.initCancel() }
 	_ = gw.db.Close()
 	slog.Info("gateway stopped")
 	return nil
 }
 
-// CurrentMode returns the active agent mode ("simple" or "unified").
-func (gw *Gateway) CurrentMode() string {
-	return gw.currentMode.Load().(string)
-}
-
-// SetMode atomically switches the active agent mode and strategy.
-// Valid modes: "simple", "unified" (also accepts "cognitive" for backward compat).
-func (gw *Gateway) SetMode(mode string) error {
-	if mode != "simple" && mode != "unified" && mode != "cognitive" {
-		return fmt.Errorf("unknown mode %q: valid modes are simple, unified", mode)
-	}
-	switch mode {
-	case "unified", "cognitive": // "cognitive" kept for backward compat
-		if gw.agent != nil {
-			gw.agent.SetStrategy(&agent.UnifiedLoop{})
-		}
-	default:
-		if gw.agent != nil {
-			gw.agent.SetStrategy(&agent.SimpleLoop{})
-		}
-	}
-	gw.currentMode.Store(mode)
-	slog.Info("gateway: mode switched", "mode", mode)
-	return nil
-}
-
-// Features returns the feature registry, allowing callers to inspect which
-// features are enabled. Returns nil if the registry was not initialized.
-func (gw *Gateway) Features() *feature.Registry {
-	return gw.features
-}
-
-// handleInbound routes incoming messages to the agent runtime.
 func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage) {
-	if msg.Text == "" {
-		return
-	}
-
+	if msg.Text == "" { return }
 	ch, ok := gw.channels.Channels()[msg.Channel]
-	if !ok {
-		slog.Error("unknown channel", "channel", msg.Channel)
-		return
-	}
+	if !ok { slog.Error("unknown channel", "channel", msg.Channel); return }
 
-	// Attach stream callback for channels that support real-time tool output.
-	if streamWriter, ok := ch.(channel.ToolStreamWriter); ok {
-		target := channel.MessageTarget{
-			Channel:   msg.Channel,
-			ChannelID: msg.ChannelID,
-		}
+	if sw, ok := ch.(channel.ToolStreamWriter); ok {
+		target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
 		ctx = tool.WithStreamCallback(ctx, func(chunk string) {
-			if err := streamWriter.WriteToolStream(ctx, target, "bash", chunk); err != nil {
+			if err := sw.WriteToolStream(ctx, target, "bash", chunk); err != nil {
 				slog.Warn("gateway: tool stream write failed", "err", err)
 			}
 		})
 	}
 
-	// Command dispatch via command table
-	if gw.cmdTable != nil {
-		if resp, handled := gw.cmdTable.dispatch(ctx, ch, msg); handled {
+	if gw.commands != nil {
+		if resp, handled := gw.commands.Dispatch(ctx, ch, msg); handled {
 			if resp != "" {
-				if err := ch.Send(ctx, channel.OutboundMessage{
-					Channel:   msg.Channel,
-					ChannelID: msg.ChannelID,
-					Text:      resp,
-				}); err != nil {
-					slog.Warn("failed to send command response", "err", err)
-				}
+				_ = ch.Send(ctx, channel.OutboundMessage{Channel: msg.Channel, ChannelID: msg.ChannelID, Text: resp})
 			}
 			return
 		}
 	}
 
 	slog.Info("message received", "channel", msg.Channel, "user", msg.UserName, "text_len", len(msg.Text))
-
 	if err := gw.agent.HandleMessage(ctx, ch, msg); err != nil {
 		slog.Error("agent error", "err", err)
-		if err := ch.Send(ctx, channel.OutboundMessage{
-			Channel:   msg.Channel,
-			ChannelID: msg.ChannelID,
-			Text:      "Error: " + err.Error(),
-		}); err != nil {
-			slog.Warn("failed to send message", "err", err)
-		}
+		_ = ch.Send(ctx, channel.OutboundMessage{Channel: msg.Channel, ChannelID: msg.ChannelID, Text: "Error: " + err.Error()})
 	}
 }
 
-// handleApproval sends an approval request via the channel and waits for response.
-// Channels that implement channel.ApprovalSender get interactive approval;
-// all others auto-approve.
-func (gw *Gateway) handleApproval(ctx context.Context, ch channel.Channel, target channel.MessageTarget, toolName string, input string) (bool, error) {
+func (gw *Gateway) handleApproval(ctx context.Context, ch channel.Channel, target channel.MessageTarget, toolName, input string) (bool, error) {
 	if sender, ok := ch.(channel.ApprovalSender); ok {
 		return sender.SendApprovalRequest(ctx, target, toolName, input)
 	}
-	// Channel does not support interactive approval — auto-approve.
 	return true, nil
 }
 
-// sendMemoryNotification sends a lightweight memory operation summary via the channel.
-// Channels that implement channel.NotificationSender get the notification;
-// all others silently skip it.
-
-// completerAdapter bridges agent.Provider to memory.Completer.
 type completerAdapter struct {
 	provider agent.Provider
 	model    string
@@ -443,76 +230,25 @@ type completerAdapter struct {
 
 func (a *completerAdapter) Complete(ctx context.Context, systemPrompt, userMessage string) (string, error) {
 	req := agent.CompletionRequest{
-		Model:     a.model,
-		System:    systemPrompt,
-		Messages:  []agent.CompletionMessage{{Role: "user", Content: userMessage}},
+		Model: a.model, System: systemPrompt,
+		Messages: []agent.CompletionMessage{{Role: "user", Content: userMessage}},
 		MaxTokens: 512,
 	}
 	resp, err := a.provider.Complete(ctx, req)
-	if err != nil {
-		return "", err
-	}
+	if err != nil { return "", err }
 	return resp.Text, nil
 }
 
-
-// defaultSkillsDir returns the path to ~/.IronClaw/skills/.
 func defaultSkillsDir() string {
 	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
+	if err != nil { return "" }
 	return filepath.Join(home, ".IronClaw", "skills")
 }
 
-// watchMCPDir periodically scans ~/.IronClaw/mcp/ and syncs MCP servers.
-// New yaml files trigger server startup; removed files trigger shutdown.
-func (gw *Gateway) watchMCPDir(ctx context.Context) {
-	pollInterval := gw.Config().Tools.MCP.PollInterval
-	if pollInterval <= 0 {
-		pollInterval = 30 * time.Second
-	}
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			desired := userdir.ScanMCPDir()
-			if desired == nil {
-				desired = make(map[string]config.MCPServerConfig)
-			}
-			// Merge project-level MCP config (project config always takes priority).
-			cfg := gw.Config()
-		for name, srv := range cfg.Tools.MCP.Servers {
-				desired[name] = srv
-			}
-			gw.mcpManager.SyncServers(ctx, desired, gw.tools)
-		}
-	}
-}
-
-// defToSpec converts a config.AgentDefinition to an agent.AgentSpec.
 func defToSpec(def config.AgentDefinition) *agent.AgentSpec {
 	return &agent.AgentSpec{
-		Name:          def.Name,
-		Description:   def.Description,
-		SystemPrompt:  def.SystemPrompt,
-		Model:         def.Model,
-		MaxTokens:     def.MaxTokens,
-		MaxIterations: def.MaxIterations,
-		Tools:         def.Tools,
-		Tags:          def.Tags,
-		Mode:          def.Mode,
+		Name: def.Name, Description: def.Description, SystemPrompt: def.SystemPrompt,
+		Model: def.Model, MaxTokens: def.MaxTokens, MaxIterations: def.MaxIterations,
+		Tools: def.Tools, Tags: def.Tags, Mode: def.Mode,
 	}
 }
-
-// handleTasksCommand lists running and pending tasks from the task ledger.
-
-// handleTeamCommand breaks a goal into parallel tasks using the LLM and executes them.
-
-// handleModeCommand processes the /mode command argument.
-// arg="" means query-only; arg="simple"|"cognitive" switches mode.
-

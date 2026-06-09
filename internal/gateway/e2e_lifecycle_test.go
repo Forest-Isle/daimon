@@ -47,13 +47,13 @@ func TestGatewayFullLifecycle(t *testing.T) {
 
 	// Every core subsystem must be wired after New().
 	assert.NotNil(t, gw.agent, "agent runtime")
-	assert.NotNil(t, gw.tools, "tool registry")
+	assert.NotNil(t, gw.toolSub.Registry, "tool registry")
 	assert.NotNil(t, gw.sessions, "session manager")
 	assert.NotNil(t, gw.features, "feature registry")
-	assert.NotNil(t, gw.healthRegistry, "health registry")
+	assert.NotNil(t, gw.health.registry, "health registry")
 
 	// Core tools must be registered end-to-end.
-	_, err = gw.tools.Get("memory")
+	_, err = gw.toolSub.Registry.Get("memory")
 	assert.NoError(t, err, "memory tool must be registered")
 
 	ch := &nullChannel{}
@@ -68,7 +68,7 @@ func TestGatewayFullLifecycle(t *testing.T) {
 	// Health report must include the database checker and report OK overall.
 	hctx, hcancel := context.WithTimeout(ctx, 2*time.Second)
 	defer hcancel()
-	report := gw.healthRegistry.Check(hctx)
+	report := gw.health.registry.Check(hctx)
 	require.Contains(t, report.Checks, "database")
 	assert.Equal(t, HealthOK, report.Checks["database"].Status, "database health check")
 

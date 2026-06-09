@@ -1,0 +1,158 @@
+package gateway
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/Forest-Isle/IronClaw/internal/agent"
+	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/IronClaw/internal/tool"
+)
+
+type ToolSubsystem struct {
+	Registry         *tool.Registry
+	InterceptorChain *tool.InterceptorChain
+	HookMgr          *hook.Manager
+	PermEngine       *tool.PermissionEngine
+	UserHookMgr      *hook.UserHookManager
+	ResultStore      *tool.ResultStore
+	CodebaseIndex    *agent.CodebaseIndex
+}
+
+func (ts *ToolSubsystem) Name() string                { return "tool" }
+func (ts *ToolSubsystem) Start(_ context.Context) error { return nil }
+func (ts *ToolSubsystem) Stop(_ context.Context) error  { return nil }
+
+func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsystem, sessions *session.Manager, channels *ChannelSubsystem, db *store.DB) *ToolSubsystem {
+	ts := &ToolSubsystem{}
+	ts.Registry = tool.NewRegistry()
+	policy := tool.NewPolicy(cfg.Tools.Bash.BlockedCommands)
+
+	if cfg.Tools.Bash.Enabled {
+		ts.Registry.Register(tool.NewBashTool(cfg.Tools.Bash.Timeout, cfg.Tools.Bash.RequiresApproval, policy))
+		ts.Registry.Register(tool.NewTestRunTool("."))
+	}
+	if cfg.Tools.File.Enabled {
+		ts.Registry.Register(tool.NewFileReadTool())
+		ts.Registry.Register(tool.NewFileWriteTool(cfg.Tools.File.RequiresApproval))
+		ts.Registry.Register(tool.NewFileEditTool(cfg.Tools.File.RequiresApproval))
+		ts.Registry.Register(tool.NewFilePatchTool("."))
+		ts.Registry.Register(tool.NewFileListTool())
+		ts.Registry.Register(tool.NewGrepCodeTool("."))
+		ts.Registry.Register(tool.NewFindSymbolTool("."))
+		ts.Registry.Register(tool.NewListImportsTool("."))
+	}
+	if cfg.Tools.HTTP.Enabled {
+		ts.Registry.Register(tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval))
+	}
+
+	ts.CodebaseIndex = newCodebaseIndexFromCfg(cfg)
+	if ts.CodebaseIndex != nil && ts.CodebaseIndex.IsAvailable() {
+		if err := ts.CodebaseIndex.IndexDirectoryContext(ctx, "."); err != nil {
+			slog.Warn("codebase index: initial indexing failed", "err", err)
+		} else {
+			slog.Info("codebase index initialized")
+		}
+		ts.Registry.Register(tool.NewSemanticSearchTool(
+			ts.CodebaseIndex.IsAvailable,
+			func(query string, topK int) ([]tool.CodeSearchResult, error) {
+				results, err := ts.CodebaseIndex.Search(ctx, query, topK)
+				if err != nil { return nil, err }
+				out := make([]tool.CodeSearchResult, 0, len(results))
+				for _, chunk := range results {
+					out = append(out, tool.CodeSearchResult{
+						FilePath: chunk.FilePath, StartLine: chunk.StartLine,
+						EndLine: chunk.EndLine, Content: chunk.Content, Score: chunk.Score,
+					})
+				}
+				return out, nil
+			},
+		))
+	}
+
+	preToolUseCfg := make([]hook.HandlerConfig, len(cfg.Hooks.PreToolUse))
+	for i, h := range cfg.Hooks.PreToolUse { preToolUseCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config} }
+	postToolUseCfg := make([]hook.HandlerConfig, len(cfg.Hooks.PostToolUse))
+	for i, h := range cfg.Hooks.PostToolUse { postToolUseCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config} }
+	onUserMsgCfg := make([]hook.HandlerConfig, len(cfg.Hooks.OnUserMessage))
+	for i, h := range cfg.Hooks.OnUserMessage { onUserMsgCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config} }
+	preCompactCfg := make([]hook.HandlerConfig, len(cfg.Hooks.PreCompact))
+	for i, h := range cfg.Hooks.PreCompact { preCompactCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config} }
+	ts.HookMgr = hook.BuildManager(preToolUseCfg, postToolUseCfg, onUserMsgCfg, preCompactCfg, &hook.BuildManagerOpts{DB: db.DB})
+	slog.Info("hook system initialized")
+
+	if home, err := os.UserHomeDir(); err == nil {
+		hooksDir := filepath.Join(home, ".IronClaw", "hooks")
+		ts.UserHookMgr = hook.NewUserHookManager(hooksDir, 30*time.Second)
+		slog.Info("user hook system initialized", "dir", hooksDir, "hooks", len(ts.UserHookMgr.ListHooks()))
+	}
+
+	permRules := make([]tool.PermissionRule, len(cfg.Permissions.Rules))
+	for i, r := range cfg.Permissions.Rules {
+		permRules[i] = tool.PermissionRule{Tool: r.Tool, Pattern: r.Pattern, PathPattern: r.PathPattern, Action: r.Action}
+	}
+	ts.PermEngine = tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
+
+	audit, _ := tool.NewAuditInterceptor("")
+	verify := tool.NewVerifyInterceptor(".")
+	interceptors := []tool.ToolInterceptor{
+		tool.NewPermissionInterceptor(ts.PermEngine,
+			tool.WithNotifier(NewGatewayToolNotifier()),
+			tool.WithApprover(NewGatewayToolApprover(sessions, channels))),
+		tool.NewHookInterceptor(ts.HookMgr),
+		newUserHookInterceptor(ts.UserHookMgr),
+	}
+	if cfg.Tools.Verify.Enabled { interceptors = append(interceptors, verify) }
+	if audit != nil { interceptors = append(interceptors, audit) }
+	ts.InterceptorChain = tool.NewInterceptorChain(interceptors)
+
+	if cfg.Tools.ResultPersistence.Enabled {
+		ts.ResultStore = tool.NewResultStore(
+			cfg.Tools.ResultPersistence.CacheDir, cfg.Tools.ResultPersistence.ThresholdBytes,
+			cfg.Tools.ResultPersistence.PreviewChars, cfg.Tools.ResultPersistence.TTLHours,
+		)
+		_ = ts.ResultStore.Cleanup()
+	}
+
+	return ts
+}
+
+func newCodebaseIndexFromCfg(cfg *config.Config) *agent.CodebaseIndex {
+	if cfg.Memory.OpenAIAPIKey == "" {
+		return agent.NewCodebaseIndex(nil, agent.IndexConfig{ChunkSize: 50, Overlap: 10, EmbeddingModel: cfg.Memory.EmbeddingModel})
+	}
+	p := memory.NewCachedEmbedder(memory.NewOpenAIEmbeddingWithURL(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel, cfg.Memory.EmbeddingBaseURL))
+	return agent.NewCodebaseIndex(memoryEmbeddingAdapter{provider: p}, agent.IndexConfig{ChunkSize: 50, Overlap: 10, EmbeddingModel: cfg.Memory.EmbeddingModel})
+}
+
+type memoryEmbeddingAdapter struct{ provider memory.EmbeddingProvider }
+
+func (a memoryEmbeddingAdapter) Embed(ctx context.Context, text string) ([]float64, error) {
+	e, err := a.provider.Embed(ctx, text)
+	if err != nil { return nil, err }
+	if len(e) == 0 { return nil, nil }
+	out := make([]float64, len(e))
+	for i := range e { out[i] = float64(e[i]) }
+	return out, nil
+}
+
+type userHookInterceptor struct{ mgr *hook.UserHookManager }
+
+func newUserHookInterceptor(mgr *hook.UserHookManager) *userHookInterceptor { return &userHookInterceptor{mgr: mgr} }
+func (u *userHookInterceptor) Name() string { return "user_hooks" }
+func (u *userHookInterceptor) Intercept(ctx context.Context, call *tool.ToolCall, next tool.InterceptorFunc) (*tool.ToolResult, error) {
+	if u.mgr == nil { return next(ctx, call) }
+	u.mgr.RunHooks(ctx, hook.HookPreToolUse, map[string]any{"tool_name": call.ToolName, "tool_input": call.Input})
+	result, err := next(ctx, call)
+	output, toolErr := "", ""
+	if result != nil { output = result.Output; toolErr = result.Error }
+	u.mgr.RunHooks(ctx, hook.HookPostToolUse, map[string]any{"tool_name": call.ToolName, "tool_input": call.Input, "tool_output": output, "tool_error": toolErr})
+	return result, err
+}
