@@ -1,98 +1,181 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 )
 
-// isInteractive returns true if stdin is a terminal (user can respond to prompts).
+// isInteractive returns true if stdin is a terminal.
 func isInteractive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
-// runSetupWizard guides a new user through interactive configuration.
-// Returns the path to the generated config file, or an error.
+// runSetupWizard guides a new user through interactive configuration using huh forms.
+// Returns the path to the generated config file.
 func runSetupWizard() (string, error) {
-	s := bufio.NewScanner(os.Stdin)
-
-	fmt.Println()
-	fmt.Println("  🦾  Welcome to IronClaw — Local-first AI Agent Runtime")
-	fmt.Println("  Let's set up your configuration. Press Enter to skip any step.")
-	fmt.Println()
-
-	// ── 1. Save location ──────────────────────────────────────────
-	savePath := promptChoice(s,
-		"Where to save the config?",
-		[]choice{
-			{"1", ".ironclaw/ironclaw.yaml", "current project (recommended)"},
-			{"2", "~/.ironclaw/config.yaml", "global default for all projects"},
-		},
-		"1", // default
+	var (
+		provider  string
+		apiKey    string
+		model     string
+		agentMode string
+		saveStyle string
 	)
-	switch savePath {
-	case "1":
-		savePath = ".ironclaw/ironclaw.yaml"
-	case "2":
+
+	theme := huh.ThemeBase16()
+
+	// ── Welcome ────────────────────────────────────────────────────
+	fmt.Println()
+	fmt.Println(lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#8B6CE0")).
+		Render("  🦾  Welcome to IronClaw"))
+	fmt.Println(lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#787882")).
+		Render("  Local-first AI Agent Runtime — let's get you set up."))
+	fmt.Println()
+
+	// ── Step 1: Provider ───────────────────────────────────────────
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Step 1/5").
+				Description("Choose your LLM provider"),
+			huh.NewSelect[string]().
+				Title("Provider").
+				Description("Which AI backend will power IronClaw?").
+				Options(
+					huh.NewOption("Anthropic Claude (Sonnet 4)", "claude"),
+					huh.NewOption("OpenAI (GPT-4o)", "openai"),
+				).
+				Value(&provider),
+		),
+	).WithTheme(theme).WithWidth(64).Run()
+	if err != nil {
+		return "", err
+	}
+
+	// ── Step 2: API Key ────────────────────────────────────────────
+	defaultKey := "${ANTHROPIC_API_KEY}"
+	defaultKeyHint := "uses $ANTHROPIC_API_KEY env var"
+	if provider == "openai" {
+		defaultKey = "${OPENAI_API_KEY}"
+		defaultKeyHint = "uses $OPENAI_API_KEY env var"
+	}
+
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Step 2/5").
+				Description("Configure your API key"),
+			huh.NewInput().
+				Title("API Key").
+				Description("Leave empty to " + defaultKeyHint).
+				Placeholder(defaultKey).
+				Value(&apiKey),
+		),
+	).WithTheme(theme).WithWidth(64).Run()
+	if err != nil {
+		return "", err
+	}
+	if apiKey == "" {
+		apiKey = defaultKey
+	}
+
+	// ── Step 3: Model ──────────────────────────────────────────────
+	defaultModel := "claude-sonnet-4-20250514"
+	if provider == "openai" {
+		defaultModel = "gpt-4o"
+	}
+
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Step 3/5").
+				Description("Select or enter a model name"),
+			huh.NewSelect[string]().
+				Title("Model").
+				Description("Which model should IronClaw use?").
+				OptionsFunc(func() []huh.Option[string] {
+					if provider == "claude" {
+						return huh.NewOptions(
+							"claude-sonnet-4-20250514",
+							"claude-opus-4-20250514",
+							"claude-3.5-haiku-20241022",
+						)
+					}
+					return huh.NewOptions(
+						"gpt-4o",
+						"gpt-4-turbo",
+						"gpt-3.5-turbo",
+					)
+				}, &provider).
+				Value(&model),
+		),
+	).WithTheme(theme).WithWidth(64).Run()
+	if err != nil {
+		return "", err
+	}
+	if model == "" {
+		model = defaultModel
+	}
+
+	// ── Step 4: Agent Mode ─────────────────────────────────────────
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Step 4/5").
+				Description("Choose agent runtime mode"),
+			huh.NewSelect[string]().
+				Title("Mode").
+				Description("How should the agent process your requests?").
+				Options(
+					huh.NewOption("Simple — standard linear loop (recommended)", "simple"),
+					huh.NewOption("Unified — with parallel tool dispatch", "cognitive"),
+				).
+				Value(&agentMode),
+		),
+	).WithTheme(theme).WithWidth(64).Run()
+	if err != nil {
+		return "", err
+	}
+
+	// ── Step 5: Save Location ──────────────────────────────────────
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Step 5/5").
+				Description("Where should the config be saved?"),
+			huh.NewSelect[string]().
+				Title("Location").
+				Description("Project-local keeps config with your code.").
+				Options(
+					huh.NewOption(".ironclaw/ironclaw.yaml — current project (recommended)", "project"),
+					huh.NewOption("~/.ironclaw/config.yaml — global for all projects", "global"),
+				).
+				Value(&saveStyle),
+		),
+	).WithTheme(theme).WithWidth(64).Run()
+	if err != nil {
+		return "", err
+	}
+
+	// ── Resolve save path ──────────────────────────────────────────
+	var savePath string
+	switch saveStyle {
+	case "global":
 		home, _ := os.UserHomeDir()
 		savePath = filepath.Join(home, ".ironclaw", "config.yaml")
 	default:
 		savePath = ".ironclaw/ironclaw.yaml"
 	}
 
-	// ── 2. LLM Provider ───────────────────────────────────────────
-	provider := promptChoice(s,
-		"LLM provider",
-		[]choice{
-			{"1", "claude", "Anthropic Claude (Sonnet 4)"},
-			{"2", "openai", "OpenAI (GPT-4o)"},
-		},
-		"1",
-	)
-	var providerName, defaultModel string
-	switch provider {
-	case "1":
-		providerName = "claude"
-		defaultModel = "claude-sonnet-4-20250514"
-	default:
-		providerName = "openai"
-		defaultModel = "gpt-4o"
-	}
-
-	// ── 3. API Key ────────────────────────────────────────────────
-	apiKey := promptInput(s, "API key", "")
-	if apiKey == "" && providerName == "claude" {
-		apiKey = "${ANTHROPIC_API_KEY}"
-	}
-	if apiKey == "" && providerName == "openai" {
-		apiKey = "${OPENAI_API_KEY}"
-	}
-
-	// ── 4. Model ──────────────────────────────────────────────────
-	model := promptInput(s, "Model", defaultModel)
-	if model == "" {
-		model = defaultModel
-	}
-
-	// ── 5. Agent mode ─────────────────────────────────────────────
-	agentMode := promptChoice(s,
-		"Agent mode",
-		[]choice{
-			{"1", "simple", "standard linear loop"},
-			{"2", "cognitive", "with replan/reflection"},
-		},
-		"1",
-	)
-	modeName := "simple"
-	if agentMode == "2" {
-		modeName = "cognitive"
-	}
-
-	// ── Generate config ───────────────────────────────────────────
+	// ── Generate config ────────────────────────────────────────────
 	configYAML := fmt.Sprintf(`# IronClaw configuration — generated by setup wizard.
 # Edit this file to adjust settings. Secrets should use ${ENV_VAR} placeholders.
 
@@ -182,91 +265,32 @@ log:
   level: info
   format: text
 `,
-		providerName, apiKey, model, modeName)
+		provider, apiKey, model, agentMode)
 
-	// Ensure parent directory exists
+	// ── Write config ───────────────────────────────────────────────
 	dir := filepath.Dir(savePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create config directory %s: %w", dir, err)
 	}
-
 	if err := os.WriteFile(savePath, []byte(configYAML), 0644); err != nil {
 		return "", fmt.Errorf("write config: %w", err)
 	}
 
-	fmt.Printf("\n  ✓ Config saved to %s\n", savePath)
-	fmt.Printf("  Run 'ironclaw tui' to start.\n\n")
+	// ── Done ───────────────────────────────────────────────────────
+	fmt.Println()
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#2EC49C")).
+		Padding(1, 2).
+		Width(60)
+	content := strings.Join([]string{
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#2EC49C")).Render("✓  Configuration complete!"),
+		"",
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#787882")).Render("Config: " + savePath),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#787882")).Render("Run:   ironclaw tui"),
+	}, "\n")
+	fmt.Println(box.Render(content))
+	fmt.Println()
+
 	return savePath, nil
-}
-
-type choice struct {
-	key, value, desc string
-}
-
-// promptChoice presents options and returns the selected value.
-func promptChoice(s *bufio.Scanner, label string, choices []choice, defaultKey string) string {
-	fmt.Printf("  %s:\n", label)
-	for _, c := range choices {
-		fmt.Printf("    [%s] %s — %s\n", c.key, c.value, c.desc)
-	}
-	fmt.Printf("  Choose [%s]: ", defaultKey)
-
-	if !s.Scan() {
-		return defaultValue(choices, defaultKey)
-	}
-	input := strings.TrimSpace(s.Text())
-	if input == "" {
-		return defaultValue(choices, defaultKey)
-	}
-	for _, c := range choices {
-		if strings.EqualFold(input, c.key) || strings.EqualFold(input, c.value) {
-			return c.value
-		}
-	}
-	return defaultValue(choices, defaultKey)
-}
-
-func defaultValue(choices []choice, key string) string {
-	for _, c := range choices {
-		if c.key == key {
-			return c.value
-		}
-	}
-	return choices[0].value
-}
-
-// promptInput asks for a text value with a default.
-func promptInput(s *bufio.Scanner, label, defaultVal string) string {
-	prompt := fmt.Sprintf("  %s", label)
-	if defaultVal != "" {
-		prompt += fmt.Sprintf(" [%s]", defaultVal)
-	}
-	prompt += ": "
-	fmt.Print(prompt)
-
-	if !s.Scan() {
-		return defaultVal
-	}
-	input := strings.TrimSpace(s.Text())
-	if input == "" {
-		return defaultVal
-	}
-	return input
-}
-
-// confirm asks a yes/no question.
-func confirm(s *bufio.Scanner, question string, defaultYes bool) bool {
-	def := "Y/n"
-	if !defaultYes {
-		def = "y/N"
-	}
-	fmt.Printf("  %s [%s]: ", question, def)
-	if !s.Scan() {
-		return defaultYes
-	}
-	input := strings.TrimSpace(strings.ToLower(s.Text()))
-	if input == "" {
-		return defaultYes
-	}
-	return input == "y" || input == "yes"
 }
