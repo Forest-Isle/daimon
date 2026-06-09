@@ -13,6 +13,10 @@ llm:
   # base_url: "https://your-relay.example.com"   # custom base URL (relay, Ollama, vLLM, etc.)
   model: claude-sonnet-4-20250514
   max_tokens: 8192
+  # models:                                      # customize /model panel display
+  #   opus: claude-opus-4-8
+  #   sonnet: claude-sonnet-4-6
+  #   haiku: claude-haiku-4-5
 
   # --- OpenAI-compatible example (uncomment to use) ---
   # provider: openai

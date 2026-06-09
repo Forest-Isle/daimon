@@ -2,11 +2,20 @@ package config
 
 import "time"
 
+// ModelRoles maps role names (opus, sonnet, haiku) to actual model IDs.
+// Used by /model panel and setup wizard. If unset, official defaults are shown.
+type ModelRoles struct {
+	Opus   string `yaml:"opus"`
+	Sonnet string `yaml:"sonnet"`
+	Haiku  string `yaml:"haiku"`
+}
+
 type LLMConfig struct {
 	Provider  string      `yaml:"provider"`
 	APIKey    string      `yaml:"api_key"`
 	BaseURL   string      `yaml:"base_url"`
 	Model     string      `yaml:"model"`
+	Models    ModelRoles  `yaml:"models"`
 	MaxTokens int         `yaml:"max_tokens"`
 	Retry     RetryConfig `yaml:"retry"`
 }

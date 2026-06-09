@@ -195,6 +195,10 @@ llm:
   provider: %s
   api_key: "%s"%s
   model: %s
+  # models:                        # customize model display names
+  #   opus: claude-opus-4-8       # shown as "Opus" in /model panel
+  #   sonnet: claude-sonnet-4-6   # shown as "Sonnet"
+  #   haiku: claude-haiku-4-5     # shown as "Haiku"
   max_tokens: 8192
 
 tui:
