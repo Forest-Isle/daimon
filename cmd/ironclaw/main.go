@@ -263,7 +263,16 @@ func runStart(configPath string, devMode bool) error {
 
 	resolvedPath, err := config.FindConfigPath(configPath, devMode)
 	if err != nil {
-		return fmt.Errorf("find config: %w", err)
+		if isInteractive() {
+			fmt.Println(err)
+			fmt.Println()
+			resolvedPath, err = runSetupWizard()
+			if err != nil {
+				return fmt.Errorf("setup: %w", err)
+			}
+		} else {
+			return fmt.Errorf("find config: %w", err)
+		}
 	}
 	slog.Info("loading config", "path", resolvedPath)
 	cfg, err := config.Load(resolvedPath)
