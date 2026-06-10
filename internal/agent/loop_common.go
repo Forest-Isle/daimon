@@ -50,11 +50,12 @@ func loopIteration(
 	}
 
 	req := CompletionRequest{
-		Model:     a.deps.Core.LLMCfg.Model,
-		System:    systemPrompt,
-		Messages:  BuildMessages(sess),
-		Tools:     a.buildToolDefs(),
-		MaxTokens: a.deps.Core.LLMCfg.MaxTokens,
+		Model:          a.deps.Core.LLMCfg.Model,
+		System:         systemPrompt,
+		Messages:       BuildMessages(sess),
+		Tools:          a.buildToolDefs(),
+		MaxTokens:      a.deps.Core.LLMCfg.MaxTokens,
+		ThinkingBudget: a.deps.Core.LLMCfg.ThinkingBudget,
 	}
 
 	stream, streamErr := a.deps.Core.Provider.Stream(ctx, req)
@@ -75,6 +76,8 @@ func loopIteration(
 	}
 
 	var fullText string
+	var thinking string
+	var signature string
 	var toolCalls []ToolUseBlock
 	var stopReason StopReason
 
@@ -90,6 +93,12 @@ func loopIteration(
 		if delta.Text != "" {
 			fullText += delta.Text
 			_ = updater.Update(fullText)
+		}
+		if delta.Thinking != "" {
+			thinking += delta.Thinking
+		}
+		if delta.Signature != "" {
+			signature = delta.Signature
 		}
 		if delta.ToolCall != nil {
 			toolCalls = append(toolCalls, *delta.ToolCall)
@@ -114,15 +123,21 @@ func loopIteration(
 			return updater, nil, nil // error already communicated via stream
 		}
 		fullText = resp.Text
+		thinking = resp.Thinking
+		signature = resp.Signature
 		toolCalls = resp.ToolCalls
 	}
 
-	// Save assistant message
-	if fullText != "" {
+	// Save assistant message. A thinking block must travel with the assistant
+	// turn it belongs to, so persist the message when there is text OR a
+	// thinking block to carry.
+	if fullText != "" || thinking != "" {
 		sess.AddMessage(session.Message{
 			ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
 			Role:      "assistant",
 			Content:   fullText,
+			Thinking:  thinking,
+			Signature: signature,
 			CreatedAt: time.Now(),
 		})
 	}
@@ -166,11 +181,12 @@ func loopIterationNonStreaming(
 	maxIter int,
 ) ([]ToolUseBlock, error) {
 	req := CompletionRequest{
-		Model:     a.deps.Core.LLMCfg.Model,
-		System:    systemPrompt,
-		Messages:  BuildMessages(sess),
-		Tools:     a.buildToolDefs(),
-		MaxTokens: a.deps.Core.LLMCfg.MaxTokens,
+		Model:          a.deps.Core.LLMCfg.Model,
+		System:         systemPrompt,
+		Messages:       BuildMessages(sess),
+		Tools:          a.buildToolDefs(),
+		MaxTokens:      a.deps.Core.LLMCfg.MaxTokens,
+		ThinkingBudget: a.deps.Core.LLMCfg.ThinkingBudget,
 	}
 
 	resp, err := a.deps.Core.Provider.Complete(ctx, req)
@@ -187,9 +203,10 @@ func loopIterationNonStreaming(
 		return nil, err
 	}
 
-	if resp.Text != "" {
+	if resp.Text != "" || resp.Thinking != "" {
 		sess.AddMessage(session.Message{
-			ID: fmt.Sprintf("msg_%d", time.Now().UnixNano()), Role: "assistant", Content: resp.Text, CreatedAt: time.Now(),
+			ID: fmt.Sprintf("msg_%d", time.Now().UnixNano()), Role: "assistant", Content: resp.Text,
+			Thinking: resp.Thinking, Signature: resp.Signature, CreatedAt: time.Now(),
 		})
 	}
 	for _, tc := range resp.ToolCalls {

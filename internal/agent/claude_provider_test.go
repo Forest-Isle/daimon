@@ -81,3 +81,120 @@ func TestClaudeProvider_BuildParams_PlainUserMessage(t *testing.T) {
 		t.Errorf("user text missing from wire JSON:\n%s", wire)
 	}
 }
+
+// TestClaudeProvider_BuildParams_ThinkingRoundTrip locks in the extended-thinking
+// replay contract: an assistant turn carrying a signed thinking block plus a
+// tool_use must serialize the thinking block (with its signature) BEFORE the
+// tool_use block. The API verifies the signature, so it must travel verbatim.
+func TestClaudeProvider_BuildParams_ThinkingRoundTrip(t *testing.T) {
+	p := NewClaudeProvider("", "claude-sonnet-4-6", "")
+	req := CompletionRequest{
+		Messages: []CompletionMessage{
+			{Role: "user", Content: "think then act"},
+			{
+				Role:      "assistant",
+				Content:   "",
+				Thinking:  "let me reason about this",
+				Signature: "sig-abc123",
+				ToolBlocks: []ToolUseBlock{
+					{ID: "call_1", Name: "bash", Input: `{"cmd":"ls"}`},
+				},
+			},
+			{Role: "user", Content: "ok", ToolUseID: "call_1"},
+		},
+	}
+
+	params := p.buildParams(req)
+	data, err := json.Marshal(params.Messages)
+	if err != nil {
+		t.Fatalf("marshal messages: %v", err)
+	}
+	wire := string(data)
+
+	if !strings.Contains(wire, "thinking") {
+		t.Errorf("expected a thinking block in wire JSON:\n%s", wire)
+	}
+	if !strings.Contains(wire, "let me reason about this") {
+		t.Errorf("thinking text missing from wire JSON:\n%s", wire)
+	}
+	if !strings.Contains(wire, "sig-abc123") {
+		t.Errorf("thinking signature missing from wire JSON:\n%s", wire)
+	}
+	// Ordering: the thinking block must precede the tool_use block.
+	if ti, ui := strings.Index(wire, "thinking"), strings.Index(wire, "tool_use"); ti < 0 || ui < 0 || ti > ui {
+		t.Errorf("thinking block must precede tool_use (thinking@%d, tool_use@%d):\n%s", ti, ui, wire)
+	}
+}
+
+// TestClaudeProvider_BuildParams_UnsignedThinkingDropped guards restart safety:
+// an assistant turn whose thinking has no signature (e.g. lost across a restart
+// where thinking is not persisted) must NOT be replayed, or the API rejects the
+// request. The tool_use must still serialize normally.
+func TestClaudeProvider_BuildParams_UnsignedThinkingDropped(t *testing.T) {
+	p := NewClaudeProvider("", "claude-sonnet-4-6", "")
+	req := CompletionRequest{
+		Messages: []CompletionMessage{
+			{Role: "user", Content: "act"},
+			{
+				Role:     "assistant",
+				Thinking: "orphaned reasoning",
+				// Signature intentionally empty.
+				ToolBlocks: []ToolUseBlock{
+					{ID: "call_2", Name: "bash", Input: `{"cmd":"pwd"}`},
+				},
+			},
+			{Role: "user", Content: "ok", ToolUseID: "call_2"},
+		},
+	}
+
+	params := p.buildParams(req)
+	data, err := json.Marshal(params.Messages)
+	if err != nil {
+		t.Fatalf("marshal messages: %v", err)
+	}
+	wire := string(data)
+
+	if strings.Contains(wire, "orphaned reasoning") {
+		t.Errorf("unsigned thinking must not be replayed:\n%s", wire)
+	}
+	if !strings.Contains(wire, "tool_use") {
+		t.Errorf("tool_use must still serialize:\n%s", wire)
+	}
+}
+
+// TestClaudeProvider_BuildParams_ThinkingBudget verifies that a positive budget
+// enables thinking (and bumps max_tokens above the budget), while budget=0 is a
+// no-op — preserving zero behavior change when thinking is off.
+func TestClaudeProvider_BuildParams_ThinkingBudget(t *testing.T) {
+	p := NewClaudeProvider("", "claude-sonnet-4-6", "")
+
+	// budget = 0: thinking disabled, default max_tokens, no temperature override.
+	off := p.buildParams(CompletionRequest{
+		Messages: []CompletionMessage{{Role: "user", Content: "hi"}},
+	})
+	if off.Thinking.OfEnabled != nil {
+		t.Errorf("budget=0 must not enable thinking, got %+v", off.Thinking.OfEnabled)
+	}
+	if off.Temperature.Valid() {
+		t.Errorf("budget=0 must not set temperature, got %v", off.Temperature)
+	}
+
+	// budget > max_tokens: thinking enabled, max_tokens bumped, temperature=1.
+	on := p.buildParams(CompletionRequest{
+		Messages:       []CompletionMessage{{Role: "user", Content: "hi"}},
+		MaxTokens:      4096,
+		ThinkingBudget: 10000,
+	})
+	if on.Thinking.OfEnabled == nil {
+		t.Fatalf("budget>0 must enable thinking")
+	}
+	if on.Thinking.OfEnabled.BudgetTokens != 10000 {
+		t.Errorf("budget tokens = %d, want 10000", on.Thinking.OfEnabled.BudgetTokens)
+	}
+	if on.MaxTokens <= 10000 {
+		t.Errorf("max_tokens must exceed budget, got %d", on.MaxTokens)
+	}
+	if !on.Temperature.Valid() || on.Temperature.Value != 1 {
+		t.Errorf("thinking requires temperature=1, got %v", on.Temperature)
+	}
+}

@@ -69,8 +69,10 @@ func BuildMessages(sess *session.Session) []CompletionMessage {
 
 		case "assistant":
 			cm := CompletionMessage{
-				Role:    "assistant",
-				Content: m.Content,
+				Role:      "assistant",
+				Content:   m.Content,
+				Thinking:  m.Thinking,
+				Signature: m.Signature,
 			}
 			// Collect any following tool_use messages into this assistant message
 			for i+1 < len(history) && history[i+1].Role == "tool_use" {

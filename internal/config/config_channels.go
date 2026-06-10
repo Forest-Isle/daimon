@@ -11,13 +11,14 @@ type ModelRoles struct {
 }
 
 type LLMConfig struct {
-	Provider  string      `yaml:"provider"`
-	APIKey    string      `yaml:"api_key"`
-	BaseURL   string      `yaml:"base_url"`
-	Model     string      `yaml:"model"`
-	Models    ModelRoles  `yaml:"models"`
-	MaxTokens int         `yaml:"max_tokens"`
-	Retry     RetryConfig `yaml:"retry"`
+	Provider       string      `yaml:"provider"`
+	APIKey         string      `yaml:"api_key"`
+	BaseURL        string      `yaml:"base_url"`
+	Model          string      `yaml:"model"`
+	Models         ModelRoles  `yaml:"models"`
+	MaxTokens      int         `yaml:"max_tokens"`
+	ThinkingBudget int         `yaml:"thinking_budget"` // 0 = disabled; >0 enables extended thinking with this token budget
+	Retry          RetryConfig `yaml:"retry"`
 }
 
 // RetryConfig controls retry behavior for LLM API calls.

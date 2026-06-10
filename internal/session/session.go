@@ -13,6 +13,15 @@ type Message struct {
 	ToolName  string
 	ToolInput string
 	CreatedAt time.Time
+
+	// Thinking and Signature hold an extended-thinking block on an assistant
+	// message. They are in-memory only (not persisted to SQLite): a thinking
+	// block must be replayed verbatim with its signature only within the same
+	// act-loop that produced it, alongside the tool_use it precedes. Once a
+	// turn ends (end_turn) the block is no longer needed, so losing it across
+	// a restart is safe.
+	Thinking  string
+	Signature string
 }
 
 // Session holds the state for a single conversation.

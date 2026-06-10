@@ -116,6 +116,12 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 			}
 		case "assistant":
 			blocks := make([]anthropic.ContentBlockParamUnion, 0)
+			// A thinking block, when present, must precede text/tool_use blocks
+			// and be replayed verbatim with its signature (the API verifies it).
+			// Guard on signature too: only replay a fully-formed, signed block.
+			if m.Thinking != "" && m.Signature != "" {
+				blocks = append(blocks, anthropic.NewThinkingBlock(m.Signature, m.Thinking))
+			}
 			if m.Content != "" {
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 			}
@@ -225,6 +231,18 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 		}
 	}
 
+	// Enable extended thinking when a budget is configured. The API requires
+	// temperature=1 and budget_tokens < max_tokens, so bump max_tokens to leave
+	// room for the final answer on top of the reasoning budget.
+	if req.ThinkingBudget > 0 {
+		budget := int64(req.ThinkingBudget)
+		if budget >= params.MaxTokens {
+			params.MaxTokens = budget + maxTokens
+		}
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
+		params.Temperature = anthropic.Float(1)
+	}
+
 	return params
 }
 
@@ -237,6 +255,11 @@ func (c *ClaudeProvider) parseResponse(resp *anthropic.Message) *CompletionRespo
 		switch v := block.AsAny().(type) {
 		case anthropic.TextBlock:
 			result.Text += v.Text
+		case anthropic.ThinkingBlock:
+			result.Thinking += v.Thinking
+			if v.Signature != "" {
+				result.Signature = v.Signature
+			}
 		case anthropic.ToolUseBlock:
 			inputBytes, err := json.Marshal(v.Input)
 			if err != nil {
@@ -277,6 +300,10 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 			switch d := e.Delta.AsAny().(type) {
 			case anthropic.TextDelta:
 				return StreamDelta{Text: d.Text}, nil
+			case anthropic.ThinkingDelta:
+				return StreamDelta{Thinking: d.Thinking}, nil
+			case anthropic.SignatureDelta:
+				return StreamDelta{Signature: d.Signature}, nil
 			}
 		case anthropic.ContentBlockStopEvent:
 		case anthropic.MessageStopEvent:
@@ -342,6 +369,11 @@ func parseStreamedMessage(msg *anthropic.Message) *CompletionResponse {
 		switch v := block.AsAny().(type) {
 		case anthropic.TextBlock:
 			result.Text += v.Text
+		case anthropic.ThinkingBlock:
+			result.Thinking += v.Thinking
+			if v.Signature != "" {
+				result.Signature = v.Signature
+			}
 		case anthropic.ToolUseBlock:
 			inputBytes, err := json.Marshal(v.Input)
 			if err != nil {

@@ -17,6 +17,11 @@ type CompletionMessage struct {
 	ToolName   string         `json:"tool_name,omitempty"`
 	ToolInput  string         `json:"tool_input,omitempty"`
 	ToolBlocks []ToolUseBlock `json:"tool_blocks,omitempty"`
+
+	// Thinking / Signature carry an extended-thinking block on an assistant
+	// message so it can be replayed verbatim (the API verifies the signature).
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
 }
 
 // ToolUseBlock represents a tool_use block in an assistant message.
@@ -35,6 +40,9 @@ type CompletionRequest struct {
 	MaxTokens      int                 `json:"max_tokens"`
 	ToolChoice     string              `json:"tool_choice,omitempty"`
 	ResponseFormat *ResponseFormat     `json:"response_format,omitempty"`
+	// ThinkingBudget enables extended thinking when > 0, reserving this many
+	// tokens for reasoning. 0 disables thinking entirely (zero behavior change).
+	ThinkingBudget int `json:"thinking_budget,omitempty"`
 }
 
 type ResponseFormat struct {
@@ -66,11 +74,17 @@ type CompletionResponse struct {
 	Text       string
 	ToolCalls  []ToolUseBlock
 	StopReason StopReason
+	// Thinking / Signature hold the extended-thinking block, if any. Signature
+	// must be retained and replayed verbatim on the next request.
+	Thinking  string
+	Signature string
 }
 
 // StreamDelta is a chunk of a streaming response.
 type StreamDelta struct {
 	Text       string
+	Thinking   string         // incremental thinking text (delta)
+	Signature  string         // set on the final delta when a thinking block was produced
 	ToolCall   *ToolUseBlock  // non-nil when a tool_use block is complete (first one, for compat)
 	ToolCalls  []ToolUseBlock // all tool_use blocks from the final message
 	Done       bool

@@ -13,6 +13,7 @@ llm:
   # base_url: "https://your-relay.example.com"   # custom base URL (relay, Ollama, vLLM, etc.)
   model: claude-sonnet-4-20250514
   max_tokens: 8192
+  # thinking_budget: 0                            # >0 enables Claude extended thinking (reasoning tokens); must be < max_tokens (Claude only)
   # models:                                      # customize /model panel display
   #   opus: claude-opus-4-8
   #   sonnet: claude-sonnet-4-6
