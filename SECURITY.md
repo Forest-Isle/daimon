@@ -47,7 +47,7 @@ The `sandbox` feature defaults to enabled in the Feature Registry but auto-detec
 
 - Prefer environment expansion with `${VAR}` in YAML rather than hard-coded tokens.
 - MCP server responses are passed through redaction before returning to the agent.
-- Do not commit local `configs/ironclaw.yaml`, `.ironclaw/local.yaml`, database files, tool result caches, or generated trajectory exports containing private prompts.
+- Do not commit local `configs/ironclaw.yaml`, database files, tool result caches, or generated trajectory exports containing private prompts.
 
 ## Reporting
 

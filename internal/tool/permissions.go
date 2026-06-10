@@ -131,14 +131,6 @@ func (pe *PermissionEngine) evaluateLegacy(toolName, input string, caps ToolCapa
 	}
 }
 
-// MergeRules merges rules from multiple sources. Higher-priority rules come first.
-func MergeRules(projectRules, globalRules []PermissionRule) []PermissionRule {
-	merged := make([]PermissionRule, 0, len(projectRules)+len(globalRules))
-	merged = append(merged, projectRules...)
-	merged = append(merged, globalRules...)
-	return merged
-}
-
 // matchToolPattern matches a tool name against a pattern.
 // Supports "*" as wildcard for any tool.
 func matchToolPattern(pattern, toolName string) bool {

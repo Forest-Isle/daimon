@@ -79,23 +79,6 @@ func TestPermissionEngineLegacyFallback(t *testing.T) {
 	}
 }
 
-func TestMergeRules(t *testing.T) {
-	project := []PermissionRule{{Tool: "bash", Pattern: "docker build *", Action: "allow"}}
-	global := []PermissionRule{{Tool: "bash", Pattern: "docker *", Action: "deny"}}
-
-	merged := MergeRules(project, global)
-	if len(merged) != 2 {
-		t.Fatalf("expected 2 rules, got %d", len(merged))
-	}
-	// Project rules should come first
-	if merged[0].Action != "allow" {
-		t.Error("project rule should be first")
-	}
-	if merged[1].Action != "deny" {
-		t.Error("global rule should be second")
-	}
-}
-
 func TestPermissionEngineDestructiveDefault(t *testing.T) {
 	// No rules, but tool is destructive — should default to approve
 	pe := NewPermissionEngine(nil, "allow", nil)

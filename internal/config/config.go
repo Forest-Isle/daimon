@@ -46,8 +46,7 @@ func ExpandEnv(data []byte) []byte {
 // devMode uses configs/ironclaw.yaml when no explicit path is given.
 //
 // Production (devMode=false, explicitPath empty):
-//  1. .ironclaw/ironclaw.yaml in CWD
-//  2. ~/.ironclaw/config.yaml
+//  ~/.ironclaw/config.yaml
 //
 // Development (devMode=true, explicitPath empty):
 //  configs/ironclaw.yaml in CWD
@@ -59,12 +58,11 @@ func FindConfigPath(explicitPath string, devMode bool) (string, error) {
 		return "", fmt.Errorf("config file not found: %s", explicitPath)
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "."
-	}
-
 	if devMode {
+		cwd, err := os.Getwd()
+		if err != nil {
+			cwd = "."
+		}
 		devPath := filepath.Join(cwd, "configs", "ironclaw.yaml")
 		if _, err := os.Stat(devPath); err == nil {
 			return devPath, nil
@@ -75,31 +73,19 @@ func FindConfigPath(explicitPath string, devMode bool) (string, error) {
 		)
 	}
 
-	projectPath := filepath.Join(cwd, ".ironclaw", "ironclaw.yaml")
-	if _, err := os.Stat(projectPath); err == nil {
-		return projectPath, nil
-	}
-
-	// No project config — try to bootstrap from global.
 	home, homeErr := os.UserHomeDir()
 	if homeErr == nil {
 		globalPath := filepath.Join(home, ".ironclaw", "config.yaml")
 		if _, err := os.Stat(globalPath); err == nil {
-			// Bootstrap: copy global config to project.
-			if err := bootstrapProjectConfig(globalPath, projectPath); err == nil {
-				return projectPath, nil
-			}
-			// Bootstrap failed — fall back to global directly.
 			return globalPath, nil
 		}
 	}
 
 	return "", fmt.Errorf(
 		"no config file found.\n\n"+
-			"  Production: create .ironclaw/ironclaw.yaml in your project,\n"+
-			"              or ~/.ironclaw/config.yaml for global defaults.\n"+
+			"  Production: create ~/.ironclaw/config.yaml for global defaults.\n"+
 			"  Development: ironclaw tui --dev\n"+
-			"  Template:    cp configs/ironclaw.example.yaml .ironclaw/ironclaw.yaml",
+			"  Template:    cp configs/ironclaw.example.yaml ~/.ironclaw/config.yaml",
 	)
 }
 
@@ -119,13 +105,6 @@ func Load(path string) (*Config, error) {
 
 	// Warn about unknown top-level YAML keys (typos, removed features like RL).
 	CheckUnknownKeys(expanded)
-
-	// Overlay project-level and local-level config if available.
-	// The explicit path acts as user-level; project (.ironclaw/) and
-	// local (.ironclaw/local.yaml) configs are discovered from cwd.
-	if wd, wdErr := os.Getwd(); wdErr == nil {
-		overlayHierarchy(&cfg, wd)
-	}
 
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
@@ -224,9 +203,6 @@ func defaultConfig() Config {
 	}
 }
 
-// bootstrapProjectConfig copies the global config to the project directory
-// as .ironclaw/ironclaw.yaml. The project copy starts identical to the global
-// config so the user can customize it independently. Returns nil on success.
 // homeDir returns the user's home directory, or "." if unavailable.
 func homeDir() string {
 	home, err := os.UserHomeDir()
@@ -234,24 +210,4 @@ func homeDir() string {
 		return "."
 	}
 	return home
-}
-
-func bootstrapProjectConfig(globalPath, projectPath string) error {
-	data, err := os.ReadFile(globalPath)
-	if err != nil {
-		return err
-	}
-
-	dir := filepath.Dir(projectPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	// Prepend a header note so the user knows this was auto-generated.
-	header := []byte("# Generated from " + globalPath + ".\n" +
-		"# Edit this file for project-specific overrides.\n" +
-		"# Remove this file to fall back to the global config.\n\n")
-	content := append(header, data...)
-
-	return os.WriteFile(projectPath, content, 0644)
 }

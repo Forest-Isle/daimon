@@ -63,10 +63,9 @@ make test
 The example configuration lives at `configs/ironclaw.example.yaml`. Runtime loading uses this order:
 
 1. Built-in defaults from `internal/config`.
-2. The explicit YAML passed with `-c`.
-3. Project overlays: `.ironclaw/ironclaw.yaml`, then `.ironclaw/local.yaml`.
-4. User directory injection from `~/.ironclaw`: `Soul.md`, `Memory.md`, `Agent.md`, MCP server files, skills, and agent specs.
-5. Persisted runtime feature overrides from `~/.ironclaw/feature_state.json`, unless the caller opts out.
+2. The config file: the explicit YAML passed with `-c`, or `~/.ironclaw/config.yaml` by default (`configs/ironclaw.yaml` with `--dev`).
+3. User directory injection from `~/.ironclaw`: `Soul.md`, `Memory.md`, `Agent.md`, MCP server files, skills, and agent specs.
+4. Persisted runtime feature overrides from `~/.ironclaw/feature_state.json`, unless the caller opts out.
 
 Most core runtime features are on by default; the standalone admin server is opt-in.
 
