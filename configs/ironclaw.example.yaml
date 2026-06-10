@@ -43,7 +43,6 @@ tui:
 agent:
   max_iterations: 20
   max_reflections: 3   # max self-correction turns when plan has incomplete steps (0=default 3, negative=disabled)
-  mode: linear   # "linear" (canonical; also accepts "simple"/"unified"/"cognitive" for backward compat)
   execution:
     max_parallel_tools: 3
   # Context compression strategy (Phase 1 performance optimization)

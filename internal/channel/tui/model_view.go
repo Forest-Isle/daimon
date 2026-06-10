@@ -67,9 +67,8 @@ func (m Model) View() string {
 func (m Model) renderHeader() string {
 	left := fmt.Sprintf(" IronClaw %s ", m.version)
 
-	// Right side: mode + CWD
+	// Right side: CWD
 	var rightParts []string
-	rightParts = append(rightParts, headerLabelStyle.Render("mode:")+" "+m.agentMode)
 	if m.cwd != "" {
 		shortCwd := shortenPath(m.cwd, 30)
 		rightParts = append(rightParts, headerLabelStyle.Render(shortCwd))
@@ -95,7 +94,6 @@ func (m Model) renderWelcome() string {
 
 	shortcuts := []struct{ key, desc string }{
 		{"/help", "Show available commands"},
-		{"/mode", "Show or switch agent mode (linear)"},
 		{"/clear", "Clear conversation history"},
 		{"/quit", "Exit IronClaw"},
 	}

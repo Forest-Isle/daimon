@@ -39,7 +39,6 @@ func (c *nullChannel) SendStreaming(ctx context.Context, target channel.MessageT
 // This covers the runtime paths that unit tests on individual subsystems miss.
 func TestGatewayFullLifecycle(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.Agent.Mode = "simple"
 	// Enable memory so the memory-backed tools (core_memory, amp_memory) wire up.
 	cfg.Memory.Enabled = true
 	gw, err := New(cfg)

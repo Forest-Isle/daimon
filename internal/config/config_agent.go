@@ -6,7 +6,6 @@ type AgentConfig struct {
 	SystemPrompt    string            `yaml:"system_prompt"`
 	Personality     string            `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
 	PersistentRules string            `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
-	Mode            string            `yaml:"mode"` // "linear" (canonical; also accepts "simple"/"unified"/"cognitive" for backward compat)
 	Execution       ExecutionConfig   `yaml:"execution"`
 	Compression     CompressionConfig `yaml:"compression"`
 }

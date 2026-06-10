@@ -92,16 +92,6 @@ func TestGenerateSuggestions_DynamicArgCompleter(t *testing.T) {
 	assert.Equal(t, "scheduler", suggestions[0].ArgValue)
 }
 
-func TestGenerateSuggestions_ModeSubArgs(t *testing.T) {
-	suggestions := GenerateSuggestions("/mode ", 6, nil)
-	require.NotEmpty(t, suggestions)
-	var values []string
-	for _, s := range suggestions {
-		values = append(values, s.ArgValue)
-	}
-	assert.Contains(t, values, "linear")
-}
-
 func TestApplySuggestion_CommandName(t *testing.T) {
 	cmd := Command{Name: "quit", Description: "Exit"}
 	suggestion := SuggestionItem{Command: cmd, DisplayText: "/quit"}

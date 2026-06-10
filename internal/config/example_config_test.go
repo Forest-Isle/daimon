@@ -47,7 +47,7 @@ func TestExampleConfigLoadsAndValidates(t *testing.T) {
 	// Sanity: core fields populated from the file (not just defaults).
 	assert.Equal(t, "claude", cfg.LLM.Provider)
 	assert.NotEmpty(t, cfg.LLM.Model)
-	assert.NotEmpty(t, cfg.Agent.Mode)
+	assert.NotZero(t, cfg.Agent.MaxIterations)
 }
 
 // TestExampleConfigHasNoUnknownTopLevelKeys verifies every top-level key in the

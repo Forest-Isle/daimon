@@ -13,7 +13,7 @@ This file is a compact handoff for coding assistants working in this repository.
 
 - Feature Registry defaults these core systems on: memory, skills, multi-agent.
 - Standalone admin server is opt-in.
-- `agent.mode` accepts `linear` (canonical), plus legacy `simple`, `unified`, `cognitive`; all map to LinearLoop.
+- The agent has a single execution strategy (`LinearLoop`); there is no user-selectable `agent.mode` config or `/mode` command.
 - Sub-agents run in-process only.
 - Tools execute directly on the host — there is no sandbox/Docker isolation, file guard, or network policy. The tool interceptor chain lives on `gateway.interceptorChain` (permission → hook → user-hook → verify → audit) and is built in `init_tools.go`.
 - No telemetry: there is no OpenTelemetry/metrics instrumentation in the agent or tool paths.

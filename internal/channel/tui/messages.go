@@ -54,9 +54,6 @@ type feedbackRequestMsg struct {
 // setAutoApproveMsg signals that the user wants to enable auto-approve mode.
 type setAutoApproveMsg struct{}
 
-// setAgentModeMsg updates the TUI model's displayed agent mode.
-type setAgentModeMsg struct{ mode string }
-
 // cancelRequestMsg signals that the user wants to cancel the in-flight request.
 type cancelRequestMsg struct{}
 

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Forest-Isle/IronClaw/internal/agent"
@@ -30,7 +29,6 @@ type Gateway struct {
 	sessions    *session.Manager
 	features    *feature.Registry
 	contextMgr  agent.ContextManager
-	currentMode atomic.Value
 
 	config     *ConfigSubsystem
 	database   *DatabaseSubsystem
@@ -57,7 +55,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	gw := &Gateway{stopCh: make(chan struct{})}
 	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
-	gw.currentMode.Store(cfg.Agent.Mode)
 
 	gw.config = InitConfig(cfg, opt.ConfigPath)
 	featSub := InitFeatures(cfg)
@@ -122,7 +119,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 func (gw *Gateway) Config() *config.Config    { return gw.config.Config() }
 func (gw *Gateway) Features() *feature.Registry { return gw.features }
-func (gw *Gateway) CurrentMode() string        { return gw.currentMode.Load().(string) }
 
 func (gw *Gateway) AddChannel(ch channel.Channel) {
 	gw.channels.channels[ch.Name()] = ch
@@ -133,20 +129,6 @@ func (gw *Gateway) SetSchedulerNotifier(ch channel.Channel) {
 	if gw.scheduler != nil {
 		gw.scheduler.Channel.SetNotifier(ch)
 	}
-}
-
-func (gw *Gateway) SetMode(mode string) error {
-	// All modes map to LinearLoop — the single honest execution strategy.
-	// Legacy values ("simple", "unified", "cognitive") accepted for backward compat.
-	switch mode {
-	case "linear", "unified", "simple", "cognitive":
-		if gw.agent != nil { gw.agent.SetStrategy(&agent.LinearLoop{}) }
-	default:
-		return fmt.Errorf("unknown mode %q (valid: linear)", mode)
-	}
-	gw.currentMode.Store(mode)
-	slog.Info("gateway: mode switched", "mode", mode)
-	return nil
 }
 
 func (gw *Gateway) Start(ctx context.Context) error {

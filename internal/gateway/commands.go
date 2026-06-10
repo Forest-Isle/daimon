@@ -10,27 +10,6 @@ import (
 	"github.com/Forest-Isle/IronClaw/internal/feature"
 )
 
-// handleMode processes the /mode command.
-func (gw *Gateway) handleMode(ctx context.Context, _ channel.Channel, msg channel.InboundMessage) (string, error) {
-	arg := strings.TrimPrefix(msg.Text, "/mode")
-	arg = strings.TrimSpace(arg)
-
-	current := gw.CurrentMode()
-	if arg == "" {
-		return fmt.Sprintf("Mode: %s", current), nil
-	}
-	if arg != "linear" && arg != "unified" && arg != "simple" && arg != "cognitive" {
-		return fmt.Sprintf("Error: unknown mode %q. Valid: linear", arg), nil
-	}
-	if arg == current {
-		return fmt.Sprintf("Already in %s mode", current), nil
-	}
-	if err := gw.SetMode(arg); err != nil {
-		slog.Warn("gateway: set mode failed", "mode", arg, "err", err)
-	}
-	return fmt.Sprintf("Mode switched to %s (was: %s)", arg, current), nil
-}
-
 // handleFeature processes /feature [list].
 func (gw *Gateway) handleFeature(ctx context.Context, _ channel.Channel, msg channel.InboundMessage) (string, error) {
 	_ = ctx
@@ -100,7 +79,6 @@ func (gw *Gateway) handleConfig(ctx context.Context, _ channel.Channel, _ channe
 	fmt.Fprintf(&b, "  Provider:       %s\n", cfg.LLM.Provider)
 	fmt.Fprintf(&b, "  Model:          %s\n", gw.agent.Model())
 	fmt.Fprintf(&b, "  Max Tokens:     %d\n", cfg.LLM.MaxTokens)
-	fmt.Fprintf(&b, "  Agent Mode:     %s\n", gw.currentMode.Load().(string))
 	fmt.Fprintf(&b, "  Max Iterations: %d\n", cfg.Agent.MaxIterations)
 
 	if gw.features != nil {

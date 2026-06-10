@@ -59,9 +59,6 @@ func NewAgent(deps *AgentDeps, strategy LoopStrategy, bus EventBus) *Agent {
 	}
 }
 
-// SetStrategy replaces the current execution strategy (used for /mode switching).
-func (a *Agent) SetStrategy(s LoopStrategy) { a.strategy = s }
-
 // SetApprovalFunc sets the tool approval callback.
 func (a *Agent) SetApprovalFunc(fn ApprovalFunc) { a.approvalFn = fn }
 

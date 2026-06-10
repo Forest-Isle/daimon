@@ -38,7 +38,6 @@ type Model struct {
 	messages      []chatMessage
 	streamingID   string // non-empty while streaming
 	streamingText string
-	agentMode     string // "linear" (or legacy "simple"/"cognitive"/"unified")
 	version       string
 
 	// Approval state
@@ -86,7 +85,7 @@ type Model struct {
 }
 
 // NewModel creates a new TUI model.
-func NewModel(agentMode, version, username, cwd string) Model {
+func NewModel(version, username, cwd string) Model {
 	ta := textarea.New()
 	ta.Placeholder = fmt.Sprintf("Message IronClaw… (/help for commands)")
 	ta.Focus()
@@ -99,7 +98,6 @@ func NewModel(agentMode, version, username, cwd string) Model {
 	return Model{
 		textarea:           ta,
 		messages:           make([]chatMessage, 0),
-		agentMode:          agentMode,
 		version:            version,
 		username:           username,
 		cwd:                cwd,

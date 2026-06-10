@@ -66,7 +66,7 @@ func runTUI(configPath string, devMode bool) error {
 	}
 
 	// Create TUI adapter
-	tuiAdapter := tuichannel.New(cfg.Agent.Mode, version)
+	tuiAdapter := tuichannel.New(version)
 	if cfg.TUI.AutoApprove {
 		tuiAdapter.SetAutoApprove(true)
 	}

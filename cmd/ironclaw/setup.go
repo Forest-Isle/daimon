@@ -24,7 +24,6 @@ func runSetupWizard() (string, error) {
 		baseURL   string
 		model     string
 	)
-	const agentMode = "linear" // single runtime loop; no longer user-selectable
 
 	theme := huh.ThemeBase16()
 
@@ -181,7 +180,6 @@ tui:
 
 agent:
   max_iterations: 20
-  mode: %s
   compression:
     strategy: layered
     layers:
@@ -256,7 +254,7 @@ log:
   level: info
   format: text
 `,
-		apiFormat, apiKey, baseURL, model, agentMode)
+		apiFormat, apiKey, baseURL, model)
 
 	// ── Write config ───────────────────────────────────────────────
 	dir := filepath.Dir(savePath)

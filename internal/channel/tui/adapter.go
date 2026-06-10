@@ -23,7 +23,6 @@ type Adapter struct {
 	handler      channel.InboundHandler
 	model        *Model
 	stopCh       chan struct{}
-	agentMode    string
 	version      string
 	channelID    string // unique per launch so each TUI invocation gets a fresh session
 	autoApprove  atomic.Bool
@@ -46,9 +45,8 @@ type Adapter struct {
 
 // New creates a new TUI adapter. Each invocation generates a unique channelID
 // so the session manager creates a fresh session per TUI launch.
-func New(agentMode, version string) *Adapter {
+func New(version string) *Adapter {
 	return &Adapter{
-		agentMode:       agentMode,
 		version:         version,
 		channelID:       fmt.Sprintf("tui_%d", time.Now().UnixNano()),
 		stopCh:          make(chan struct{}),
@@ -95,7 +93,7 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 	username := getUsername()
 	cwd, _ := os.Getwd()
 
-	m := NewModel(a.agentMode, a.version, username, cwd)
+	m := NewModel(a.version, username, cwd)
 	if a.argCompleter != nil {
 		m.SetArgCompleter(a.argCompleter)
 	}
@@ -189,16 +187,6 @@ func (a *Adapter) Send(_ context.Context, msg channel.OutboundMessage) error {
 		return nil
 	}
 	a.program.Send(agentResponseMsg{text: msg.Text})
-
-	if strings.HasPrefix(msg.Text, "Mode switched to ") {
-		rest := strings.TrimPrefix(msg.Text, "Mode switched to ")
-		if idx := strings.Index(rest, " "); idx > 0 {
-			newMode := rest[:idx]
-			if newMode == "linear" || newMode == "simple" || newMode == "cognitive" || newMode == "unified" {
-				a.program.Send(setAgentModeMsg{mode: newMode})
-			}
-		}
-	}
 	return nil
 }
 

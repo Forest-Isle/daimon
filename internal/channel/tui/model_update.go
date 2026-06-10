@@ -113,10 +113,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addMessage("system", msg.text)
 		m.updateViewportKeepScroll()
 
-	case setAgentModeMsg:
-		m.agentMode = msg.mode
-		return m, nil
-
 	}
 
 	// Update sub-components

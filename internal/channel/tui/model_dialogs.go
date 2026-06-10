@@ -37,7 +37,7 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 		return true, nil
 
 	case "version", "v":
-		m.addMessage("system", fmt.Sprintf("IronClaw %s (mode: %s)", m.version, m.agentMode))
+		m.addMessage("system", fmt.Sprintf("IronClaw %s", m.version))
 		m.updateViewportKeepScroll()
 		return true, nil
 

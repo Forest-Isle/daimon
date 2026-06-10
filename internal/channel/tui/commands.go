@@ -102,15 +102,6 @@ var commandRegistry = []Command{
 		Category:    "builtin",
 	},
 
-	// Mode switching
-	{
-		Name:        "mode",
-		Description: "Show or switch agent mode (linear). Usage: /mode [linear]",
-		ArgHint:     "[linear]",
-		Category:    "builtin",
-		SubArgs:     []string{"linear"},
-	},
-
 	// Feature management
 	{
 		Name:        "feature",

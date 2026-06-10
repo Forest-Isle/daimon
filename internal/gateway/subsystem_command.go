@@ -16,7 +16,6 @@ func (cs *CommandSubsystem) Stop(_ context.Context) error  { return nil }
 func InitCommands(gwRef *Gateway) *CommandSubsystem {
 	cs := &CommandSubsystem{}
 	cs.Table = commandTable{
-		"/mode":    {gwRef.handleMode, false},
 		"/feature": {gwRef.handleFeature, false},
 		"/config":  {gwRef.handleConfig, true},
 		"/compact": {gwRef.handleCompact, true},
