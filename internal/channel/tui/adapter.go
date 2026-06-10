@@ -22,7 +22,6 @@ type Adapter struct {
 	program      *tea.Program
 	handler      channel.InboundHandler
 	model        *Model
-	emitter      *TUIEmitter
 	stopCh       chan struct{}
 	agentMode    string
 	version      string
@@ -115,19 +114,10 @@ func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) err
 		tea.WithMouseCellMotion(),
 	)
 
-	// Create emitter bound to this program
-	a.emitter = NewTUIEmitter(a.program)
-
 	// Route user input to the gateway in a background goroutine
 	go a.routeInput(ctx)
 
 	return nil
-}
-
-// Emitter returns the TUIEmitter that satisfies agent.ObservabilityEmitter.
-// Returns nil before Start() is called.
-func (a *Adapter) Emitter() *TUIEmitter {
-	return a.emitter
 }
 
 // Run starts the Bubble Tea event loop. This blocks until the user quits.

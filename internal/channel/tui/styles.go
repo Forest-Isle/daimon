@@ -122,20 +122,6 @@ var (
 				Foreground(lipgloss.Color("#626262")).
 				Italic(true)
 
-	// Status bar (below input)
-	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#929292")).
-			Padding(0, 1)
-
-	statusToolRunningStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFD700"))
-
-	statusToolOKStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#04B575"))
-
-	statusToolFailStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FF5555"))
-
 	statusDimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262"))
 
@@ -157,18 +143,6 @@ var (
 
 	statsValueStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FAFAFA"))
-
-	statsBarFilledStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#04B575"))
-
-	statsBarEmptyStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#333333"))
-
-	statsBarWarnStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFD700"))
-
-	statsBarCritStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FF5555"))
 
 	// Welcome screen
 	welcomeBoxStyle = lipgloss.NewStyle().

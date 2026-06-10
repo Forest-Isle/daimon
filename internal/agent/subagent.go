@@ -48,10 +48,6 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 
 	sessionID := fmt.Sprintf("subagent_%s_%s", req.Spec.Name, uuid.New().String()[:8])
 
-	if m.deps.Observability.Emitter != nil {
-		m.deps.Observability.Emitter.EmitSubAgentSpawn(sessionID, req.ParentID, req.Spec.Name, req.Task)
-	}
-
 	scopedTools := buildScopedRegistryStandalone(m.deps.Core.Tools, req.Spec.Tools)
 
 	subCfg, subLLMCfg := m.buildSubConfig(req.Spec)
@@ -97,11 +93,6 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 	}
 
 	execErr := subAgent.HandleMessage(ctx, capture, msg)
-
-	if m.deps.Observability.Emitter != nil {
-		durationMs := time.Since(start).Milliseconds()
-		m.deps.Observability.Emitter.EmitSubAgentComplete(sessionID, req.Spec.Name, execErr == nil, durationMs)
-	}
 
 	if err := m.deps.Core.Sessions.Delete(ctx, "subagent", sessionID); err != nil {
 		slog.Warn("subagent: failed to delete session", "session", sessionID, "err", err)

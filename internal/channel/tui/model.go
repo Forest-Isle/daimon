@@ -29,26 +29,6 @@ type chatMessage struct {
 	timestamp time.Time
 }
 
-// toolHistoryEntry records a completed tool execution for the stats panel.
-type toolHistoryEntry struct {
-	name       string
-	succeeded  bool
-	durationMs int64
-}
-
-// metricsState holds the latest runtime metrics for display.
-type metricsState struct {
-	iteration    int
-	maxIter      int
-	utilization  float64
-	cacheCreate  int64
-	cacheRead    int64
-	inputTokens  int64
-	outputTokens int64
-	model        string
-	provider     string
-}
-
 // Model is the Bubble Tea model for the TUI channel.
 type Model struct {
 	// UI components
@@ -90,27 +70,13 @@ type Model struct {
 	historyIdx   int    // current position; len(inputHistory) = "new input"
 	historySaved string // stash current input when entering history
 
-	// Metrics & tool tracking
-	activeTool    string // currently executing tool name (empty when idle)
-	lastTool      string // most recent completed tool
-	lastToolOK    bool
-	lastToolMs    int64
-	toolHistory   []toolHistoryEntry
-	toolCount     int // total tools executed this session
-	metrics       metricsState
-	showStats      bool // toggle for detailed stats panel
+	// Panel toggles
 	showHelpPanel  bool // toggle for help/commands panel
 	showModelPanel bool // toggle for model info/selection panel
 
 	// Model selection state
 	modelItems       []ModelRoleEntry // populated via SetModelRoles
 	modelSelectionIdx int        // -1 = no selection, initializes to 0
-
-	// Compression tracking for stats panel
-	compressionCount   int
-	lastCompressFrom   float64 // before utilization (0.0–1.0)
-	lastCompressTo     float64 // after utilization (0.0–1.0)
-	lastCompressReason string
 
 	// Typing indicator
 	waitingForResponse bool

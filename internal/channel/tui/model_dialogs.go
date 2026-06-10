@@ -33,9 +33,6 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 		return true, nil
 
 	case "help", "h", "?":
-		if m.showStats {
-			m.showStats = false
-		}
 		m.showHelpPanel = !m.showHelpPanel
 		return true, nil
 
@@ -46,9 +43,6 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 
 	case "model":
 		if len(args) == 0 {
-			if m.showStats {
-				m.showStats = false
-			}
 			m.showModelPanel = !m.showModelPanel
 			if m.showModelPanel && len(m.modelItems) == 0 {
 				m.modelSelectionIdx = -1
@@ -59,10 +53,6 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 		}
 		// /model <name> — let the gateway handle the switch
 		return false, nil
-
-	case "stats", "status":
-		m.showStats = !m.showStats
-		return true, nil
 
 	case "history", "hist":
 		m.showHistory()

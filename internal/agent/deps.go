@@ -73,25 +73,6 @@ func (d SecurityDeps) WithDefaults() SecurityDeps {
 	return d
 }
 
-// ────────────────────────────── ObservabilityDeps ──────────────────────────────
-
-// ObservabilityDeps holds optional observability subsystem dependencies.
-type ObservabilityDeps struct {
-	Emitter        ObservabilityEmitter // default: discardEmitter{}
-	MetricsEmitter MetricsEmitter       // default: discardMetrics{}
-}
-
-// WithDefaults returns a copy of ObservabilityDeps with nil interface fields filled.
-func (d ObservabilityDeps) WithDefaults() ObservabilityDeps {
-	if d.Emitter == nil {
-		d.Emitter = discardEmitter{}
-	}
-	if d.MetricsEmitter == nil {
-		d.MetricsEmitter = discardMetrics{}
-	}
-	return d
-}
-
 // ────────────────────────────── MultiAgentDeps ──────────────────────────────
 
 // MultiAgentDeps holds optional multi-agent subsystem dependencies.
@@ -116,18 +97,16 @@ func (d MultiAgentDeps) WithDefaults() MultiAgentDeps {
 // AgentDeps is the complete dependency bundle for all agent types (Runtime,
 // CognitiveAgent, SubAgentManager). Construct once in Gateway.New() and share.
 type AgentDeps struct {
-	Core          CoreDeps
-	Memory        MemoryDeps
-	Security      SecurityDeps
-	Observability ObservabilityDeps
-	MultiAgent    MultiAgentDeps
+	Core       CoreDeps
+	Memory     MemoryDeps
+	Security   SecurityDeps
+	MultiAgent MultiAgentDeps
 }
 
 // WithDefaults calls WithDefaults() on each sub-struct, filling nil interfaces with no-ops.
 func (d AgentDeps) WithDefaults() AgentDeps {
 	d.Memory = d.Memory.WithDefaults()
 	d.Security = d.Security.WithDefaults()
-	d.Observability = d.Observability.WithDefaults()
 	d.MultiAgent = d.MultiAgent.WithDefaults()
 	return d
 }

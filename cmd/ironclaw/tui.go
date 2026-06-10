@@ -84,12 +84,6 @@ func runTUI(configPath string, devMode bool) error {
 		return fmt.Errorf("start gateway: %w", err)
 	}
 
-	// Wire the TUI emitter into the gateway so the status bar receives events.
-	if em := tuiAdapter.Emitter(); em != nil {
-		gw.AddObservabilityEmitter(em)
-		gw.SetMetricsEmitter(em)
-	}
-
 	// Pass config model roles to the TUI /model panel.
 	tuiAdapter.SetModelRoles(
 		cfg.LLM.Provider,

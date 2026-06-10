@@ -37,7 +37,7 @@ func AgentFromContext(ctx context.Context) *Agent {
 // are implemented as LoopStrategy implementations.
 //
 // deps is a pointer so the gateway can wire subsystems (ContextManager,
-// MemoryStore, ObservabilityEmitter) after agent construction — the agent
+// MemoryStore) after agent construction — the agent
 // reads from the pointer on every access, so late-bound dependencies are
 // immediately visible without a by-value copy staleness problem.
 type Agent struct {

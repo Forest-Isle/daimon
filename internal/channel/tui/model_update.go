@@ -126,49 +126,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agentMode = msg.mode
 		return m, nil
 
-	case toolStartMsg:
-		m.activeTool = msg.toolName
-		return m, nil
-
-	case toolEndMsg:
-		m.activeTool = ""
-		m.lastTool = msg.toolName
-		m.lastToolOK = msg.succeeded
-		m.lastToolMs = msg.durationMs
-		m.toolCount++
-		entry := toolHistoryEntry{
-			name:       msg.toolName,
-			succeeded:  msg.succeeded,
-			durationMs: msg.durationMs,
-		}
-		m.toolHistory = append(m.toolHistory, entry)
-		const maxHistory = 50
-		if len(m.toolHistory) > maxHistory {
-			m.toolHistory = m.toolHistory[len(m.toolHistory)-maxHistory:]
-		}
-		return m, nil
-
-	case metricsUpdateMsg:
-		m.metrics = metricsState(msg)
-		return m, nil
-
-	case compressionNotificationMsg:
-		m.compressionCount++
-		m.lastCompressFrom = msg.beforePct
-		m.lastCompressTo = msg.afterPct
-		m.lastCompressReason = msg.reason
-		notification := fmt.Sprintf(
-			"Context compressed: %d%% → %d%% (%s, %d layers)",
-			int(msg.beforePct*100), int(msg.afterPct*100),
-			msg.reason, msg.layersRun,
-		)
-		m.messages = append(m.messages, chatMessage{
-			role:      "system",
-			content:   notification,
-			timestamp: time.Now(),
-		})
-		m.updateViewportKeepScroll()
-		return m, nil
 	}
 
 	// Update sub-components
@@ -262,15 +219,10 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showModelPanel = false
 			return m, nil
 		}
-		if m.showStats {
-			m.showStats = false
-			return m, nil
-		}
-		if m.streamingID != "" || m.activeTool != "" || m.waitingForResponse {
+		if m.streamingID != "" || m.waitingForResponse {
 			m.addMessage("system", "⏹ Request cancelled.")
 			m.streamingID = ""
 			m.streamingText = ""
-			m.activeTool = ""
 			m.waitingForResponse = false
 			m.refreshViewport()
 			return m, func() tea.Msg { return cancelRequestMsg{} }

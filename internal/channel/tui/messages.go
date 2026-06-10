@@ -68,41 +68,6 @@ type setAgentModeMsg struct{ mode string }
 // cancelRequestMsg signals that the user wants to cancel the in-flight request.
 type cancelRequestMsg struct{}
 
-// toolStartMsg signals that a tool has started executing.
-type toolStartMsg struct {
-	toolName string
-	input    string
-}
-
-// toolEndMsg signals that a tool has finished executing.
-type toolEndMsg struct {
-	toolName   string
-	succeeded  bool
-	durationMs int64
-}
-
-// metricsUpdateMsg carries periodic runtime metrics.
-type metricsUpdateMsg struct {
-	iteration    int
-	maxIter      int
-	utilization  float64 // 0.0–1.0 context window usage
-	cacheCreate  int64
-	cacheRead    int64
-	inputTokens  int64
-	outputTokens int64
-	model        string
-	provider     string
-}
-
-// compressionNotificationMsg is sent when context compression fires.
-type compressionNotificationMsg struct {
-	sessionID string
-	reason    string
-	layersRun int
-	beforePct float64
-	afterPct  float64
-}
-
 // tickMsg fires periodically to drive typing indicator animation.
 type tickMsg struct{}
 

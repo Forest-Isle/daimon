@@ -37,12 +37,8 @@ type PipelineContextManager struct {
 	contextWindow   int
 	ratio           float64
 	minThresholdPct int // pre-computed from pipeline layers
-	dashEmitter     ObservabilityEmitter
 	tokenizer       Tokenizer
 }
-
-// SetObservabilityEmitter attaches an observability emitter for context compression events.
-func (cm *PipelineContextManager) SetObservabilityEmitter(e ObservabilityEmitter) { cm.dashEmitter = e }
 
 // NewPipelineContextManager creates a PipelineContextManager. If cfg is non-nil
 // and has a "layered" strategy, a CompressionPipeline is built internally.
@@ -106,10 +102,6 @@ func (cm *PipelineContextManager) Compress(ctx context.Context, sess *session.Se
 		if err := cm.pipeline.Run(ctx, sess, systemPrompt); err != nil {
 			return true, err
 		}
-		if cm.dashEmitter != nil {
-			afterUtil := cm.Utilization(sess, systemPrompt)
-			cm.dashEmitter.EmitContextCompress(sess.ID, "proactive", len(cm.pipeline.layers), util, afterUtil)
-		}
 		return true, nil
 	}
 
@@ -131,12 +123,7 @@ func (cm *PipelineContextManager) Compress(ctx context.Context, sess *session.Se
 // otherwise it falls back to the legacy CompactHistory path.
 func (cm *PipelineContextManager) ReactiveCompress(ctx context.Context, sess *session.Session, systemPrompt string) error {
 	if cm.pipeline != nil {
-		err := cm.pipeline.RunForced(ctx, sess, systemPrompt)
-		if err == nil && cm.dashEmitter != nil {
-			afterUtil := cm.Utilization(sess, systemPrompt)
-			cm.dashEmitter.EmitContextCompress(sess.ID, "reactive_413", len(cm.pipeline.layers), 1.0, afterUtil)
-		}
-		return err
+		return cm.pipeline.RunForced(ctx, sess, systemPrompt)
 	}
 	return CompactHistory(ctx, cm.provider, sess, cm.model)
 }

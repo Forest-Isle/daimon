@@ -148,10 +148,6 @@ func (gw *Gateway) SetMode(mode string) error {
 	return nil
 }
 
-func (gw *Gateway) SetObservabilityEmitter(e agent.ObservabilityEmitter) {}
-func (gw *Gateway) AddObservabilityEmitter(e agent.ObservabilityEmitter) {}
-func (gw *Gateway) SetMetricsEmitter(e agent.MetricsEmitter)             {}
-
 func (gw *Gateway) Start(ctx context.Context) error {
 	gw.health.StartServer(gw.config.Config())
 

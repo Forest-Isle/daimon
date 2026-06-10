@@ -111,14 +111,6 @@ var commandRegistry = []Command{
 		SubArgs:     []string{"simple", "cognitive"},
 	},
 
-	// Stats panel
-	{
-		Name:        "stats",
-		Description: "Toggle metrics panel (session, tools, context, tokens)",
-		Aliases:     []string{"status"},
-		Category:    "builtin",
-	},
-
 	// Feature management
 	{
 		Name:        "feature",

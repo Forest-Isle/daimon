@@ -30,6 +30,10 @@ func TestDiscoverSources(t *testing.T) {
 }
 
 func TestLoadHierarchy_MergesPriority(t *testing.T) {
+	// Isolate HOME so the user-level source (~/.ironclaw/config.yaml) does not
+	// leak into the merge from the host machine.
+	t.Setenv("HOME", t.TempDir())
+
 	workDir := t.TempDir()
 	ironcDir := filepath.Join(workDir, ".ironclaw")
 	require.NoError(t, os.MkdirAll(ironcDir, 0o755))
@@ -79,6 +83,9 @@ log:
 }
 
 func TestLoadHierarchy_NoConfigs(t *testing.T) {
+	// Isolate HOME so a host ~/.ironclaw/config.yaml is not discovered.
+	t.Setenv("HOME", t.TempDir())
+
 	workDir := t.TempDir()
 
 	cfg, sources, err := LoadHierarchy(workDir)

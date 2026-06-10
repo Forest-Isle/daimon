@@ -59,17 +59,8 @@ func (m Model) View() string {
 			b.WriteString("\n")
 		}
 
-		if m.showStats {
-			b.WriteString(m.renderStatsPanel())
-			b.WriteString("\n")
-		}
-
 		b.WriteString(inputBoxStyle.Width(m.width - 2).Render(m.textarea.View()))
 	}
-
-	// Status bar
-	b.WriteString("\n")
-	b.WriteString(m.renderStatusBar())
 
 	return b.String()
 }
@@ -107,7 +98,6 @@ func (m Model) renderWelcome() string {
 	shortcuts := []struct{ key, desc string }{
 		{"/help", "Show available commands"},
 		{"/mode", "Switch agent mode (simple / cognitive)"},
-		{"/stats", "Toggle metrics panel"},
 		{"/clear", "Clear conversation history"},
 		{"/quit", "Exit IronClaw"},
 	}
@@ -200,63 +190,6 @@ func (m Model) renderTypingIndicator() string {
 	}
 	return "  " + agentLabelStyle.Render("IronClaw") + " " +
 		strings.Join(dots, " ") + "  " + statusDimStyle.Render("thinking…")
-}
-
-// renderStatusBar renders the compact one-line status bar below the input.
-func (m Model) renderStatusBar() string {
-	var parts []string
-
-	// Tool status with icon
-	if m.activeTool != "" {
-		parts = append(parts, statusToolRunningStyle.Render("⏳ "+m.activeTool))
-	} else if m.lastTool != "" {
-		if m.lastToolOK {
-			parts = append(parts, statusToolOKStyle.Render(
-				fmt.Sprintf("✓ %s (%dms)", m.lastTool, m.lastToolMs)))
-		} else {
-			parts = append(parts, statusToolFailStyle.Render(
-				fmt.Sprintf("✗ %s (%dms)", m.lastTool, m.lastToolMs)))
-		}
-	}
-
-	// Context utilization with visual bar
-	if m.metrics.utilization > 0 {
-		pct := int(m.metrics.utilization * 100)
-		bar := renderMiniBar(m.metrics.utilization, 10)
-		style := statusDimStyle
-		if pct >= 90 {
-			style = statusToolFailStyle
-		} else if pct >= 70 {
-			style = statusToolRunningStyle
-		}
-		parts = append(parts, style.Render(fmt.Sprintf("ctx %s %d%%", bar, pct)))
-	}
-
-	// Token usage
-	totalTokens := m.metrics.inputTokens + m.metrics.outputTokens
-	if totalTokens > 0 {
-		parts = append(parts, statusDimStyle.Render(
-			fmt.Sprintf("↥%s", formatTokenCount(totalTokens))))
-	}
-
-	// Iteration counter
-	if m.metrics.maxIter > 0 {
-		parts = append(parts, statusDimStyle.Render(
-			fmt.Sprintf("i%d/%d", m.metrics.iteration+1, m.metrics.maxIter)))
-	}
-
-	// Tool count
-	if m.toolCount > 0 {
-		parts = append(parts, statusDimStyle.Render(fmt.Sprintf("⚒%d", m.toolCount)))
-	}
-
-	// Shortcuts hint
-	if m.activeTool != "" || m.waitingForResponse {
-		parts = append(parts, statusDimStyle.Render("Esc cancel"))
-	}
-
-	line := strings.Join(parts, statusDimStyle.Render(" │ "))
-	return statusBarStyle.Width(m.width).Render(line)
 }
 
 // renderApprovalDialog renders the tool approval overlay.
@@ -376,20 +309,6 @@ func (m Model) renderModelPanel() string {
 	b.WriteString(statsHeaderStyle.Render("Model"))
 	b.WriteString("\n\n")
 
-	current := m.metrics.model
-	if current == "" {
-		current = "pending first request"
-	}
-	b.WriteString(statsLabelStyle.Render("Current: "))
-	b.WriteString(statsValueStyle.Render(current))
-	b.WriteString("\n")
-	if m.metrics.provider != "" {
-		b.WriteString(statsLabelStyle.Render("Provider: "))
-		b.WriteString(statsValueStyle.Render(m.metrics.provider))
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
-
 	b.WriteString(statsLabelStyle.Render("Available:"))
 	b.WriteString("\n")
 	for i, mi := range m.modelItems {
@@ -457,32 +376,6 @@ func shortenPath(path string, maxLen int) string {
 	}
 	half := (maxLen - 1) / 2
 	return path[:half] + "…" + path[len(path)-half:]
-}
-
-// renderMiniBar draws a compact horizontal bar for status line use.
-func renderMiniBar(ratio float64, width int) string {
-	if ratio < 0 {
-		ratio = 0
-	}
-	if ratio > 1 {
-		ratio = 1
-	}
-	filled := int(ratio * float64(width))
-	bar := ""
-	for i := 0; i < width; i++ {
-		if i < filled {
-			if ratio >= 0.9 {
-				bar += statusToolFailStyle.Render("█")
-			} else if ratio >= 0.7 {
-				bar += statusToolRunningStyle.Render("█")
-			} else {
-				bar += statusToolOKStyle.Render("█")
-			}
-		} else {
-			bar += statsBarEmptyStyle.Render("░")
-		}
-	}
-	return bar
 }
 
 // indentWithBar prefixes each line of s with the bar rune for visual alignment.
