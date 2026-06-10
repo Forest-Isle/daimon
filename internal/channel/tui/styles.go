@@ -73,13 +73,6 @@ var (
 				Padding(0, 1).
 				MarginTop(1)
 
-	// Reflection dialog
-	reflectionBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("#FFD700")).
-				Padding(0, 1).
-				MarginTop(1)
-
 	// Input area
 	inputBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

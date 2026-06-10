@@ -3,7 +3,6 @@ package tui
 import (
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -32,13 +31,6 @@ type approvalRequestMsg struct {
 	toolName string
 	input    string
 	resultCh chan bool
-}
-
-// reflectionRequestMsg asks the user to decide on a replan action.
-type reflectionRequestMsg struct {
-	reason     string
-	confidence float64
-	resultCh   chan channel.ReplanDecision
 }
 
 // errorMsg reports an error to the UI.

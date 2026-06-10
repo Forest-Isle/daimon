@@ -2,11 +2,12 @@ package config
 
 type AgentConfig struct {
 	MaxIterations   int               `yaml:"max_iterations"`
+	MaxReflections  int               `yaml:"max_reflections"` // 0 = default (3), negative = disabled
 	SystemPrompt    string            `yaml:"system_prompt"`
 	Personality     string            `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
 	PersistentRules string            `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
-	Mode            string            `yaml:"mode"` // "simple" | "unified" (also accepts "cognitive" for backward compat)
-	Cognitive       CognitiveConfig   `yaml:"cognitive"`
+	Mode            string            `yaml:"mode"` // "linear" (canonical; also accepts "simple"/"unified"/"cognitive" for backward compat)
+	Execution       ExecutionConfig   `yaml:"execution"`
 	Compression     CompressionConfig `yaml:"compression"`
 }
 
@@ -24,10 +25,9 @@ type CompressionLayers struct {
 	EmergencyPct        int `yaml:"emergency_pct"`
 }
 
-// CognitiveConfig holds configuration for the unified agent loop.
-type CognitiveConfig struct {
-	ReflectModel           string `yaml:"reflect_model"`
-	MaxParallelTools       int    `yaml:"max_parallel_tools"`       // default 3
-	ApprovalTimeoutSeconds int    `yaml:"approval_timeout_seconds"` // default 120
-	StreamingEnabled       bool   `yaml:"streaming_enabled"`        // enable channel-based streaming pipeline (default false)
+// ExecutionConfig holds runtime execution settings for the agent loop.
+type ExecutionConfig struct {
+	MaxParallelTools       int  `yaml:"max_parallel_tools"`       // default 3
+	ApprovalTimeoutSeconds int  `yaml:"approval_timeout_seconds"` // default 120
+	StreamingEnabled       bool `yaml:"streaming_enabled"`        // enable channel-based streaming pipeline (default false)
 }

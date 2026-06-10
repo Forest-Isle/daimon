@@ -300,8 +300,8 @@ func runStart(configPath string, devMode bool) error {
 	if err != nil {
 		return fmt.Errorf("init telegram: %w", err)
 	}
-	if cfg.Agent.Cognitive.ApprovalTimeoutSeconds > 0 {
-		tg.SetApprovalTimeout(cfg.Agent.Cognitive.ApprovalTimeoutSeconds)
+	if cfg.Agent.Execution.ApprovalTimeoutSeconds > 0 {
+		tg.SetApprovalTimeout(cfg.Agent.Execution.ApprovalTimeoutSeconds)
 	}
 	gw.AddChannel(tg)
 	gw.SetSchedulerNotifier(tg)

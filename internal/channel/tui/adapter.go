@@ -16,8 +16,8 @@ import (
 )
 
 // Adapter implements channel.Channel, channel.ApprovalSender,
-// channel.ReflectionSender, channel.NotificationSender, and
-// channel.FeedbackSender for an interactive terminal UI.
+// channel.NotificationSender, and channel.FeedbackSender for an
+// interactive terminal UI.
 type Adapter struct {
 	program      *tea.Program
 	handler      channel.InboundHandler
@@ -194,7 +194,7 @@ func (a *Adapter) Send(_ context.Context, msg channel.OutboundMessage) error {
 		rest := strings.TrimPrefix(msg.Text, "Mode switched to ")
 		if idx := strings.Index(rest, " "); idx > 0 {
 			newMode := rest[:idx]
-			if newMode == "simple" || newMode == "cognitive" {
+			if newMode == "linear" || newMode == "simple" || newMode == "cognitive" || newMode == "unified" {
 				a.program.Send(setAgentModeMsg{mode: newMode})
 			}
 		}
@@ -255,31 +255,6 @@ func (a *Adapter) SendApprovalRequest(ctx context.Context, target channel.Messag
 		return false, nil
 	case <-ctx.Done():
 		return false, ctx.Err()
-	}
-}
-
-// ---------- channel.ReflectionSender ----------
-
-func (a *Adapter) SendReflectionRequest(ctx context.Context, target channel.MessageTarget, reason string, confidence float64) (channel.ReplanDecision, error) {
-	if a.program == nil {
-		return channel.ReplanContinue, nil
-	}
-
-	resultCh := make(chan channel.ReplanDecision, 1)
-	a.program.Send(reflectionRequestMsg{
-		reason:     reason,
-		confidence: confidence,
-		resultCh:   resultCh,
-	})
-
-	select {
-	case decision := <-resultCh:
-		return decision, nil
-	case <-time.After(a.approvalTimeout):
-		slog.Info("tui: reflection timed out, defaulting to continue")
-		return channel.ReplanContinue, nil
-	case <-ctx.Done():
-		return channel.ReplanContinue, ctx.Err()
 	}
 }
 

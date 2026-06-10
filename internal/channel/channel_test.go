@@ -45,18 +45,6 @@ func TestStreamUpdaterInterface(t *testing.T) {
 	}
 }
 
-func TestReplanDecision(t *testing.T) {
-	if ReplanContinue != "continue" {
-		t.Errorf("expected ReplanContinue 'continue', got %q", ReplanContinue)
-	}
-	if ReplanAdjust != "adjust" {
-		t.Errorf("expected ReplanAdjust 'adjust', got %q", ReplanAdjust)
-	}
-	if ReplanAbort != "abort" {
-		t.Errorf("expected ReplanAbort 'abort', got %q", ReplanAbort)
-	}
-}
-
 func TestInboundMessage_Fields(t *testing.T) {
 	m := InboundMessage{
 		Channel:      "telegram",
@@ -119,23 +107,6 @@ type mockApprovalSender struct{}
 
 func (m *mockApprovalSender) SendApprovalRequest(ctx context.Context, target MessageTarget, toolName string, input string) (bool, error) {
 	return true, nil
-}
-
-func TestReflectionSenderInterface(t *testing.T) {
-	var s ReflectionSender = &mockReflectionSender{}
-	decision, err := s.SendReflectionRequest(context.Background(), MessageTarget{}, "test reason", 0.8)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if decision != ReplanContinue {
-		t.Errorf("expected ReplanContinue, got %q", decision)
-	}
-}
-
-type mockReflectionSender struct{}
-
-func (m *mockReflectionSender) SendReflectionRequest(ctx context.Context, target MessageTarget, reason string, confidence float64) (ReplanDecision, error) {
-	return ReplanContinue, nil
 }
 
 func TestNotificationSenderInterface(t *testing.T) {

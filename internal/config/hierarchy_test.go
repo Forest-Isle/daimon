@@ -111,7 +111,7 @@ func TestMergeConfig_NonZeroOverride(t *testing.T) {
 			MaxTokens: 16384,
 		},
 		Agent: AgentConfig{
-			Mode: "cognitive",
+			Mode: "linear",
 		},
 		Log: LogConfig{
 			Level: "debug",
@@ -123,7 +123,7 @@ func TestMergeConfig_NonZeroOverride(t *testing.T) {
 	assert.Equal(t, "openai", base.LLM.Provider)
 	assert.Equal(t, "gpt-4", base.LLM.Model)
 	assert.Equal(t, 16384, base.LLM.MaxTokens)
-	assert.Equal(t, "cognitive", base.Agent.Mode)
+	assert.Equal(t, "linear", base.Agent.Mode)
 	assert.Equal(t, "debug", base.Log.Level)
 	// Unchanged defaults
 	assert.Equal(t, 20, base.Agent.MaxIterations)

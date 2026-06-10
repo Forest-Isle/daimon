@@ -25,7 +25,7 @@ func TestAgentContext_RoundTrip(t *testing.T) {
 	}
 
 	deps := AgentDeps{Core: CoreDeps{AgentID: "test-123"}}.WithDefaults()
-	agent := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
+	agent := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 	ctx = AgentToContext(ctx, agent)
 
 	a := AgentFromContext(ctx)

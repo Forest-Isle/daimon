@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,10 +15,9 @@ import (
 type mode int
 
 const (
-	modeChat       mode = iota // normal: keys go to textarea
-	modeApproval               // y/n/a intercepted for tool approval
-	modeFeedback               // y/n intercepted for feedback rating
-	modeReflection             // 1/2/3 intercepted for replan decision
+	modeChat     mode = iota // normal: keys go to textarea
+	modeApproval             // y/n/a intercepted for tool approval
+	modeFeedback             // y/n intercepted for feedback rating
 )
 
 // chatMessage represents a single message in the conversation.
@@ -40,18 +38,13 @@ type Model struct {
 	messages      []chatMessage
 	streamingID   string // non-empty while streaming
 	streamingText string
-	agentMode     string // "simple" or "cognitive"
+	agentMode     string // "linear" (or legacy "simple"/"cognitive"/"unified")
 	version       string
 
 	// Approval state
 	approvalTool  string
 	approvalInput string
 	approvalCh    chan bool
-
-	// Reflection state
-	reflectReason     string
-	reflectConfidence float64
-	reflectCh         chan channel.ReplanDecision
 
 	// Feedback state
 	feedbackCh chan float64

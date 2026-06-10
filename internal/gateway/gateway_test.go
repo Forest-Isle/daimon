@@ -20,8 +20,8 @@ func testConfig(t *testing.T) *config.Config {
 	cfg.LLM.MaxTokens = 4096
 	cfg.Agent.Mode = "simple"
 	cfg.Agent.MaxIterations = 10
-	cfg.Agent.Cognitive.MaxParallelTools = 3
-	cfg.Agent.Cognitive.ApprovalTimeoutSeconds = 120
+	cfg.Agent.Execution.MaxParallelTools = 3
+	cfg.Agent.Execution.ApprovalTimeoutSeconds = 120
 	cfg.Store.Path = filepath.Join(tmp, "test.db")
 
 	// Ensure user home directory exists
@@ -52,9 +52,9 @@ func TestGatewaySetMode(t *testing.T) {
 
 	assert.Equal(t, "simple", gw.CurrentMode())
 
-	err = gw.SetMode("cognitive")
+	err = gw.SetMode("linear")
 	require.NoError(t, err)
-	assert.Equal(t, "cognitive", gw.CurrentMode())
+	assert.Equal(t, "linear", gw.CurrentMode())
 
 	err = gw.SetMode("simple")
 	require.NoError(t, err)
@@ -75,6 +75,6 @@ func TestHandleInboundRoutesByCurrentMode(t *testing.T) {
 
 	assert.Equal(t, "simple", gw.CurrentMode())
 
-	require.NoError(t, gw.SetMode("cognitive"))
-	assert.Equal(t, "cognitive", gw.CurrentMode())
+	require.NoError(t, gw.SetMode("linear"))
+	assert.Equal(t, "linear", gw.CurrentMode())
 }

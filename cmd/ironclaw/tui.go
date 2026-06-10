@@ -70,9 +70,9 @@ func runTUI(configPath string, devMode bool) error {
 	if cfg.TUI.AutoApprove {
 		tuiAdapter.SetAutoApprove(true)
 	}
-	if cfg.Agent.Cognitive.ApprovalTimeoutSeconds > 0 {
+	if cfg.Agent.Execution.ApprovalTimeoutSeconds > 0 {
 		tuiAdapter.SetApprovalTimeout(
-			time.Duration(cfg.Agent.Cognitive.ApprovalTimeoutSeconds) * time.Second,
+			time.Duration(cfg.Agent.Execution.ApprovalTimeoutSeconds) * time.Second,
 		)
 	}
 	gw.AddChannel(tuiAdapter)

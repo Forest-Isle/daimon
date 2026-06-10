@@ -16,8 +16,7 @@ import (
 )
 
 // Adapter implements channel.Channel, channel.ApprovalSender,
-// channel.ReflectionSender, channel.FeedbackSender, and
-// channel.NotificationSender for Telegram.
+// channel.FeedbackSender, and channel.NotificationSender for Telegram.
 type Adapter struct {
 	bot            *tgbotapi.BotAPI
 	allowedUserIDs map[int64]bool
@@ -27,7 +26,6 @@ type Adapter struct {
 
 	// Approval tracking — moved from Gateway so the adapter fully owns the flow.
 	pendingApprovals    sync.Map // key: toolName → chan bool
-	pendingReflections  sync.Map // key: string → chan channel.ReplanDecision
 	pendingFeedbacks    sync.Map // key: string → chan float64
 	approvalTimeoutSecs int
 
@@ -164,28 +162,6 @@ func (a *Adapter) handleCallback(data string) {
 		return
 	}
 
-	// Handle reflection replan decisions
-	switch action {
-	case "reflect_continue", "reflect_adjust", "reflect_abort":
-		var decision channel.ReplanDecision
-		switch action {
-		case "reflect_continue":
-			decision = channel.ReplanContinue
-		case "reflect_adjust":
-			decision = channel.ReplanAdjust
-		case "reflect_abort":
-			decision = channel.ReplanAbort
-		}
-		if v, ok := a.pendingReflections.Load(key); ok {
-			ch := v.(chan channel.ReplanDecision)
-			select {
-			case ch <- decision:
-			default:
-			}
-		}
-		return
-	}
-
 	// Handle always-approve: set flag and approve current request
 	if action == "always_approve" {
 		a.autoApprove.Store(true)
@@ -301,58 +277,6 @@ func (a *Adapter) SendApprovalRequest(ctx context.Context, target channel.Messag
 		return false, nil
 	case <-ctx.Done():
 		return false, ctx.Err()
-	}
-}
-
-// ---------- channel.ReflectionSender ----------
-
-// SendReflectionRequest sends a Telegram inline keyboard for replan approval
-// and blocks until the user responds or the timeout expires.
-func (a *Adapter) SendReflectionRequest(ctx context.Context, target channel.MessageTarget, reason string, confidence float64) (channel.ReplanDecision, error) {
-	chatID, err := strconv.ParseInt(target.ChannelID, 10, 64)
-	if err != nil || chatID == 0 {
-		return channel.ReplanContinue, nil
-	}
-
-	text := fmt.Sprintf(
-		"🤔 *Low confidence plan* (%.0f%%)\nReason: %s\n\nHow should I proceed?",
-		confidence*100, reason,
-	)
-
-	key := fmt.Sprintf("reflect_%s_%d", target.ChannelID, time.Now().UnixNano())
-
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("▶️ Continue", "reflect_continue:"+key),
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Adjust", "reflect_adjust:"+key),
-			tgbotapi.NewInlineKeyboardButtonData("🛑 Abort", "reflect_abort:"+key),
-		),
-	)
-
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = keyboard
-
-	if _, err := a.bot.Send(msg); err != nil {
-		slog.Warn("telegram: failed to send reflection request", "err", err)
-		return channel.ReplanContinue, nil
-	}
-
-	// Wait for callback
-	resultCh := make(chan channel.ReplanDecision, 1)
-	a.pendingReflections.Store(key, resultCh)
-	defer a.pendingReflections.Delete(key)
-
-	timeout := time.Duration(a.approvalTimeoutSecs) * time.Second
-	select {
-	case decision := <-resultCh:
-		slog.Info("telegram: replan decision received", "decision", decision)
-		return decision, nil
-	case <-time.After(timeout):
-		slog.Info("telegram: reflection timed out, defaulting to continue")
-		return channel.ReplanContinue, nil
-	case <-ctx.Done():
-		return channel.ReplanContinue, ctx.Err()
 	}
 }
 

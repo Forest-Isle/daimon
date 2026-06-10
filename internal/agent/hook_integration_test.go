@@ -99,7 +99,7 @@ func TestPreToolUseDenyPreventsExecution(t *testing.T) {
 			HookMgr: hookMgr,
 		},
 	}.WithDefaults()
-	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
+	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
@@ -148,7 +148,7 @@ func TestPreToolUseAllowSkipsApproval(t *testing.T) {
 			HookMgr: hookMgr,
 		},
 	}.WithDefaults()
-	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
+	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 	rt.SetApprovalFunc(denyApproval)
 
 	sess := concurrentTestSession()
@@ -199,7 +199,7 @@ func TestPostToolUseAuditHandlerCalled(t *testing.T) {
 			HookMgr: hookMgr,
 		},
 	}.WithDefaults()
-	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
+	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "audited_tool", Input: `{"cmd":"test"}`}
@@ -250,11 +250,11 @@ func TestOnUserMessageContextInjection(t *testing.T) {
 			HookMgr: hookMgr,
 		},
 	}.WithDefaults()
-	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
+	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	// Build system prompt
 	ctx := context.Background()
-	systemPrompt := rt.buildSystemPrompt(ctx, "What time is it?")
+	systemPrompt := rt.buildSystemPrompt(ctx, nil, "What time is it?")
 
 	// Simulate OnUserMessage hook firing (as done in HandleMessage)
 	if rt.deps.Security.HookMgr != nil && rt.deps.Security.HookMgr.HasOnUserMessageHandlers() {
@@ -304,7 +304,7 @@ func TestPermissionEngineDenyPreventsExecution(t *testing.T) {
 			PermEngine: permEngine,
 		},
 	}.WithDefaults()
-	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
+	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "bash", Input: `{"command":"rm -rf /tmp/test"}`}
@@ -353,7 +353,7 @@ func TestHookAndPermissionEngineIntegration(t *testing.T) {
 			PermEngine: permEngine,
 		},
 	}.WithDefaults()
-	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
+	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
@@ -400,7 +400,7 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 			HookMgr: hookMgr,
 		},
 	}.WithDefaults()
-	rt := NewAgent(&deps, &SimpleLoop{}, NewEventBus())
+	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
 	toolCalls := []ToolUseBlock{

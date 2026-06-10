@@ -35,6 +35,10 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	ts.Registry = tool.NewRegistry()
 	policy := tool.NewPolicy(cfg.Tools.Bash.BlockedCommands)
 
+	// Plan tool is always available — the model uses it to self-manage multi-step tasks.
+	planStore := &sessionPlanStore{sessions: sessions}
+	ts.Registry.Register(tool.NewPlanTool(planStore))
+
 	if cfg.Tools.Bash.Enabled {
 		ts.Registry.Register(tool.NewBashTool(cfg.Tools.Bash.Timeout, cfg.Tools.Bash.RequiresApproval, policy))
 		ts.Registry.Register(tool.NewTestRunTool("."))
@@ -101,7 +105,7 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	ts.PermEngine = tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
 
 	audit, _ := tool.NewAuditInterceptor("")
-	verify := tool.NewVerifyInterceptor(".")
+	verify := tool.NewVerifyInterceptor(".", planStore)
 	interceptors := []tool.ToolInterceptor{
 		tool.NewPermissionInterceptor(ts.PermEngine,
 			tool.WithNotifier(NewGatewayToolNotifier()),

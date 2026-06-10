@@ -94,6 +94,26 @@ func (s *Session) SetParentSessionID(parentID string) {
 	s.ParentSessionID = parentID
 }
 
+// SetMetadata sets a key-value pair in the session metadata.
+func (s *Session) SetMetadata(key, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Metadata == nil {
+		s.Metadata = make(map[string]string)
+	}
+	s.Metadata[key] = value
+}
+
+// GetMetadata retrieves a value from the session metadata.
+func (s *Session) GetMetadata(key string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.Metadata == nil {
+		return ""
+	}
+	return s.Metadata[key]
+}
+
 // ParentSessionIDOrNull returns the parent session ID as sql.NullString for DB operations.
 func (s *Session) ParentSessionIDOrNull() interface{} {
 	s.mu.RLock()

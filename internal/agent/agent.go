@@ -114,7 +114,7 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 	})
 
 	// Build system prompt
-	systemPrompt := a.buildSystemPrompt(ctx, msg.Text)
+	systemPrompt := a.buildSystemPrompt(ctx, sess, msg.Text)
 
 	// Fire OnUserMessage hooks
 	if a.deps.Security.HookMgr != nil && a.deps.Security.HookMgr.HasOnUserMessageHandlers() {
@@ -162,8 +162,8 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 	return err
 }
 
-// buildSystemPrompt constructs the system prompt from personality + memories + skills + profile.
-func (a *Agent) buildSystemPrompt(ctx context.Context, userText string) string {
+// buildSystemPrompt constructs the system prompt from personality + memories + skills + plan + profile.
+func (a *Agent) buildSystemPrompt(ctx context.Context, sess *session.Session, userText string) string {
 	var sb strings.Builder
 
 	if a.deps.Core.Cfg.Personality != "" {
@@ -181,6 +181,16 @@ func (a *Agent) buildSystemPrompt(ctx context.Context, userText string) string {
 	sb.WriteString("\n")
 	sb.WriteString(dynamicContextMarker)
 	sb.WriteString("\n")
+
+	// Current plan (injected each message so model always sees latest state)
+	if sess != nil {
+		if planJSON := sess.GetMetadata("plan"); planJSON != "" {
+			sb.WriteString("\n\n## Current Plan\n")
+			sb.WriteString("The plan below tracks your progress. Update it via the `plan` tool as you complete steps.\n\n")
+			sb.WriteString(planJSON)
+			sb.WriteString("\n")
+		}
+	}
 
 	// Memories
 	if a.deps.Memory.Store != nil {
@@ -253,7 +263,7 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 			}
 		}
 
-		r, execErr := t.Execute(ctx, []byte(call.Input))
+		r, execErr := t.Execute(tool.WithSessionID(ctx, call.SessionID), []byte(call.Input))
 		if execErr != nil {
 			return &tool.ToolResult{Error: execErr.Error()}, nil
 		}
@@ -272,6 +282,10 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 			isError = true
 		} else {
 			content = result.Output
+			// Append plan verification hint so the model sees it in the conversation
+			if hint := result.Metadata["plan_verify_hint"]; hint != "" {
+				content += "\n\n" + hint
+			}
 		}
 	}
 

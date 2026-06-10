@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -55,8 +54,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleApprovalKey(msg)
 		case modeFeedback:
 			return m.handleFeedbackKey(msg)
-		case modeReflection:
-			return m.handleReflectionKey(msg)
 		default:
 			return m.handleChatKey(msg)
 		}
@@ -97,12 +94,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.approvalTool = msg.toolName
 		m.approvalInput = msg.input
 		m.approvalCh = msg.resultCh
-
-	case reflectionRequestMsg:
-		m.mode = modeReflection
-		m.reflectReason = msg.reason
-		m.reflectConfidence = msg.confidence
-		m.reflectCh = msg.resultCh
 
 	case feedbackRequestMsg:
 		m.mode = modeFeedback
@@ -361,37 +352,6 @@ func (m *Model) handleFeedbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.feedbackCh != nil {
 			m.feedbackCh <- -1.0
 			m.feedbackCh = nil
-		}
-		m.mode = modeChat
-		m.updateViewportKeepScroll()
-	}
-	return m, nil
-}
-
-// handleReflectionKey processes 1/2/3 keys during replan decision mode.
-func (m *Model) handleReflectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "1", "c", "C":
-		m.addMessage("system", "▶️ Continue")
-		if m.reflectCh != nil {
-			m.reflectCh <- channel.ReplanContinue
-			m.reflectCh = nil
-		}
-		m.mode = modeChat
-		m.updateViewportKeepScroll()
-	case "2", "a", "A":
-		m.addMessage("system", "Adjust & replan")
-		if m.reflectCh != nil {
-			m.reflectCh <- channel.ReplanAdjust
-			m.reflectCh = nil
-		}
-		m.mode = modeChat
-		m.updateViewportKeepScroll()
-	case "3", "x", "X", "esc":
-		m.addMessage("system", "Aborted")
-		if m.reflectCh != nil {
-			m.reflectCh <- channel.ReplanAbort
-			m.reflectCh = nil
 		}
 		m.mode = modeChat
 		m.updateViewportKeepScroll()

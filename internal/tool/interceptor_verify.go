@@ -34,12 +34,14 @@ type verifyMetadata struct {
 
 type VerifyInterceptor struct {
 	workingDir string
+	planStore  PlanStore
 	logger     *slog.Logger
 }
 
-func NewVerifyInterceptor(workingDir string) *VerifyInterceptor {
+func NewVerifyInterceptor(workingDir string, planStore PlanStore) *VerifyInterceptor {
 	return &VerifyInterceptor{
 		workingDir: workingDir,
+		planStore:  planStore,
 		logger:     slog.Default(),
 	}
 }
@@ -112,7 +114,55 @@ func (v *VerifyInterceptor) Intercept(
 		"warnings", warnings,
 	)
 
+	// Plan-aware verification: if there's an active plan with an in-progress step
+	// whose success criteria mentions verification, append a hint to the tool result.
+	if v.planStore != nil && result != nil && result.Error == "" {
+		if hint := v.buildPlanVerifyHint(call.SessionID); hint != "" {
+			if result.Metadata == nil {
+				result.Metadata = make(map[string]string)
+			}
+			result.Metadata["plan_verify_hint"] = hint
+		}
+	}
+
 	return result, err
+}
+
+// buildPlanVerifyHint checks the active plan for an in-progress step with
+// verifiable success criteria. If found, returns a hint string for the model.
+func (v *VerifyInterceptor) buildPlanVerifyHint(sessionID string) string {
+	raw, err := v.planStore.GetPlan(sessionID)
+	if err != nil || raw == "" {
+		return ""
+	}
+
+	var plan Plan
+	if err := json.Unmarshal([]byte(raw), &plan); err != nil {
+		return ""
+	}
+
+	var hints []string
+	for _, step := range plan.Steps {
+		if step.Status != "in_progress" || step.Criteria == "" {
+			continue
+		}
+		criteria := strings.ToLower(step.Criteria)
+		if strings.Contains(criteria, "test_run") || strings.Contains(criteria, "test") ||
+			strings.Contains(criteria, "go test") || strings.Contains(criteria, "go vet") ||
+			strings.Contains(criteria, "lint") || strings.Contains(criteria, "build") {
+			hints = append(hints, fmt.Sprintf("Step %q (%s) is in progress with criteria: %s",
+				step.Description, step.Status, step.Criteria))
+		}
+	}
+
+	if len(hints) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"[Plan Verification] %d step(s) need verification:\n%s\n\nConsider running test_run or the appropriate verification command.",
+		len(hints), strings.Join(hints, "\n"),
+	)
 }
 
 func shouldVerifyToolCall(call *ToolCall) bool {

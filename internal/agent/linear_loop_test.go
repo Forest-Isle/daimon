@@ -87,7 +87,7 @@ func (t *testWriteTool) Execute(_ context.Context, input []byte) (tool.Result, e
 	return tool.Result{Output: "written"}, nil
 }
 
-func TestUnifiedLoop_SingleToolCall(t *testing.T) {
+func TestLinearLoop_SingleToolCall(t *testing.T) {
 	sess := &session.Session{
 		ID: "test-sess-1", Channel: "test", ChannelID: "ch1", CreatedAt: time.Now(),
 	}
@@ -103,10 +103,10 @@ func TestUnifiedLoop_SingleToolCall(t *testing.T) {
 		toolCalls: []ToolUseBlock{{ID: "call_1", Name: "read", Input: `{"path":"/tmp/test"}`}},
 	}
 
-	a := NewAgent(&deps, &UnifiedLoop{}, NewEventBus())
+	a := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 	ch := &testChannel{}
 
-	loop := &UnifiedLoop{}
+	loop := &LinearLoop{}
 	err := loop.Execute(context.Background(), a, ch, channel.InboundMessage{
 		Channel: "test", ChannelID: "ch1", Text: "read /tmp/test",
 	}, sess)
@@ -120,7 +120,7 @@ func TestUnifiedLoop_SingleToolCall(t *testing.T) {
 	}
 }
 
-func TestUnifiedLoop_NoToolCall(t *testing.T) {
+func TestLinearLoop_NoToolCall(t *testing.T) {
 	sess := &session.Session{
 		ID: "test-sess-2", Channel: "test", ChannelID: "ch1", CreatedAt: time.Now(),
 	}
@@ -130,10 +130,10 @@ func TestUnifiedLoop_NoToolCall(t *testing.T) {
 	deps.Core.Cfg.MaxIterations = 3
 	deps.Core.Provider = &testProvider{text: "Hello, how can I help?"}
 
-	a := NewAgent(&deps, &UnifiedLoop{}, NewEventBus())
+	a := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 	ch := &testChannel{}
 
-	loop := &UnifiedLoop{}
+	loop := &LinearLoop{}
 	err := loop.Execute(context.Background(), a, ch, channel.InboundMessage{
 		Channel: "test", ChannelID: "ch1", Text: "hello",
 	}, sess)
@@ -143,7 +143,7 @@ func TestUnifiedLoop_NoToolCall(t *testing.T) {
 	}
 }
 
-func TestUnifiedLoop_ParallelDispatch(t *testing.T) {
+func TestLinearLoop_ParallelDispatch(t *testing.T) {
 	sess := &session.Session{
 		ID: "test-sess-3", Channel: "test", ChannelID: "ch1", CreatedAt: time.Now(),
 	}
@@ -163,10 +163,10 @@ func TestUnifiedLoop_ParallelDispatch(t *testing.T) {
 		},
 	}
 
-	a := NewAgent(&deps, &UnifiedLoop{}, NewEventBus())
+	a := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 	ch := &testChannel{}
 
-	loop := &UnifiedLoop{}
+	loop := &LinearLoop{}
 	err := loop.Execute(context.Background(), a, ch, channel.InboundMessage{
 		Channel: "test", ChannelID: "ch1", Text: "read both files",
 	}, sess)

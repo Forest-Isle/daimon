@@ -41,8 +41,6 @@ func (m Model) View() string {
 		b.WriteString(m.renderApprovalDialog())
 	case modeFeedback:
 		b.WriteString(m.renderFeedbackDialog())
-	case modeReflection:
-		b.WriteString(m.renderReflectionDialog())
 	default:
 		if m.showingSuggestions && len(m.suggestions) > 0 {
 			b.WriteString(m.renderSuggestions())
@@ -97,7 +95,7 @@ func (m Model) renderWelcome() string {
 
 	shortcuts := []struct{ key, desc string }{
 		{"/help", "Show available commands"},
-		{"/mode", "Switch agent mode (simple / cognitive)"},
+		{"/mode", "Show or switch agent mode (linear)"},
 		{"/clear", "Clear conversation history"},
 		{"/quit", "Exit IronClaw"},
 	}
@@ -216,17 +214,6 @@ func (m Model) renderFeedbackDialog() string {
 		approvalHintStyle.Render("[y] Yes (+1.0)  [n] No (-1.0)"),
 	)
 	return feedbackBoxStyle.Width(m.width - 4).Render(content)
-}
-
-// renderReflectionDialog renders the replan decision overlay.
-func (m Model) renderReflectionDialog() string {
-	content := fmt.Sprintf(
-		"🤔 Low confidence plan (%.0f%%)\nReason: %s\n\n%s",
-		m.reflectConfidence*100,
-		m.reflectReason,
-		approvalHintStyle.Render("[1/c] Continue  [2/a] Adjust  [3/x] Abort"),
-	)
-	return reflectionBoxStyle.Width(m.width - 4).Render(content)
 }
 
 // renderSuggestions renders the autocomplete suggestion list.

@@ -105,10 +105,10 @@ var commandRegistry = []Command{
 	// Mode switching
 	{
 		Name:        "mode",
-		Description: "Show or switch agent mode (simple|cognitive). Usage: /mode [simple|cognitive]",
-		ArgHint:     "[simple|cognitive]",
+		Description: "Show or switch agent mode (linear). Usage: /mode [linear]",
+		ArgHint:     "[linear]",
 		Category:    "builtin",
-		SubArgs:     []string{"simple", "cognitive"},
+		SubArgs:     []string{"linear"},
 	},
 
 	// Feature management

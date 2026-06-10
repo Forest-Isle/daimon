@@ -98,3 +98,15 @@ type ConfigChanged struct {
 }
 
 func (ConfigChanged) EventType() string { return "config.changed" }
+
+// ──────────────────────── Reflection Events ────────────────────────
+
+// ReflectionTriggered is emitted when the loop re-engages the model after
+// convergence because the active plan still has incomplete steps.
+type ReflectionTriggered struct {
+	SessionID       string
+	IncompleteSteps int
+	Attempt         int
+}
+
+func (ReflectionTriggered) EventType() string { return "reflection.triggered" }

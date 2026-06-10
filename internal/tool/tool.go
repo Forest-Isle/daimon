@@ -221,6 +221,19 @@ func StreamCallbackFromContext(ctx context.Context) StreamCallback {
 	return cb
 }
 
+type sessionIDCtxKey struct{}
+
+// WithSessionID attaches a session ID to the context.
+func WithSessionID(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, sessionIDCtxKey{}, sessionID)
+}
+
+// SessionIDFromContext extracts the session ID from the context.
+func SessionIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(sessionIDCtxKey{}).(string)
+	return id
+}
+
 type workDirCtxKey struct{}
 
 func WithWorkDir(ctx context.Context, dir string) context.Context {

@@ -164,8 +164,7 @@ func runSetupWizard() (string, error) {
 				Title("Mode").
 				Description("How should the agent process your requests?").
 				Options(
-					huh.NewOption("Simple — standard linear loop (recommended)", "simple"),
-					huh.NewOption("Unified — with parallel tool dispatch", "cognitive"),
+					huh.NewOption("Linear — standard ReAct loop with parallel tool dispatch", "linear"),
 				).
 				Height(0).Value(&agentMode),
 		),

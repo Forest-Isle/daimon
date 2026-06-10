@@ -73,7 +73,7 @@ type AgentSpec struct {
 	MaxIterations    int      `yaml:"max_iterations"`    // default 5
 	Tools            []string `yaml:"tools"`             // tool whitelist (empty = all, agent_* always excluded)
 	Tags             []string `yaml:"tags"`              // routing tags for semantic matching
-	Mode             string   `yaml:"mode"`              // "simple" (default) | "cognitive"
+	Mode             string   `yaml:"mode"`              // "linear" (default; also accepts "simple"/"unified"/"cognitive" for backward compat)
 	Timeout          duration `yaml:"timeout"`           // execution timeout, default 120s
 	RequiresApproval bool     `yaml:"requires_approval"` // require user approval before execution
 	MaxRetries       int      `yaml:"max_retries"`       // retry count on failure, default 0

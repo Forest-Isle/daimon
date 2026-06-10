@@ -151,8 +151,8 @@ func defaultConfig() Config {
 		},
 		Agent: AgentConfig{
 			MaxIterations: 20,
-			Mode:          "simple",
-			Cognitive: CognitiveConfig{
+			Mode:          "linear",
+			Execution: ExecutionConfig{
 				MaxParallelTools:       3,
 				ApprovalTimeoutSeconds: 120,
 			},

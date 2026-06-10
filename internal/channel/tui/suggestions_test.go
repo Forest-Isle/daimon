@@ -99,8 +99,7 @@ func TestGenerateSuggestions_ModeSubArgs(t *testing.T) {
 	for _, s := range suggestions {
 		values = append(values, s.ArgValue)
 	}
-	assert.Contains(t, values, "simple")
-	assert.Contains(t, values, "cognitive")
+	assert.Contains(t, values, "linear")
 }
 
 func TestApplySuggestion_CommandName(t *testing.T) {

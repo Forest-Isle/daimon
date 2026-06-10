@@ -98,7 +98,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.mcpSub = InitMCP()
 
 	deps := builder.Build()
-	gw.agent = agent.NewAgent(&deps, &agent.UnifiedLoop{}, agent.NewEventBus())
+	gw.agent = agent.NewAgent(&deps, &agent.LinearLoop{}, agent.NewEventBus())
 	gw.agent.SetApprovalFunc(gw.handleApproval)
 
 	gw.health = InitHealth(cfg, gw.db)
@@ -136,12 +136,13 @@ func (gw *Gateway) SetSchedulerNotifier(ch channel.Channel) {
 }
 
 func (gw *Gateway) SetMode(mode string) error {
+	// All modes map to LinearLoop — the single honest execution strategy.
+	// Legacy values ("simple", "unified", "cognitive") accepted for backward compat.
 	switch mode {
-	case "unified", "cognitive":
-		if gw.agent != nil { gw.agent.SetStrategy(&agent.UnifiedLoop{}) }
+	case "linear", "unified", "simple", "cognitive":
+		if gw.agent != nil { gw.agent.SetStrategy(&agent.LinearLoop{}) }
 	default:
-		if mode != "simple" { return fmt.Errorf("unknown mode %q", mode) }
-		if gw.agent != nil { gw.agent.SetStrategy(&agent.SimpleLoop{}) }
+		return fmt.Errorf("unknown mode %q (valid: linear)", mode)
 	}
 	gw.currentMode.Store(mode)
 	slog.Info("gateway: mode switched", "mode", mode)
