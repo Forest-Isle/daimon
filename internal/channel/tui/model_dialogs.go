@@ -124,8 +124,8 @@ func (m *Model) showHistory() {
 				icon = "sys"
 			}
 			preview := msg.content
-			if len(preview) > 60 {
-				preview = preview[:60] + "..."
+			if r := []rune(preview); len(r) > 60 {
+				preview = string(r[:60]) + "..."
 			}
 			fmt.Fprintf(&b, "%d. %s [%s] %s\n",
 				i+1, icon, msg.timestamp.Format("15:04:05"), preview)

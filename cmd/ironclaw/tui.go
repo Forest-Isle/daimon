@@ -91,6 +91,7 @@ func runTUI(configPath string, devMode bool) error {
 		cfg.LLM.Models.Sonnet,
 		cfg.LLM.Models.Haiku,
 	)
+	tuiAdapter.SetCurrentModel(cfg.LLM.Model)
 
 	// Handle signals for graceful shutdown
 	go func() {

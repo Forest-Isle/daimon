@@ -115,6 +115,11 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	}
 	if cfg.Tools.Verify.Enabled { interceptors = append(interceptors, verify) }
 	if audit != nil { interceptors = append(interceptors, audit) }
+	// Activity reporter sits innermost so it wraps the real tool execution
+	// tightest — it reports only tools that passed permission and hook gates,
+	// avoiding a flicker for denied/blocked calls.
+	interceptors = append(interceptors,
+		tool.NewActivityInterceptor(NewGatewayToolActivityReporter(sessions, channels)))
 	ts.InterceptorChain = tool.NewInterceptorChain(interceptors)
 
 	if cfg.Tools.ResultPersistence.Enabled {

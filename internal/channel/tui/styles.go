@@ -160,4 +160,27 @@ var (
 	welcomeKeyStyle = lipgloss.NewStyle().
 			Foreground(colorGreen).
 			Bold(true)
+
+	// ─── Status bar ───────────────────────────────────────────
+	statusBarStyle = lipgloss.NewStyle().
+			Foreground(colorGray).
+			Background(colorBgPurple)
+
+	statusReadyStyle = lipgloss.NewStyle().
+				Foreground(colorGreen).
+				Background(colorBgPurple).
+				Bold(true)
+
+	statusBusyStyle = lipgloss.NewStyle().
+			Foreground(colorGold).
+			Background(colorBgPurple).
+			Bold(true)
+
+	statusModelStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#C4B5F5")).
+				Background(colorBgPurple)
+
+	statusHintStyle = lipgloss.NewStyle().
+			Foreground(colorGold).
+			Background(colorBgPurple)
 )

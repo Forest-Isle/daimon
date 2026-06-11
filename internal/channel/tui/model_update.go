@@ -11,7 +11,7 @@ import (
 
 // Update handles all incoming messages and routes them to the appropriate
 // handler based on the current mode.
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -23,24 +23,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update markdown renderer width for proper text wrapping
 		updateRendererWidth(m.width)
 
-		headerHeight := 1
-		inputHeight := 3 // textarea + border (1 line + 2 border)
-		statusHeight := 1
-		vpHeight := m.height - headerHeight - inputHeight - statusHeight
-		if vpHeight < 1 {
-			vpHeight = 1
-		}
-
 		if !m.ready {
-			m.viewport = viewport.New(m.width, vpHeight)
+			m.viewport = viewport.New(m.width, m.viewportHeight())
 			m.viewport.SetContent(m.renderChat())
 			m.ready = true
 		} else {
 			m.viewport.Width = m.width
-			m.viewport.Height = vpHeight
+			m.viewport.Height = m.viewportHeight()
 			m.viewport.SetContent(m.renderChat()) // Re-render with new width
 		}
 		m.textarea.SetWidth(m.width - 4) // account for input box padding+border
+		m.syncInputHeight()
+		m.viewport.Height = m.viewportHeight()
 
 	case tickMsg:
 		m.typingTick = (m.typingTick + 1) % 3
@@ -71,17 +65,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentResponseMsg:
 		m.waitingForResponse = false
+		m.clearToolActivity()
 		m.addMessage("agent", msg.text)
 		m.updateViewportKeepScroll()
 
 	case streamUpdateMsg:
 		m.waitingForResponse = false
+		m.clearToolActivity()
 		m.streamingID = msg.id
 		m.streamingText = msg.text
 		m.updateViewportKeepScroll()
 
 	case streamFinishMsg:
 		m.waitingForResponse = false
+		m.clearToolActivity()
 		if msg.text != "" {
 			m.addMessage("agent", msg.text)
 		}
@@ -106,12 +103,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errorMsg:
 		m.waitingForResponse = false
+		m.clearToolActivity()
 		m.addMessage("system", "Error: "+msg.err.Error())
 		m.updateViewportKeepScroll()
 
 	case notificationMsg:
 		m.addMessage("system", msg.text)
 		m.updateViewportKeepScroll()
+
+	case toolActivityMsg:
+		if msg.done {
+			// Only clear if this finish refers to the tool we're showing.
+			if msg.toolName == m.activeTool {
+				m.activeTool = ""
+				m.activeToolSummary = ""
+			}
+		} else {
+			m.activeTool = msg.toolName
+			m.activeToolSummary = msg.summary
+		}
 
 	}
 
@@ -149,6 +159,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					selected := m.modelItems[m.modelSelectionIdx]
 					m.textarea.SetValue("/model " + selected.Name)
 					m.showModelPanel = false
+					return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
 				}
 				return m, nil
 			case tea.KeyEsc:
@@ -185,6 +196,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				newInput := ApplySuggestion(m.textarea.Value(), suggestion)
 				m.textarea.SetValue(newInput)
 				m.clearSuggestions()
+				m.syncInputHeight()
 			}
 			return m, nil
 
@@ -211,6 +223,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.streamingID = ""
 			m.streamingText = ""
 			m.waitingForResponse = false
+			m.clearToolActivity()
 			m.refreshViewport()
 			return m, func() tea.Msg { return cancelRequestMsg{} }
 		}
@@ -228,6 +241,14 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case tea.KeyEnd:
+		// Jump to the latest output and resume following the stream.
+		if m.ready {
+			m.autoScroll = true
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
 	case tea.KeyUp:
 		// Input history: navigate to previous entry
 		if len(m.inputHistory) > 0 && m.historyIdx > 0 {
@@ -236,6 +257,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.historyIdx--
 			m.textarea.SetValue(m.inputHistory[m.historyIdx])
+			m.syncInputHeight()
 			return m, nil
 		}
 		return m, nil
@@ -249,6 +271,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.textarea.SetValue(m.inputHistory[m.historyIdx])
 			}
+			m.syncInputHeight()
 			return m, nil
 		}
 		return m, nil
@@ -278,6 +301,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.historySaved = ""
 
 		m.textarea.Reset()
+		m.syncInputHeight()
 
 		// Handle local slash commands
 		if handled, cmd := m.handleLocalCommand(text); handled {
@@ -295,6 +319,7 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
 	m.updateSuggestions()
+	m.syncInputHeight()
 
 	return m, cmd
 }
@@ -409,6 +434,58 @@ func (m *Model) updateSuggestions() {
 		m.selectedSuggestion = 0
 	} else if m.selectedSuggestion < 0 && len(suggestions) > 0 {
 		m.selectedSuggestion = 0
+	}
+}
+
+// clearToolActivity resets the active-tool status indicator.
+func (m *Model) clearToolActivity() {
+	m.activeTool = ""
+	m.activeToolSummary = ""
+}
+
+// viewportHeight returns the chat viewport height given the current terminal
+// size and input box height. Layout rows: header(1) + viewport + input(border
+// 2 + textarea height) + status(1).
+func (m *Model) viewportHeight() int {
+	inputH := m.textarea.Height()
+	if inputH < 1 {
+		inputH = 1
+	}
+	h := m.height - 1 - (inputH + 2) - 1
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+// syncInputHeight grows or shrinks the input box to fit the wrapped content,
+// from 1 line up to maxInputLines. Without this the textarea (height 1) scrolls
+// long input horizontally and hides earlier rows. The chat viewport is resized
+// to match so the layout always fills exactly one screen.
+func (m *Model) syncInputHeight() {
+	w := m.textarea.Width()
+	if w < 1 {
+		return
+	}
+	rows := 0
+	for _, line := range strings.Split(m.textarea.Value(), "\n") {
+		rows += wrappedRowCount(line, w)
+	}
+	if rows < 1 {
+		rows = 1
+	}
+	if rows > maxInputLines {
+		rows = maxInputLines
+	}
+	if rows != m.textarea.Height() {
+		m.textarea.SetHeight(rows)
+		if m.ready {
+			wasBottom := m.autoScroll
+			m.viewport.Height = m.viewportHeight()
+			if wasBottom {
+				m.viewport.GotoBottom()
+			}
+		}
 	}
 }
 

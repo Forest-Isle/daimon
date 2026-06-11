@@ -158,6 +158,10 @@ func isLocalCommand(text string) bool {
 		return false
 	}
 	cmd := strings.TrimPrefix(parts[0], "/")
+	// /model with an argument is forwarded to the gateway for the actual switch.
+	if strings.ToLower(cmd) == "model" && len(parts) > 1 {
+		return false
+	}
 	return localCommands[strings.ToLower(cmd)]
 }
 

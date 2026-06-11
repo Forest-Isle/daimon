@@ -43,7 +43,15 @@ type FeedbackSender interface {
 	SendFeedbackRequest(ctx context.Context, target MessageTarget) (float64, error)
 }
 
-// ToolStreamWriter is an optional interface for channels that support
+// ToolActivitySender is an optional interface for channels that can display
+// live tool-execution activity (which tool is running right now). Unlike
+// ApprovalSender it never blocks and never affects execution — it is purely
+// informational. done=false signals a tool started; done=true signals it
+// finished and the activity line should clear. Channels that do not implement
+// this interface simply show nothing.
+type ToolActivitySender interface {
+	SendToolActivity(ctx context.Context, target MessageTarget, toolName, summary string, done bool) error
+}
 // real-time streaming of tool execution output. When a tool produces
 // output incrementally (e.g., long-running bash commands), the runtime
 // sends lines/chunks via this writer while the tool is still running.

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -159,14 +160,57 @@ func loopIteration(
 		return updater, nil, nil
 	}
 
-	// Finalize streaming message with tool-call status
-	statusText := "Calling tools..."
+	// Finalize streaming message with tool-call status. Show the actual tools
+	// being invoked (name + a short arg hint) rather than a generic message,
+	// so the user can see what the agent is doing.
+	statusText := formatToolCallStatus(toolCalls)
 	if fullText != "" {
-		statusText = fullText + "\n\nCalling tools..."
+		statusText = fullText + "\n\n" + statusText
 	}
 	_ = updater.Finish(statusText)
 
 	return updater, toolCalls, nil
+}
+
+// formatToolCallStatus renders a compact, human-readable summary of the tools
+// the agent is about to invoke, one per line, e.g. "⚙ bash: go test ./...".
+func formatToolCallStatus(calls []ToolUseBlock) string {
+	if len(calls) == 0 {
+		return "Calling tools…"
+	}
+	var b strings.Builder
+	for i, tc := range calls {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("⚙ ")
+		b.WriteString(tc.Name)
+		if hint := toolInputHint(tc.Input); hint != "" {
+			b.WriteString(": ")
+			b.WriteString(hint)
+		}
+	}
+	return b.String()
+}
+
+// toolInputHint extracts a short hint from a tool call's raw JSON input —
+// the command for bash, the path for file ops, etc. Returns "" when no
+// recognizable field is present.
+func toolInputHint(input string) string {
+	var m map[string]any
+	if json.Unmarshal([]byte(input), &m) != nil {
+		return ""
+	}
+	for _, key := range []string{"command", "cmd", "path", "file_path", "query", "url", "pattern"} {
+		if v, ok := m[key].(string); ok && v != "" {
+			v = strings.TrimSpace(strings.ReplaceAll(v, "\n", " "))
+			if r := []rune(v); len(r) > 80 {
+				return string(r[:80]) + "…"
+			}
+			return v
+		}
+	}
+	return ""
 }
 
 // loopIterationNonStreaming performs one iteration in non-streaming mode.

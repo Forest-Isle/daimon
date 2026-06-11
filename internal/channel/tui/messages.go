@@ -54,6 +54,15 @@ type feedbackRequestMsg struct {
 // setAutoApproveMsg signals that the user wants to enable auto-approve mode.
 type setAutoApproveMsg struct{}
 
+// toolActivityMsg reports that a tool started (done=false) or finished
+// (done=true) executing. The TUI shows the active tool in the status line
+// while a request is in flight.
+type toolActivityMsg struct {
+	toolName string
+	summary  string
+	done     bool
+}
+
 // cancelRequestMsg signals that the user wants to cancel the in-flight request.
 type cancelRequestMsg struct{}
 

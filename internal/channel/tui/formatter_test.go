@@ -3,7 +3,14 @@ package tui
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 )
+
+func displayWidth(s string) int { return runewidth.StringWidth(s) }
+
+func utf8ValidString(s string) bool { return utf8.ValidString(s) }
 
 func TestWrapText(t *testing.T) {
 	tests := []struct {
@@ -94,7 +101,6 @@ func TestUpdateRendererWidth(t *testing.T) {
 }
 
 func TestRenderMarkdown(t *testing.T) {
-	// Test that markdown rendering doesn't panic and returns some output
 	tests := []struct {
 		name string
 		text string
@@ -120,9 +126,75 @@ func TestRenderMarkdown(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := renderMarkdown(tt.text)
-			// Just verify it doesn't panic and returns something
 			if tt.text != "" && result == "" {
 				t.Errorf("renderMarkdown(%q) returned empty string", tt.text)
+			}
+		})
+	}
+}
+
+func TestWrapTextCJK(t *testing.T) {
+	result := wrapText("你好世界测试", 8)
+	lines := strings.Split(result, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected CJK text to wrap at width 8, got %q (%d line)", result, len(lines))
+	}
+	for _, line := range lines {
+		if w := displayWidth(line); w > 8 {
+			t.Errorf("wrapped line exceeds display width: %q (width=%d)", line, w)
+		}
+	}
+}
+
+func TestShortenPathRuneSafe(t *testing.T) {
+	got := shortenPath("项目目录路径名称很长很长", 8)
+	if !utf8ValidString(got) {
+		t.Errorf("shortenPath produced invalid UTF-8: %q", got)
+	}
+	if !strings.Contains(got, "…") {
+		t.Errorf("expected ellipsis in shortened path, got %q", got)
+	}
+}
+
+func TestTruncateTail(t *testing.T) {
+	if got := truncateTail("hello", 10); got != "hello" {
+		t.Errorf("short string should pass through, got %q", got)
+	}
+	got := truncateTail("hello world", 7)
+	if displayWidth(got) > 7 {
+		t.Errorf("truncated string exceeds width: %q (width=%d)", got, displayWidth(got))
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("expected ellipsis suffix, got %q", got)
+	}
+	cjk := truncateTail("命令执行中读取文件", 6)
+	if !utf8ValidString(cjk) {
+		t.Errorf("truncateTail produced invalid UTF-8: %q", cjk)
+	}
+	if displayWidth(cjk) > 6 {
+		t.Errorf("CJK truncation exceeds width: %q (width=%d)", cjk, displayWidth(cjk))
+	}
+}
+
+func TestWrappedRowCount(t *testing.T) {
+	tests := []struct {
+		name  string
+		line  string
+		width int
+		min   int
+	}{
+		{"empty", "", 20, 1},
+		{"fits", "hello", 20, 1},
+		{"two rows", "the quick brown fox jumps over", 10, 3},
+		{"exact boundary word", "abcde fghij", 5, 2},
+		{"long token", "verylongtokenwithnobreaks", 5, 5},
+		{"cjk", "你好世界测试一下换行", 8, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrappedRowCount(tt.line, tt.width)
+			if got < tt.min {
+				t.Errorf("wrappedRowCount(%q, %d) = %d, want >= %d", tt.line, tt.width, got, tt.min)
 			}
 		})
 	}
@@ -133,11 +205,9 @@ func TestWrapTextPreservesWords(t *testing.T) {
 	width := 20
 	result := wrapText(text, width)
 
-	// Verify that words are not broken
 	lines := strings.Split(result, "\n")
 	for _, line := range lines {
 		if len(line) > width {
-			// Allow some overflow for words that can't be broken
 			words := strings.Fields(line)
 			if len(words) > 1 {
 				t.Errorf("Line exceeds width and contains multiple words: %q (len=%d, width=%d)",
@@ -146,7 +216,6 @@ func TestWrapTextPreservesWords(t *testing.T) {
 		}
 	}
 
-	// Verify all words are present
 	originalWords := strings.Fields(text)
 	resultWords := strings.Fields(result)
 	if len(originalWords) != len(resultWords) {

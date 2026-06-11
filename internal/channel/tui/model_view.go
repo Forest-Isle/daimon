@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // View renders the full TUI.
@@ -60,7 +61,54 @@ func (m Model) View() string {
 		b.WriteString(inputBoxStyle.Width(m.width - 2).Render(m.textarea.View()))
 	}
 
+	b.WriteString("\n")
+	b.WriteString(m.renderStatusBar())
+
 	return b.String()
+}
+
+// renderStatusBar renders the persistent bottom status line. It reuses the
+// single row already reserved by the layout (statusHeight in the resize
+// handler) so it costs no extra vertical space.
+func (m Model) renderStatusBar() string {
+	// Left: activity state.
+	var stateText, stateStyle = "", statusReadyStyle
+	switch {
+	case m.activeTool != "":
+		stateText = "⚙ " + m.activeTool
+		if m.activeToolSummary != "" {
+			stateText += ": " + m.activeToolSummary
+		}
+		stateStyle = statusBusyStyle
+	case m.streamingID != "":
+		stateText, stateStyle = "▊ streaming", statusBusyStyle
+	case m.waitingForResponse:
+		stateText, stateStyle = "⚙ working", statusBusyStyle
+	default:
+		stateText, stateStyle = "● ready", statusReadyStyle
+	}
+	// Clamp so a long tool summary can't overflow the single-line bar.
+	if maxState := m.width / 2; maxState > 8 {
+		stateText = truncateTail(stateText, maxState)
+	}
+	state := stateStyle.Render(stateText)
+
+	// Right: model + scroll hint.
+	var rightParts []string
+	if !m.autoScroll && m.ready {
+		rightParts = append(rightParts, statusHintStyle.Render("↑ scrolled · End to follow"))
+	}
+	if m.currentModel != "" {
+		rightParts = append(rightParts, statusModelStyle.Render(shortenPath(m.currentModel, 28)))
+	}
+	right := strings.Join(rightParts, statusBarStyle.Render("  "))
+
+	gap := m.width - lipgloss.Width(state) - lipgloss.Width(right) - 2
+	if gap < 1 {
+		gap = 1
+	}
+	body := " " + state + statusBarStyle.Render(strings.Repeat(" ", gap)) + right + " "
+	return statusBarStyle.Width(m.width).Render(body)
 }
 
 // renderHeader renders the top bar with session context.
@@ -125,54 +173,67 @@ func (m Model) renderWelcome() string {
 }
 
 // renderChat renders the message history with visual distinction.
-func (m Model) renderChat() string {
+//
+// Each message block is cached on the message itself (keyed by terminal
+// width) so glamour runs once per message instead of on every streaming
+// tick. The streaming tail is rendered as plain wrapped text — cheap, and
+// it avoids the flicker of half-closed markdown fences mid-stream.
+func (m *Model) renderChat() string {
 	var b strings.Builder
-	for i, msg := range m.messages {
+	for i := range m.messages {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		ts := timestampStyle.Render(msg.timestamp.Format("15:04"))
-		contentWidth := m.width - 10 // account for timestamp + bar + padding
-
-		switch msg.role {
-		case "user":
-			bar := userBarStyle.Render("▌")
-			label := userLabelStyle.Render(m.username)
-			wrapped := wrapText(msg.content, contentWidth)
-			b.WriteString(fmt.Sprintf("%s %s %s\n%s  %s",
-				ts, bar, label, bar, wrapped))
-
-		case "agent":
-			bar := agentBarStyle.Render("▌")
-			label := agentLabelStyle.Render("IronClaw")
-			// Full markdown rendering for agent messages
-			rendered := renderMarkdown(msg.content)
-			// Prefix each line with bar accent
-			indentedRendered := indentWithBar(rendered, bar)
-			b.WriteString(fmt.Sprintf("%s %s %s\n%s",
-				ts, bar, label, indentedRendered))
-
-		case "system":
-			bar := systemBarStyle.Render("·")
-			wrapped := wrapText(msg.content, contentWidth)
-			b.WriteString(fmt.Sprintf("%s %s %s", ts, bar, systemStyle.Render(wrapped)))
+		msg := &m.messages[i]
+		if msg.renderedWidth != m.width || msg.rendered == "" {
+			msg.rendered = m.renderMessageBlock(msg)
+			msg.renderedWidth = m.width
 		}
+		b.WriteString(msg.rendered)
 	}
 
-	// Streaming text
+	// Streaming text — never cached (changes every frame), rendered plain.
 	if m.streamingID != "" && m.streamingText != "" {
 		b.WriteString("\n")
 		ts := timestampStyle.Render(time.Now().Format("15:04"))
 		bar := agentBarStyle.Render("▌")
 		label := agentLabelStyle.Render("IronClaw")
 		indicator := streamingStyle.Render(" ▊")
-		rendered := renderMarkdown(m.streamingText)
-		indentedRendered := indentWithBar(rendered, bar)
+		body := wrapText(m.streamingText, m.width-10)
 		b.WriteString(fmt.Sprintf("%s %s %s\n%s%s",
-			ts, bar, label, indentedRendered, indicator))
+			ts, bar, label, indentWithBar(body, bar), indicator))
 	}
 
 	return b.String()
+}
+
+// renderMessageBlock renders a single message block (header line + body).
+// Deterministic given the message content, role, timestamp, and width — so
+// the result is safe to cache.
+func (m *Model) renderMessageBlock(msg *chatMessage) string {
+	ts := timestampStyle.Render(msg.timestamp.Format("15:04"))
+	contentWidth := m.width - 10 // account for timestamp + bar + padding
+
+	switch msg.role {
+	case "user":
+		bar := userBarStyle.Render("▌")
+		label := userLabelStyle.Render(m.username)
+		wrapped := wrapText(msg.content, contentWidth)
+		return fmt.Sprintf("%s %s %s\n%s  %s", ts, bar, label, bar, wrapped)
+
+	case "agent":
+		bar := agentBarStyle.Render("▌")
+		label := agentLabelStyle.Render("IronClaw")
+		rendered := renderMarkdown(msg.content)
+		return fmt.Sprintf("%s %s %s\n%s",
+			ts, bar, label, indentWithBar(rendered, bar))
+
+	case "system":
+		bar := systemBarStyle.Render("·")
+		wrapped := wrapText(msg.content, contentWidth)
+		return fmt.Sprintf("%s %s %s", ts, bar, systemStyle.Render(wrapped))
+	}
+	return ""
 }
 
 // renderTypingIndicator renders the animated "waiting" dots.
@@ -191,8 +252,8 @@ func (m Model) renderTypingIndicator() string {
 // renderApprovalDialog renders the tool approval overlay.
 func (m Model) renderApprovalDialog() string {
 	input := m.approvalInput
-	if len(input) > 200 {
-		input = input[:200] + "..."
+	if r := []rune(input); len(r) > 200 {
+		input = string(r[:200]) + "..."
 	}
 	content := fmt.Sprintf(
 		"%s %s\n\n%s\n\n%s",
@@ -354,13 +415,46 @@ func formatTokenCount(n int64) string {
 	return fmt.Sprintf("%d", n)
 }
 
-// shortenPath truncates a path to maxLen by replacing the middle with "…".
+// shortenPath truncates a path to maxLen display columns by replacing the
+// middle with "…". Operates on runes so multi-byte characters are never
+// split mid-rune.
 func shortenPath(path string, maxLen int) string {
-	if len(path) <= maxLen {
+	if runewidth.StringWidth(path) <= maxLen {
 		return path
 	}
+	r := []rune(path)
+	if maxLen < 1 {
+		return "…"
+	}
 	half := (maxLen - 1) / 2
-	return path[:half] + "…" + path[len(path)-half:]
+	if half < 1 {
+		half = 1
+	}
+	if half*2 >= len(r) {
+		return path
+	}
+	return string(r[:half]) + "…" + string(r[len(r)-half:])
+}
+
+// truncateTail trims s to maxWidth display columns, appending "…" when it
+// overflows. Operates on runes so multi-byte characters are never split.
+func truncateTail(s string, maxWidth int) string {
+	if runewidth.StringWidth(s) <= maxWidth {
+		return s
+	}
+	if maxWidth < 1 {
+		return "…"
+	}
+	r := []rune(s)
+	w := 0
+	for i, c := range r {
+		cw := runewidth.RuneWidth(c)
+		if w+cw > maxWidth-1 { // reserve 1 col for the ellipsis
+			return string(r[:i]) + "…"
+		}
+		w += cw
+	}
+	return s
 }
 
 // indentWithBar prefixes each line of s with the bar rune for visual alignment.

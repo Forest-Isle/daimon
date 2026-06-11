@@ -14,6 +14,9 @@ import (
 // mode controls how key events are routed.
 type mode int
 
+// maxInputLines caps how tall the input box grows as wrapped text accumulates.
+const maxInputLines = 6
+
 const (
 	modeChat     mode = iota // normal: keys go to textarea
 	modeApproval             // y/n/a intercepted for tool approval
@@ -25,6 +28,13 @@ type chatMessage struct {
 	role      string // "user", "agent", "system"
 	content   string
 	timestamp time.Time
+
+	// Render cache: the rendered body (glamour for agent, wrapped for
+	// user/system) and the terminal width it was built at. renderedWidth==0
+	// means not yet cached. Reused across frames so glamour runs once per
+	// message instead of on every streaming tick.
+	rendered      string
+	renderedWidth int
 }
 
 // Model is the Bubble Tea model for the TUI channel.
@@ -74,9 +84,17 @@ type Model struct {
 	waitingForResponse bool
 	typingTick         int // animation frame 0-2
 
+	// Active tool activity (shown in status line while a tool runs).
+	activeTool        string
+	activeToolSummary string
+
 	// Environment
 	username string
 	cwd      string
+
+	// currentModel is the active LLM model name shown in the status bar.
+	// Empty until set via SetCurrentModel.
+	currentModel string
 
 	// Layout
 	width  int
@@ -90,7 +108,8 @@ func NewModel(version, username, cwd string) Model {
 	ta.Placeholder = fmt.Sprintf("Message IronClaw… (/help for commands)")
 	ta.Focus()
 	ta.CharLimit = 4096
-	ta.SetHeight(1) // single-line chat input
+	ta.SetHeight(1) // grows up to maxInputLines as the user types
+	ta.MaxHeight = maxInputLines
 	ta.ShowLineNumbers = false
 	ta.Prompt = userBarStyle.Render("❯")
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
@@ -114,6 +133,11 @@ func (m Model) Init() tea.Cmd {
 type ModelRoleEntry struct {
 	Role string
 	Name string
+}
+
+// SetCurrentModel sets the active model name shown in the status bar.
+func (m *Model) SetCurrentModel(name string) {
+	m.currentModel = name
 }
 
 // SetModelRoles populates the model selection list from config values.

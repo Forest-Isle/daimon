@@ -74,6 +74,13 @@ func (a *Adapter) SetModelRoles(provider, opus, sonnet, haiku string) {
 	}
 }
 
+// SetCurrentModel forwards the active model name to the TUI status bar.
+func (a *Adapter) SetCurrentModel(name string) {
+	if a.model != nil {
+		a.model.SetCurrentModel(name)
+	}
+}
+
 // SetArgCompleter injects a dynamic argument completer for slash command autocomplete.
 // Should be called before Start(). If called after Start(), the completer is
 // forwarded to the running Model immediately.
@@ -272,6 +279,18 @@ func (a *Adapter) SendFeedbackRequest(ctx context.Context, target channel.Messag
 	}
 }
 
+// ---------- channel.ToolActivitySender ----------
+
+// SendToolActivity surfaces live tool-execution activity in the TUI status
+// line. It is non-blocking and best-effort.
+func (a *Adapter) SendToolActivity(_ context.Context, _ channel.MessageTarget, toolName, summary string, done bool) error {
+	if a.program == nil {
+		return nil
+	}
+	a.program.Send(toolActivityMsg{toolName: toolName, summary: summary, done: done})
+	return nil
+}
+
 // ---------- channel.NotificationSender ----------
 
 // SendNotification displays a dim status notification in the TUI output area.
@@ -325,8 +344,6 @@ func (w *modelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m, cmd := w.Model.Update(msg)
 	if model, ok := m.(*Model); ok {
 		w.Model = model
-	} else if model, ok := m.(Model); ok {
-		w.Model = &model
 	}
 	return w, cmd
 }
