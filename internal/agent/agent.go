@@ -144,11 +144,6 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 		a.recordVerifiedStrategy(ctx, sess, msg)
 	}
 
-	// Fact extraction (async)
-	if a.deps.Memory.FactExtractor != nil && a.deps.Memory.LifecycleMgr != nil {
-		go a.extractFacts(context.WithoutCancel(ctx), sess.ID, msg.UserID, sess.History())
-	}
-
 	// Persist
 	if err := a.deps.Core.Sessions.Persist(ctx, sess); err != nil {
 		slog.Error("failed to persist session", "err", err)
@@ -158,7 +153,7 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 	return err
 }
 
-// buildSystemPrompt constructs the system prompt from personality + memories + skills + plan + profile.
+// buildSystemPrompt constructs the system prompt from personality + memories + skills + profile.
 func (a *Agent) buildSystemPrompt(ctx context.Context, sess *session.Session, userText string) string {
 	frame := a.buildPromptFrame(ctx, userText)
 	return a.renderPromptFrame(ctx, frame, sess)
@@ -224,10 +219,6 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 			content = result.Output
 			if result.Metadata["verify"] != "" {
 				sess.SetMetadata("verified_tool_success", "true")
-			}
-			// Append plan verification hint so the model sees it in the conversation
-			if hint := result.Metadata["plan_verify_hint"]; hint != "" {
-				content += "\n\n" + hint
 			}
 		}
 	}
@@ -354,41 +345,4 @@ func toolSequenceFromHistory(history []session.Message) []string {
 		tools = append(tools, m.ToolName)
 	}
 	return tools
-}
-
-// extractFacts runs fact extraction and lifecycle management in the background.
-func (a *Agent) extractFacts(ctx context.Context, sessID, userID string, history []session.Message) {
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("agent: panic in fact extraction", "panic", r)
-		}
-	}()
-	bgCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	var userMsg, assistantMsg string
-	for i := len(history) - 1; i >= 0; i-- {
-		switch {
-		case history[i].Role == "assistant" && assistantMsg == "":
-			assistantMsg = history[i].Content
-		case history[i].Role == "user" && userMsg == "":
-			userMsg = history[i].Content
-		}
-		if userMsg != "" && assistantMsg != "" {
-			break
-		}
-	}
-	if userMsg == "" || assistantMsg == "" {
-		return
-	}
-	facts, err := a.deps.Memory.FactExtractor.Extract(bgCtx, userMsg, assistantMsg)
-	if err != nil {
-		slog.Warn("agent: fact extraction failed", "err", err)
-		return
-	}
-	for _, fact := range facts {
-		if _, err := a.deps.Memory.LifecycleMgr.Process(bgCtx, fact, sessID, userID, memory.ScopeSession); err != nil {
-			slog.Warn("agent: lifecycle process failed", "err", err, "fact", fact.Content)
-		}
-	}
 }

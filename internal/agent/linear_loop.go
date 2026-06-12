@@ -23,8 +23,6 @@ func (LinearLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 		maxIter = 20
 	}
 
-	reflectionsUsed := 0
-
 	for iteration := 0; iteration < maxIter; iteration++ {
 		slog.Info("linear loop iteration", "iteration", iteration, "session", sess.ID)
 
@@ -35,13 +33,6 @@ func (LinearLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 		}
 
 		if len(toolCalls) == 0 {
-			// Reflexion: if the model converged but its plan still has incomplete
-			// steps, inject a self-critique turn and continue instead of stopping.
-			if prompt := a.maybeReflect(sess, reflectionsUsed); prompt != "" {
-				reflectionsUsed++
-				a.injectReflection(sess, prompt, reflectionsUsed)
-				continue
-			}
 			return nil
 		}
 

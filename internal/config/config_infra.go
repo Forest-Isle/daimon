@@ -13,7 +13,7 @@ type MemoryConfig struct {
 	EmbeddingModel        string            `yaml:"embedding_model"`
 	EmbeddingBaseURL      string            `yaml:"embedding_base_url"` // base URL for embedding API (default: https://api.openai.com/v1/embeddings)
 	OpenAIAPIKey          string            `yaml:"openai_api_key"`
-	FactExtraction        bool              `yaml:"fact_extraction"`        // enable LLM fact extraction
+	FactExtraction        bool              `yaml:"fact_extraction"`        // legacy key: enable lifecycle decisions for explicit memory saves
 	SimilarityThreshold   float64           `yaml:"similarity_threshold"`   // dedup threshold (default 0.85)
 	ConsolidationInterval time.Duration     `yaml:"consolidation_interval"` // session->user promotion interval
 	BM25Weight            float64           `yaml:"bm25_weight"`            // BM25 weight in RRF (default 0.4)

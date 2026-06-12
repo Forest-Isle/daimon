@@ -18,7 +18,7 @@ func TestVerifyInterceptor_FileWriteAddsVerificationMetadata(t *testing.T) {
 	runVerifyGit(t, repo, "add", "test.txt")
 	runVerifyGit(t, repo, "commit", "-m", "init")
 
-	vi := NewVerifyInterceptor(repo, nil)
+	vi := NewVerifyInterceptor(repo)
 	vi.logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	call := &ToolCall{
@@ -53,7 +53,7 @@ func TestVerifyInterceptor_FileWriteAddsVerificationMetadata(t *testing.T) {
 }
 
 func TestVerifyInterceptor_ReadOnlyToolPassesThrough(t *testing.T) {
-	vi := NewVerifyInterceptor(t.TempDir(), nil)
+	vi := NewVerifyInterceptor(t.TempDir())
 	expected := &ToolResult{Output: "ok", Metadata: map[string]string{"success": "true"}}
 
 	result, err := vi.Intercept(context.Background(), &ToolCall{ToolName: "file_read", Input: `{"path":"x"}`}, func(ctx context.Context, c *ToolCall) (*ToolResult, error) {
@@ -71,7 +71,7 @@ func TestVerifyInterceptor_ReadOnlyToolPassesThrough(t *testing.T) {
 }
 
 func TestVerifyInterceptor_FailedToolPassesThrough(t *testing.T) {
-	vi := NewVerifyInterceptor(t.TempDir(), nil)
+	vi := NewVerifyInterceptor(t.TempDir())
 	expected := &ToolResult{Output: "failed", Error: "boom", Metadata: map[string]string{"success": "false"}}
 
 	result, err := vi.Intercept(context.Background(), &ToolCall{ToolName: "file_write", Input: `{"path":"x","content":"y"}`}, func(ctx context.Context, c *ToolCall) (*ToolResult, error) {
@@ -92,7 +92,7 @@ func TestVerifyInterceptor_BashWriteCommandVerifies(t *testing.T) {
 	repo := initVerifyTestRepo(t)
 	runVerifyGit(t, repo, "commit", "--allow-empty", "-m", "init")
 
-	vi := NewVerifyInterceptor(repo, nil)
+	vi := NewVerifyInterceptor(repo)
 	call := &ToolCall{
 		ToolName: "bash",
 		Input:    `{"command":"echo hello > bash.txt"}`,
@@ -119,7 +119,7 @@ func TestVerifyInterceptor_BashWriteCommandVerifies(t *testing.T) {
 }
 
 func TestVerifyInterceptor_BashReadOnlyCommandSkipsVerification(t *testing.T) {
-	vi := NewVerifyInterceptor(t.TempDir(), nil)
+	vi := NewVerifyInterceptor(t.TempDir())
 	expected := &ToolResult{Output: `{"status":"ok"}`, Metadata: map[string]string{"status": "ok"}}
 
 	result, err := vi.Intercept(context.Background(), &ToolCall{ToolName: "bash", Input: `{"command":"pwd"}`}, func(ctx context.Context, c *ToolCall) (*ToolResult, error) {

@@ -38,13 +38,11 @@ const (
 	promptPriorityMemory      = 60
 	promptPrioritySkills      = 70
 	promptPriorityAgents      = 80
-	promptPriorityPlan        = 110
 	promptPriorityHooks       = 120
 )
 
 // PromptFrame is the per-turn prompt assembly unit. Static/session/turn layers
-// are prepared once, while iteration layers such as the active plan are rendered
-// from current session state before each model call.
+// are prepared once and rendered before each model call.
 type PromptFrame struct {
 	UserText string
 	Layers   []PromptLayer
@@ -187,20 +185,6 @@ func (a *Agent) renderPromptFrameForIteration(ctx context.Context, frame *Prompt
 
 func (f *PromptFrame) renderLayers(sess *session.Session) []PromptLayer {
 	layers := append([]PromptLayer(nil), f.Layers...)
-
-	if sess != nil {
-		if planJSON := sess.GetMetadata("plan"); planJSON != "" {
-			layers = append(layers, PromptLayer{
-				Key:      "iteration.current_plan",
-				Scope:    PromptScopeIteration,
-				Priority: promptPriorityPlan,
-				Content: "## Current Plan\n" +
-					"The plan below tracks your progress. Update it via the `plan` tool as you complete steps.\n\n" +
-					planJSON,
-			})
-		}
-	}
-
 	return layers
 }
 

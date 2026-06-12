@@ -43,7 +43,7 @@ tui:
 
 agent:
   max_iterations: 20
-  max_reflections: 3   # max self-correction turns when plan has incomplete steps (0=default 3, negative=disabled)
+  episode_enabled: true  # route inbound chat through the episode kernel; false falls back to legacy agent loop
   execution:
     max_parallel_tools: 3
   # Context compression strategy (Phase 1 performance optimization)
@@ -76,7 +76,7 @@ memory:
   storage_dir: ~/.daimon/memory      # 文件存储目录（默认）
   embedding_model: text-embedding-3-small  # 或 text-embedding-3-large（3072维，更高精度）
   openai_api_key: ${OPENAI_API_KEY}
-  # fact_extraction: true          # 启用 mem0 风格的事实提取
+  # fact_extraction: true          # legacy key: enable lifecycle decisions for explicit memory saves
   # similarity_threshold: 0.85     # 去重阈值
   # bm25_weight: 0.4               # BM25 权重
   # vector_weight: 0.6             # 向量权重

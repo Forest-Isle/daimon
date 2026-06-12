@@ -16,12 +16,11 @@ import (
 )
 
 type MemorySubsystem struct {
-	memStore      memory.Store
-	embedder      memory.EmbeddingProvider
-	factExtractor *memory.LLMFactExtractor
-	lifecycleMgr  *memory.LifecycleManager
-	cortex        *memory.UnifiedRetriever
-	memoryDir     string
+	memStore     memory.Store
+	embedder     memory.EmbeddingProvider
+	lifecycleMgr *memory.LifecycleManager
+	cortex       *memory.UnifiedRetriever
+	memoryDir    string
 }
 
 func (ms *MemorySubsystem) Name() string                  { return "memory" }
@@ -30,7 +29,6 @@ func (ms *MemorySubsystem) Stop(_ context.Context) error  { return nil }
 
 func (ms *MemorySubsystem) Store() memory.Store                        { return ms.memStore }
 func (ms *MemorySubsystem) Embedder() memory.EmbeddingProvider         { return ms.embedder }
-func (ms *MemorySubsystem) FactExtractor() *memory.LLMFactExtractor    { return ms.factExtractor }
 func (ms *MemorySubsystem) LifecycleManager() *memory.LifecycleManager { return ms.lifecycleMgr }
 func (ms *MemorySubsystem) Cortex() *memory.UnifiedRetriever           { return ms.cortex }
 func (ms *MemorySubsystem) MemoryDir() string                          { return ms.memoryDir }
@@ -87,12 +85,10 @@ func InitMemorySystem(features *FeatureSubsystem, cfg *config.Config, builder *a
 
 	if cfg.Memory.FactExtraction {
 		completer := &completerAdapter{provider: provider, model: cfg.LLM.Model}
-		ms.factExtractor = memory.NewLLMFactExtractor(completer, memCfg)
 		ms.lifecycleMgr = memory.NewLifecycleManager(ms.memStore, embedder, completer, memCfg)
 		ms.lifecycleMgr.SetAuditLogger(memory.NewAuditLogger(db.DB))
-		builder.Memory.FactExtractor = ms.factExtractor
 		builder.Memory.LifecycleMgr = ms.lifecycleMgr
-		slog.Info("memory: fact extraction and lifecycle management enabled")
+		slog.Info("memory: lifecycle management enabled")
 	}
 
 	if toolsReg != nil {

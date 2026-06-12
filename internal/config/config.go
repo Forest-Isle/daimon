@@ -130,7 +130,8 @@ func defaultConfig() Config {
 			Timeout: 30 * time.Second,
 		},
 		Agent: AgentConfig{
-			MaxIterations: 20,
+			MaxIterations:  20,
+			EpisodeEnabled: true,
 			Execution: ExecutionConfig{
 				MaxParallelTools:       3,
 				ApprovalTimeoutSeconds: 120,

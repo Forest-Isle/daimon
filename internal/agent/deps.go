@@ -29,12 +29,11 @@ type CoreDeps struct {
 // MemoryDeps holds optional memory subsystem dependencies. Call WithDefaults()
 // to fill nil interface fields with no-op implementations.
 type MemoryDeps struct {
-	Store         memory.Store             // default: memory.NoopStore()
-	Cortex        *memory.UnifiedRetriever // nil = direct Store fallback for prompt memory injection
-	LifecycleMgr  *memory.LifecycleManager // nil = NOOP lifecycle decisions
-	ContextMgr    ContextManager           // default: noopContextManager{}
-	FactExtractor *memory.LLMFactExtractor // nil = no extraction
-	BaseDir       string                   // base directory for file-based memory storage
+	Store        memory.Store             // default: memory.NoopStore()
+	Cortex       *memory.UnifiedRetriever // nil = direct Store fallback for prompt memory injection
+	LifecycleMgr *memory.LifecycleManager // nil = NOOP lifecycle decisions
+	ContextMgr   ContextManager           // default: noopContextManager{}
+	BaseDir      string                   // base directory for file-based memory storage
 }
 
 // WithDefaults returns a copy of MemoryDeps with nil interface fields filled.

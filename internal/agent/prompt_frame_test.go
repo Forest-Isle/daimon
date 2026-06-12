@@ -114,7 +114,7 @@ func TestPromptFrameLayerOrdering(t *testing.T) {
 	}
 }
 
-func TestPromptFrameRendersPlanAsIterationLayer(t *testing.T) {
+func TestPromptFrameIgnoresLegacyPlanMetadata(t *testing.T) {
 	deps := AgentDeps{
 		Core: CoreDeps{
 			Cfg:   config.AgentConfig{SystemPrompt: "You are IronClaw."},
@@ -132,8 +132,8 @@ func TestPromptFrameRendersPlanAsIterationLayer(t *testing.T) {
 
 	sess.SetMetadata("plan", `{"goal":"Ship PromptFrame","steps":[{"id":"1","status":"in_progress"}]}`)
 	second := a.renderPromptFrame(context.Background(), frame, sess)
-	if !strings.Contains(second, "Current Plan") || !strings.Contains(second, "Ship PromptFrame") {
-		t.Fatalf("second render missing dynamic plan: %s", second)
+	if strings.Contains(second, "Current Plan") || strings.Contains(second, "Ship PromptFrame") {
+		t.Fatalf("legacy plan metadata should not be injected: %s", second)
 	}
 
 	for _, layer := range frame.Layers {
@@ -250,7 +250,6 @@ func TestPromptFrameRenderedEventIncludesMetrics(t *testing.T) {
 		ID:       "sess_metrics",
 		Metadata: map[string]string{},
 	}
-	sess.SetMetadata("plan", `{"goal":"Measure PromptFrame","steps":[{"id":"1","status":"in_progress"}]}`)
 
 	rendered := a.renderPromptFrameForIteration(context.Background(), frame, sess, 2)
 	event := waitPromptFrameRendered(t, events)
@@ -270,8 +269,8 @@ func TestPromptFrameRenderedEventIncludesMetrics(t *testing.T) {
 	if event.ScopeCounts[PromptScopeTurn] != 1 {
 		t.Fatalf("turn scope count = %d, want 1", event.ScopeCounts[PromptScopeTurn])
 	}
-	if event.ScopeCounts[PromptScopeIteration] != 1 {
-		t.Fatalf("iteration scope count = %d, want 1", event.ScopeCounts[PromptScopeIteration])
+	if event.ScopeCounts[PromptScopeIteration] != 0 {
+		t.Fatalf("iteration scope count = %d, want 0", event.ScopeCounts[PromptScopeIteration])
 	}
 	if event.CharacterCount != len(rendered) {
 		t.Fatalf("CharacterCount = %d, want %d", event.CharacterCount, len(rendered))
@@ -279,8 +278,8 @@ func TestPromptFrameRenderedEventIncludesMetrics(t *testing.T) {
 	if event.EstimatedTokens != int(float64(len(rendered))*0.5) {
 		t.Fatalf("EstimatedTokens = %d, want %d", event.EstimatedTokens, int(float64(len(rendered))*0.5))
 	}
-	if !containsString(event.LayerKeys, "iteration.current_plan") {
-		t.Fatalf("LayerKeys missing iteration.current_plan: %#v", event.LayerKeys)
+	if containsString(event.LayerKeys, "iteration.current_plan") {
+		t.Fatalf("LayerKeys should not include iteration.current_plan: %#v", event.LayerKeys)
 	}
 }
 

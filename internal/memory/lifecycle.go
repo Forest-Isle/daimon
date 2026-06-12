@@ -229,7 +229,7 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 
 	metadata := map[string]string{
 		"category": fact.Category,
-		"source":   "fact_extraction",
+		"source":   "memory_lifecycle",
 	}
 	if relatedTo != "" {
 		metadata["related_to"] = relatedTo
@@ -273,7 +273,7 @@ func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, 
 
 	metadata := map[string]string{
 		"category":     fact.Category,
-		"source":       "fact_extraction",
+		"source":       "memory_lifecycle",
 		"updated_from": targetID,
 	}
 	if len(conflictingIDs) > 0 {

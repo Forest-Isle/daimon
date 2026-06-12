@@ -26,6 +26,8 @@ type ToolSubsystem struct {
 	UserHookMgr      *hook.UserHookManager
 	ResultStore      *tool.ResultStore
 	CodebaseIndex    *agent.CodebaseIndex
+	WorldStore       *world.Store
+	WorldIdentity    world.Identity
 }
 
 func (ts *ToolSubsystem) Name() string                  { return "tool" }
@@ -38,19 +40,16 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	ts.DeferredCatalog = tool.NewDeferredCatalog()
 	policy := tool.NewPolicy(cfg.Tools.Bash.BlockedCommands)
 
-	// Plan tool is always available — the model uses it to self-manage multi-step tasks.
-	planStore := &sessionPlanStore{sessions: sessions}
-	ts.Registry.Register(tool.NewPlanTool(planStore))
 	ts.Registry.Register(tool.NewToolSearchTool(ts.DeferredCatalog, ts.Registry))
 
-	identity := world.Identity{Dir: filepath.Join(appdir.BaseDir(), "world", "identity")}
-	if err := identity.EnsureDir(); err != nil {
+	ts.WorldIdentity = world.Identity{Dir: filepath.Join(appdir.BaseDir(), "world", "identity")}
+	if err := ts.WorldIdentity.EnsureDir(); err != nil {
 		slog.Warn("world: ensure identity dir failed", "err", err)
 	}
-	worldStore := world.NewStore(db.DB)
-	ts.Registry.Register(tool.NewWorldReadTool(worldStore, identity))
-	ts.Registry.Register(tool.NewCommitmentTool(worldStore))
-	ts.Registry.Register(tool.NewWorldEditTool(identity))
+	ts.WorldStore = world.NewStore(db.DB)
+	ts.Registry.Register(tool.NewWorldReadTool(ts.WorldStore, ts.WorldIdentity))
+	ts.Registry.Register(tool.NewCommitmentTool(ts.WorldStore))
+	ts.Registry.Register(tool.NewWorldEditTool(ts.WorldIdentity))
 
 	if cfg.Tools.Bash.Enabled {
 		ts.Registry.Register(tool.NewBashTool(cfg.Tools.Bash.Timeout, cfg.Tools.Bash.RequiresApproval, policy))
@@ -127,7 +126,7 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 		permissionProfilesFromConfig(cfg))
 
 	audit, _ := tool.NewAuditInterceptor("")
-	verify := tool.NewVerifyInterceptor(".", planStore)
+	verify := tool.NewVerifyInterceptor(".")
 	interceptors := []tool.ToolInterceptor{
 		tool.NewPermissionInterceptor(ts.PermEngine,
 			tool.WithNotifier(NewGatewayToolNotifier()),
