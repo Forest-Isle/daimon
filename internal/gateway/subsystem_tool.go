@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Forest-Isle/daimon/internal/action"
 	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/appdir"
 	"github.com/Forest-Isle/daimon/internal/config"
@@ -28,6 +29,7 @@ type ToolSubsystem struct {
 	CodebaseIndex    *agent.CodebaseIndex
 	WorldStore       *world.Store
 	WorldIdentity    world.Identity
+	ActionStore      *action.Store
 }
 
 func (ts *ToolSubsystem) Name() string                  { return "tool" }
@@ -50,6 +52,8 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	ts.Registry.Register(tool.NewWorldReadTool(ts.WorldStore, ts.WorldIdentity))
 	ts.Registry.Register(tool.NewCommitmentTool(ts.WorldStore))
 	ts.Registry.Register(tool.NewWorldEditTool(ts.WorldIdentity))
+
+	ts.ActionStore = action.NewStore(db.DB)
 
 	if cfg.Tools.Bash.Enabled {
 		ts.Registry.Register(tool.NewBashTool(cfg.Tools.Bash.Timeout, cfg.Tools.Bash.RequiresApproval, policy))
@@ -143,6 +147,10 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	if audit != nil {
 		interceptors = append(interceptors, audit)
 	}
+	// Action interceptor records governed (non-read-only) executions in the
+	// trust ledger and stamps the reversibility class. It sits inside the
+	// permission gate so it only sees allowed calls and the raw execution result.
+	interceptors = append(interceptors, action.NewInterceptor(ts.ActionStore, nil))
 	// Activity reporter sits innermost so it wraps the real tool execution
 	// tightest — it reports only tools that passed permission and hook gates,
 	// avoiding a flicker for denied/blocked calls.
