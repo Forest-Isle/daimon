@@ -2,16 +2,16 @@ package gateway
 
 import (
 	"context"
+	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/config"
 	"log/slog"
-	"github.com/Forest-Isle/IronClaw/internal/agent"
-	"github.com/Forest-Isle/IronClaw/internal/config"
 )
 
 type AgentSubsystem struct {
 	Provider agent.Provider
 }
 
-func (as *AgentSubsystem) Name() string                { return "agent" }
+func (as *AgentSubsystem) Name() string                  { return "agent" }
 func (as *AgentSubsystem) Start(_ context.Context) error { return nil }
 func (as *AgentSubsystem) Stop(_ context.Context) error  { return nil }
 

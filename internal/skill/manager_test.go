@@ -108,7 +108,7 @@ func TestLoadDir_DedupFirstLoadedWins(t *testing.T) {
 
 func TestLoadDir_NonExistentDir(t *testing.T) {
 	m := New()
-	if err := m.LoadDir("/tmp/ironclaw-does-not-exist-12345"); err != nil {
+	if err := m.LoadDir("/tmp/daimon-does-not-exist-12345"); err != nil {
 		t.Fatalf("non-existent dir should return nil, got %v", err)
 	}
 }

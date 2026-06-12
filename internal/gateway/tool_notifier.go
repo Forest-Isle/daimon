@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // GatewayToolNotifier implements tool.ToolNotifier by logging tool

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Forest-Isle/daimon/internal/appdir"
 )
 
 type HookEventType string
@@ -279,11 +281,7 @@ func parseUserHook(path, name string) (UserHook, bool) {
 }
 
 func defaultHooksDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join("~", ".ironclaw", "hooks")
-	}
-	return filepath.Join(home, ".ironclaw", "hooks")
+	return filepath.Join(appdir.BaseDir(), "hooks")
 }
 
 func exitCode(err error) int {

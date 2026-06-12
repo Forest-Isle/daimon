@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Forest-Isle/daimon/internal/appdir"
 )
 
 // ResultStore handles disk persistence of large tool results.
@@ -18,20 +20,16 @@ type ResultStore struct {
 
 // StoredResult represents a persisted tool result with an inline preview.
 type StoredResult struct {
-	Preview  string // truncated preview kept in context
-	DiskPath string // path to full output on disk
-	FullSize int    // size of full output in bytes
+	Preview   string // truncated preview kept in context
+	Reference string // stable in-context reference for this stored result
+	DiskPath  string // path to full output on disk
+	FullSize  int    // size of full output in bytes
 }
 
 // NewResultStore creates a new result store with the given configuration.
 func NewResultStore(cacheDir string, thresholdBytes, previewChars, ttlHours int) *ResultStore {
 	if cacheDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			cacheDir = "/tmp/ironclaw-cache/tool-results"
-		} else {
-			cacheDir = filepath.Join(home, ".ironclaw", "cache", "tool-results")
-		}
+		cacheDir = filepath.Join(appdir.BaseDir(), "cache", "tool-results")
 	}
 	return &ResultStore{
 		cacheDir:       cacheDir,
@@ -59,10 +57,15 @@ func (rs *ResultStore) Store(sessionID, toolUseID, output string) (*StoredResult
 	}
 
 	preview := TruncateAtLineBoundary(output, rs.previewChars)
+	reference := fmt.Sprintf("tool-result:%s:%s", sessionID, toolUseID)
 	return &StoredResult{
-		Preview:  preview + fmt.Sprintf("\n[TRUNCATED — full output: %s]", path),
-		DiskPath: path,
-		FullSize: len(output),
+		Preview: preview + fmt.Sprintf(
+			"\n\n[Tool result persisted]\nReference: %s\nFull output path: %s\nFull size: %d bytes\nUse file_read on the full output path if the omitted content is needed.",
+			reference, path, len(output),
+		),
+		Reference: reference,
+		DiskPath:  path,
+		FullSize:  len(output),
 	}, nil
 }
 

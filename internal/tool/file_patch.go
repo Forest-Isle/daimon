@@ -48,8 +48,12 @@ func (t *FilePatchTool) ExtractPaths(input []byte) ([]string, error) {
 		return nil, err
 	}
 	path := in.Path
-	if path != "" && !filepath.IsAbs(path) {
-		path = filepath.Join(t.workingDir, path)
+	if path != "" {
+		resolved, err := resolvePathInRoot(t.workingDir, path)
+		if err != nil {
+			return nil, err
+		}
+		path = resolved
 	}
 	if p := CanonicalizePath(path); p != "" {
 		return []string{p}, nil
@@ -123,9 +127,9 @@ func (t *FilePatchTool) Execute(ctx context.Context, input []byte) (Result, erro
 		}, nil
 	}
 
-	resolvedPath := in.Path
-	if !filepath.IsAbs(resolvedPath) {
-		resolvedPath = filepath.Join(t.workingDir, resolvedPath)
+	resolvedPath, err := resolvePathInRoot(t.workingDir, in.Path)
+	if err != nil {
+		return Result{Error: err.Error()}, nil
 	}
 
 	data, err := os.ReadFile(resolvedPath)

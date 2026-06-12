@@ -51,7 +51,10 @@ func (t *FileListTool) Execute(ctx context.Context, input []byte) (Result, error
 		return Result{Error: "path is required"}, nil
 	}
 
-	path := ResolveWorkPath(ctx, in.Path)
+	path, err := ResolveWorkPath(ctx, in.Path)
+	if err != nil {
+		return Result{Error: err.Error()}, nil
+	}
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return Result{Error: err.Error()}, nil

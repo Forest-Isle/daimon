@@ -50,7 +50,7 @@ func (m *Manager) LoadBuiltin() error {
 		}
 
 		// Write to temp file for ParseSkill
-		tmpDir, err := os.MkdirTemp("", "ironclaw-skill-*")
+		tmpDir, err := os.MkdirTemp("", "daimon-skill-*")
 		if err != nil {
 			continue
 		}

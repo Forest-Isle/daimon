@@ -11,18 +11,24 @@ import (
 func TestResolveWorkPath(t *testing.T) {
 	// No workdir in context: path returned verbatim (the no-op default that
 	// keeps all existing callers byte-for-byte identical).
-	if got := ResolveWorkPath(context.Background(), "foo/bar.txt"); got != "foo/bar.txt" {
+	if got, err := ResolveWorkPath(context.Background(), "foo/bar.txt"); err != nil || got != "foo/bar.txt" {
 		t.Errorf("empty workdir: got %q, want verbatim", got)
 	}
 
 	ctx := WithWorkDir(context.Background(), "/work/dir")
 	// Relative path joins under the workdir.
-	if got := ResolveWorkPath(ctx, "sub/file.txt"); got != "/work/dir/sub/file.txt" {
+	if got, err := ResolveWorkPath(ctx, "sub/file.txt"); err != nil || got != "/work/dir/sub/file.txt" {
 		t.Errorf("relative path: got %q, want /work/dir/sub/file.txt", got)
 	}
-	// Absolute path passes through unchanged (no jail — deliberate).
-	if got := ResolveWorkPath(ctx, "/etc/hosts"); got != "/etc/hosts" {
-		t.Errorf("absolute path: got %q, want verbatim", got)
+	// Absolute paths are allowed only when they remain inside the workdir.
+	if got, err := ResolveWorkPath(ctx, "/work/dir/sub/file.txt"); err != nil || got != "/work/dir/sub/file.txt" {
+		t.Errorf("absolute in workdir: got %q err %v", got, err)
+	}
+	if _, err := ResolveWorkPath(ctx, "/etc/hosts"); err == nil {
+		t.Error("absolute path outside workdir should be rejected")
+	}
+	if _, err := ResolveWorkPath(ctx, "../outside.txt"); err == nil {
+		t.Error("relative path outside workdir should be rejected")
 	}
 }
 

@@ -3,10 +3,10 @@ package agent
 import (
 	"context"
 
-	"github.com/Forest-Isle/IronClaw/internal/memory"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/store"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // SubagentContext provides isolation and inheritance control for sub-agents.

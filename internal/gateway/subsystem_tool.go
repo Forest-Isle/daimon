@@ -3,21 +3,23 @@ package gateway
 import (
 	"context"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/agent"
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/hook"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/store"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/appdir"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/hook"
+	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/world"
 )
 
 type ToolSubsystem struct {
 	Registry         *tool.Registry
+	DeferredCatalog  *tool.DeferredCatalog
 	InterceptorChain *tool.InterceptorChain
 	HookMgr          *hook.Manager
 	PermEngine       *tool.PermissionEngine
@@ -26,18 +28,29 @@ type ToolSubsystem struct {
 	CodebaseIndex    *agent.CodebaseIndex
 }
 
-func (ts *ToolSubsystem) Name() string                { return "tool" }
+func (ts *ToolSubsystem) Name() string                  { return "tool" }
 func (ts *ToolSubsystem) Start(_ context.Context) error { return nil }
 func (ts *ToolSubsystem) Stop(_ context.Context) error  { return nil }
 
-func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsystem, sessions *session.Manager, channels *ChannelSubsystem, db *store.DB) *ToolSubsystem {
+func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsystem, sessions *session.Manager, channels *ChannelSubsystem, db *store.DB, bus agent.EventBus) *ToolSubsystem {
 	ts := &ToolSubsystem{}
 	ts.Registry = tool.NewRegistry()
+	ts.DeferredCatalog = tool.NewDeferredCatalog()
 	policy := tool.NewPolicy(cfg.Tools.Bash.BlockedCommands)
 
 	// Plan tool is always available — the model uses it to self-manage multi-step tasks.
 	planStore := &sessionPlanStore{sessions: sessions}
 	ts.Registry.Register(tool.NewPlanTool(planStore))
+	ts.Registry.Register(tool.NewToolSearchTool(ts.DeferredCatalog, ts.Registry))
+
+	identity := world.Identity{Dir: filepath.Join(appdir.BaseDir(), "world", "identity")}
+	if err := identity.EnsureDir(); err != nil {
+		slog.Warn("world: ensure identity dir failed", "err", err)
+	}
+	worldStore := world.NewStore(db.DB)
+	ts.Registry.Register(tool.NewWorldReadTool(worldStore, identity))
+	ts.Registry.Register(tool.NewCommitmentTool(worldStore))
+	ts.Registry.Register(tool.NewWorldEditTool(identity))
 
 	if cfg.Tools.Bash.Enabled {
 		ts.Registry.Register(tool.NewBashTool(cfg.Tools.Bash.Timeout, cfg.Tools.Bash.RequiresApproval, policy))
@@ -68,7 +81,9 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 			ts.CodebaseIndex.IsAvailable,
 			func(query string, topK int) ([]tool.CodeSearchResult, error) {
 				results, err := ts.CodebaseIndex.Search(ctx, query, topK)
-				if err != nil { return nil, err }
+				if err != nil {
+					return nil, err
+				}
 				out := make([]tool.CodeSearchResult, 0, len(results))
 				for _, chunk := range results {
 					out = append(out, tool.CodeSearchResult{
@@ -82,39 +97,53 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	}
 
 	preToolUseCfg := make([]hook.HandlerConfig, len(cfg.Hooks.PreToolUse))
-	for i, h := range cfg.Hooks.PreToolUse { preToolUseCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config} }
+	for i, h := range cfg.Hooks.PreToolUse {
+		preToolUseCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
+	}
 	postToolUseCfg := make([]hook.HandlerConfig, len(cfg.Hooks.PostToolUse))
-	for i, h := range cfg.Hooks.PostToolUse { postToolUseCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config} }
+	for i, h := range cfg.Hooks.PostToolUse {
+		postToolUseCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
+	}
 	onUserMsgCfg := make([]hook.HandlerConfig, len(cfg.Hooks.OnUserMessage))
-	for i, h := range cfg.Hooks.OnUserMessage { onUserMsgCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config} }
+	for i, h := range cfg.Hooks.OnUserMessage {
+		onUserMsgCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
+	}
 	preCompactCfg := make([]hook.HandlerConfig, len(cfg.Hooks.PreCompact))
-	for i, h := range cfg.Hooks.PreCompact { preCompactCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config} }
+	for i, h := range cfg.Hooks.PreCompact {
+		preCompactCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
+	}
 	ts.HookMgr = hook.BuildManager(preToolUseCfg, postToolUseCfg, onUserMsgCfg, preCompactCfg, &hook.BuildManagerOpts{DB: db.DB})
 	slog.Info("hook system initialized")
 
-	if home, err := os.UserHomeDir(); err == nil {
-		hooksDir := filepath.Join(home, ".ironclaw", "hooks")
-		ts.UserHookMgr = hook.NewUserHookManager(hooksDir, 30*time.Second)
-		slog.Info("user hook system initialized", "dir", hooksDir, "hooks", len(ts.UserHookMgr.ListHooks()))
-	}
+	hooksDir := filepath.Join(appdir.BaseDir(), "hooks")
+	ts.UserHookMgr = hook.NewUserHookManager(hooksDir, 30*time.Second)
+	slog.Info("user hook system initialized", "dir", hooksDir, "hooks", len(ts.UserHookMgr.ListHooks()))
 
 	permRules := make([]tool.PermissionRule, len(cfg.Permissions.Rules))
 	for i, r := range cfg.Permissions.Rules {
 		permRules[i] = tool.PermissionRule{Tool: r.Tool, Pattern: r.Pattern, PathPattern: r.PathPattern, Action: r.Action}
 	}
-	ts.PermEngine = tool.NewPermissionEngine(permRules, cfg.Permissions.Default, policy)
+	ts.PermEngine = tool.NewPermissionEngineWithProfiles(permRules, cfg.Permissions.Default, policy,
+		permissionProfilesFromConfig(cfg))
 
 	audit, _ := tool.NewAuditInterceptor("")
 	verify := tool.NewVerifyInterceptor(".", planStore)
 	interceptors := []tool.ToolInterceptor{
 		tool.NewPermissionInterceptor(ts.PermEngine,
 			tool.WithNotifier(NewGatewayToolNotifier()),
-			tool.WithApprover(NewGatewayToolApprover(sessions, channels))),
+			tool.WithApprover(NewGatewayToolApprover(sessions, channels)),
+			tool.WithPermissionAuditSink(db),
+			tool.WithPermissionDecisionReporter(NewGatewayPermissionDecisionReporter(bus))),
 		tool.NewHookInterceptor(ts.HookMgr),
 		newUserHookInterceptor(ts.UserHookMgr),
+		tool.NewReadBeforeEditInterceptor(nil),
 	}
-	if cfg.Tools.Verify.Enabled { interceptors = append(interceptors, verify) }
-	if audit != nil { interceptors = append(interceptors, audit) }
+	if cfg.Tools.Verify.Enabled {
+		interceptors = append(interceptors, verify)
+	}
+	if audit != nil {
+		interceptors = append(interceptors, audit)
+	}
 	// Activity reporter sits innermost so it wraps the real tool execution
 	// tightest — it reports only tools that passed permission and hook gates,
 	// avoiding a flicker for denied/blocked calls.
@@ -141,27 +170,66 @@ func newCodebaseIndexFromCfg(cfg *config.Config) *agent.CodebaseIndex {
 	return agent.NewCodebaseIndex(memoryEmbeddingAdapter{provider: p}, agent.IndexConfig{ChunkSize: 50, Overlap: 10, EmbeddingModel: cfg.Memory.EmbeddingModel})
 }
 
+func permissionProfilesFromConfig(cfg *config.Config) map[tool.ToolChannelClass]tool.PermissionProfile {
+	defaultAction := tool.ParsePermissionAction(cfg.Permissions.Default)
+	profiles := tool.DefaultPermissionProfiles(defaultAction)
+	for name, override := range cfg.Permissions.Profiles {
+		class := tool.ToolChannelClass(name)
+		profile, ok := profiles[class]
+		if !ok {
+			continue
+		}
+		if override.Default != "" {
+			profile.DefaultAction = tool.ParsePermissionAction(override.Default)
+		}
+		if override.RequireApprovalForWrite != nil {
+			profile.RequireApprovalForWrite = *override.RequireApprovalForWrite
+		}
+		if override.RequireApprovalForDestructive != nil {
+			profile.RequireApprovalForDestructive = *override.RequireApprovalForDestructive
+		}
+		if override.RequireApprovalForNetwork != nil {
+			profile.RequireApprovalForNetwork = *override.RequireApprovalForNetwork
+		}
+		profiles[class] = profile
+	}
+	return profiles
+}
+
 type memoryEmbeddingAdapter struct{ provider memory.EmbeddingProvider }
 
 func (a memoryEmbeddingAdapter) Embed(ctx context.Context, text string) ([]float64, error) {
 	e, err := a.provider.Embed(ctx, text)
-	if err != nil { return nil, err }
-	if len(e) == 0 { return nil, nil }
+	if err != nil {
+		return nil, err
+	}
+	if len(e) == 0 {
+		return nil, nil
+	}
 	out := make([]float64, len(e))
-	for i := range e { out[i] = float64(e[i]) }
+	for i := range e {
+		out[i] = float64(e[i])
+	}
 	return out, nil
 }
 
 type userHookInterceptor struct{ mgr *hook.UserHookManager }
 
-func newUserHookInterceptor(mgr *hook.UserHookManager) *userHookInterceptor { return &userHookInterceptor{mgr: mgr} }
+func newUserHookInterceptor(mgr *hook.UserHookManager) *userHookInterceptor {
+	return &userHookInterceptor{mgr: mgr}
+}
 func (u *userHookInterceptor) Name() string { return "user_hooks" }
 func (u *userHookInterceptor) Intercept(ctx context.Context, call *tool.ToolCall, next tool.InterceptorFunc) (*tool.ToolResult, error) {
-	if u.mgr == nil { return next(ctx, call) }
+	if u.mgr == nil {
+		return next(ctx, call)
+	}
 	u.mgr.RunHooks(ctx, hook.HookPreToolUse, map[string]any{"tool_name": call.ToolName, "tool_input": call.Input})
 	result, err := next(ctx, call)
 	output, toolErr := "", ""
-	if result != nil { output = result.Output; toolErr = result.Error }
+	if result != nil {
+		output = result.Output
+		toolErr = result.Error
+	}
 	u.mgr.RunHooks(ctx, hook.HookPostToolUse, map[string]any{"tool_name": call.ToolName, "tool_input": call.Input, "tool_output": output, "tool_error": toolErr})
 	return result, err
 }

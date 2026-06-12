@@ -1,7 +1,0 @@
-{"type":"server-started","port":58747,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:58747","screen_dir":"/Users/wuqisen/dev/IronClaw/.superpowers/brainstorm/42988-1779779321/content","state_dir":"/Users/wuqisen/dev/IronClaw/.superpowers/brainstorm/42988-1779779321/state"}
-{"type":"screen-added","file":"/Users/wuqisen/dev/IronClaw/.superpowers/brainstorm/42988-1779779321/content/package-split-overview.html"}
-{"type":"screen-added","file":"/Users/wuqisen/dev/IronClaw/.superpowers/brainstorm/42988-1779779321/content/package-interfaces.html"}
-{"type":"screen-added","file":"/Users/wuqisen/dev/IronClaw/.superpowers/brainstorm/42988-1779779321/content/migration-phases.html"}
-{"type":"screen-added","file":"/Users/wuqisen/dev/IronClaw/.superpowers/brainstorm/42988-1779779321/content/waiting.html"}
-{"type":"screen-added","file":"/Users/wuqisen/dev/IronClaw/.superpowers/brainstorm/42988-1779779321/content/plan-draft.html"}
-{"type":"server-stopped","reason":"idle timeout"}

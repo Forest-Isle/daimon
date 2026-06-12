@@ -4,25 +4,28 @@ import "github.com/charmbracelet/lipgloss"
 
 var (
 	// ─── Palette ──────────────────────────────────────────────
-	colorPurple   = lipgloss.Color("#8B6CE0")
-	colorGreen    = lipgloss.Color("#2EC49C")
-	colorGold     = lipgloss.Color("#F0B828")
-	colorRed      = lipgloss.Color("#E84D5B")
-	colorGray     = lipgloss.Color("#787882")
-	colorDimGray  = lipgloss.Color("#4A4A52")
-	colorWhite    = lipgloss.Color("#E8E8EC")
-	colorBgPurple = lipgloss.Color("#1E1B2E")
-	colorBgGreen  = lipgloss.Color("#1A2A24")
+	colorPrimary     = lipgloss.Color("#8B7CF6")
+	colorPrimarySoft = lipgloss.Color("#B8B2FF")
+	colorCyan        = lipgloss.Color("#4CC9F0")
+	colorGreen       = lipgloss.Color("#35D39D")
+	colorGold        = lipgloss.Color("#F2C14E")
+	colorRed         = lipgloss.Color("#FF5C6C")
+	colorText        = lipgloss.Color("#ECECF1")
+	colorMuted       = lipgloss.Color("#9A9AA6")
+	colorDim         = lipgloss.Color("#5B6070")
+	colorPanelBorder = lipgloss.Color("#343A46")
+	colorSurface     = lipgloss.Color("#151923")
+	colorStatusBg    = lipgloss.Color("#10131A")
 
 	// Header
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(colorPurple).
+			Foreground(colorText).
+			Background(colorSurface).
 			Padding(0, 1)
 
 	headerLabelStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#C4B5F5"))
+				Foreground(colorCyan)
 
 	// Chat message labels
 	userLabelStyle = lipgloss.NewStyle().
@@ -31,14 +34,14 @@ var (
 
 	agentLabelStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorPurple)
+			Foreground(colorPrimarySoft)
 
 	systemStyle = lipgloss.NewStyle().
 			Italic(true).
-			Foreground(colorDimGray)
+			Foreground(colorDim)
 
 	timestampStyle = lipgloss.NewStyle().
-			Foreground(colorDimGray).
+			Foreground(colorDim).
 			Width(5)
 
 	// Message bar accents
@@ -46,141 +49,144 @@ var (
 			Foreground(colorGreen)
 
 	agentBarStyle = lipgloss.NewStyle().
-			Foreground(colorPurple)
+			Foreground(colorPrimary)
 
 	systemBarStyle = lipgloss.NewStyle().
-			Foreground(colorDimGray)
+			Foreground(colorDim)
 
 	// Approval dialog
 	approvalBoxStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("#FF9900")).
+				BorderForeground(colorGold).
 				Padding(0, 1).
 				MarginTop(1)
 
 	approvalToolStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("#FF9900"))
+				Foreground(colorGold)
 
 	approvalHintStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#626262")).
+				Foreground(colorMuted).
 				Italic(true)
 
 	// Feedback dialog
 	feedbackBoxStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("#04B575")).
+				BorderForeground(colorGreen).
 				Padding(0, 1).
 				MarginTop(1)
 
 	// Input area
 	inputBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPurple).
+			BorderForeground(colorPrimary).
 			Padding(0, 1)
 
 	// Streaming indicator
 	streamingStyle = lipgloss.NewStyle().
-			Foreground(colorPurple).
+			Foreground(colorPrimary).
 			Italic(true)
 
 	// Typing indicator
 	typingDotActiveStyle = lipgloss.NewStyle().
-				Foreground(colorPurple).
+				Foreground(colorCyan).
 				Bold(true)
 
 	typingDotInactiveStyle = lipgloss.NewStyle().
-				Foreground(colorDimGray)
+				Foreground(colorDim)
 
 	// Suggestion box
 	suggestionBoxStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(colorPurple).
+				BorderForeground(colorCyan).
 				Padding(0, 1).
 				MarginBottom(1)
 
 	suggestionHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(colorPurple)
+				Foreground(colorCyan)
+
+	suggestionMetaStyle = lipgloss.NewStyle().
+				Foreground(colorMuted)
 
 	suggestionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA"))
+			Foreground(colorText)
 
 	selectedSuggestionStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("#FAFAFA")).
-				Background(colorPurple)
+				Foreground(colorText).
+				Background(lipgloss.Color("#2B3452"))
 
 	suggestionHintStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#626262")).
+				Foreground(colorMuted).
 				Italic(true)
 
 	statusDimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262"))
+			Foreground(colorDim)
 
 	statusPhaseStyle = lipgloss.NewStyle().
-				Foreground(colorPurple)
+				Foreground(colorPrimary)
 
 	// Stats detail panel
 	statsPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#444444")).
+			BorderForeground(colorPanelBorder).
 			Padding(0, 1)
 
 	statsHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(colorPurple)
+				Foreground(colorPrimarySoft)
 
 	statsLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#929292"))
+			Foreground(colorMuted)
 
 	statsValueStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA"))
+			Foreground(colorText)
 
 	// Welcome screen
 	welcomeBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPurple).
+			BorderForeground(colorPanelBorder).
 			Padding(1, 2).
 			Align(lipgloss.Center)
 
 	welcomeTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(colorPurple).
+				Foreground(colorPrimarySoft).
 				MarginBottom(1)
 
 	welcomeSubtitleStyle = lipgloss.NewStyle().
-				Foreground(colorDimGray).
+				Foreground(colorMuted).
 				Italic(true).
 				MarginBottom(1)
 
 	welcomeHintStyle = lipgloss.NewStyle().
-				Foreground(colorGray)
+				Foreground(colorMuted)
 
 	welcomeKeyStyle = lipgloss.NewStyle().
-			Foreground(colorGreen).
+			Foreground(colorCyan).
 			Bold(true)
 
 	// ─── Status bar ───────────────────────────────────────────
 	statusBarStyle = lipgloss.NewStyle().
-			Foreground(colorGray).
-			Background(colorBgPurple)
+			Foreground(colorMuted).
+			Background(colorStatusBg)
 
 	statusReadyStyle = lipgloss.NewStyle().
 				Foreground(colorGreen).
-				Background(colorBgPurple).
+				Background(colorStatusBg).
 				Bold(true)
 
 	statusBusyStyle = lipgloss.NewStyle().
 			Foreground(colorGold).
-			Background(colorBgPurple).
+			Background(colorStatusBg).
 			Bold(true)
 
 	statusModelStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#C4B5F5")).
-				Background(colorBgPurple)
+				Foreground(colorPrimarySoft).
+				Background(colorStatusBg)
 
 	statusHintStyle = lipgloss.NewStyle().
 			Foreground(colorGold).
-			Background(colorBgPurple)
+			Background(colorStatusBg)
 )

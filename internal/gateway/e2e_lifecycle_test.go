@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

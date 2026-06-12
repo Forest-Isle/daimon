@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/daimon/internal/store"
 )
 
 func setupTestDB(t *testing.T) *store.DB {

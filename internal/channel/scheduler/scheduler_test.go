@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/taskruntime"
 )
 
 func openTestDB(t *testing.T) *store.DB {
@@ -27,9 +28,9 @@ type mockNotifier struct {
 	messages []channel.OutboundMessage
 }
 
-func (m *mockNotifier) Name() string       { return "mock" }
+func (m *mockNotifier) Name() string                                            { return "mock" }
 func (m *mockNotifier) Start(_ context.Context, _ channel.InboundHandler) error { return nil }
-func (m *mockNotifier) Stop(_ context.Context) error { return nil }
+func (m *mockNotifier) Stop(_ context.Context) error                            { return nil }
 func (m *mockNotifier) Send(_ context.Context, msg channel.OutboundMessage) error {
 	m.mu.Lock()
 	m.messages = append(m.messages, msg)
@@ -42,7 +43,9 @@ func (m *mockNotifier) SendStreaming(_ context.Context, _ channel.MessageTarget)
 func (m *mockNotifier) lastMsg() *channel.OutboundMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.messages) == 0 { return nil }
+	if len(m.messages) == 0 {
+		return nil
+	}
 	return &m.messages[len(m.messages)-1]
 }
 
@@ -233,6 +236,56 @@ func TestRunOnce(t *testing.T) {
 
 	if got.Text != "run once test" {
 		t.Errorf("expected Text 'run once test', got %q", got.Text)
+	}
+}
+
+func TestSchedulerRecordsTaskLedgerLifecycle(t *testing.T) {
+	db := openTestDB(t)
+	ledger := taskruntime.NewLedger(db.DB)
+	notifier := &mockNotifier{}
+	sc := New(db, notifier, ledger)
+
+	ctx := context.Background()
+	task, err := sc.AddTask(ctx, "ledger lifecycle", "@daily", "telegram", "chat_1")
+	if err != nil {
+		t.Fatalf("AddTask: %v", err)
+	}
+
+	entry, err := ledger.Get(ctx, taskruntime.ScheduledLedgerID(task.ID))
+	if err != nil {
+		t.Fatalf("ledger.Get after add: %v", err)
+	}
+	if entry.Kind != "scheduled" || entry.State != taskruntime.StatePending {
+		t.Fatalf("entry after add = %#v", entry)
+	}
+
+	sc.fireTask(*task)
+	entry, err = ledger.Get(ctx, taskruntime.ScheduledLedgerID(task.ID))
+	if err != nil {
+		t.Fatalf("ledger.Get after fire: %v", err)
+	}
+	if entry.State != taskruntime.StateRunning {
+		t.Fatalf("state after fire = %s, want running", entry.State)
+	}
+	if entry.Metadata.ScheduledTaskID != task.ID || entry.Metadata.SessionChannelID != task.ID {
+		t.Fatalf("metadata after fire = %#v", entry.Metadata)
+	}
+
+	sc.FinishRun(ctx, task.ID, nil, "done")
+	entry, err = ledger.Get(ctx, taskruntime.ScheduledLedgerID(task.ID))
+	if err != nil {
+		t.Fatalf("ledger.Get after finish: %v", err)
+	}
+	if entry.State != taskruntime.StateSucceeded || entry.Result != "done" {
+		t.Fatalf("entry after finish = %#v", entry)
+	}
+
+	var status string
+	if err := db.QueryRowContext(ctx, `SELECT last_status FROM scheduled_tasks WHERE id = ?`, task.ID).Scan(&status); err != nil {
+		t.Fatalf("last_status query: %v", err)
+	}
+	if status != "succeeded" {
+		t.Fatalf("last_status = %q, want succeeded", status)
 	}
 }
 

@@ -8,11 +8,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/store"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/tool"
 	"gopkg.in/yaml.v3"
 )
 
@@ -169,6 +169,19 @@ func (m *AgentManager) All() []*AgentSpec {
 	return out
 }
 
+// Get returns a loaded agent spec by name.
+func (m *AgentManager) Get(name string) (*AgentSpec, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, spec := range m.specs {
+		if spec.Name == name {
+			cp := *spec
+			return &cp, true
+		}
+	}
+	return nil, false
+}
+
 // BuildPromptSection generates a text section describing available sub-agents
 // for injection into the orchestrator's system prompt.
 func (m *AgentManager) BuildPromptSection() string {
@@ -184,7 +197,7 @@ func (m *AgentManager) BuildPromptSection() string {
 	sb.WriteString("You can delegate tasks to specialized agents using the corresponding agent_* tools.\n")
 	sb.WriteString("Each agent runs independently with its own tool set and iteration budget.\n")
 	sb.WriteString("Pass context from previous tasks via the \"context\" field to enable pipeline collaboration.\n\n")
-	sb.WriteString("Execution modes: spawn (independent), fork (inherits conversation context), background (async).\n\n")
+	sb.WriteString("Execution modes: spawn (independent) and background (async).\n\n")
 
 	for _, spec := range m.specs {
 		_, _ = fmt.Fprintf(&sb, "- **agent_%s**: %s", spec.Name, spec.Description)

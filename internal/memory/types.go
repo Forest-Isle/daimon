@@ -6,10 +6,11 @@ import "time"
 type MemoryType string
 
 const (
-	Episodic   MemoryType = "episodic"
-	Semantic   MemoryType = "semantic"
-	Procedural MemoryType = "procedural"
-	Profile    MemoryType = "profile"
+	Episodic         MemoryType = "episodic"
+	Semantic         MemoryType = "semantic"
+	Procedural       MemoryType = "procedural"
+	Profile          MemoryType = "profile"
+	Autobiographical MemoryType = "autobiographical"
 )
 
 // UnifiedMemory is returned by UnifiedRetriever.Search.

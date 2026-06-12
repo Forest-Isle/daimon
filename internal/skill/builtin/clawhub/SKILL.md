@@ -30,21 +30,21 @@ clawhub search "web scraping" --limit 5
 ## Install
 
 ```bash
-clawhub install <slug> --workdir ~/.ironclaw
+clawhub install <slug> --workdir ~/.daimon
 ```
 
-Replace `<slug>` with the skill name from search results. This places the skill into `~/.ironclaw/skills/`, where IronClaw loads workspace skills from. Always include `--workdir`.
+Replace `<slug>` with the skill name from search results. This places the skill into `~/.daimon/skills/`, where Daimon loads workspace skills from. Always include `--workdir`.
 
 ## Update
 
 ```bash
-clawhub update --all --workdir ~/.ironclaw
+clawhub update --all --workdir ~/.daimon
 ```
 
 ## List installed
 
 ```bash
-clawhub list --workdir ~/.ironclaw
+clawhub list --workdir ~/.daimon
 ```
 
 ## Notes
@@ -52,5 +52,5 @@ clawhub list --workdir ~/.ironclaw
 - Requires `clawhub` CLI installed globally (`npm install -g clawhub`).
 - No API key needed for search and install.
 - Login (`clawhub login`) is only required for publishing.
-- `--workdir ~/.ironclaw` is critical — without it, skills install to the current directory instead of the IronClaw workspace.
+- `--workdir ~/.daimon` is critical — without it, skills install to the current directory instead of the Daimon workspace.
 - After install, remind the user to restart the agent session to load the new skill.

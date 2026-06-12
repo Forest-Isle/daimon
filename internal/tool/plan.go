@@ -41,7 +41,7 @@ func NewPlanTool(store PlanStore) *PlanTool {
 	return &PlanTool{store: store}
 }
 
-func (t *PlanTool) Name() string        { return "plan" }
+func (t *PlanTool) Name() string           { return "plan" }
 func (t *PlanTool) RequiresApproval() bool { return false }
 func (t *PlanTool) IsReadOnly() bool       { return false }
 

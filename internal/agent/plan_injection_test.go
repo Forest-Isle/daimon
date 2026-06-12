@@ -5,16 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 func TestBuildSystemPrompt_PlanInjection(t *testing.T) {
 	deps := AgentDeps{
 		Core: CoreDeps{
 			Cfg: config.AgentConfig{
-				SystemPrompt: "You are a test agent.",
+				SystemPrompt:  "You are a test agent.",
 				MaxIterations: 1,
 			},
 			LLMCfg: config.LLMConfig{Model: "test"},
@@ -53,7 +53,7 @@ func TestBuildSystemPrompt_NilSession(t *testing.T) {
 	deps := AgentDeps{
 		Core: CoreDeps{
 			Cfg: config.AgentConfig{
-				SystemPrompt: "You are a test agent.",
+				SystemPrompt:  "You are a test agent.",
 				MaxIterations: 1,
 			},
 			LLMCfg: config.LLMConfig{Model: "test"},
@@ -76,7 +76,7 @@ func TestPlanTool_InToolDefinitions(t *testing.T) {
 	deps := AgentDeps{
 		Core: CoreDeps{
 			Cfg: config.AgentConfig{
-				SystemPrompt: "You are a test agent.",
+				SystemPrompt:  "You are a test agent.",
 				MaxIterations: 1,
 			},
 			LLMCfg: config.LLMConfig{Model: "test"},

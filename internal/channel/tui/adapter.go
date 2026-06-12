@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/channel"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

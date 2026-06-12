@@ -245,15 +245,35 @@ func WorkDirFromContext(ctx context.Context) string {
 	return dir
 }
 
-func ResolveWorkPath(ctx context.Context, path string) string {
+func ResolveWorkPath(ctx context.Context, path string) (string, error) {
 	dir := WorkDirFromContext(ctx)
 	if dir == "" {
-		return path
+		return path, nil
 	}
+	return resolvePathInRoot(dir, path)
+}
+
+func resolvePathInRoot(dir string, path string) (string, error) {
+	root, err := filepath.Abs(filepath.Clean(dir))
+	if err != nil {
+		return "", err
+	}
+
+	var resolved string
 	if filepath.IsAbs(path) {
-		return path
+		resolved = filepath.Clean(path)
+	} else {
+		resolved = filepath.Join(root, path)
 	}
-	return filepath.Join(dir, path)
+
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path %q escapes working directory %q", path, root)
+	}
+	return resolved, nil
 }
 
 // UnregisterByPrefix removes all tools whose name starts with prefix and returns the removed names.

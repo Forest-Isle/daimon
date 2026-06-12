@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 func reflectionTestAgent(t *testing.T, maxReflections int) *Agent {
@@ -145,7 +145,7 @@ func TestLinearLoop_ReflectionContinuesPastConvergence(t *testing.T) {
 	loop := &LinearLoop{}
 	err := loop.Execute(context.Background(), a, &testChannel{}, channel.InboundMessage{
 		Channel: "test", ChannelID: "ch1", Text: "fix the bug",
-	}, sess)
+	}, sess, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestLinearLoop_NoReflectionWhenPlanComplete(t *testing.T) {
 	loop := &LinearLoop{}
 	if err := loop.Execute(context.Background(), a, &testChannel{}, channel.InboundMessage{
 		Channel: "test", ChannelID: "ch1", Text: "anything",
-	}, sess); err != nil {
+	}, sess, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

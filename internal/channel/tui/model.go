@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"os"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -77,8 +77,8 @@ type Model struct {
 	showModelPanel bool // toggle for model info/selection panel
 
 	// Model selection state
-	modelItems       []ModelRoleEntry // populated via SetModelRoles
-	modelSelectionIdx int        // -1 = no selection, initializes to 0
+	modelItems        []ModelRoleEntry // populated via SetModelRoles
+	modelSelectionIdx int              // -1 = no selection, initializes to 0
 
 	// Typing indicator
 	waitingForResponse bool
@@ -96,6 +96,9 @@ type Model struct {
 	// Empty until set via SetCurrentModel.
 	currentModel string
 
+	// Mouse support — toggled at runtime so user can select/copy text
+	mouseEnabled bool
+
 	// Layout
 	width  int
 	height int
@@ -105,7 +108,7 @@ type Model struct {
 // NewModel creates a new TUI model.
 func NewModel(version, username, cwd string) Model {
 	ta := textarea.New()
-	ta.Placeholder = fmt.Sprintf("Message IronClaw… (/help for commands)")
+	ta.Placeholder = fmt.Sprintf("Message Daimon… (/help for commands)")
 	ta.Focus()
 	ta.CharLimit = 4096
 	ta.SetHeight(1) // grows up to maxInputLines as the user types
@@ -122,6 +125,7 @@ func NewModel(version, username, cwd string) Model {
 		cwd:                cwd,
 		selectedSuggestion: -1,
 		autoScroll:         true,
+		mouseEnabled:       true,
 	}
 }
 
@@ -155,11 +159,17 @@ func (m *Model) SetModelRoles(provider, opusModel, sonnetModel, haikuModel strin
 
 	if provider == "claude" || provider == "" {
 		opus := opusModel
-		if opus == "" { opus = use("Opus", "ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-8") }
+		if opus == "" {
+			opus = use("Opus", "ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-8")
+		}
 		sonnet := sonnetModel
-		if sonnet == "" { sonnet = use("Sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-6") }
+		if sonnet == "" {
+			sonnet = use("Sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-6")
+		}
 		haiku := haikuModel
-		if haiku == "" { haiku = use("Haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-4-5") }
+		if haiku == "" {
+			haiku = use("Haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-4-5")
+		}
 
 		m.modelItems = append(m.modelItems,
 			ModelRoleEntry{Role: "Opus", Name: opus},

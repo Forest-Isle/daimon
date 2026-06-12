@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/daimon/internal/store"
 )
 
 func TestFileMemoryStore_SaveAndSearch(t *testing.T) {
@@ -98,6 +98,24 @@ func TestFileMemoryStore_Delete(t *testing.T) {
 	archivedPath := filepath.Join(memDir, "archived", "memory_"+entry.CreatedAt.Format("20060102")+"_test_002.md")
 	if _, err := os.Stat(archivedPath); os.IsNotExist(err) {
 		t.Error("File not archived")
+	}
+
+	for _, table := range []string{"memory_index", "memory_fts", "memory_embeddings"} {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM "+table+" WHERE memory_id = ?", "test_002").Scan(&count); err != nil {
+			t.Fatalf("query %s: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s rows after delete = %d, want 0", table, count)
+		}
+	}
+
+	results, err := fileStore.Search(ctx, SearchQuery{Text: "Temporary memory", IncludeHistorical: true})
+	if err != nil {
+		t.Fatalf("Search after delete: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected deleted memory to be unsearchable, got %d result(s)", len(results))
 	}
 }
 

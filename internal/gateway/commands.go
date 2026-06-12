@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/feature"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/feature"
 )
 
-// handleFeature processes /feature [list].
+// handleFeature processes /feature [list|enable|disable] [name].
 func (gw *Gateway) handleFeature(ctx context.Context, _ channel.Channel, msg channel.InboundMessage) (string, error) {
 	_ = ctx
 	args := strings.TrimPrefix(msg.Text, "/feature")
@@ -23,7 +23,39 @@ func (gw *Gateway) handleFeature(ctx context.Context, _ channel.Channel, msg cha
 	if args == "" || args == "list" {
 		return gw.featureListString(), nil
 	}
-	return "Usage: /feature list", nil
+
+	parts := strings.Fields(args)
+	if len(parts) != 2 || (parts[0] != "enable" && parts[0] != "disable") {
+		return "Usage: /feature [list|enable|disable] [name]", nil
+	}
+	name := parts[1]
+	if !gw.features.Has(name) {
+		return fmt.Sprintf("Unknown feature: %s", name), nil
+	}
+	enabled := parts[0] == "enable"
+	state, err := loadFeatureState(defaultFeatureStatePath())
+	if err != nil {
+		return "", err
+	}
+	if state == nil {
+		state = make(map[string]bool)
+	}
+	state[name] = enabled
+	if err := saveFeatureState(defaultFeatureStatePath(), state); err != nil {
+		return "", err
+	}
+	reason := "enabled by runtime override"
+	if !enabled {
+		reason = "disabled by runtime override"
+	}
+	if err := gw.features.Set(name, enabled, reason); err != nil {
+		return "", err
+	}
+	action := "enabled"
+	if !enabled {
+		action = "disabled"
+	}
+	return fmt.Sprintf("Feature %s %s. Restart Daimon to apply subsystem wiring changes.", name, action), nil
 }
 
 // featureListString builds a formatted feature list string.
@@ -67,7 +99,7 @@ func (gw *Gateway) featureListString() string {
 	}
 
 	b.WriteString("---\n")
-	b.WriteString("Feature state is controlled via config file. Restart to apply changes.")
+	b.WriteString("Feature state is controlled by config plus persisted runtime overrides in ~/.daimon/feature_state.json. Restart to apply subsystem wiring changes.")
 	return b.String()
 }
 

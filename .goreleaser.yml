@@ -1,6 +1,6 @@
 version: 2
 
-project_name: ironclaw
+project_name: daimon
 
 before:
   hooks:
@@ -8,8 +8,8 @@ before:
     - go generate ./...
 
 builds:
-  - main: ./cmd/ironclaw
-    binary: ironclaw
+  - main: ./cmd/daimon
+    binary: daimon
     env:
       - CGO_ENABLED=1
     goos:
@@ -53,4 +53,4 @@ changelog:
 release:
   github:
     owner: punkopunko
-    name: ironclaw
+    name: daimon

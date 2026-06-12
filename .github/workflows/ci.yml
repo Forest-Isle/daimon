@@ -36,13 +36,6 @@ jobs:
           go-version-file: go.mod
       - name: Run tests
         run: make test
-      - name: Upload coverage
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage.out
-          retention-days: 7
 
   vet:
     name: Vet

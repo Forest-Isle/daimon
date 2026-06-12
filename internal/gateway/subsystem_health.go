@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/store"
 	"log/slog"
 	"net/http"
 	"time"
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/store"
 )
 
 type HealthSubsystem struct {
@@ -16,7 +16,7 @@ type HealthSubsystem struct {
 	srv      *http.Server
 }
 
-func (hs *HealthSubsystem) Name() string                { return "health" }
+func (hs *HealthSubsystem) Name() string                  { return "health" }
 func (hs *HealthSubsystem) Start(_ context.Context) error { return nil }
 func (hs *HealthSubsystem) Stop(_ context.Context) error {
 	if hs.srv != nil {
@@ -36,9 +36,13 @@ func InitHealth(cfg *config.Config, db *store.DB) *HealthSubsystem {
 }
 
 func (hs *HealthSubsystem) StartServer(cfg *config.Config) {
-	if hs.registry == nil { return }
+	if hs.registry == nil {
+		return
+	}
 	port := cfg.Health.Port
-	if port <= 0 { port = 9090 }
+	if port <= 0 {
+		port = 9090
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", hs.handleLiveness)
 	mux.HandleFunc("/readiness", hs.handleReadiness)
@@ -64,7 +68,9 @@ func (hs *HealthSubsystem) handleLiveness(w http.ResponseWriter, _ *http.Request
 func (hs *HealthSubsystem) handleReadiness(w http.ResponseWriter, r *http.Request) {
 	report := hs.registry.Check(r.Context())
 	sc := http.StatusOK
-	if report.Status != HealthOK { sc = http.StatusServiceUnavailable }
+	if report.Status != HealthOK {
+		sc = http.StatusServiceUnavailable
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(sc)
 	_ = json.NewEncoder(w).Encode(report)
@@ -73,7 +79,9 @@ func (hs *HealthSubsystem) handleReadiness(w http.ResponseWriter, r *http.Reques
 func (hs *HealthSubsystem) handleHealth(w http.ResponseWriter, r *http.Request) {
 	report := hs.registry.Check(r.Context())
 	sc := http.StatusOK
-	if report.Status != HealthOK { sc = http.StatusServiceUnavailable }
+	if report.Status != HealthOK {
+		sc = http.StatusServiceUnavailable
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(sc)
 	_ = json.NewEncoder(w).Encode(report)

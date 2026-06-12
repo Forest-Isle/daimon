@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/hook"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/store"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/hook"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // --- Mock hook handlers ---
@@ -104,7 +104,7 @@ func TestPreToolUseDenyPreventsExecution(t *testing.T) {
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
 
-	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
 	// Tool should NOT have been executed
 	if mockTool.execCount.Load() != 0 {
@@ -154,7 +154,7 @@ func TestPreToolUseAllowSkipsApproval(t *testing.T) {
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "approval_tool", Input: "{}"}
 
-	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
 	// Tool SHOULD have been executed (hook allowed, skipping approval)
 	if mockTool.execCount.Load() != 1 {
@@ -204,7 +204,7 @@ func TestPostToolUseAuditHandlerCalled(t *testing.T) {
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "audited_tool", Input: `{"cmd":"test"}`}
 
-	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
 	// Tool should have been executed
 	if mockTool.execCount.Load() != 1 {
@@ -309,7 +309,7 @@ func TestPermissionEngineDenyPreventsExecution(t *testing.T) {
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "bash", Input: `{"command":"rm -rf /tmp/test"}`}
 
-	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
 	// Tool should NOT have been executed
 	if mockTool.execCount.Load() != 0 {
@@ -358,7 +358,7 @@ func TestHookAndPermissionEngineIntegration(t *testing.T) {
 	sess := concurrentTestSession()
 	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
 
-	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
+	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
 	// Tool should have been executed
 	if mockTool.execCount.Load() != 1 {
@@ -410,7 +410,7 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 	}
 
 	for _, tc := range toolCalls {
-		rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, tc, "")
+		rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 	}
 
 	// All tools should have been executed
@@ -455,7 +455,7 @@ func searchString(s, substr string) bool {
 // newTestDB opens a store.DB on a temporary SQLite file.
 func newTestDB(t *testing.T) *store.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "ironclaw_test.db")
+	dbPath := filepath.Join(t.TempDir(), "daimon_test.db")
 	db, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatalf("store.Open(%q) failed: %v", dbPath, err)

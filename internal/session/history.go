@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/daimon/internal/store"
 )
 
 // LogToolExecution records a tool call in the audit log.

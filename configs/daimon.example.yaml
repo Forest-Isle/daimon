@@ -1,0 +1,226 @@
+# Daimon 配置示例
+#
+# 大部分功能默认开启，无需手动 enabled: true。
+# 此文件中的 enabled 字段仅作为覆盖：省略则使用 Feature Registry 默认值。
+# 运行时可通过 /feature list 查看所有功能状态，/feature enable|disable 开关功能。
+#
+# 默认开启: memory, skills, multi_agent
+# 默认关闭: server
+
+llm:
+  provider: claude                               # "claude" (default) or "openai" / "openai-compatible"
+  api_key: "${ANTHROPIC_API_KEY}"
+  # base_url: "https://your-relay.example.com"   # custom base URL (relay, Ollama, vLLM, etc.)
+  model: claude-sonnet-4-20250514
+  max_tokens: 8192
+  # thinking_budget: 0                            # >0 enables Claude extended thinking (reasoning tokens); must be < max_tokens (Claude only)
+  # models:                                      # customize /model panel display
+  #   opus: claude-opus-4-8
+  #   sonnet: claude-sonnet-4-6
+  #   haiku: claude-haiku-4-5
+
+  # --- OpenAI-compatible example (uncomment to use) ---
+  # provider: openai
+  # api_key: "${OPENAI_API_KEY}"
+  # model: gpt-4o
+  # max_tokens: 8192
+  #
+  # --- Local model via Ollama (uncomment to use) ---
+  # provider: openai-compatible
+  # api_key: ""                                  # Ollama doesn't need an API key
+  # base_url: "http://localhost:11434/v1"
+  # model: llama3.1
+
+telegram:
+  token: "${TELEGRAM_BOT_TOKEN}"
+  allowed_user_ids:
+    - 123456789
+
+# TUI (Terminal UI) channel — use `daimon tui` to start
+tui:
+  auto_approve: false   # set true to skip tool approval prompts
+  # theme: ""           # reserved for future use
+
+agent:
+  max_iterations: 20
+  max_reflections: 3   # max self-correction turns when plan has incomplete steps (0=default 3, negative=disabled)
+  execution:
+    max_parallel_tools: 3
+  # Context compression strategy (Phase 1 performance optimization)
+  # "layered": progressive multi-layer compression (recommended)
+  # "legacy": original single-pass LLM compression
+  compression:
+    strategy: layered
+    layers:
+      tool_output_reduce_pct: 30   # Layer 1: reduce tool outputs (truncate + evict)
+      summarize_pct: 60             # Layer 2: LLM summarize old turns
+      emergency_pct: 85             # Layer 3: emergency truncation (soft then hard)
+    token_estimate_ratio: 0.25  # chars-to-tokens ratio (4 chars ≈ 1 token)
+  system_prompt: |
+    You are Daimon, a helpful AI assistant with access to tools.
+    You can execute shell commands, read/write files, and make HTTP requests.
+    Always explain what you're about to do before using tools.
+
+store:
+  path: "${HOME}/.daimon/data/daimon.db"
+
+telemetry:
+  enabled: true
+  trace_path: "${HOME}/.daimon/traces/events.jsonl"
+  replay_enabled: true                         # record replay-grade provider/tool payloads by default
+  replay_dir: "${HOME}/.daimon/replays"        # daily JSONL replay files are written here
+
+memory:
+  # enabled: true                      # 默认开启，无需显式设置
+  storage_type: file                   # "file" (推荐) 或 "sqlite" (传统)
+  storage_dir: ~/.daimon/memory      # 文件存储目录（默认）
+  embedding_model: text-embedding-3-small  # 或 text-embedding-3-large（3072维，更高精度）
+  openai_api_key: ${OPENAI_API_KEY}
+  # fact_extraction: true          # 启用 mem0 风格的事实提取
+  # similarity_threshold: 0.85     # 去重阈值
+  # bm25_weight: 0.4               # BM25 权重
+  # vector_weight: 0.6             # 向量权重
+
+  # 性能优化配置
+  # enable_vss: true               # 启用 HNSW 索引（需要 sqlite-vss 扩展）
+  # vector_dimension: 1536         # 向量维度（text-embedding-3-small: 1536, 3-large: 3072）
+  # enable_search_cache: true      # 启用搜索结果缓存
+  # search_cache_size: 500         # 缓存查询数量
+  # search_cache_ttl: 5m           # 缓存过期时间
+
+  # 文件存储配置
+  file_storage:
+    flush_interval: 5s             # 事务日志刷新间隔
+    chunk_threshold: 200           # 超过此数量的事实时自动分块
+    compression: false             # 是否压缩大文件
+
+tools:
+  bash:
+    enabled: true
+    timeout: 30s
+    requires_approval: true
+    blocked_commands:
+      - "rm -rf /"
+      - "shutdown"
+      - "reboot"
+      - "mkfs"
+  file:
+    enabled: true
+    requires_approval: false
+  http:
+    enabled: true
+    requires_approval: false
+    timeout: 30s
+  # MCP (Model Context Protocol) 工具集成
+  # 通过 STDIO 传输连接外部 MCP Server，动态加载工具
+  # 工具命名格式: mcp_{server名}_{tool名}
+  # Concurrent execution of read-only tools (Phase 1 performance optimization)
+  # When the LLM returns multiple tool calls, read-only tools execute in parallel
+  concurrent_execution:
+    enabled: true
+    max_concurrency: 4  # maximum parallel read-only tools
+
+  # Disk persistence for large tool results (Phase 1 performance optimization)
+  # Results exceeding threshold are written to disk; only a preview stays in context
+  result_persistence:
+    enabled: true
+    threshold_bytes: 8192   # persist results larger than this (8KB)
+    preview_chars: 2000     # characters to keep inline as preview
+    cache_dir: ""           # default: ~/.daimon/cache/tool-results/
+    ttl_hours: 24           # auto-cleanup after this duration
+
+  mcp:
+    servers:
+      # GitHub MCP Server 示例
+      # github:
+      #   command: "docker"
+      #   args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"]
+      #   env:
+      #     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+      #   requires_approval: true
+      # Filesystem MCP Server 示例
+      # filesystem:
+      #   command: "npx"
+      #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
+      #   requires_approval: false
+
+# Permission rules — configurable security policies for tool execution
+# Rules are evaluated top-to-bottom, first match wins
+# If no rules are configured, falls back to legacy blocked_commands behavior
+#
+# Actions: "none" (silent allow), "notify" (allow + log), "approve" (ask user), "deny" (block)
+# Legacy values "allow" and "ask" still work (mapped to "none" and "approve" respectively)
+permissions:
+  default: approve   # "none", "notify", "approve", "deny" — action when no rule matches
+  # Channel profiles set stricter runtime floors by source.
+  # local=tui, remote=telegram/other adapters, scheduled=cron tasks, background=sub-agents.
+  profiles:
+    local:
+      default: approve
+    remote:
+      require_approval_for_write: true
+      require_approval_for_destructive: true
+      require_approval_for_network: true
+    scheduled:
+      require_approval_for_write: true
+      require_approval_for_destructive: true
+      require_approval_for_network: true
+    background:
+      require_approval_for_write: true
+      require_approval_for_destructive: true
+      require_approval_for_network: true
+  rules:
+    - tool: bash
+      pattern: "git *"
+      action: none
+    - tool: bash
+      pattern: "rm -rf *"
+      action: deny
+    - tool: bash
+      pattern: "shutdown"
+      action: deny
+    - tool: bash
+      pattern: "DROP TABLE *"
+      action: deny
+    - tool: file
+      path_pattern: "/etc/*"
+      action: deny
+    # - tool: "*"
+    #   action: approve   # catch-all fallback
+
+# Hook event system — pluggable handlers at lifecycle points
+hooks:
+  pre_tool_use:
+    - type: safety_analyzer
+      config:
+        block_patterns:
+          - "rm -rf /"
+          - "DROP TABLE"
+          - ":(){ :|:& };:"
+  post_tool_use:
+    - type: audit_logger
+    # - type: permission_audit    # Writes permission decisions to SQLite audit log
+  on_user_message:               # Context injectors — inject environment info into system prompt
+    - type: git_context           # Git branch + status
+      config:
+        timeout_ms: 2000
+        include_diff_stat: false
+    - type: workdir_context       # Current directory + file listing
+      config:
+        include_ls: true
+        max_files: 20
+  # pre_compact: []
+
+server:
+  addr: ":8080"
+  enabled: false
+
+log:
+  level: info
+  format: text
+
+# Multi-agent system — sub-agents run in-process (goroutine execution).
+#
+# multi_agent:
+#   agents:
+#     researcher:

@@ -3,7 +3,7 @@ package gateway
 import (
 	"context"
 
-	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/daimon/internal/session"
 )
 
 // sessionPlanStore implements tool.PlanStore backed by the session manager.

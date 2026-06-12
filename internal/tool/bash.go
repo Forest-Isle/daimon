@@ -1,13 +1,11 @@
 package tool
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Forest-Isle/IronClaw/internal/util"
+	"github.com/Forest-Isle/daimon/internal/util"
 	"os"
-	"os/exec"
 	"time"
 )
 
@@ -28,6 +26,7 @@ type BashTool struct {
 	timeout  time.Duration
 	approval bool
 	policy   *Policy
+	backend  ShellBackend
 }
 
 type bashInput struct {
@@ -35,7 +34,17 @@ type bashInput struct {
 }
 
 func NewBashTool(timeout time.Duration, requiresApproval bool, policy *Policy) *BashTool {
-	return &BashTool{timeout: timeout, approval: requiresApproval, policy: policy}
+	return NewBashToolWithBackend(timeout, requiresApproval, policy, NewHostShellBackend())
+}
+
+func NewBashToolWithBackend(timeout time.Duration, requiresApproval bool, policy *Policy, backend ShellBackend) *BashTool {
+	if backend == nil {
+		backend = NewHostShellBackend()
+	}
+	if policy == nil {
+		policy = NewPolicy(nil)
+	}
+	return &BashTool{timeout: timeout, approval: requiresApproval, policy: policy, backend: backend}
 }
 
 func (b *BashTool) Name() string           { return "bash" }
@@ -44,8 +53,7 @@ func (b *BashTool) RequiresApproval() bool { return b.approval }
 
 // Available checks whether the bash shell executable can be found on the host.
 func (b *BashTool) Available() bool {
-	_, err := exec.LookPath("bash")
-	return err == nil
+	return b.backend != nil && b.backend.Available()
 }
 
 // IsReadOnly returns false because bash commands may have arbitrary side effects.
@@ -91,74 +99,29 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, b.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", in.Command)
-	if dir := WorkDirFromContext(ctx); dir != "" {
-		cmd.Dir = dir
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	cmd.Stdout = &stdout
-
-	// If a StreamCallback is attached to the context, tee stdout through it
-	// for real-time output in channels that support ToolStreamWriter.
-	streamCB := StreamCallbackFromContext(ctx)
-
 	start := time.Now()
-	var runErr error
-
-	if streamCB != nil {
-		// Use a pipe so we can read stdout while the command runs.
-		stdoutPipe, pipeErr := cmd.StdoutPipe()
-		if pipeErr != nil {
-			return Result{Error: fmt.Sprintf("stdout pipe: %v", pipeErr)}, nil
-		}
-		if startErr := cmd.Start(); startErr != nil {
-			return Result{Error: fmt.Sprintf("command start: %v", startErr)}, nil
-		}
-		// Read chunks from stdout, tee to buffer and stream callback.
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := stdoutPipe.Read(buf)
-			if n > 0 {
-				stdout.Write(buf[:n])
-				streamCB(string(buf[:n]))
-			}
-			if readErr != nil {
-				break
-			}
-		}
-		runErr = cmd.Wait()
-	} else {
-		runErr = cmd.Run()
-	}
-
+	run, runErr := b.backend.Run(ctx, in.Command, WorkDirFromContext(ctx), StreamCallbackFromContext(ctx))
 	durationMs := time.Since(start).Milliseconds()
 
-	if runErr != nil && ctx.Err() == context.DeadlineExceeded {
+	if ctx.Err() == context.DeadlineExceeded {
 		return Result{Error: fmt.Sprintf("command timed out after %s", b.timeout)}, nil
 	}
-
-	exitCode := 0
 	if runErr != nil {
-		if exitErr, ok := runErr.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			exitCode = 1
-		}
+		return Result{Error: fmt.Sprintf("command execution: %v", runErr)}, nil
 	}
 
 	status := "ok"
-	if exitCode != 0 {
+	if run.ExitCode != 0 {
 		status = "failed"
 	}
 
-	stdoutStr := util.TruncateStr(stdout.String(), maxOutputSize)
-	stderrStr := util.TruncateStr(stderr.String(), maxOutputSize)
+	stdoutStr := util.TruncateStr(run.Stdout, maxOutputSize)
+	stderrStr := util.TruncateStr(run.Stderr, maxOutputSize)
 
 	out := bashOutput{
 		Stdout:     stdoutStr,
 		Stderr:     stderrStr,
-		ExitCode:   exitCode,
+		ExitCode:   run.ExitCode,
 		DurationMs: durationMs,
 		Status:     status,
 	}
@@ -168,7 +131,7 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 
 	result := Result{
 		Metadata: map[string]any{
-			"exit_code":   exitCode,
+			"exit_code":   run.ExitCode,
 			"status":      status,
 			"duration_ms": durationMs,
 		},
@@ -179,7 +142,7 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 		if marshalErr != nil {
 			return Result{Error: fmt.Sprintf("failed to marshal bash output for temp file: %v", marshalErr)}, nil
 		}
-		tmpFile, err := os.CreateTemp("", "ironclaw-bash-*.json")
+		tmpFile, err := os.CreateTemp("", "daimon-bash-*.json")
 		if err != nil {
 			return Result{Error: fmt.Sprintf("failed to create temp file: %v", err)}, nil
 		}
@@ -204,8 +167,8 @@ func (b *BashTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	}
 	result.Output = string(outputJSON)
 
-	if exitCode != 0 {
-		result.Error = fmt.Sprintf("exit code %d", exitCode)
+	if run.ExitCode != 0 {
+		result.Error = fmt.Sprintf("exit code %d", run.ExitCode)
 	}
 
 	return result, nil

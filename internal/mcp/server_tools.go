@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Forest-Isle/IronClaw/internal/memory"
-	"github.com/Forest-Isle/IronClaw/internal/skill"
+	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/skill"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -19,29 +19,29 @@ type ServerDeps struct {
 	SkillMgr    *skill.Manager
 }
 
-// RegisterDefaultTools registers all built-in IronClaw tools on the server.
+// RegisterDefaultTools registers all built-in Daimon tools on the server.
 // Tools with nil dependencies are silently skipped.
 func RegisterDefaultTools(srv *Server, deps ServerDeps) {
 	if deps.MemoryStore != nil {
 		srv.RegisterTool(
-			mcp.NewTool("ironclaw_memory_search",
-				mcp.WithDescription("Search IronClaw's memory store for relevant entries"),
+			mcp.NewTool("daimon_memory_search",
+				mcp.WithDescription("Search Daimon's memory store for relevant entries"),
 				mcp.WithString("query", mcp.Description("Search query text"), mcp.Required()),
 				mcp.WithNumber("limit", mcp.Description("Maximum number of results (default 5)")),
 			),
 			makeMemorySearchHandler(deps.MemoryStore),
 		)
-		slog.Info("mcp server: registered ironclaw_memory_search")
+		slog.Info("mcp server: registered daimon_memory_search")
 	}
 
 	if deps.SkillMgr != nil {
 		srv.RegisterTool(
-			mcp.NewTool("ironclaw_skill_list",
-				mcp.WithDescription("List all available IronClaw skills"),
+			mcp.NewTool("daimon_skill_list",
+				mcp.WithDescription("List all available Daimon skills"),
 			),
 			makeSkillListHandler(deps.SkillMgr),
 		)
-		slog.Info("mcp server: registered ironclaw_skill_list")
+		slog.Info("mcp server: registered daimon_skill_list")
 	}
 }
 

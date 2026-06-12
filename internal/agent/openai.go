@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
+	ierrors "github.com/Forest-Isle/daimon/internal/errors"
 )
 
 const defaultOpenAIURL = "https://api.openai.com/v1"

@@ -7,7 +7,7 @@ import (
 
 	tiktoken "github.com/pkoukk/tiktoken-go"
 
-	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/daimon/internal/session"
 )
 
 // Tokenizer counts tokens for context management.

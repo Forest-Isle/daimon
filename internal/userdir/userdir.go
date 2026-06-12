@@ -1,17 +1,19 @@
 package userdir
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/daimon/internal/appdir"
+	"github.com/Forest-Isle/daimon/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
-// MCPServerFile represents a single MCP server definition loaded from ~/.ironclaw/mcp/*.yaml.
+// MCPServerFile represents a single MCP server definition loaded from ~/.daimon/mcp/*.yaml.
 type MCPServerFile struct {
 	Name             string            `yaml:"name"`
 	Command          string            `yaml:"command"`
@@ -20,17 +22,16 @@ type MCPServerFile struct {
 	RequiresApproval bool              `yaml:"requires_approval"`
 }
 
-// Apply merges ~/.ironclaw/ personality files and MCP server definitions into cfg.
+// Apply merges ~/.daimon/ personality files and MCP server definitions into cfg.
 // If the directory does not exist it is initialized with default templates.
 func Apply(cfg *config.Config) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("userdir: resolve home dir: %w", err)
+	if err := EnsureMigrated(); err != nil {
+		return fmt.Errorf("userdir: migrate legacy dir: %w", err)
 	}
-	base := filepath.Join(home, ".ironclaw")
+	base := appdir.BaseDir()
 
 	if _, err := os.Stat(base); os.IsNotExist(err) {
-		slog.Info("userdir: ~/.ironclaw not found, initializing default structure", "path", base)
+		slog.Info("userdir: ~/.daimon not found, initializing default structure", "path", base)
 		if err := initDir(base); err != nil {
 			return fmt.Errorf("userdir: init: %w", err)
 		}
@@ -45,7 +46,89 @@ func Apply(cfg *config.Config) error {
 	return nil
 }
 
-// ensureSkillsDir creates ~/.ironclaw/skills/ if it does not already exist.
+// EnsureMigrated migrates the legacy IronClaw user directory to Daimon if needed.
+func EnsureMigrated() error {
+	return migrateLegacyDir(appdir.BaseDir(), appdir.LegacyBaseDir())
+}
+
+func migrateLegacyDir(base, legacy string) error {
+	baseInfo, baseErr := os.Lstat(base)
+	if baseErr != nil && !errors.Is(baseErr, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", base, baseErr)
+	}
+
+	legacyInfo, legacyErr := os.Lstat(legacy)
+	if legacyErr != nil {
+		if errors.Is(legacyErr, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat %s: %w", legacy, legacyErr)
+	}
+
+	if baseErr == nil {
+		if baseInfo.IsDir() && legacyInfo.Mode()&os.ModeSymlink == 0 && legacyInfo.IsDir() {
+			slog.Warn("userdir: legacy and Daimon directories both exist; skipping migration", "legacy", legacy, "current", base)
+		}
+		return nil
+	}
+
+	if legacyInfo.Mode()&os.ModeSymlink != 0 {
+		slog.Warn("userdir: legacy path is a symlink; skipping migration", "legacy", legacy)
+		return nil
+	}
+	if !legacyInfo.IsDir() {
+		slog.Warn("userdir: legacy path is not a directory; skipping migration", "legacy", legacy)
+		return nil
+	}
+
+	if err := os.Rename(legacy, base); err != nil {
+		return fmt.Errorf("rename %s to %s: %w", legacy, base, err)
+	}
+	slog.Info("userdir: migrated legacy directory", "from", legacy, "to", base)
+
+	if err := migrateLegacyDB(base); err != nil {
+		return err
+	}
+	if err := os.Symlink(base, legacy); err != nil {
+		return fmt.Errorf("create legacy compatibility symlink %s -> %s: %w", legacy, base, err)
+	}
+	slog.Info("userdir: created legacy compatibility symlink", "link", legacy, "target", base)
+	return nil
+}
+
+func migrateLegacyDB(base string) error {
+	legacyDB := filepath.Join(base, "data", appdir.LegacyDBName)
+	currentDB := filepath.Join(base, "data", appdir.DBName)
+
+	if _, err := os.Stat(currentDB); err == nil {
+		if _, legacyErr := os.Stat(legacyDB); legacyErr == nil {
+			slog.Warn("userdir: both legacy and Daimon database files exist; skipping database migration", "legacy", legacyDB, "current", currentDB)
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", currentDB, err)
+	}
+
+	legacyInfo, err := os.Stat(legacyDB)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat %s: %w", legacyDB, err)
+	}
+	if legacyInfo.IsDir() {
+		slog.Warn("userdir: legacy database path is a directory; skipping database migration", "path", legacyDB)
+		return nil
+	}
+
+	if err := os.Rename(legacyDB, currentDB); err != nil {
+		return fmt.Errorf("rename %s to %s: %w", legacyDB, currentDB, err)
+	}
+	slog.Info("userdir: migrated legacy database", "from", legacyDB, "to", currentDB)
+	return nil
+}
+
+// ensureSkillsDir creates ~/.daimon/skills/ if it does not already exist.
 func ensureSkillsDir(base string) {
 	skillsDir := filepath.Join(base, "skills")
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
@@ -53,7 +136,7 @@ func ensureSkillsDir(base string) {
 	}
 }
 
-// ensureAgentsDir creates ~/.ironclaw/agents/ if it does not already exist.
+// ensureAgentsDir creates ~/.daimon/agents/ if it does not already exist.
 func ensureAgentsDir(base string) {
 	agentsDir := filepath.Join(base, "agents")
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
@@ -61,13 +144,9 @@ func ensureAgentsDir(base string) {
 	}
 }
 
-// AgentsDir returns the path to ~/.ironclaw/agents/.
+// AgentsDir returns the path to ~/.daimon/agents/.
 func AgentsDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".ironclaw", "agents")
+	return filepath.Join(appdir.BaseDir(), "agents")
 }
 
 // applyPersonality reads Soul.md, Memory.md, Agent.md and injects them into
@@ -110,7 +189,7 @@ func applyPersonality(cfg *config.Config, base string) error {
 	return nil
 }
 
-// applyMCP reads ~/.ironclaw/mcp/*.yaml and appends new server definitions to cfg.
+// applyMCP reads ~/.daimon/mcp/*.yaml and appends new server definitions to cfg.
 // Servers whose name already exists in cfg are skipped (project config takes priority).
 // If the mcp directory does not exist, it is created with an example config file.
 func applyMCP(cfg *config.Config, base string) {
@@ -138,15 +217,10 @@ func applyMCP(cfg *config.Config, base string) {
 	}
 }
 
-// ScanMCPDir reads all MCP server definitions from ~/.ironclaw/mcp/*.yaml.
+// ScanMCPDir reads all MCP server definitions from ~/.daimon/mcp/*.yaml.
 // It returns a map of server name → config, suitable for passing to mcp.Manager.SyncServers.
 func ScanMCPDir() map[string]config.MCPServerConfig {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		slog.Warn("userdir: resolve home dir for mcp scan", "err", err)
-		return nil
-	}
-	mcpDir := filepath.Join(home, ".ironclaw", "mcp")
+	mcpDir := filepath.Join(appdir.BaseDir(), "mcp")
 	return scanMCPFiles(mcpDir)
 }
 
@@ -217,7 +291,7 @@ func scanMCPFiles(mcpDir string) map[string]config.MCPServerConfig {
 	return servers
 }
 
-// initDir creates the ~/.ironclaw/ directory structure with default template files.
+// initDir creates the ~/.daimon/ directory structure with default template files.
 func initDir(base string) error {
 	dirs := []string{
 		base,
@@ -246,13 +320,13 @@ func initDir(base string) error {
 		}
 	}
 
-	slog.Info("userdir: initialized ~/.ironclaw with default templates", "path", base)
+	slog.Info("userdir: initialized ~/.daimon with default templates", "path", base)
 	return nil
 }
 
 const defaultSoul = `# Soul — Personality & Style
 
-Define the core personality and identity of your IronClaw agent.
+Define the core personality and identity of your Daimon agent.
 This content is injected as the agent's persona, influencing reply tone and style.
 In cognitive mode, it shapes the REFLECT phase's final_answer voice.
 
@@ -263,16 +337,16 @@ You are a helpful coding assistant who speaks concisely.
 
 const defaultMemory = `# Memory — Persistent Rules
 
-- Configuration directory: ~/.ironclaw/
-- Add custom skills by placing SKILL.md files in ~/.ironclaw/skills/
-- Add MCP tool servers by placing *.yaml configs in ~/.ironclaw/mcp/
-- **NEVER run global package installations** (npm install -g, pip install, etc.) on the user's machine. To add MCP tools, only create YAML config files in ~/.ironclaw/mcp/ using on-demand runners (npx -y, uvx, docker run).
-- To install skills, use ` + "`ironclaw skill install <slug>`" + ` from ClawHub, or manually create SKILL.md files in ~/.ironclaw/skills/. Skills are pure markdown, never use package managers.
+- Configuration directory: ~/.daimon/
+- Add custom skills by placing SKILL.md files in ~/.daimon/skills/
+- Add MCP tool servers by placing *.yaml configs in ~/.daimon/mcp/
+- **NEVER run global package installations** (npm install -g, pip install, etc.) on the user's machine. To add MCP tools, only create YAML config files in ~/.daimon/mcp/ using on-demand runners (npx -y, uvx, docker run).
+- To install skills, use ` + "`daimon skill install <slug>`" + ` from ClawHub, or manually create SKILL.md files in ~/.daimon/skills/. Skills are pure markdown, never use package managers.
 `
 
 const defaultAgent = `# Agent — Core System Prompt
 
-You are IronClaw, a local-first AI assistant with tool-use capabilities.
+You are Daimon, a local-first AI assistant with tool-use capabilities.
 
 ## Capabilities
 
@@ -282,10 +356,10 @@ You are IronClaw, a local-first AI assistant with tool-use capabilities.
 
 ## MCP Tool Management
 
-You can manage your own MCP tool servers. **NEVER install packages globally** (no npm install -g, pip install, etc.) on the user's machine. Instead, create YAML config files in ~/.ironclaw/mcp/.
+You can manage your own MCP tool servers. **NEVER install packages globally** (no npm install -g, pip install, etc.) on the user's machine. Instead, create YAML config files in ~/.daimon/mcp/.
 
 When the user asks to "install" or "add" an MCP tool:
-1. Create a .yaml file in ~/.ironclaw/mcp/ with the server definition
+1. Create a .yaml file in ~/.daimon/mcp/ with the server definition
 2. Use on-demand runners like npx -y, uvx, or docker run as the command
 3. The hot-reload watcher picks up new configs automatically (within 30 seconds)
 
@@ -305,20 +379,20 @@ To remove an MCP tool, delete or rename its .yaml file (e.g., append .disabled).
 
 ## Skill Management
 
-Skills are SKILL.md files (YAML frontmatter + markdown body) stored in ~/.ironclaw/skills/.
+Skills are SKILL.md files (YAML frontmatter + markdown body) stored in ~/.daimon/skills/.
 A built-in ` + "`clawhub`" + ` skill is always available — it teaches you how to search and install skills from the ClawHub public registry using ` + "`clawhub`" + ` CLI.
 
 When the user asks to "install" or "add" a skill:
 1. Use the clawhub skill instructions to search and install via bash
-2. Or use the CLI shorthand: ` + "`ironclaw skill search <query>`" + ` / ` + "`ironclaw skill install <slug>`" + `
+2. Or use the CLI shorthand: ` + "`daimon skill search <query>`" + ` / ` + "`daimon skill install <slug>`" + `
 3. Skills are loaded automatically at startup
 
-To create a custom skill manually, write a SKILL.md file in ~/.ironclaw/skills/<name>/SKILL.md with YAML frontmatter (name, description, version, tags) and markdown body.
+To create a custom skill manually, write a SKILL.md file in ~/.daimon/skills/<name>/SKILL.md with YAML frontmatter (name, description, version, tags) and markdown body.
 
 Other CLI commands:
-- ` + "`ironclaw skill list`" + ` — list installed skills
-- ` + "`ironclaw skill update`" + ` — update all installed skills
-- ` + "`ironclaw skill remove <name>`" + ` — remove a skill
+- ` + "`daimon skill list`" + ` — list installed skills
+- ` + "`daimon skill update`" + ` — update all installed skills
+- ` + "`daimon skill remove <name>`" + ` — remove a skill
 
 **NEVER install skills by running npm install, pip install, or any package manager.** Skills are pure markdown files.
 

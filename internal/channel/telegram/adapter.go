@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/channel"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )

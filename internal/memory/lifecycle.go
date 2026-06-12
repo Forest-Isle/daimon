@@ -26,6 +26,10 @@ type LifecycleResult struct {
 	Reason   string
 }
 
+type TemporalInvalidator interface {
+	SoftInvalidate(ctx context.Context, id string) error
+}
+
 // MemoryOperationSummary aggregates lifecycle results for user notification.
 type MemoryOperationSummary struct {
 	Added   int
@@ -58,6 +62,7 @@ type LifecycleManager struct {
 	embedder  EmbeddingProvider
 	completer Completer
 	cfg       MemoryConfig
+	audit     *AuditLogger
 }
 
 // NewLifecycleManager creates a new LifecycleManager.
@@ -67,6 +72,12 @@ func NewLifecycleManager(store Store, embedder EmbeddingProvider, completer Comp
 		embedder:  embedder,
 		completer: completer,
 		cfg:       cfg,
+	}
+}
+
+func (lm *LifecycleManager) SetAuditLogger(audit *AuditLogger) {
+	if lm != nil {
+		lm.audit = audit
 	}
 }
 
@@ -132,12 +143,12 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 	var execErr error
 	switch decision.Action {
 	case ActionADD:
-		memoryID, execErr = lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo)
+		memoryID, execErr = lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo, decision.ConflictingIDs)
 	case ActionUPDATE:
 		if decision.TargetID != "" {
-			memoryID, execErr = lm.executeUpdate(ctx, decision.TargetID, fact, sessionID, userID, scope)
+			memoryID, execErr = lm.executeUpdate(ctx, decision.TargetID, fact, sessionID, userID, scope, decision.ConflictingIDs)
 		} else {
-			memoryID, execErr = lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo)
+			memoryID, execErr = lm.executeAdd(ctx, fact, sessionID, userID, scope, decision.RelatedTo, decision.ConflictingIDs)
 		}
 	case ActionDELETE:
 		if decision.TargetID != "" {
@@ -150,12 +161,30 @@ func (lm *LifecycleManager) Process(ctx context.Context, fact ExtractedFact, ses
 	if execErr != nil {
 		return nil, execErr
 	}
+	lm.auditDecision(ctx, memoryID, decision)
 
 	return &LifecycleResult{
 		Action:   decision.Action,
 		MemoryID: memoryID,
 		Reason:   decision.Reason,
 	}, nil
+}
+
+func (lm *LifecycleManager) auditDecision(ctx context.Context, memoryID string, decision *LifecycleDecision) {
+	if lm == nil || lm.audit == nil || decision == nil {
+		return
+	}
+	if memoryID == "" {
+		memoryID = "none"
+	}
+	details := decision.Reason
+	if len(decision.ConflictingIDs) > 0 {
+		if details != "" {
+			details += "; "
+		}
+		details += "conflicting_ids=" + strings.Join(decision.ConflictingIDs, ",")
+	}
+	lm.audit.Log(ctx, memoryID, string(decision.Action), "lifecycle", details)
 }
 
 func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, candidates []SearchResult) (*LifecycleDecision, error) {
@@ -194,7 +223,7 @@ func (lm *LifecycleManager) decide(ctx context.Context, fact ExtractedFact, cand
 	return &LifecycleDecision{Action: ActionADD}, nil
 }
 
-func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, sessionID, userID string, scope MemoryScope, relatedTo string) (string, error) {
+func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, sessionID, userID string, scope MemoryScope, relatedTo string, conflictingIDs []string) (string, error) {
 	now := time.Now()
 	factID := fmt.Sprintf("fact_%d", now.UnixNano())
 
@@ -204,6 +233,9 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 	}
 	if relatedTo != "" {
 		metadata["related_to"] = relatedTo
+	}
+	if len(conflictingIDs) > 0 {
+		metadata["conflicting_ids"] = strings.Join(conflictingIDs, ",")
 	}
 	metadata["type"] = fact.Type
 	if fact.Importance > 0 {
@@ -231,8 +263,8 @@ func (lm *LifecycleManager) executeAdd(ctx context.Context, fact ExtractedFact, 
 	return factID, nil
 }
 
-func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, fact ExtractedFact, sessionID, userID string, scope MemoryScope) (string, error) {
-	if err := lm.store.Delete(ctx, targetID); err != nil {
+func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, fact ExtractedFact, sessionID, userID string, scope MemoryScope, conflictingIDs []string) (string, error) {
+	if err := lm.invalidate(ctx, targetID); err != nil {
 		return "", fmt.Errorf("archive old entry: %w", err)
 	}
 
@@ -243,6 +275,9 @@ func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, 
 		"category":     fact.Category,
 		"source":       "fact_extraction",
 		"updated_from": targetID,
+	}
+	if len(conflictingIDs) > 0 {
+		metadata["conflicting_ids"] = strings.Join(conflictingIDs, ",")
 	}
 	metadata["type"] = fact.Type
 	if fact.Importance > 0 {
@@ -271,5 +306,12 @@ func (lm *LifecycleManager) executeUpdate(ctx context.Context, targetID string, 
 }
 
 func (lm *LifecycleManager) executeDelete(ctx context.Context, targetID string) error {
+	return lm.invalidate(ctx, targetID)
+}
+
+func (lm *LifecycleManager) invalidate(ctx context.Context, targetID string) error {
+	if temporal, ok := lm.store.(TemporalInvalidator); ok {
+		return temporal.SoftInvalidate(ctx, targetID)
+	}
 	return lm.store.Delete(ctx, targetID)
 }

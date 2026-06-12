@@ -44,8 +44,14 @@ var commandRegistry = []Command{
 	},
 	{
 		Name:        "version",
-		Description: "Show IronClaw version",
+		Description: "Show Daimon version",
 		Aliases:     []string{"v"},
+		Category:    "builtin",
+	},
+	{
+		Name:        "status",
+		Description: "Show TUI session status",
+		Aliases:     []string{"stats"},
 		Category:    "builtin",
 	},
 
@@ -55,14 +61,17 @@ var commandRegistry = []Command{
 		Description: "Memory management commands",
 		ArgHint:     "<list|search|clear>",
 		Category:    "builtin",
+		SubArgs:     []string{"list", "search", "clear"},
 	},
 
 	// Skill management
 	{
 		Name:        "skills",
-		Description: "List available skills",
+		Description: "List or read available skills",
 		Aliases:     []string{"skill"},
+		ArgHint:     "[list|read] [name]",
 		Category:    "builtin",
+		SubArgs:     []string{"list", "read"},
 	},
 
 	// Export/History
@@ -97,8 +106,7 @@ var commandRegistry = []Command{
 	// Team coordination
 	{
 		Name:        "team",
-		Description: "Break a goal into parallel tasks and execute with agent team",
-		ArgHint:     "<goal>",
+		Description: "Show available agent team",
 		Category:    "builtin",
 	},
 
@@ -133,6 +141,23 @@ var commandRegistry = []Command{
 		ArgHint:     "[model_name]",
 		Category:    "builtin",
 	},
+
+	// Scheduler
+	{
+		Name:        "schedule",
+		Description: "Manage scheduled prompts",
+		ArgHint:     "<list|add|remove|enable|disable|run>",
+		Category:    "builtin",
+		SubArgs:     []string{"list", "add", "remove", "enable", "disable", "run"},
+	},
+
+	// Mouse toggle
+	{
+		Name:        "mouse",
+		Description: "Toggle mouse scroll in viewport (Ctrl+O)",
+		Aliases:     []string{"m"},
+		Category:    "builtin",
+	},
 }
 
 // localCommands lists slash commands handled entirely in the TUI
@@ -145,7 +170,8 @@ var localCommands = map[string]bool{
 	"status": true, "stats": true,
 	"history": true, "hist": true,
 	"export": true,
-	"model": true,
+	"model":  true,
+	"mouse":  true, "m": true,
 }
 
 // isLocalCommand returns true if text is a slash command handled locally.

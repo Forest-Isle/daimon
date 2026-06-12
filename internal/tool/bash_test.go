@@ -3,12 +3,31 @@ package tool
 import (
 	"context"
 	"encoding/json"
-	"github.com/Forest-Isle/IronClaw/internal/util"
+	"errors"
+	"github.com/Forest-Isle/daimon/internal/util"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+type fakeShellBackend struct {
+	available bool
+	result    ShellRunResult
+	err       error
+	workDir   string
+	command   string
+}
+
+func (b *fakeShellBackend) Available() bool { return b.available }
+func (b *fakeShellBackend) Run(_ context.Context, command, workDir string, streamCB StreamCallback) (ShellRunResult, error) {
+	b.command = command
+	b.workDir = workDir
+	if streamCB != nil && b.result.Stdout != "" {
+		streamCB(b.result.Stdout)
+	}
+	return b.result, b.err
+}
 
 func TestBashTool_StructuredOutput_Success(t *testing.T) {
 	bt := NewBashTool(10*time.Second, false, NewPolicy(nil))
@@ -197,6 +216,51 @@ func TestBashTool_PolicyBlocked(t *testing.T) {
 	}
 	if !strings.Contains(result.Error, "blocked") {
 		t.Errorf("result.Error = %q, want it to contain %q", result.Error, "blocked")
+	}
+}
+
+func TestBashTool_UsesShellBackend(t *testing.T) {
+	backend := &fakeShellBackend{
+		available: true,
+		result:    ShellRunResult{Stdout: "backend\n", ExitCode: 0},
+	}
+	bt := NewBashToolWithBackend(10*time.Second, false, NewPolicy(nil), backend)
+	ctx := WithWorkDir(context.Background(), "/tmp/work")
+	input, _ := json.Marshal(bashInput{Command: "echo backend"})
+
+	result, err := bt.Execute(ctx, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Error != "" {
+		t.Fatalf("unexpected result error: %s", result.Error)
+	}
+	if backend.command != "echo backend" || backend.workDir != "/tmp/work" {
+		t.Fatalf("backend saw command/workdir %q/%q", backend.command, backend.workDir)
+	}
+
+	var out bashOutput
+	if err := json.Unmarshal([]byte(result.Output), &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if out.Stdout != "backend\n" {
+		t.Fatalf("stdout = %q, want backend", out.Stdout)
+	}
+}
+
+func TestBashTool_BackendError(t *testing.T) {
+	bt := NewBashToolWithBackend(10*time.Second, false, NewPolicy(nil), &fakeShellBackend{
+		available: true,
+		err:       errors.New("backend unavailable"),
+	})
+	input, _ := json.Marshal(bashInput{Command: "echo nope"})
+
+	result, err := bt.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.Error, "backend unavailable") {
+		t.Fatalf("result error = %q, want backend error", result.Error)
 	}
 }
 

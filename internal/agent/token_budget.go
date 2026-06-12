@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/Forest-Isle/IronClaw/internal/session"
+import "github.com/Forest-Isle/daimon/internal/session"
 
 // BudgetAction represents the recommended compression level based on context utilization.
 type BudgetAction int

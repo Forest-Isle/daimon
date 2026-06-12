@@ -1,7 +1,9 @@
 package tool
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -32,6 +34,10 @@ func parseAction(s string) PermissionAction {
 	}
 }
 
+func ParsePermissionAction(s string) PermissionAction {
+	return parseAction(s)
+}
+
 // PermissionRule defines a single permission rule for the engine.
 type PermissionRule struct {
 	Tool        string `yaml:"tool"`
@@ -47,28 +53,80 @@ type PermissionResult struct {
 	Reason      string
 }
 
+type PermissionProfile struct {
+	DefaultAction                 PermissionAction
+	RequireApprovalForWrite       bool
+	RequireApprovalForDestructive bool
+	RequireApprovalForNetwork     bool
+}
+
 // PermissionEngine evaluates tool execution requests against configured rules.
 type PermissionEngine struct {
 	rules      []PermissionRule
 	defaultAct PermissionAction
+	profiles   map[ToolChannelClass]PermissionProfile
 	legacy     *Policy // fallback for backward compatibility
 }
 
 // NewPermissionEngine creates a permission engine from rules and a default action.
 // If no rules are provided and a legacy Policy is given, it falls back to legacy behavior.
 func NewPermissionEngine(rules []PermissionRule, defaultAction string, legacy *Policy) *PermissionEngine {
+	defaultAct := parseAction(defaultAction)
 	return &PermissionEngine{
 		rules:      rules,
-		defaultAct: parseAction(defaultAction),
+		defaultAct: defaultAct,
+		profiles:   DefaultPermissionProfiles(defaultAct),
 		legacy:     legacy,
+	}
+}
+
+func NewPermissionEngineWithProfiles(rules []PermissionRule, defaultAction string, legacy *Policy, profiles map[ToolChannelClass]PermissionProfile) *PermissionEngine {
+	pe := NewPermissionEngine(rules, defaultAction, legacy)
+	for class, profile := range profiles {
+		pe.profiles[class] = profile
+	}
+	return pe
+}
+
+func DefaultPermissionProfiles(defaultAct PermissionAction) map[ToolChannelClass]PermissionProfile {
+	return map[ToolChannelClass]PermissionProfile{
+		ToolChannelLocal: {
+			DefaultAction: defaultAct,
+		},
+		ToolChannelRemote: {
+			DefaultAction:                 defaultAct,
+			RequireApprovalForWrite:       true,
+			RequireApprovalForDestructive: true,
+			RequireApprovalForNetwork:     true,
+		},
+		ToolChannelScheduled: {
+			DefaultAction:                 defaultAct,
+			RequireApprovalForWrite:       true,
+			RequireApprovalForDestructive: true,
+			RequireApprovalForNetwork:     true,
+		},
+		ToolChannelBackground: {
+			DefaultAction:                 defaultAct,
+			RequireApprovalForWrite:       true,
+			RequireApprovalForDestructive: true,
+			RequireApprovalForNetwork:     true,
+		},
 	}
 }
 
 // Evaluate checks whether a tool call should be allowed, denied, or requires approval.
 func (pe *PermissionEngine) Evaluate(toolName, input string, caps ToolCapabilities) PermissionResult {
+	return pe.evaluate(ToolChannelLocal, toolName, input, caps)
+}
+
+func (pe *PermissionEngine) EvaluateWithContext(ctx context.Context, toolName, input string, caps ToolCapabilities) PermissionResult {
+	return pe.evaluate(ChannelClassFromContext(ctx), toolName, input, caps)
+}
+
+func (pe *PermissionEngine) evaluate(channelClass ToolChannelClass, toolName, input string, caps ToolCapabilities) PermissionResult {
 	// If no rules configured, fall back to legacy behavior
 	if len(pe.rules) == 0 && pe.legacy != nil {
-		return pe.evaluateLegacy(toolName, input, caps)
+		return pe.applyProfileFloor(channelClass, pe.evaluateLegacy(toolName, input, caps), caps)
 	}
 
 	// Extract command/path from input for pattern matching
@@ -92,26 +150,71 @@ func (pe *PermissionEngine) Evaluate(toolName, input string, caps ToolCapabiliti
 			continue
 		}
 
-		return PermissionResult{
+		return pe.applyProfileFloor(channelClass, PermissionResult{
 			Action:      parseAction(rule.Action),
 			MatchedRule: rule,
 			Reason:      "rule_match",
-		}
+		}, caps)
 	}
 
 	// No rule matched — check capabilities for destructive tools
 	if caps.IsDestructive {
-		return PermissionResult{
+		return pe.applyProfileFloor(channelClass, PermissionResult{
 			Action: PermissionApprove,
 			Reason: "capability_default_destructive",
-		}
+		}, caps)
 	}
 
 	// Default action
-	return PermissionResult{
-		Action: pe.defaultAct,
+	return pe.applyProfileFloor(channelClass, PermissionResult{
+		Action: pe.profile(channelClass).DefaultAction,
 		Reason: "default",
+	}, caps)
+}
+
+func (pe *PermissionEngine) profile(class ToolChannelClass) PermissionProfile {
+	if pe.profiles != nil {
+		if p, ok := pe.profiles[class]; ok {
+			if p.DefaultAction == "" {
+				p.DefaultAction = pe.defaultAct
+			}
+			return p
+		}
 	}
+	p := DefaultPermissionProfiles(pe.defaultAct)[class]
+	if p.DefaultAction == "" {
+		p.DefaultAction = pe.defaultAct
+	}
+	return p
+}
+
+func (pe *PermissionEngine) applyProfileFloor(class ToolChannelClass, result PermissionResult, caps ToolCapabilities) PermissionResult {
+	if result.Action == PermissionDeny || result.Action == PermissionApprove {
+		return result
+	}
+	profile := pe.profile(class)
+	reason := ""
+	switch {
+	case profile.RequireApprovalForDestructive && caps.IsDestructive:
+		reason = "profile_requires_approval_for_destructive"
+	case profile.RequireApprovalForNetwork && caps.RequiresNetwork:
+		reason = "profile_requires_approval_for_network"
+	case profile.RequireApprovalForWrite && !caps.IsReadOnly:
+		reason = "profile_requires_approval_for_write"
+	}
+	if reason == "" {
+		return result
+	}
+	result.Action = PermissionApprove
+	if class != "" {
+		reason = fmt.Sprintf("%s:%s", reason, class)
+	}
+	if result.Reason != "" {
+		result.Reason += "+" + reason
+	} else {
+		result.Reason = reason
+	}
+	return result
 }
 
 // evaluateLegacy uses the old Policy blocklist for backward compatibility.

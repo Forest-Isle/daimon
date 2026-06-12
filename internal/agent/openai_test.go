@@ -10,8 +10,25 @@ import (
 	"testing"
 )
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func newOpenAITestProvider(t *testing.T, apiKey string, handler http.HandlerFunc) *OpenAIProvider {
+	t.Helper()
+	p := NewOpenAIProvider(apiKey, "gpt-4", "http://openai.test")
+	p.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Result(), nil
+	})
+	return p
+}
+
 func TestOpenAIProvider_Complete_TextResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p := newOpenAITestProvider(t, "test-key", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
@@ -37,9 +54,7 @@ func TestOpenAIProvider_Complete_TextResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
-	defer server.Close()
 
-	p := NewOpenAIProvider("test-key", "gpt-4", server.URL)
 	resp, err := p.Complete(context.Background(), CompletionRequest{
 		System:   "You are helpful.",
 		Messages: []CompletionMessage{{Role: "user", Content: "Hi"}},
@@ -56,7 +71,7 @@ func TestOpenAIProvider_Complete_TextResponse(t *testing.T) {
 }
 
 func TestOpenAIProvider_Complete_ToolCalls(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p := newOpenAITestProvider(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := oaiResponse{
 			Choices: []oaiChoice{{
 				Message: oaiMessage{
@@ -75,9 +90,7 @@ func TestOpenAIProvider_Complete_ToolCalls(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
-	defer server.Close()
 
-	p := NewOpenAIProvider("", "gpt-4", server.URL)
 	resp, err := p.Complete(context.Background(), CompletionRequest{
 		Messages: []CompletionMessage{{Role: "user", Content: "run echo hello"}},
 		Tools: []ToolDefinition{{
@@ -101,13 +114,11 @@ func TestOpenAIProvider_Complete_ToolCalls(t *testing.T) {
 }
 
 func TestOpenAIProvider_Complete_APIError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p := newOpenAITestProvider(t, "bad-key", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = fmt.Fprintf(w, `{"error":{"message":"invalid api key","type":"auth_error"}}`)
 	}))
-	defer server.Close()
 
-	p := NewOpenAIProvider("bad-key", "gpt-4", server.URL)
 	_, err := p.Complete(context.Background(), CompletionRequest{
 		Messages: []CompletionMessage{{Role: "user", Content: "Hi"}},
 	})
@@ -203,7 +214,7 @@ func TestOpenAIProvider_BuildRequest_PipelineShapedToolResult(t *testing.T) {
 }
 
 func TestOpenAIProvider_Stream_TextOnly(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p := newOpenAITestProvider(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
 
@@ -220,9 +231,7 @@ func TestOpenAIProvider_Stream_TextOnly(t *testing.T) {
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 		flusher.Flush()
 	}))
-	defer server.Close()
 
-	p := NewOpenAIProvider("", "gpt-4", server.URL)
 	iter, err := p.Stream(context.Background(), CompletionRequest{
 		Messages: []CompletionMessage{{Role: "user", Content: "Hi"}},
 	})
@@ -252,7 +261,7 @@ func TestOpenAIProvider_Stream_TextOnly(t *testing.T) {
 }
 
 func TestOpenAIProvider_Stream_ToolCalls(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p := newOpenAITestProvider(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
 
@@ -269,9 +278,7 @@ func TestOpenAIProvider_Stream_ToolCalls(t *testing.T) {
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 		flusher.Flush()
 	}))
-	defer server.Close()
 
-	p := NewOpenAIProvider("", "gpt-4", server.URL)
 	iter, err := p.Stream(context.Background(), CompletionRequest{
 		Messages: []CompletionMessage{{Role: "user", Content: "list files"}},
 	})
@@ -313,7 +320,7 @@ func TestOpenAIProvider_Stream_ToolCalls(t *testing.T) {
 // order and routed id-less fragments to the most recent call, corrupting any
 // response with 2+ tool calls — which unified_loop produces routinely.
 func TestOpenAIProvider_Stream_MultipleToolCalls_IndexKeyed(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p := newOpenAITestProvider(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
 
@@ -331,9 +338,7 @@ func TestOpenAIProvider_Stream_MultipleToolCalls_IndexKeyed(t *testing.T) {
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 		flusher.Flush()
 	}))
-	defer server.Close()
 
-	p := NewOpenAIProvider("", "gpt-4", server.URL)
 	iter, err := p.Stream(context.Background(), CompletionRequest{
 		Messages: []CompletionMessage{{Role: "user", Content: "do two things"}},
 	})

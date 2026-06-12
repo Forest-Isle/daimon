@@ -6,12 +6,12 @@ This repository is a Go-first agent runtime. Keep changes small, source-derived,
 
 Required tools:
 
-- Go 1.25.9 or compatible newer patch release.
+- Go 1.25.11 or compatible newer patch release.
 - CGO-enabled toolchain for `github.com/mattn/go-sqlite3`.
 - Git, because worktree tools and developer workflows depend on it.
 
 ```bash
-cp configs/ironclaw.example.yaml configs/ironclaw.yaml
+cp configs/daimon.example.yaml configs/daimon.yaml
 make build-bin
 make test-short
 ```
@@ -69,6 +69,6 @@ npm run build
 - The change has a focused purpose.
 - `git status --short` has no accidental generated files.
 - Relevant Go verification commands have passed.
-- Config keys added in code are represented in `configs/ironclaw.example.yaml` or documented as internal.
+- Config keys added in code are represented in `configs/daimon.example.yaml` or documented as internal.
 - New tools declare capabilities and approval behavior.
-- New Gateway features are registered in `internal/gateway/features.go`.
+- New Gateway features are registered in `internal/gateway/subsystem_feature.go` and defined in `internal/feature`.

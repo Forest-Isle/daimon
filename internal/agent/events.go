@@ -1,5 +1,7 @@
 package agent
 
+import "encoding/json"
+
 // Event is the base interface for all agent lifecycle events.
 type Event interface {
 	EventType() string
@@ -36,6 +38,90 @@ type ToolExecuted struct {
 }
 
 func (ToolExecuted) EventType() string { return "tool.executed" }
+
+// PermissionDecision is emitted whenever runtime policy evaluates a tool call.
+type PermissionDecision struct {
+	SessionID    string
+	ToolName     string
+	Action       string
+	Reason       string
+	MatchedRule  string
+	ChannelClass string
+}
+
+func (PermissionDecision) EventType() string { return "permission.decision" }
+
+// ──────────────────────── Model Events ────────────────────────
+
+// ModelCallStarted is emitted immediately before a provider request.
+type ModelCallStarted struct {
+	SessionID    string
+	Iteration    int
+	Model        string
+	Provider     string
+	MessageCount int
+	ToolCount    int
+	SystemChars  int
+	Streaming    bool
+}
+
+func (ModelCallStarted) EventType() string { return "model.call.started" }
+
+// ModelCallEnded is emitted after a provider request succeeds or fails.
+type ModelCallEnded struct {
+	SessionID  string
+	Iteration  int
+	Model      string
+	Provider   string
+	Streaming  bool
+	Succeeded  bool
+	DurationMs int64
+	StopReason string
+	Error      string
+}
+
+func (ModelCallEnded) EventType() string { return "model.call.ended" }
+
+// ──────────────────────── Replay Events ────────────────────────
+
+// ProviderExchange is emitted once per provider call with replay-grade request
+// and response payloads.
+type ProviderExchange struct {
+	SessionID     string
+	Iteration     int
+	Model         string
+	Provider      string
+	SystemPrompt  string
+	MessagesJSON  json.RawMessage
+	ResponseText  string
+	ToolCallsJSON json.RawMessage
+	StopReason    string
+	DurationMs    int64
+}
+
+func (ProviderExchange) EventType() string { return "replay.provider_exchange" }
+
+// ToolRoundTrip is emitted after each tool execution with full arguments and
+// result payloads.
+type ToolRoundTrip struct {
+	SessionID  string
+	Iteration  int
+	ToolName   string
+	ArgsJSON   json.RawMessage
+	ResultJSON json.RawMessage
+	Succeeded  bool
+	DurationMs int64
+}
+
+func (ToolRoundTrip) EventType() string { return "replay.tool_round_trip" }
+
+// TurnClosed is emitted when the agent loop returns the final user-facing reply.
+type TurnClosed struct {
+	SessionID  string
+	FinalReply string
+}
+
+func (TurnClosed) EventType() string { return "replay.turn_closed" }
 
 // ──────────────────────── Context Events ────────────────────────
 
@@ -90,6 +176,20 @@ type MetricsTick struct {
 
 func (MetricsTick) EventType() string { return "metrics.tick" }
 
+// PromptFrameRendered is emitted whenever a prompt frame is rendered into the
+// system prompt sent to the provider or used for context budgeting.
+type PromptFrameRendered struct {
+	SessionID       string
+	Iteration       int // -1 means pre-loop render
+	LayerCount      int
+	LayerKeys       []string
+	ScopeCounts     map[PromptLayerScope]int
+	CharacterCount  int
+	EstimatedTokens int
+}
+
+func (PromptFrameRendered) EventType() string { return "prompt_frame.rendered" }
+
 // ──────────────────────── Config Events ────────────────────────
 
 // ConfigChanged is emitted when the config file is hot-reloaded.
@@ -110,3 +210,32 @@ type ReflectionTriggered struct {
 }
 
 func (ReflectionTriggered) EventType() string { return "reflection.triggered" }
+
+// ──────────────────────── Workflow Events ────────────────────────
+
+type WorkflowStepEvent struct {
+	WorkflowName string
+	WorkflowHash string
+	StageID      string
+	StepID       string
+	StepType     string
+	Phase        string
+	Status       string
+	Cached       bool
+	DurationMs   int64
+	Error        string
+}
+
+func (WorkflowStepEvent) EventType() string { return "workflow.step" }
+
+// ──────────────────────── Task Events ────────────────────────
+
+type TaskTransitioned struct {
+	TaskID    string
+	Kind      string
+	FromState string
+	ToState   string
+	Reason    string
+}
+
+func (TaskTransitioned) EventType() string { return "task.transitioned" }

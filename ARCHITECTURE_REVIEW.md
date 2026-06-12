@@ -101,24 +101,24 @@ Channel(TUI / Telegram / Scheduler) ──inbound──▶ gateway.handleInbound
 
 ### B. 零隔离的宿主执行 ⭐ 最该补的安全缺口
 
-- **现状:** `bash` 走 `exec.CommandContext(ctx,"bash","-c",cmd)` 直接落地宿主;文件工具无路径围栏,`file_read/write` 可读写任意路径(含 `~/.ssh`、`/etc`);命令拦截仅子串黑名单(`policy.CheckBashCommand`),`r\m`/别名/`bash -c` 即可绕过;"always approve" 仅存内存。
+- **现状:** `bash` 走 `exec.CommandContext(ctx,"bash","-c",cmd)` 直接落地宿主;Agent 工具执行已默认注入当前工作目录,文件工具会拒绝逃出该目录的绝对路径/`..` 路径,但仍不是 OS 级沙箱;命令拦截仅子串黑名单(`policy.CheckBashCommand`),`r\m`/别名/`bash -c` 即可绕过;"always approve" 仅存内存。
 - **对标:** Codex CLI 默认 Landlock(Linux)/Seatbelt(macOS)沙箱 + 三档审批;Claude Code 持久化权限 + bash 沙箱;Devin/OpenHands 跑在容器/VM。
 - **影响:** 当前安全姿态 = "完全信任模型 + 子串黑名单"。本地单人玩具可接受,但任何"半自治/远程触发(Telegram/Scheduler)"场景都是真实命令执行风险面。**这是从个人工具走向产品的硬门槛。**
-- **证据:** `internal/tool/bash.go:94`;`internal/tool/tool.go:235-244` `ResolveWorkPath` 无 `..` 校验;`internal/tool/permissions.go` 子串黑名单;Telegram "always approve" 仅 in-memory `sync.Map`。
+- **证据:** `internal/tool/bash.go:94`;`internal/agent/agent.go:agentToolContext`;`internal/tool/tool.go:ResolveWorkPath`;`internal/tool/permissions.go` 子串黑名单;Telegram "always approve" 仅 in-memory `sync.Map`。
 
 ### C. Provider 抽象漏掉"推理通道"
 
-- **现状:** `Provider` 接口只有 `Complete/Stream`,数据结构**无 thinking/reasoning 字段**;prompt cache 的 `cache_control` 硬编码在 Anthropic 路径,靠 system prompt 里 `<!-- CACHE_BOUNDARY -->` 注释切分——Anthropic 专属漏抽象。仅 Claude + OpenAI。
+- **现状:** `Provider` 数据结构已有 `Thinking`/`Signature`,Claude extended thinking 已能透传并随 assistant turn 回放;但 OpenAI reasoning 摘要、TUI 折叠展示、以及 Provider 级缓存能力协商仍未完成。prompt cache 的 `cache_control` 仍硬编码在 Anthropic 路径,靠 system prompt 里 `<!-- CACHE_BOUNDARY -->` 注释切分——Anthropic 专属漏抽象。仅 Claude + OpenAI。
 - **对标:** 现代 Agent 普遍把 extended thinking(Claude)/ reasoning tokens(o-series)作为一等公民透传与展示;缓存策略应是 Provider 能力协商而非提示词魔法注释。
-- **影响:** 拿不到/展示不了推理过程,调试困难;接入新供应商要改核心数据结构;缓存正确性依赖注释位置,脆。
-- **证据:** `internal/agent/provider.go:64-90`(`CompletionResponse`/`StreamDelta` 无 thinking);`internal/agent/context_manager.go:17-18` 缓存标记;`internal/agent/claude_provider.go` `cache_control` 注入。
+- **影响:** Claude thinking 已可保真回放,但用户侧展示和跨 Provider reasoning 仍不统一;缓存正确性依赖注释位置,脆。
+- **证据:** `internal/agent/provider.go`(`CompletionResponse`/`StreamDelta` thinking 字段);`internal/agent/claude_provider.go` thinking 与 `cache_control` 注入;`internal/agent/context_manager.go:17-18` 缓存标记。
 
 ### D. 记忆系统:有检索,无"学习"
 
-- **现状:** `strength` 恒为 1.0,**无时间衰减、无访问强化**;矛盾检测让 LLM 标 `ConflictingIDs` 但**只执行单条 ADD/UPDATE/DELETE,不做多记忆和解/合并**;去重用字符重叠率 `>0.8` 非语义;`CachedStore` 的 key 只含 `Text+Limit`,**忽略 scope/userID** → 跨用户/跨作用域假命中(正确性 bug);每条消息都异步抽事实,成本不低。
+- **现状:** `strength` 恒为 1.0,**无时间衰减、无访问强化**;矛盾检测让 LLM 标 `ConflictingIDs` 但**只执行单条 ADD/UPDATE/DELETE,不做多记忆和解/合并**;去重用字符重叠率 `>0.8` 非语义;`CachedStore` 的 key 已覆盖 query/filter/user/session/scope/embedding 维度;每条消息都异步抽事实,成本不低。
 - **对标:** Letta/MemGPT 自编辑记忆 + in-context/archival 分页;mem0/Zep 时序知识图谱 + 事实和解 + 衰减。
-- **影响:** 记忆只会"堆积 + 检索",不会"记住什么重要、遗忘什么过时";矛盾事实并存;缓存键缺隔离维度有数据串扰风险。
-- **证据:** `internal/memory/file_store.go`(strength 默认 1.0 无衰减);`internal/memory/lifecycle.go`(`ConflictingIDs` 仅标记不和解);`internal/memory/retriever.go`(字符重叠去重);`internal/memory/cache.go:41-42`(key=`Text+Limit`)。
+- **影响:** 记忆只会"堆积 + 检索",不会"记住什么重要、遗忘什么过时";矛盾事实并存。
+- **证据:** `internal/memory/file_store.go`(strength 默认 1.0 无衰减);`internal/memory/lifecycle.go`(`ConflictingIDs` 仅标记不和解);`internal/memory/retriever.go`(字符重叠去重);`internal/memory/cache.go`(复合 cache key)。
 
 ### E. 上下文工程缺"卸载"维度
 
@@ -237,8 +237,9 @@ Channel(TUI / Telegram / Scheduler) ──inbound──▶ gateway.handleInbound
 **目标:** 透传/展示推理;缓存策略去 Anthropic 耦合。
 
 **方案:**
-1. `StreamDelta`/`CompletionResponse` 增 `Thinking string`(或 `ReasoningSummary`),Claude thinking / o-series reasoning 透传;TUI 折叠展示。
-2. 把 `cache_control` 从 system prompt 注释升级为 `Provider.CachePolicy()` 能力协商;`SplitSystemPrompt` 改由 Provider 决定切点。
+1. ✅ `StreamDelta`/`CompletionResponse` 增 `Thinking`/`Signature`,Claude thinking 可透传并回放。
+2. OpenAI reasoning 摘要与 TUI 折叠展示仍待补。
+3. 把 `cache_control` 从 system prompt 注释升级为 `Provider.CachePolicy()` 能力协商;`SplitSystemPrompt` 改由 Provider 决定切点。
 
 **涉及文件:** `internal/agent/provider.go`、`claude_provider.go`、`openai.go`;`internal/agent/context_manager.go:SplitSystemPrompt`;`internal/channel/tui/`(展示)。
 
@@ -389,7 +390,7 @@ Channel(TUI / Telegram / Scheduler) ──inbound──▶ gateway.handleInbound
 |---|---|---|---|
 | 执行内核 | 朴素 ReAct 单环 | Claude Code TodoWrite/plan、Codex planner | Reflexion / Plan-and-Solve / ToT |
 | 安全隔离 | 宿主直跑,子串黑名单 | Codex Landlock/Seatbelt、容器 | — |
-| 推理通道 | 无 thinking 字段 | Claude thinking / o-series reasoning | — |
+| 推理通道 | Claude thinking 字段已接入;OpenAI reasoning/TUI 展示待补 | Claude thinking / o-series reasoning | — |
 | 记忆 | FTS5+向量 RRF,无衰减/和解 | mem0 事实和解 | Letta/MemGPT 自编辑、Zep 时序图谱 |
 | 上下文 | 有损分层摘要 | Claude Code sub-agent 卸载 | — |
 | 多智能体 | 扇出-摘要 | Swarm/Agents-SDK handoff | LangGraph 状态图、AutoGen/CrewAI |

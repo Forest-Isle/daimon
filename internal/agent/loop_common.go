@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
-	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	ierrors "github.com/Forest-Isle/daimon/internal/errors"
+	"github.com/Forest-Isle/daimon/internal/session"
 )
 
 // loopIteration performs one iteration of the agent loop: stream LLM response,
@@ -59,6 +59,17 @@ func loopIteration(
 		ThinkingBudget: a.deps.Core.LLMCfg.ThinkingBudget,
 	}
 
+	modelStart := time.Now()
+	a.eventBus.Publish(ModelCallStarted{
+		SessionID:    sess.ID,
+		Iteration:    iteration,
+		Model:        req.Model,
+		Provider:     a.deps.Core.LLMCfg.Provider,
+		MessageCount: len(req.Messages),
+		ToolCount:    len(req.Tools),
+		SystemChars:  len(req.System),
+		Streaming:    true,
+	})
 	stream, streamErr := a.deps.Core.Provider.Stream(ctx, req)
 	if streamErr != nil && isContextLengthError(streamErr) {
 		_ = updater.Finish("")
@@ -73,7 +84,19 @@ func loopIteration(
 	if streamErr != nil {
 		slog.Error("llm stream error", "err", streamErr)
 		_ = updater.Finish("Error: " + streamErr.Error())
-		return updater, nil, nil // error already communicated via stream
+		durationMs := time.Since(modelStart).Milliseconds()
+		a.eventBus.Publish(ModelCallEnded{
+			SessionID:  sess.ID,
+			Iteration:  iteration,
+			Model:      req.Model,
+			Provider:   a.deps.Core.LLMCfg.Provider,
+			Streaming:  true,
+			Succeeded:  false,
+			DurationMs: durationMs,
+			Error:      streamErr.Error(),
+		})
+		publishProviderExchange(a, sess.ID, iteration, req, "", nil, "", durationMs)
+		return updater, nil, streamErr
 	}
 
 	var fullText string
@@ -88,7 +111,19 @@ func loopIteration(
 			stream.Close()
 			slog.Error("stream delta error", "err", deltaErr)
 			_ = updater.Finish("Error: " + deltaErr.Error())
-			return updater, nil, nil // error already communicated via stream
+			durationMs := time.Since(modelStart).Milliseconds()
+			a.eventBus.Publish(ModelCallEnded{
+				SessionID:  sess.ID,
+				Iteration:  iteration,
+				Model:      req.Model,
+				Provider:   a.deps.Core.LLMCfg.Provider,
+				Streaming:  true,
+				Succeeded:  false,
+				DurationMs: durationMs,
+				Error:      deltaErr.Error(),
+			})
+			publishProviderExchange(a, sess.ID, iteration, req, fullText, toolCalls, "", durationMs)
+			return updater, nil, deltaErr
 		}
 
 		if delta.Text != "" {
@@ -114,15 +149,62 @@ func loopIteration(
 		}
 	}
 	stream.Close()
+	durationMs := time.Since(modelStart).Milliseconds()
+	a.eventBus.Publish(ModelCallEnded{
+		SessionID:  sess.ID,
+		Iteration:  iteration,
+		Model:      req.Model,
+		Provider:   a.deps.Core.LLMCfg.Provider,
+		Streaming:  true,
+		Succeeded:  true,
+		DurationMs: durationMs,
+		StopReason: string(stopReason),
+	})
+	publishProviderExchange(a, sess.ID, iteration, req, fullText, toolCalls, stopReason, durationMs)
 
 	// Fallback: tool_use without tool calls -> re-request non-streaming
 	if stopReason == StopToolUse && len(toolCalls) == 0 {
+		fallbackStart := time.Now()
+		a.eventBus.Publish(ModelCallStarted{
+			SessionID:    sess.ID,
+			Iteration:    iteration,
+			Model:        req.Model,
+			Provider:     a.deps.Core.LLMCfg.Provider,
+			MessageCount: len(req.Messages),
+			ToolCount:    len(req.Tools),
+			SystemChars:  len(req.System),
+			Streaming:    false,
+		})
 		resp, completeErr := a.deps.Core.Provider.Complete(ctx, req)
 		if completeErr != nil {
 			slog.Error("non-streaming completion error", "err", completeErr)
 			_ = updater.Finish("Error: " + completeErr.Error())
-			return updater, nil, nil // error already communicated via stream
+			durationMs := time.Since(fallbackStart).Milliseconds()
+			a.eventBus.Publish(ModelCallEnded{
+				SessionID:  sess.ID,
+				Iteration:  iteration,
+				Model:      req.Model,
+				Provider:   a.deps.Core.LLMCfg.Provider,
+				Streaming:  false,
+				Succeeded:  false,
+				DurationMs: durationMs,
+				Error:      completeErr.Error(),
+			})
+			publishProviderExchange(a, sess.ID, iteration, req, "", nil, "", durationMs)
+			return updater, nil, completeErr
 		}
+		durationMs := time.Since(fallbackStart).Milliseconds()
+		a.eventBus.Publish(ModelCallEnded{
+			SessionID:  sess.ID,
+			Iteration:  iteration,
+			Model:      req.Model,
+			Provider:   a.deps.Core.LLMCfg.Provider,
+			Streaming:  false,
+			Succeeded:  true,
+			DurationMs: durationMs,
+			StopReason: string(resp.StopReason),
+		})
+		publishProviderExchange(a, sess.ID, iteration, req, resp.Text, resp.ToolCalls, resp.StopReason, durationMs)
 		fullText = resp.Text
 		thinking = resp.Thinking
 		signature = resp.Signature
@@ -156,7 +238,9 @@ func loopIteration(
 
 	// If no tool calls, we're done
 	if len(toolCalls) == 0 {
-		_ = updater.Finish(appendStopNotice(fullText, stopReason))
+		finalReply := appendStopNotice(fullText, stopReason)
+		_ = updater.Finish(finalReply)
+		a.eventBus.Publish(TurnClosed{SessionID: sess.ID, FinalReply: finalReply})
 		return updater, nil, nil
 	}
 
@@ -233,6 +317,17 @@ func loopIterationNonStreaming(
 		ThinkingBudget: a.deps.Core.LLMCfg.ThinkingBudget,
 	}
 
+	modelStart := time.Now()
+	a.eventBus.Publish(ModelCallStarted{
+		SessionID:    sess.ID,
+		Iteration:    iteration,
+		Model:        req.Model,
+		Provider:     a.deps.Core.LLMCfg.Provider,
+		MessageCount: len(req.Messages),
+		ToolCount:    len(req.Tools),
+		SystemChars:  len(req.System),
+		Streaming:    false,
+	})
 	resp, err := a.deps.Core.Provider.Complete(ctx, req)
 	if err != nil && isContextLengthError(err) {
 		if compErr := a.deps.Memory.ContextMgr.ReactiveCompress(ctx, sess, systemPrompt); compErr != nil {
@@ -244,8 +339,32 @@ func loopIterationNonStreaming(
 		}
 	}
 	if err != nil {
+		durationMs := time.Since(modelStart).Milliseconds()
+		a.eventBus.Publish(ModelCallEnded{
+			SessionID:  sess.ID,
+			Iteration:  iteration,
+			Model:      req.Model,
+			Provider:   a.deps.Core.LLMCfg.Provider,
+			Streaming:  false,
+			Succeeded:  false,
+			DurationMs: durationMs,
+			Error:      err.Error(),
+		})
+		publishProviderExchange(a, sess.ID, iteration, req, "", nil, "", durationMs)
 		return nil, err
 	}
+	durationMs := time.Since(modelStart).Milliseconds()
+	a.eventBus.Publish(ModelCallEnded{
+		SessionID:  sess.ID,
+		Iteration:  iteration,
+		Model:      req.Model,
+		Provider:   a.deps.Core.LLMCfg.Provider,
+		Streaming:  false,
+		Succeeded:  true,
+		DurationMs: durationMs,
+		StopReason: string(resp.StopReason),
+	})
+	publishProviderExchange(a, sess.ID, iteration, req, resp.Text, resp.ToolCalls, resp.StopReason, durationMs)
 
 	if resp.Text != "" || resp.Thinking != "" {
 		sess.AddMessage(session.Message{
@@ -260,11 +379,13 @@ func loopIterationNonStreaming(
 	}
 
 	if len(resp.ToolCalls) == 0 {
+		finalReply := appendStopNotice(resp.Text, resp.StopReason)
 		if sendErr := ch.Send(ctx, channel.OutboundMessage{
-			Channel: target.Channel, ChannelID: target.ChannelID, Text: appendStopNotice(resp.Text, resp.StopReason),
+			Channel: target.Channel, ChannelID: target.ChannelID, Text: finalReply,
 		}); sendErr != nil {
 			slog.Warn("failed to send message", "err", sendErr)
 		}
+		a.eventBus.Publish(TurnClosed{SessionID: sess.ID, FinalReply: finalReply})
 		return nil, nil
 	}
 
@@ -329,4 +450,61 @@ func isContextLengthError(err error) bool {
 		strings.Contains(msg, "413") ||
 		strings.Contains(msg, "request too large") ||
 		strings.Contains(msg, "payload too large")
+}
+
+func publishProviderExchange(
+	a *Agent,
+	sessionID string,
+	iteration int,
+	req CompletionRequest,
+	responseText string,
+	toolCalls []ToolUseBlock,
+	stopReason StopReason,
+	durationMs int64,
+) {
+	if a == nil || a.eventBus == nil {
+		return
+	}
+	a.eventBus.Publish(ProviderExchange{
+		SessionID:     sessionID,
+		Iteration:     iteration,
+		Model:         req.Model,
+		Provider:      a.deps.Core.LLMCfg.Provider,
+		SystemPrompt:  req.System,
+		MessagesJSON:  replayMessagesJSON(req.Messages),
+		ResponseText:  responseText,
+		ToolCallsJSON: replayToolCallsJSON(toolCalls),
+		StopReason:    string(stopReason),
+		DurationMs:    durationMs,
+	})
+}
+
+func replayMessagesJSON(messages []CompletionMessage) json.RawMessage {
+	if messages == nil {
+		messages = []CompletionMessage{}
+	}
+	return replayMarshalJSON(messages)
+}
+
+func replayToolCallsJSON(toolCalls []ToolUseBlock) json.RawMessage {
+	if toolCalls == nil {
+		toolCalls = []ToolUseBlock{}
+	}
+	return replayMarshalJSON(toolCalls)
+}
+
+func replayMarshalJSON(v any) json.RawMessage {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage("null")
+	}
+	return json.RawMessage(data)
+}
+
+func replayRawJSONString(raw string) json.RawMessage {
+	data := []byte(strings.TrimSpace(raw))
+	if len(data) > 0 && json.Valid(data) {
+		return json.RawMessage(append([]byte(nil), data...))
+	}
+	return replayMarshalJSON(raw)
 }

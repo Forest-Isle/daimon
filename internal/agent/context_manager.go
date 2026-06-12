@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	ierrors "github.com/Forest-Isle/IronClaw/internal/errors"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
-	"github.com/Forest-Isle/IronClaw/internal/util"
+	"github.com/Forest-Isle/daimon/internal/config"
+	ierrors "github.com/Forest-Isle/daimon/internal/errors"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/util"
 )
 
 const (

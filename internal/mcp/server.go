@@ -8,23 +8,23 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-// ServerOption configures the IronClaw MCP server.
+// ServerOption configures the Daimon MCP server.
 type ServerOption func(*Server)
 
-// Server wraps a mark3labs/mcp-go MCPServer with IronClaw-specific tools
+// Server wraps a mark3labs/mcp-go MCPServer with Daimon-specific tools
 // and dependency wiring.
 type Server struct {
 	mcpServer *mcpserver.MCPServer
 	deps      ServerDeps
 }
 
-// NewServer creates a new IronClaw MCP server. Apply ServerOptions to
+// NewServer creates a new Daimon MCP server. Apply ServerOptions to
 // configure dependencies before calling ServeStdio or ServeHTTP.
 func NewServer(opts ...ServerOption) *Server {
-	srv := mcpserver.NewMCPServer("ironclaw", "1.0.0",
+	srv := mcpserver.NewMCPServer("daimon", "1.0.0",
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithLogging(),
-		mcpserver.WithInstructions("IronClaw AI agent — access memory and skills"),
+		mcpserver.WithInstructions("Daimon AI agent — access memory and skills"),
 	)
 	s := &Server{mcpServer: srv}
 	for _, opt := range opts {

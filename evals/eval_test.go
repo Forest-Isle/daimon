@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // ── Eval 1: Plan create → update → complete lifecycle ───────────────

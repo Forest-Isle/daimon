@@ -9,8 +9,9 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/taskruntime"
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 )
@@ -35,25 +36,35 @@ type SchedulerChannel struct {
 	cron          *cron.Cron
 	handler       channel.InboundHandler
 	notifier      channel.Channel
+	ledger        *taskruntime.Ledger
 	entries       map[string]cron.EntryID
 	activeTargets sync.Map // taskID → "channel:channelID"
 	mu            sync.Mutex
 }
 
 // New creates a SchedulerChannel.
-func New(db *store.DB, notifier channel.Channel) *SchedulerChannel {
-	return &SchedulerChannel{
+func New(db *store.DB, notifier channel.Channel, ledgers ...*taskruntime.Ledger) *SchedulerChannel {
+	s := &SchedulerChannel{
 		db:       db,
 		notifier: notifier,
 		cron:     cron.New(cron.WithSeconds()),
 		entries:  make(map[string]cron.EntryID),
 	}
+	if len(ledgers) > 0 {
+		s.ledger = ledgers[0]
+	}
+	return s
 }
 
 // SetNotifier sets the channel that receives forwarded replies.
 // Call this after construction if the notifier wasn't available at init time.
 func (s *SchedulerChannel) SetNotifier(ch channel.Channel) {
 	s.notifier = ch
+}
+
+// SetLedger wires the durable task ledger after construction.
+func (s *SchedulerChannel) SetLedger(ledger *taskruntime.Ledger) {
+	s.ledger = ledger
 }
 
 // Name returns the channel identifier.
@@ -70,6 +81,7 @@ func (s *SchedulerChannel) Start(ctx context.Context, handler channel.InboundHan
 	}
 
 	for _, t := range tasks {
+		s.ensureLedgerTask(ctx, t)
 		s.registerCron(t)
 	}
 
@@ -210,6 +222,7 @@ func (s *SchedulerChannel) fireTask(t ScheduledTask) {
 	targetKey := t.NotifyTo + ":" + t.NotifyID
 	s.activeTargets.Store(t.ID, targetKey)
 
+	s.markLedgerRunning(t)
 	s.setLastRun(t.ID)
 
 	msg := channel.InboundMessage{
@@ -227,6 +240,61 @@ func (s *SchedulerChannel) setLastRun(taskID string) {
 	_, err := s.db.Exec(`UPDATE scheduled_tasks SET last_run = datetime('now'), last_status = 'running' WHERE id = ?`, taskID)
 	if err != nil {
 		slog.Warn("scheduler: failed to update last_run", "task", taskID, "err", err)
+	}
+}
+
+// FinishRun records the final status after the gateway finishes handling a
+// scheduler-originated message.
+func (s *SchedulerChannel) FinishRun(ctx context.Context, taskID string, runErr error, result string) {
+	status := "succeeded"
+	if runErr != nil {
+		status = "failed"
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE scheduled_tasks SET last_status = ? WHERE id = ?`, status, taskID); err != nil {
+		slog.Warn("scheduler: failed to update run status", "task", taskID, "status", status, "err", err)
+	}
+	if s.ledger != nil {
+		ledgerID := taskruntime.ScheduledLedgerID(taskID)
+		if runErr != nil {
+			if err := s.ledger.Fail(ctx, ledgerID, runErr.Error(), "scheduler agent run failed"); err != nil {
+				slog.Warn("scheduler: failed to mark ledger failed", "task", taskID, "err", err)
+			}
+		} else {
+			if result == "" {
+				result = "completed"
+			}
+			if err := s.ledger.Complete(ctx, ledgerID, result, "scheduler agent run completed"); err != nil {
+				slog.Warn("scheduler: failed to mark ledger complete", "task", taskID, "err", err)
+			}
+		}
+	}
+	s.activeTargets.Delete(taskID)
+}
+
+func (s *SchedulerChannel) ensureLedgerTask(ctx context.Context, t ScheduledTask) {
+	if s.ledger == nil {
+		return
+	}
+	if _, err := s.ledger.EnsureScheduledTask(ctx, t.ID, taskName(t.Prompt), t.Prompt, t.CronExpr, t.NotifyTo, t.NotifyID); err != nil {
+		slog.Warn("scheduler: failed to ensure ledger task", "task", t.ID, "err", err)
+	}
+}
+
+func (s *SchedulerChannel) markLedgerRunning(t ScheduledTask) {
+	if s.ledger == nil {
+		return
+	}
+	ctx := context.Background()
+	s.ensureLedgerTask(ctx, t)
+	meta := taskruntime.Metadata{
+		ScheduledTaskID:  t.ID,
+		SessionChannel:   "scheduler",
+		SessionChannelID: t.ID,
+		WakeupAt:         t.CronExpr,
+		NextAction:       "scheduler fired; waiting for agent response",
+	}
+	if err := s.ledger.MarkRunning(ctx, taskruntime.ScheduledLedgerID(t.ID), meta, "scheduled task fired"); err != nil {
+		slog.Warn("scheduler: failed to mark ledger running", "task", t.ID, "err", err)
 	}
 }
 
@@ -256,6 +324,7 @@ func (s *SchedulerChannel) AddTask(ctx context.Context, prompt, cronExpr, notify
 		return nil, fmt.Errorf("scheduler: insert task: %w", err)
 	}
 
+	s.ensureLedgerTask(ctx, t)
 	s.registerCron(t)
 	slog.Info("scheduler: task added", "id", t.ID, "expr", t.CronExpr)
 	return &t, nil
@@ -267,6 +336,11 @@ func (s *SchedulerChannel) RemoveTask(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("scheduler: delete task: %w", err)
+	}
+	if s.ledger != nil {
+		if err := s.ledger.Cancel(ctx, taskruntime.ScheduledLedgerID(id), "scheduled task removed", "scheduler task deleted"); err != nil {
+			slog.Warn("scheduler: failed to cancel ledger task", "task", id, "err", err)
+		}
 	}
 	slog.Info("scheduler: task removed", "id", id)
 	return nil

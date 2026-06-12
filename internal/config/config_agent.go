@@ -4,8 +4,8 @@ type AgentConfig struct {
 	MaxIterations   int               `yaml:"max_iterations"`
 	MaxReflections  int               `yaml:"max_reflections"` // 0 = default (3), negative = disabled
 	SystemPrompt    string            `yaml:"system_prompt"`
-	Personality     string            `yaml:"-"`    // Soul.md → persona/style (injected by userdir)
-	PersistentRules string            `yaml:"-"`    // Memory.md → long-term rules (injected by userdir)
+	Personality     string            `yaml:"-"` // Soul.md → persona/style (injected by userdir)
+	PersistentRules string            `yaml:"-"` // Memory.md → long-term rules (injected by userdir)
 	Execution       ExecutionConfig   `yaml:"execution"`
 	Compression     CompressionConfig `yaml:"compression"`
 }

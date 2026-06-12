@@ -30,7 +30,9 @@ vendor/
 Thumbs.db
 
 # Project specific
+configs/daimon.yaml
 configs/ironclaw.yaml
+.daimon/local.yaml
 .ironclaw/local.yaml
 data/
 *.db
@@ -64,12 +66,17 @@ web/node_modules/
 
 # Eval output
 eval_output/
+$T1_OUTPUT/
+.superpowers/**/state/server.log
+.superpowers/**/state/server.pid
 
 # Eval config (user-specific)
 configs/ironclaw_eval.yaml
 
 # Root binary (build artifact)
+/daimon
 /ironclaw
+.gocache/
 .gomodcache/
 .tmp/
 

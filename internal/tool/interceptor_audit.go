@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/Forest-Isle/daimon/internal/appdir"
 )
 
 // AuditEntry represents a single audit log record.
@@ -37,11 +39,7 @@ type AuditInterceptor struct {
 // The directory is created if it doesn't exist.
 func NewAuditInterceptor(logDir string) (*AuditInterceptor, error) {
 	if logDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("cannot determine home directory: %w", err)
-		}
-		logDir = filepath.Join(home, ".ironclaw", "audit")
+		logDir = filepath.Join(appdir.BaseDir(), "audit")
 	}
 	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return nil, fmt.Errorf("create audit dir: %w", err)

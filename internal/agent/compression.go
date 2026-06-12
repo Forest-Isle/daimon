@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // CompressionLayer is a single step in the progressive compression pipeline.

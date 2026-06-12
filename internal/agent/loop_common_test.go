@@ -77,18 +77,18 @@ func TestFormatToolCallStatus(t *testing.T) {
 			want:  []string{"Calling tools"},
 		},
 		{
-			name: "single bash call",
+			name:  "single bash call",
 			calls: []ToolUseBlock{{ID: "x", Name: "bash", Input: `{"command":"go test"}`}},
 			want:  []string{"⚙ bash: go test"},
 			nope:  []string{"Calling tools"},
 		},
 		{
-			name: "file_read call",
+			name:  "file_read call",
 			calls: []ToolUseBlock{{ID: "x", Name: "file_read", Input: `{"file_path":"/etc/hosts"}`}},
 			want:  []string{"⚙ file_read: /etc/hosts"},
 		},
 		{
-			name: "unknown input field",
+			name:  "unknown input field",
 			calls: []ToolUseBlock{{ID: "x", Name: "foo", Input: `{"bar":"baz"}`}},
 			want:  []string{"⚙ foo"},
 		},

@@ -3,7 +3,7 @@ package tool
 import (
 	"context"
 
-	"github.com/Forest-Isle/IronClaw/internal/hook"
+	"github.com/Forest-Isle/daimon/internal/hook"
 )
 
 type HookInterceptor struct {

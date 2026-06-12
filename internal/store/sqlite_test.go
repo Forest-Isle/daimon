@@ -14,7 +14,7 @@ import (
 // --- DB Open tests ---
 
 func TestOpen(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "ironclaw.db")
+	dbPath := filepath.Join(t.TempDir(), "daimon.db")
 	db, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("Open(%q) failed: %v", dbPath, err)
@@ -28,7 +28,7 @@ func TestOpen(t *testing.T) {
 }
 
 func TestOpen_CreatesDir(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "nested", "dir", "ironclaw.db")
+	dbPath := filepath.Join(t.TempDir(), "nested", "dir", "daimon.db")
 	db, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("Open with nested dirs failed: %v", err)

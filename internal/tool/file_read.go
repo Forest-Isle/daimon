@@ -65,7 +65,10 @@ func (t *FileReadTool) Execute(ctx context.Context, input []byte) (Result, error
 		return Result{Error: "path is required"}, nil
 	}
 
-	path := ResolveWorkPath(ctx, in.Path)
+	path, err := ResolveWorkPath(ctx, in.Path)
+	if err != nil {
+		return Result{Error: err.Error()}, nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Result{Error: err.Error()}, nil

@@ -3,20 +3,24 @@ package gateway
 import (
 	"context"
 	"log/slog"
-	"github.com/Forest-Isle/IronClaw/internal/agent"
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/store"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
-	"github.com/Forest-Isle/IronClaw/internal/userdir"
+
+	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/userdir"
 )
 
 type MultiAgentSubsystem struct {
-	ContextMgr agent.ContextManager
+	ContextMgr  agent.ContextManager
+	AgentMgr    *agent.AgentManager
+	SubAgentMgr *agent.SubAgentManager
+	BgManager   *agent.BackgroundManager
 }
 
-func (ma *MultiAgentSubsystem) Name() string                { return "multi_agent" }
+func (ma *MultiAgentSubsystem) Name() string                  { return "multi_agent" }
 func (ma *MultiAgentSubsystem) Start(_ context.Context) error { return nil }
 func (ma *MultiAgentSubsystem) Stop(_ context.Context) error  { return nil }
 
@@ -28,6 +32,7 @@ func InitMultiAgent(features *FeatureSubsystem, cfg *config.Config, builder *age
 
 	if features.IsEnabled("multi_agent") {
 		builder.MultiAgent.BgManager = agent.NewBackgroundManager()
+		ma.BgManager = builder.MultiAgent.BgManager
 		builder.MultiAgent.PromptCache = agent.NewPromptCache()
 		agentMCPMgr := agent.NewAgentMCPManager(nil)
 		builder.MultiAgent.AgentMCP = agentMCPMgr
@@ -36,11 +41,19 @@ func InitMultiAgent(features *FeatureSubsystem, cfg *config.Config, builder *age
 		builder.MultiAgent.SubAgentMgr = agent.NewSubAgentManager(subDeps)
 		agentMgr := agent.NewAgentManager(provider, sessions, db, memStore, toolsReg, cfg.Agent, cfg.LLM)
 		_ = agentMgr.LoadDir(userdir.AgentsDir())
-		for _, dir := range cfg.Agents.ExtraDirs { _ = agentMgr.LoadDir(dir) }
-		for _, def := range cfg.Agents.Definitions { _ = agentMgr.Add(defToSpec(def)) }
-		agentMgr.RegisterAll(toolsReg)
+		for _, dir := range cfg.Agents.ExtraDirs {
+			_ = agentMgr.LoadDir(dir)
+		}
+		for _, def := range cfg.Agents.Definitions {
+			_ = agentMgr.Add(defToSpec(def))
+		}
 		builder.MultiAgent.AgentMgr = agentMgr
 		agentMgr.SetAgentMCPManager(agentMCPMgr)
+		agentMgr.SetBackgroundManager(builder.MultiAgent.BgManager)
+		agentMgr.SetSubAgentManager(builder.MultiAgent.SubAgentMgr)
+		agentMgr.RegisterAll(toolsReg)
+		ma.AgentMgr = agentMgr
+		ma.SubAgentMgr = builder.MultiAgent.SubAgentMgr
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
 	}
 

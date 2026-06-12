@@ -3,6 +3,7 @@ package tool
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -89,6 +90,15 @@ func TestResultStoreLifecycle(t *testing.T) {
 
 	if stored.FullSize != len(largeOutput) {
 		t.Errorf("FullSize = %d, want %d", stored.FullSize, len(largeOutput))
+	}
+	if stored.Reference != "tool-result:session1:tool_use_1" {
+		t.Errorf("Reference = %q, want tool-result:session1:tool_use_1", stored.Reference)
+	}
+	if !strings.Contains(stored.Preview, "Reference: tool-result:session1:tool_use_1") {
+		t.Errorf("preview should include stable reference, got %q", stored.Preview)
+	}
+	if !strings.Contains(stored.Preview, "Use file_read on the full output path") {
+		t.Errorf("preview should explain how to retrieve full output, got %q", stored.Preview)
 	}
 
 	if len(stored.Preview) >= len(largeOutput) {

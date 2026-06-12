@@ -4,8 +4,8 @@ This file is a compact handoff for coding assistants working in this repository.
 
 ## Project Shape
 
-- Primary language: Go 1.25.9.
-- Main binary: `cmd/ironclaw`.
+- Primary language: Go 1.25.11.
+- Main binary: `cmd/daimon`.
 - Runtime composition root: `internal/gateway`.
 - Database: SQLite with embedded migrations in `internal/store/migrations`.
 
@@ -15,7 +15,7 @@ This file is a compact handoff for coding assistants working in this repository.
 - Standalone admin server is opt-in.
 - The agent has a single execution strategy (`LinearLoop`); there is no user-selectable `agent.mode` config or `/mode` command.
 - Sub-agents run in-process only.
-- Tools execute directly on the host — there is no sandbox/Docker isolation, file guard, or network policy. The tool interceptor chain lives on `gateway.interceptorChain` (permission → hook → user-hook → verify → audit) and is built in `init_tools.go`.
+- Tools execute directly on the host. Agent file tools are fenced to the process working directory, but there is still no OS sandbox/Docker isolation or network policy. The tool interceptor chain lives on `gateway.toolSub.InterceptorChain` (permission → hook → user-hook → verify → audit) and is built in `internal/gateway/subsystem_tool.go`.
 - No telemetry: there is no OpenTelemetry/metrics instrumentation in the agent or tool paths.
 - Channels are TUI (default) and Telegram.
 
@@ -40,6 +40,6 @@ make test
 - Keep Gateway wiring explicit and local to the relevant `init_*.go` file.
 - Use `apply_patch` for manual file edits.
 - Do not revert unrelated user changes.
-- When adding config, update `configs/ironclaw.example.yaml`.
-- When adding a feature, update `internal/gateway/features.go`.
+- When adding config, update `configs/daimon.example.yaml`.
+- When adding a feature, update `internal/gateway/subsystem_feature.go` and `internal/feature`.
 - When adding a tool, define its schema, approval behavior, capabilities, and tests.

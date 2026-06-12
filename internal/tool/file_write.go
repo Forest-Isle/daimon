@@ -78,7 +78,10 @@ func (t *FileWriteTool) Execute(ctx context.Context, input []byte) (Result, erro
 		return Result{Error: "path is required"}, nil
 	}
 
-	path := ResolveWorkPath(ctx, in.Path)
+	path, err := ResolveWorkPath(ctx, in.Path)
+	if err != nil {
+		return Result{Error: err.Error()}, nil
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Result{Error: err.Error()}, nil

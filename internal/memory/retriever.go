@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // UnifiedRetriever wraps memory and procedural stores.
@@ -111,7 +112,7 @@ func (ur *UnifiedRetriever) Search(
 		for _, result := range results {
 			memories = append(memories, &UnifiedMemory{
 				ID:      result.Entry.ID,
-				Type:    Episodic,
+				Type:    memoryTypeFromEntry(result.Entry),
 				Content: result.Entry.Content,
 				Score:   result.Score,
 				Source:  "memory",
@@ -172,6 +173,26 @@ func (ur *UnifiedRetriever) Search(
 		return nil, firstErr
 	}
 	return all, nil
+}
+
+func memoryTypeFromEntry(entry Entry) MemoryType {
+	if entry.Metadata == nil {
+		return Episodic
+	}
+	switch MemoryType(entry.Metadata["type"]) {
+	case Episodic:
+		return Episodic
+	case Semantic:
+		return Semantic
+	case Procedural:
+		return Procedural
+	case Profile:
+		return Profile
+	case Autobiographical:
+		return Autobiographical
+	default:
+		return Episodic
+	}
 }
 
 func applySourceWeight(items []*UnifiedMemory, weight float64) []*UnifiedMemory {
@@ -237,18 +258,36 @@ func contentSimilarity(a, b string) float64 {
 		return 1
 	}
 
-	shorter := a
-	longer := b
-	if len(shorter) > len(longer) {
-		shorter, longer = longer, shorter
+	aTokens := tokenSet(a)
+	bTokens := tokenSet(b)
+	if len(aTokens) == 0 || len(bTokens) == 0 {
+		return 0
 	}
 
 	matches := 0
-	for _, r := range shorter {
-		if strings.ContainsRune(longer, r) {
+	for token := range aTokens {
+		if _, ok := bTokens[token]; ok {
 			matches++
 		}
 	}
+	denominator := len(aTokens)
+	if len(bTokens) < denominator {
+		denominator = len(bTokens)
+	}
+	return float64(matches) / float64(denominator)
+}
 
-	return float64(matches) / float64(len([]rune(shorter)))
+func tokenSet(s string) map[string]struct{} {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	out := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		out[field] = struct{}{}
+	}
+	return out
 }

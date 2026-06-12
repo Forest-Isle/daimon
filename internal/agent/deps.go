@@ -1,13 +1,13 @@
 package agent
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/hook"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/skill"
-	"github.com/Forest-Isle/IronClaw/internal/store"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/hook"
+	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/skill"
+	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // ────────────────────────────── CoreDeps ──────────────────────────────
@@ -30,6 +30,7 @@ type CoreDeps struct {
 // to fill nil interface fields with no-op implementations.
 type MemoryDeps struct {
 	Store         memory.Store             // default: memory.NoopStore()
+	Cortex        *memory.UnifiedRetriever // nil = direct Store fallback for prompt memory injection
 	LifecycleMgr  *memory.LifecycleManager // nil = NOOP lifecycle decisions
 	ContextMgr    ContextManager           // default: noopContextManager{}
 	FactExtractor *memory.LLMFactExtractor // nil = no extraction

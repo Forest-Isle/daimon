@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/Forest-Isle/IronClaw/internal/util"
+	"github.com/Forest-Isle/daimon/internal/util"
 	"gopkg.in/yaml.v3"
 )
 

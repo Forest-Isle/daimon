@@ -1,6 +1,6 @@
 .PHONY: build build-bin run test test-short test-coverage lint fmt docker clean help
 
-BINARY    := ironclaw
+BINARY    := daimon
 BUILD_DIR := bin
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT    ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -12,12 +12,12 @@ COVERAGE  := coverage.out
 ## build: Build the binary
 build:
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/ironclaw
+	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/daimon
 
 ## build-bin: Build binary only (alias of build, kept for CI compatibility)
 build-bin:
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/ironclaw
+	CGO_ENABLED=1 go build -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/daimon
 
 ## run: Build and run
 run: build

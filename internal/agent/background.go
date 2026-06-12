@@ -21,6 +21,7 @@ const (
 // AgentStatus is a status update from a background agent.
 type AgentStatus struct {
 	AgentID   string
+	AgentName string
 	State     AgentState
 	Progress  string
 	UpdatedAt time.Time
@@ -86,6 +87,7 @@ func (bm *BackgroundManager) Spawn(parentCtx context.Context, spec *AgentSpec, r
 	// Send running notification
 	bm.sendStatus(AgentStatus{
 		AgentID:   agentID,
+		AgentName: spec.Name,
 		State:     StateRunning,
 		UpdatedAt: time.Now(),
 	})
@@ -111,6 +113,7 @@ func (bm *BackgroundManager) Spawn(parentCtx context.Context, spec *AgentSpec, r
 
 		bm.sendStatus(AgentStatus{
 			AgentID:   agentID,
+			AgentName: spec.Name,
 			State:     finalState,
 			UpdatedAt: time.Now(),
 		})
@@ -194,6 +197,7 @@ func (bm *BackgroundManager) List() []AgentStatus {
 		ba.mu.Lock()
 		statuses = append(statuses, AgentStatus{
 			AgentID:   ba.id,
+			AgentName: ba.spec.Name,
 			State:     ba.state,
 			UpdatedAt: time.Now(),
 		})

@@ -4,8 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/session"
 )
 
 // LinearLoop implements a standard ReAct loop: LLM → tools → LLM → ...
@@ -13,9 +13,11 @@ import (
 type LinearLoop struct{}
 
 // Execute runs the agent loop for a single inbound message.
-func (LinearLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg channel.InboundMessage, sess *session.Session) error {
+func (LinearLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg channel.InboundMessage, sess *session.Session, frame *PromptFrame) error {
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
-	systemPrompt := a.buildSystemPrompt(ctx, sess, msg.Text)
+	if frame == nil {
+		frame = a.buildPromptFrame(ctx, msg.Text)
+	}
 	maxIter := a.deps.Core.Cfg.MaxIterations
 	if maxIter <= 0 {
 		maxIter = 20
@@ -26,6 +28,7 @@ func (LinearLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 	for iteration := 0; iteration < maxIter; iteration++ {
 		slog.Info("linear loop iteration", "iteration", iteration, "session", sess.ID)
 
+		systemPrompt := a.renderPromptFrameForIteration(ctx, frame, sess, iteration)
 		updater, toolCalls, iterErr := loopIteration(ctx, a, ch, sess, target, systemPrompt, iteration, maxIter)
 		if iterErr != nil {
 			return iterErr
@@ -42,7 +45,7 @@ func (LinearLoop) Execute(ctx context.Context, a *Agent, ch channel.Channel, msg
 			return nil
 		}
 
-		a.dispatchToolsParallel(ctx, ch, sess, target, toolCalls, computeBudgetPressure(iteration, maxIter))
+		a.dispatchToolsParallel(ctx, ch, sess, target, iteration, toolCalls, computeBudgetPressure(iteration, maxIter))
 
 		_ = updater
 	}

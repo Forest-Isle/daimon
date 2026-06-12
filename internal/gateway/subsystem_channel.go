@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/channel"
 )
 
 // ChannelSubsystem manages communication channels.

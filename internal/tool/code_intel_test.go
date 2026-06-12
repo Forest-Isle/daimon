@@ -87,6 +87,24 @@ func TestGrepCode(t *testing.T) {
 			t.Fatalf("returned_count = %v, want 2", got)
 		}
 	})
+
+	t.Run("rejects path outside workdir", func(t *testing.T) {
+		dir := t.TempDir()
+		outside := t.TempDir()
+		writeTestFile(t, filepath.Join(outside, "secret.go"), "package secret\n")
+
+		tool := NewGrepCodeTool(dir)
+		result, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+			"pattern": "secret",
+			"path":    outside,
+		}))
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if result.Error == "" {
+			t.Fatalf("expected path fence error, got %+v", result)
+		}
+	})
 }
 
 func TestFindSymbol(t *testing.T) {
@@ -209,6 +227,20 @@ func TestListImports(t *testing.T) {
 		}
 		if result.Error == "" {
 			t.Fatalf("expected missing file error, got %+v", result)
+		}
+	})
+
+	t.Run("rejects relative escape", func(t *testing.T) {
+		dir := t.TempDir()
+		tool := NewListImportsTool(dir)
+		input := mustJSON(t, map[string]any{"file_path": "../outside.go"})
+
+		result, err := tool.Execute(context.Background(), input)
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if result.Error == "" {
+			t.Fatalf("expected path fence error, got %+v", result)
 		}
 	})
 }

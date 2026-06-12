@@ -2,6 +2,11 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"math"
 	"sync"
 	"time"
 )
@@ -16,7 +21,7 @@ type cacheEntry struct {
 type CachedStore struct {
 	inner   Store
 	mu      sync.RWMutex
-	cache   map[string]*cacheEntry // key = query.Text + query.Limit
+	cache   map[string]*cacheEntry
 	maxSize int
 	ttl     time.Duration
 }
@@ -39,7 +44,32 @@ func NewCachedStore(inner Store, maxSize int, ttl time.Duration) *CachedStore {
 }
 
 func (c *CachedStore) cacheKey(q SearchQuery) string {
-	return q.Text + "|" + string(rune(q.Limit))
+	key := struct {
+		Text              string        `json:"text"`
+		Embedding         string        `json:"embedding,omitempty"`
+		Limit             int           `json:"limit"`
+		SessionID         string        `json:"session_id,omitempty"`
+		UserID            string        `json:"user_id,omitempty"`
+		Scopes            []MemoryScope `json:"scopes,omitempty"`
+		TypeFilter        string        `json:"type_filter,omitempty"`
+		ExcludeTypes      []string      `json:"exclude_types,omitempty"`
+		IncludeHistorical bool          `json:"include_historical,omitempty"`
+	}{
+		Text:              q.Text,
+		Embedding:         embeddingFingerprint(q.Embedding),
+		Limit:             q.Limit,
+		SessionID:         q.SessionID,
+		UserID:            q.UserID,
+		Scopes:            append([]MemoryScope(nil), q.Scopes...),
+		TypeFilter:        q.TypeFilter,
+		ExcludeTypes:      append([]string(nil), q.ExcludeTypes...),
+		IncludeHistorical: q.IncludeHistorical,
+	}
+	data, err := json.Marshal(key)
+	if err != nil {
+		return q.Text
+	}
+	return string(data)
 }
 
 func (c *CachedStore) Search(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
@@ -102,3 +132,15 @@ func (c *CachedStore) invalidate() {
 }
 
 var _ Store = (*CachedStore)(nil)
+
+func embeddingFingerprint(embedding []float32) string {
+	if len(embedding) == 0 {
+		return ""
+	}
+	buf := make([]byte, 4*len(embedding))
+	for i, v := range embedding {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
+	}
+	sum := sha256.Sum256(buf)
+	return hex.EncodeToString(sum[:])
+}

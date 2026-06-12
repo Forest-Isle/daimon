@@ -15,7 +15,7 @@ ARG DATE=unknown
 RUN CGO_ENABLED=1 go build \
     -tags "fts5" \
     -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
-    -o /out/ironclaw ./cmd/ironclaw
+    -o /out/daimon ./cmd/daimon
 
 # Runtime stage — debian slim required for CGO (SQLite)
 FROM debian:bookworm-slim
@@ -24,28 +24,29 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-RUN useradd -r -s /bin/false ironclaw
+RUN useradd -r -s /bin/false daimon
 
 WORKDIR /app
 
-COPY --from=builder /out/ironclaw /app/ironclaw
-COPY configs/ironclaw.example.yaml /app/configs/ironclaw.example.yaml
+COPY --from=builder /out/daimon /app/daimon
+COPY configs/daimon.example.yaml /app/configs/daimon.example.yaml
+COPY configs/daimon.example.yaml /app/configs/daimon.yaml
 
-RUN mkdir -p /app/data && chown -R ironclaw:ironclaw /app
+RUN mkdir -p /app/data && chown -R daimon:daimon /app
 
-USER ironclaw
+USER daimon
 
 EXPOSE 8080 9090 9191
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD /app/ironclaw version || exit 1
+    CMD /app/daimon version || exit 1
 
 # OCI labels
-LABEL org.opencontainers.image.title="IronClaw"
+LABEL org.opencontainers.image.title="Daimon"
 LABEL org.opencontainers.image.description="Local-first, self-evolving AI agent runtime"
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.revision="${COMMIT}"
 LABEL org.opencontainers.image.created="${DATE}"
 
-ENTRYPOINT ["/app/ironclaw"]
-CMD ["start", "--config", "/app/configs/ironclaw.yaml"]
+ENTRYPOINT ["/app/daimon"]
+CMD ["start", "--config", "/app/configs/daimon.yaml"]

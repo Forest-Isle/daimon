@@ -78,7 +78,10 @@ func (t *GrepCodeTool) Execute(ctx context.Context, input []byte) (Result, error
 		return Result{Error: "pattern is required"}, nil
 	}
 
-	searchPath := t.resolvePath(in.Path)
+	searchPath, err := t.resolvePath(in.Path)
+	if err != nil {
+		return Result{Error: err.Error()}, nil
+	}
 	maxResults := in.MaxResults
 	if maxResults <= 0 {
 		maxResults = 50
@@ -309,7 +312,10 @@ func (t *ListImportsTool) Execute(_ context.Context, input []byte) (Result, erro
 		return Result{Error: "file_path is required"}, nil
 	}
 
-	resolvedPath := t.resolvePath(in.FilePath)
+	resolvedPath, err := t.resolvePath(in.FilePath)
+	if err != nil {
+		return Result{Error: err.Error()}, nil
+	}
 	data, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return Result{Error: err.Error()}, nil
@@ -367,22 +373,19 @@ func runCodeIntelCommand(ctx context.Context, dir, name string, args ...string) 
 	return stdout.String(), stderr.String(), err
 }
 
-func (t *GrepCodeTool) resolvePath(path string) string {
+func (t *GrepCodeTool) resolvePath(path string) (string, error) {
 	return resolveCodeIntelPath(t.workingDir, path)
 }
 
-func (t *ListImportsTool) resolvePath(path string) string {
+func (t *ListImportsTool) resolvePath(path string) (string, error) {
 	return resolveCodeIntelPath(t.workingDir, path)
 }
 
-func resolveCodeIntelPath(workingDir, path string) string {
+func resolveCodeIntelPath(workingDir, path string) (string, error) {
 	if path == "" {
-		return workingDir
+		return resolvePathInRoot(workingDir, ".")
 	}
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path)
-	}
-	return filepath.Join(workingDir, path)
+	return resolvePathInRoot(workingDir, path)
 }
 
 func splitNonEmptyLines(s string) []string {

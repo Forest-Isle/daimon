@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/daimon/internal/session"
 )
 
 func TestRatioTokenizer_Count(t *testing.T) {

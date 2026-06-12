@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/daimon/internal/session"
 )
 
 // TestSafeTrimHistory_NoOrphanedToolResults verifies that trimming never leaves

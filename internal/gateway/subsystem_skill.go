@@ -2,28 +2,32 @@ package gateway
 
 import (
 	"context"
+	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/skill"
+	"github.com/Forest-Isle/daimon/internal/tool"
 	"log/slog"
-	"github.com/Forest-Isle/IronClaw/internal/agent"
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/skill"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
 )
 
 type SkillSubsystem struct {
 	Manager *skill.Manager
 }
 
-func (ss *SkillSubsystem) Name() string                { return "skill" }
+func (ss *SkillSubsystem) Name() string                  { return "skill" }
 func (ss *SkillSubsystem) Start(_ context.Context) error { return nil }
 func (ss *SkillSubsystem) Stop(_ context.Context) error  { return nil }
 
 func InitSkills(features *FeatureSubsystem, cfg *config.Config, toolsReg *tool.Registry, builder *agent.DepsBuilder) *SkillSubsystem {
 	ss := &SkillSubsystem{}
-	if !features.IsEnabled("skills") { return ss }
+	if !features.IsEnabled("skills") {
+		return ss
+	}
 	ss.Manager = skill.New()
 	_ = ss.Manager.LoadBuiltin()
 	_ = ss.Manager.LoadDir(defaultSkillsDir())
-	for _, dir := range cfg.Skills.ExtraDirs { _ = ss.Manager.LoadDir(dir) }
+	for _, dir := range cfg.Skills.ExtraDirs {
+		_ = ss.Manager.LoadDir(dir)
+	}
 	builder.MultiAgent.SkillMgr = ss.Manager
 	toolsReg.Register(tool.NewSkillTool(ss.Manager))
 	slog.Info("skill manager initialized", "skills", len(ss.Manager.All()))

@@ -4,31 +4,33 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/agent"
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/feature"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/store"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/appdir"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/feature"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/taskruntime"
+	"github.com/Forest-Isle/daimon/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/workflow"
 )
 
 type Gateway struct {
-	db        *store.DB
-	stopCh    chan struct{}
-	stopOnce  sync.Once
-	initCtx   context.Context
+	db         *store.DB
+	stopCh     chan struct{}
+	stopOnce   sync.Once
+	initCtx    context.Context
 	initCancel context.CancelFunc
 
-	agent       *agent.Agent
-	sessions    *session.Manager
-	features    *feature.Registry
-	contextMgr  agent.ContextManager
+	agent      *agent.Agent
+	sessions   *session.Manager
+	features   *feature.Registry
+	contextMgr agent.ContextManager
 
 	config     *ConfigSubsystem
 	database   *DatabaseSubsystem
@@ -41,6 +43,8 @@ type Gateway struct {
 	health     *HealthSubsystem
 	commands   *CommandSubsystem
 	scheduler  *SchedulerSubsystem
+	taskLedger *taskruntime.Ledger
+	telemetry  *TelemetrySubsystem
 
 	subsystems Subsystems
 }
@@ -51,22 +55,29 @@ type GatewayOptions struct {
 
 func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	opt := GatewayOptions{}
-	if len(opts) > 0 { opt = opts[0] }
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 
 	gw := &Gateway{stopCh: make(chan struct{})}
 	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
+	eventBus := agent.NewEventBus()
 
 	gw.config = InitConfig(cfg, opt.ConfigPath)
+	gw.telemetry = InitTelemetry(cfg, eventBus)
 	featSub := InitFeatures(cfg)
 	gw.features = featSub.Registry
 	dbSub, err := InitDatabase(cfg.Store.Path)
-	if err != nil { return nil, fmt.Errorf("database: %w", err) }
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
 	gw.database = dbSub
 	gw.db = dbSub.DB
 	gw.sessions = dbSub.Sessions
+	gw.taskLedger = taskruntime.NewLedger(gw.db.DB)
 	gw.channels = &ChannelSubsystem{channels: make(map[string]channel.Channel)}
 
-	gw.toolSub = InitTools(gw.initCtx, cfg, featSub, gw.sessions, gw.channels, gw.db)
+	gw.toolSub = InitTools(gw.initCtx, cfg, featSub, gw.sessions, gw.channels, gw.db, eventBus)
 
 	builder := agent.NewDepsBuilder()
 	builder.Core.Tools = gw.toolSub.Registry
@@ -82,6 +93,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)
 	gw.memory.BuildCortex()
+	builder.Memory.Cortex = gw.memory.Cortex()
 	if gw.memory.Store() != nil {
 		gw.toolSub.Registry.Register(tool.NewMemoryTool(gw.memory.Store(), gw.memory.LifecycleManager()))
 	}
@@ -91,11 +103,19 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.multiAgent = InitMultiAgent(featSub, cfg, builder, agentSub.Provider,
 		gw.sessions, gw.db, gw.memory.Store(), gw.toolSub.Registry, gw.toolSub.ResultStore)
 	gw.contextMgr = gw.multiAgent.ContextMgr
+	if gw.multiAgent.AgentMgr != nil && gw.multiAgent.SubAgentMgr != nil {
+		gw.toolSub.Registry.Register(agent.NewWorkflowTool(
+			gw.multiAgent.AgentMgr,
+			gw.multiAgent.SubAgentMgr,
+			workflow.NewSQLiteCache(gw.db.DB),
+			eventBus,
+		))
+	}
 
 	gw.mcpSub = InitMCP()
 
 	deps := builder.Build()
-	gw.agent = agent.NewAgent(&deps, &agent.LinearLoop{}, agent.NewEventBus())
+	gw.agent = agent.NewAgent(&deps, &agent.LinearLoop{}, eventBus)
 	gw.agent.SetApprovalFunc(gw.handleApproval)
 
 	gw.health = InitHealth(cfg, gw.db)
@@ -103,7 +123,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	// SchedulerChannel notifier is wired post-construction in main.go
 	// after the Telegram channel is created.
-	gw.scheduler = InitScheduler(gw.db, nil)
+	gw.scheduler = InitScheduler(gw.db, nil, gw.taskLedger)
 	gw.AddChannel(gw.scheduler.Channel)
 
 	gw.config.OnReload(func(newCfg *config.Config) {
@@ -113,11 +133,11 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		}
 	})
 
-	gw.subsystems = Subsystems{gw.memory, gw.channels, gw.mcpSub, gw.health, gw.config, gw.scheduler}
+	gw.subsystems = Subsystems{gw.memory, gw.channels, gw.mcpSub, gw.health, gw.config, gw.scheduler, gw.telemetry}
 	return gw, nil
 }
 
-func (gw *Gateway) Config() *config.Config    { return gw.config.Config() }
+func (gw *Gateway) Config() *config.Config      { return gw.config.Config() }
 func (gw *Gateway) Features() *feature.Registry { return gw.features }
 
 func (gw *Gateway) AddChannel(ch channel.Channel) {
@@ -145,7 +165,8 @@ func (gw *Gateway) Start(ctx context.Context) error {
 			defer ticker.Stop()
 			for {
 				select {
-				case <-ctx.Done(): return
+				case <-ctx.Done():
+					return
 				case <-ticker.C:
 					if err := gw.toolSub.ResultStore.Cleanup(); err != nil {
 						slog.Warn("gateway: result store cleanup failed", "err", err)
@@ -156,7 +177,9 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	}
 
 	for name, ch := range gw.channels.Channels() {
-		if err := ch.Start(ctx, gw.handleInbound); err != nil { return err }
+		if err := ch.Start(ctx, gw.handleInbound); err != nil {
+			return err
+		}
 		slog.Info("channel started", "name", name)
 	}
 
@@ -170,18 +193,27 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 func (gw *Gateway) Stop(ctx context.Context) error {
 	gw.subsystems.StopAll(ctx)
-	if gw.mcpSub.Manager != nil { _ = gw.mcpSub.Manager.Close() }
+	if gw.mcpSub.Manager != nil {
+		_ = gw.mcpSub.Manager.Close()
+	}
 	gw.stopOnce.Do(func() { close(gw.stopCh) })
-	if gw.initCancel != nil { gw.initCancel() }
+	if gw.initCancel != nil {
+		gw.initCancel()
+	}
 	_ = gw.db.Close()
 	slog.Info("gateway stopped")
 	return nil
 }
 
 func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage) {
-	if msg.Text == "" { return }
+	if msg.Text == "" {
+		return
+	}
 	ch, ok := gw.channels.Channels()[msg.Channel]
-	if !ok { slog.Error("unknown channel", "channel", msg.Channel); return }
+	if !ok {
+		slog.Error("unknown channel", "channel", msg.Channel)
+		return
+	}
 
 	if sw, ok := ch.(channel.ToolStreamWriter); ok {
 		target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
@@ -202,10 +234,36 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	}
 
 	slog.Info("message received", "channel", msg.Channel, "user", msg.UserName, "text_len", len(msg.Text))
-	if err := gw.agent.HandleMessage(ctx, ch, msg); err != nil {
+	if msg.Channel == "scheduler" {
+		gw.publishTaskTransition(msg.ChannelID, "scheduled", "", "running", "scheduler message handling started")
+	}
+	err := gw.agent.HandleMessage(ctx, ch, msg)
+	if err != nil {
 		slog.Error("agent error", "err", err)
 		_ = ch.Send(ctx, channel.OutboundMessage{Channel: msg.Channel, ChannelID: msg.ChannelID, Text: "Error: " + err.Error()})
 	}
+	result := gw.saveTaskCheckpoint(ctx, msg)
+	if msg.Channel == "scheduler" && gw.scheduler != nil && gw.scheduler.Channel != nil {
+		gw.scheduler.Channel.FinishRun(ctx, msg.ChannelID, err, result)
+		toState := "succeeded"
+		if err != nil {
+			toState = "failed"
+		}
+		gw.publishTaskTransition(msg.ChannelID, "scheduled", "running", toState, "scheduler message handling completed")
+	}
+}
+
+func (gw *Gateway) publishTaskTransition(taskID, kind, from, to, reason string) {
+	if gw == nil || gw.agent == nil || taskID == "" {
+		return
+	}
+	gw.agent.EventBus().Publish(agent.TaskTransitioned{
+		TaskID:    taskID,
+		Kind:      kind,
+		FromState: from,
+		ToState:   to,
+		Reason:    reason,
+	})
 }
 
 func (gw *Gateway) handleApproval(ctx context.Context, ch channel.Channel, target channel.MessageTarget, toolName, input string) (bool, error) {
@@ -223,18 +281,18 @@ type completerAdapter struct {
 func (a *completerAdapter) Complete(ctx context.Context, systemPrompt, userMessage string) (string, error) {
 	req := agent.CompletionRequest{
 		Model: a.model, System: systemPrompt,
-		Messages: []agent.CompletionMessage{{Role: "user", Content: userMessage}},
+		Messages:  []agent.CompletionMessage{{Role: "user", Content: userMessage}},
 		MaxTokens: 512,
 	}
 	resp, err := a.provider.Complete(ctx, req)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	return resp.Text, nil
 }
 
 func defaultSkillsDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil { return "" }
-	return filepath.Join(home, ".ironclaw", "skills")
+	return filepath.Join(appdir.BaseDir(), "skills")
 }
 
 func defToSpec(def config.AgentDefinition) *agent.AgentSpec {

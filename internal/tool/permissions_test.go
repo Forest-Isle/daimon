@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"context"
+	"strings"
 	"testing"
 )
 
@@ -127,5 +129,50 @@ func TestPermissionAction_BackwardCompat(t *testing.T) {
 	r = pe.Evaluate("http", `{"url":"http://example.com"}`, ToolCapabilities{})
 	if r.Action != PermissionApprove {
 		t.Errorf("ask should map to approve, got %v", r.Action)
+	}
+}
+
+func TestPermissionProfileRemotePromotesWriteAllowToApprove(t *testing.T) {
+	pe := NewPermissionEngine([]PermissionRule{
+		{Tool: "file_write", Action: "none"},
+	}, "none", nil)
+
+	ctx := WithChannelClass(context.Background(), ToolChannelRemote)
+	r := pe.EvaluateWithContext(ctx, "file_write", `{"path":"x","content":"y"}`, ToolCapabilities{
+		IsReadOnly: false,
+	})
+	if r.Action != PermissionApprove {
+		t.Fatalf("remote write action = %v, want approve", r.Action)
+	}
+	if !strings.Contains(r.Reason, "profile_requires_approval_for_write") {
+		t.Fatalf("reason = %q, want profile write floor", r.Reason)
+	}
+}
+
+func TestPermissionProfileScheduledPromotesDestructiveAllowToApprove(t *testing.T) {
+	pe := NewPermissionEngine([]PermissionRule{
+		{Tool: "bash", Pattern: "git *", Action: "none"},
+	}, "none", nil)
+
+	ctx := WithChannelClass(context.Background(), ToolChannelScheduled)
+	r := pe.EvaluateWithContext(ctx, "bash", `{"command":"git commit -m ok"}`, ToolCapabilities{
+		IsDestructive: true,
+	})
+	if r.Action != PermissionApprove {
+		t.Fatalf("scheduled destructive action = %v, want approve", r.Action)
+	}
+	if !strings.Contains(r.Reason, "profile_requires_approval_for_destructive") {
+		t.Fatalf("reason = %q, want destructive profile floor", r.Reason)
+	}
+}
+
+func TestPermissionProfileLocalPreservesExplicitAllow(t *testing.T) {
+	pe := NewPermissionEngine([]PermissionRule{
+		{Tool: "bash", Pattern: "git *", Action: "none"},
+	}, "approve", nil)
+
+	r := pe.Evaluate("bash", `{"command":"git status"}`, ToolCapabilities{IsDestructive: true})
+	if r.Action != PermissionNone {
+		t.Fatalf("local explicit allow action = %v, want none", r.Action)
 	}
 }

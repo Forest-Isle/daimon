@@ -5,18 +5,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/daimon/internal/appdir"
+	"github.com/Forest-Isle/daimon/internal/config"
 )
 
 // agentConfigFields are the fields we care about in config.AgentConfig
 // We reference them dynamically to avoid tight struct coupling.
 
 func TestAgentsDir(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("UserHomeDir: %v", err)
-	}
-	expected := filepath.Join(home, ".ironclaw", "agents")
+	expected := filepath.Join(appdir.BaseDir(), "agents")
 	got := AgentsDir()
 	if got != expected {
 		t.Errorf("AgentsDir() = %q, want %q", got, expected)
@@ -34,9 +31,9 @@ func TestApply_InitializesDir(t *testing.T) {
 	}
 
 	// Verify directory created
-	base := filepath.Join(home, ".ironclaw")
+	base := appdir.BaseDir()
 	if _, err := os.Stat(base); os.IsNotExist(err) {
-		t.Error("expected .ironclaw directory to be created")
+		t.Error("expected .daimon directory to be created")
 	}
 	if _, err := os.Stat(filepath.Join(base, "Soul.md")); os.IsNotExist(err) {
 		t.Error("expected Soul.md to be created")
@@ -49,11 +46,91 @@ func TestApply_InitializesDir(t *testing.T) {
 	}
 }
 
+func TestApply_MigratesLegacyDirAndDB(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	legacy := appdir.LegacyBaseDir()
+	if err := os.MkdirAll(filepath.Join(legacy, "data"), 0755); err != nil {
+		t.Fatalf("mkdir legacy data: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "Soul.md"), []byte("legacy soul"), 0644); err != nil {
+		t.Fatalf("write legacy Soul.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "data", appdir.LegacyDBName), []byte("db"), 0644); err != nil {
+		t.Fatalf("write legacy db: %v", err)
+	}
+
+	cfg := &config.Config{}
+	if err := Apply(cfg); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	base := appdir.BaseDir()
+	if _, err := os.Stat(filepath.Join(base, "Soul.md")); err != nil {
+		t.Fatalf("expected migrated Soul.md: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(base, "data", appdir.DBName)); err != nil {
+		t.Fatalf("expected migrated Daimon database: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(base, "data", appdir.LegacyDBName)); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy database to be renamed, got err=%v", err)
+	}
+
+	info, err := os.Lstat(legacy)
+	if err != nil {
+		t.Fatalf("expected legacy compatibility symlink: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected legacy path to be a symlink, got mode %v", info.Mode())
+	}
+	target, err := os.Readlink(legacy)
+	if err != nil {
+		t.Fatalf("read legacy symlink: %v", err)
+	}
+	if target != base {
+		t.Fatalf("legacy symlink target = %q, want %q", target, base)
+	}
+}
+
+func TestApply_DoesNotMigrateWhenBothDirsExist(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	legacy := appdir.LegacyBaseDir()
+	base := appdir.BaseDir()
+	if err := os.MkdirAll(filepath.Join(legacy, "data"), 0755); err != nil {
+		t.Fatalf("mkdir legacy data: %v", err)
+	}
+	if err := os.MkdirAll(base, 0755); err != nil {
+		t.Fatalf("mkdir base: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "data", appdir.LegacyDBName), []byte("db"), 0644); err != nil {
+		t.Fatalf("write legacy db: %v", err)
+	}
+
+	cfg := &config.Config{}
+	if err := Apply(cfg); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	info, err := os.Lstat(legacy)
+	if err != nil {
+		t.Fatalf("expected legacy dir to remain: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("expected legacy dir not to be replaced with a symlink")
+	}
+	if _, err := os.Stat(filepath.Join(legacy, "data", appdir.LegacyDBName)); err != nil {
+		t.Fatalf("expected legacy db to remain untouched: %v", err)
+	}
+}
+
 func TestApply_ReadsPersonality(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".ironclaw")
+	base := appdir.BaseDir()
 	os.MkdirAll(base, 0755)
 	os.WriteFile(filepath.Join(base, "Soul.md"), []byte("You are a helpful assistant"), 0644)
 	os.WriteFile(filepath.Join(base, "Memory.md"), []byte("Important: never modify system files"), 0644)
@@ -80,7 +157,7 @@ func TestApply_PrependsAgentMDFromFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".ironclaw")
+	base := appdir.BaseDir()
 	os.MkdirAll(base, 0755)
 	os.WriteFile(filepath.Join(base, "Agent.md"), []byte("Custom prompt"), 0644)
 	os.MkdirAll(filepath.Join(base, "mcp"), 0755)
@@ -98,7 +175,7 @@ func TestApply_PrependsAgentMDToExisting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".ironclaw")
+	base := appdir.BaseDir()
 	os.MkdirAll(base, 0755)
 	os.WriteFile(filepath.Join(base, "Agent.md"), []byte("File prompt"), 0644)
 	os.MkdirAll(filepath.Join(base, "mcp"), 0755)
@@ -117,7 +194,7 @@ func TestApply_MissingFiles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".ironclaw")
+	base := appdir.BaseDir()
 	os.MkdirAll(base, 0755)
 	os.MkdirAll(filepath.Join(base, "mcp"), 0755)
 	// No personality files
@@ -136,7 +213,7 @@ func TestApply_MCPFiles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	base := filepath.Join(home, ".ironclaw")
+	base := appdir.BaseDir()
 	os.MkdirAll(base, 0755)
 	os.MkdirAll(filepath.Join(base, "mcp"), 0755)
 	os.WriteFile(filepath.Join(base, "mcp", "server.yaml"), []byte(`
@@ -172,7 +249,7 @@ func TestScanMCPDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	mcpDir := filepath.Join(home, ".ironclaw", "mcp")
+	mcpDir := filepath.Join(appdir.BaseDir(), "mcp")
 	os.MkdirAll(mcpDir, 0755)
 	os.WriteFile(filepath.Join(mcpDir, "github.yaml"), []byte(`
 name: github
@@ -197,7 +274,7 @@ func TestScanMCPDir_InvalidFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	mcpDir := filepath.Join(home, ".ironclaw", "mcp")
+	mcpDir := filepath.Join(appdir.BaseDir(), "mcp")
 	os.MkdirAll(mcpDir, 0755)
 	os.WriteFile(filepath.Join(mcpDir, "bad.yaml"), []byte("invalid: yaml: [[["), 0644)
 

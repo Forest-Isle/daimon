@@ -47,7 +47,7 @@ The `sandbox` feature defaults to enabled in the Feature Registry but auto-detec
 
 - Prefer environment expansion with `${VAR}` in YAML rather than hard-coded tokens.
 - MCP server responses are passed through redaction before returning to the agent.
-- Do not commit local `configs/ironclaw.yaml`, database files, tool result caches, or generated trajectory exports containing private prompts.
+- Do not commit local `configs/daimon.yaml`, database files, tool result caches, or generated trajectory exports containing private prompts.
 
 ## Reporting
 
@@ -62,5 +62,5 @@ For private vulnerability reports, use the repository maintainer contact configu
 
 - New tools must declare capabilities through `Capabilities()` when side effects, network, or parallel safety matter.
 - New routes must be covered by dashboard token auth if they expose private runtime data.
-- New config fields that affect security must be included in `configs/ironclaw.example.yaml`.
+- New config fields that affect security must be included in `configs/daimon.example.yaml`.
 - Gateway wiring changes must preserve interceptor order unless intentionally redesigned and documented.

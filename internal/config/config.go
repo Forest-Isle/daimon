@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/Forest-Isle/daimon/internal/appdir"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,6 +22,7 @@ type Config struct {
 	Server      ServerConfig      `yaml:"server"`
 	Health      HealthConfig      `yaml:"health"`
 	Log         LogConfig         `yaml:"log"`
+	Telemetry   TelemetryConfig   `yaml:"telemetry"`
 	Skills      SkillsConfig      `yaml:"skills"`
 	Agents      AgentsConfig      `yaml:"agents"`
 	Permissions PermissionsConfig `yaml:"permissions"`
@@ -43,13 +45,15 @@ func ExpandEnv(data []byte) []byte {
 
 // FindConfigPath resolves the config file path by searching standard locations.
 // explicitPath comes from the -c flag; empty means "auto-discover".
-// devMode uses configs/ironclaw.yaml when no explicit path is given.
+// devMode uses configs/daimon.yaml when no explicit path is given.
 //
 // Production (devMode=false, explicitPath empty):
-//  ~/.ironclaw/config.yaml
+//
+//	~/.daimon/config.yaml
 //
 // Development (devMode=true, explicitPath empty):
-//  configs/ironclaw.yaml in CWD
+//
+//	configs/daimon.yaml in CWD
 func FindConfigPath(explicitPath string, devMode bool) (string, error) {
 	if explicitPath != "" {
 		if _, err := os.Stat(explicitPath); err == nil {
@@ -63,29 +67,26 @@ func FindConfigPath(explicitPath string, devMode bool) (string, error) {
 		if err != nil {
 			cwd = "."
 		}
-		devPath := filepath.Join(cwd, "configs", "ironclaw.yaml")
+		devPath := filepath.Join(cwd, "configs", "daimon.yaml")
 		if _, err := os.Stat(devPath); err == nil {
 			return devPath, nil
 		}
 		return "", fmt.Errorf(
-			"dev mode: configs/ironclaw.yaml not found.\n"+
-				"  Copy from configs/ironclaw.example.yaml and edit it.",
+			"dev mode: configs/daimon.yaml not found.\n" +
+				"  Copy from configs/daimon.example.yaml and edit it.",
 		)
 	}
 
-	home, homeErr := os.UserHomeDir()
-	if homeErr == nil {
-		globalPath := filepath.Join(home, ".ironclaw", "config.yaml")
-		if _, err := os.Stat(globalPath); err == nil {
-			return globalPath, nil
-		}
+	globalPath := filepath.Join(appdir.BaseDir(), "config.yaml")
+	if _, err := os.Stat(globalPath); err == nil {
+		return globalPath, nil
 	}
 
 	return "", fmt.Errorf(
-		"no config file found.\n\n"+
-			"  Production: create ~/.ironclaw/config.yaml for global defaults.\n"+
-			"  Development: ironclaw tui --dev\n"+
-			"  Template:    cp configs/ironclaw.example.yaml ~/.ironclaw/config.yaml",
+		"no config file found.\n\n" +
+			"  Production: create ~/.daimon/config.yaml for global defaults.\n" +
+			"  Development: daimon tui --dev\n" +
+			"  Template:    cp configs/daimon.example.yaml ~/.daimon/config.yaml",
 	)
 }
 
@@ -148,7 +149,7 @@ func defaultConfig() Config {
 			Enabled: true,
 		},
 		Store: StoreConfig{
-			Path: filepath.Join(homeDir(), ".ironclaw", "data", "ironclaw.db"),
+			Path: filepath.Join(appdir.BaseDir(), "data", appdir.DBName),
 		},
 		Health: HealthConfig{
 			Port: 9090,
@@ -159,6 +160,12 @@ func defaultConfig() Config {
 		Log: LogConfig{
 			Level:  "info",
 			Format: "text",
+		},
+		Telemetry: TelemetryConfig{
+			Enabled:       true,
+			TracePath:     filepath.Join(appdir.BaseDir(), "traces", "events.jsonl"),
+			ReplayEnabled: true,
+			ReplayDir:     filepath.Join(appdir.BaseDir(), "replays"),
 		},
 		Tools: ToolsConfig{
 			Bash: BashToolConfig{
@@ -200,13 +207,4 @@ func defaultConfig() Config {
 			Default: "ask",
 		},
 	}
-}
-
-// homeDir returns the user's home directory, or "." if unavailable.
-func homeDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "."
-	}
-	return home
 }

@@ -8,7 +8,7 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/daimon/internal/config"
 )
 
 // httpStatusError is the interface implemented by HTTP-status-carrying errors

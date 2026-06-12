@@ -32,7 +32,7 @@ func repoRoot(t *testing.T) string {
 // validation. A field rename that breaks onboarding is caught here.
 func TestExampleConfigLoadsAndValidates(t *testing.T) {
 	root := repoRoot(t)
-	path := filepath.Join(root, "configs", "ironclaw.example.yaml")
+	path := filepath.Join(root, "configs", "daimon.example.yaml")
 
 	// Provide env values referenced via ${VAR} so expansion produces a valid config.
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
@@ -55,7 +55,7 @@ func TestExampleConfigLoadsAndValidates(t *testing.T) {
 // features) would silently no-op at runtime — this fails loudly instead.
 func TestExampleConfigHasNoUnknownTopLevelKeys(t *testing.T) {
 	root := repoRoot(t)
-	path := filepath.Join(root, "configs", "ironclaw.example.yaml")
+	path := filepath.Join(root, "configs", "daimon.example.yaml")
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)

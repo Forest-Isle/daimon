@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // defaultMaxReflections bounds how many times the loop re-engages the model

@@ -19,6 +19,7 @@ type ToolCall struct {
 	Input        string
 	SessionID    string
 	Metadata     map[string]string
+	Capabilities ToolCapabilities
 	HookApproved bool // set to true when a pre-tool-use hook returns "allow"
 }
 

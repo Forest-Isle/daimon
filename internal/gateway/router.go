@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/channel"
 )
 
 // CommandHandler processes a slash command and returns a response string.

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"github.com/Forest-Isle/daimon/internal/appdir"
 	"gopkg.in/yaml.v3"
 )
 
@@ -78,7 +79,7 @@ func validate(cfg *Config) error {
 		cfg.Agent.MaxIterations = 20
 	}
 	if cfg.Store.Path == "" {
-		cfg.Store.Path = filepath.Join(homeDir(), ".ironclaw", "data", "ironclaw.db")
+		cfg.Store.Path = filepath.Join(appdir.BaseDir(), "data", appdir.DBName)
 	}
 
 	// Validate MCP server configs

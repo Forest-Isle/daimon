@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +26,7 @@ func testConfig(t *testing.T) *config.Config {
 	// Ensure user home directory exists
 	homeDir := filepath.Join(tmp, "home")
 	_ = os.MkdirAll(homeDir, 0o755)
+	t.Setenv("HOME", homeDir)
 
 	return &cfg
 }
@@ -38,4 +39,39 @@ func TestCognitiveAgentAlwaysInitialized(t *testing.T) {
 	defer func() { _ = gw.db.Close() }()
 
 	assert.NotNil(t, gw.agent, "agent must be initialized")
+}
+
+func TestToolSearchRegisteredAsCoreTool(t *testing.T) {
+	cfg := testConfig(t)
+
+	gw, err := New(cfg)
+	require.NoError(t, err)
+	defer func() { _ = gw.db.Close() }()
+
+	require.NotNil(t, gw.toolSub.DeferredCatalog)
+	_, err = gw.toolSub.Registry.Get("tool_search")
+	require.NoError(t, err)
+
+	defs := gw.agent.GetTools().All()
+	found := false
+	for _, def := range defs {
+		if def.Name() == "tool_search" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "tool_search must be exposed eagerly")
+}
+
+func TestWorldToolsRegisteredAsCoreTools(t *testing.T) {
+	cfg := testConfig(t)
+
+	gw, err := New(cfg)
+	require.NoError(t, err)
+	defer func() { _ = gw.db.Close() }()
+
+	for _, name := range []string{"world_read", "commitment", "world_edit"} {
+		_, err := gw.toolSub.Registry.Get(name)
+		require.NoError(t, err, "%s must be registered", name)
+	}
 }

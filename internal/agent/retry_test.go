@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
+	"github.com/Forest-Isle/daimon/internal/config"
 )
 
 // httpError is a test-local HTTP error type that implements httpStatusError.

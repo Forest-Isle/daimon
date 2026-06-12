@@ -1,4 +1,4 @@
-module github.com/Forest-Isle/IronClaw
+module github.com/Forest-Isle/daimon
 
 go 1.25.11
 

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // GatewayToolActivityReporter implements tool.ToolActivityReporter by routing
@@ -30,7 +30,7 @@ func (r *GatewayToolActivityReporter) ReportToolActivity(ctx context.Context, ca
 	if r.sessions == nil || r.channels == nil {
 		return
 	}
-	sess, err := r.sessions.Get(ctx, "", call.SessionID)
+	sess, err := r.sessions.GetByID(ctx, call.SessionID)
 	if err != nil || sess == nil {
 		return
 	}
@@ -46,7 +46,7 @@ func (r *GatewayToolActivityReporter) ReportToolActivity(ctx context.Context, ca
 	if !done {
 		summary = summarizeToolInput(call.ToolName, call.Input)
 	}
-	_ = sender.SendToolActivity(ctx, channel.MessageTarget{ChannelID: sess.ChannelID},
+	_ = sender.SendToolActivity(ctx, channel.MessageTarget{Channel: sess.Channel, ChannelID: sess.ChannelID},
 		call.ToolName, summary, done)
 }
 

@@ -2,17 +2,19 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/hook"
-	"github.com/Forest-Isle/IronClaw/internal/memory"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/hook"
+	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // ApprovalFunc is called when a tool requires user approval.
@@ -86,6 +88,7 @@ func (a *Agent) Sessions() *session.Manager { return a.deps.Core.Sessions }
 // HandleMessage is the single entry point for all agent modes.
 func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg channel.InboundMessage) error {
 	ctx = AgentToContext(ctx, a)
+	ctx = tool.WithChannelClass(ctx, tool.ChannelClassForName(msg.Channel))
 
 	// Serialize per-session: prevent concurrent messages on the same
 	// channel+channelID from interleaving LLM calls and session state.
@@ -110,18 +113,10 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 		CreatedAt: time.Now(),
 	})
 
-	// Build system prompt
-	systemPrompt := a.buildSystemPrompt(ctx, sess, msg.Text)
-
-	// Fire OnUserMessage hooks
-	if a.deps.Security.HookMgr != nil && a.deps.Security.HookMgr.HasOnUserMessageHandlers() {
-		msgResult, _ := a.deps.Security.HookMgr.FireOnUserMessage(ctx, hook.OnUserMessageEvent{
-			Channel: msg.Channel, ChannelID: msg.ChannelID, UserID: msg.UserID, Text: msg.Text,
-		})
-		if len(msgResult.InjectedContext) > 0 {
-			systemPrompt += "\n\n## Environment Context\n" + strings.Join(msgResult.InjectedContext, "\n")
-		}
-	}
+	// Prepare layered prompt context once for this turn. Iteration-dynamic
+	// layers such as the current plan are rendered inside the loop.
+	frame := a.preparePromptFrame(ctx, sess, msg)
+	systemPrompt := a.renderPromptFrame(ctx, frame, sess)
 
 	// Compress context
 	if _, err := a.deps.Memory.ContextMgr.Compress(ctx, sess, systemPrompt); err != nil {
@@ -129,7 +124,7 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 	}
 
 	// Execute strategy
-	err = a.strategy.Execute(ctx, a, ch, msg, sess)
+	err = a.strategy.Execute(ctx, a, ch, msg, sess, frame)
 
 	// Save user message to memory
 	if a.deps.Memory.Store != nil {
@@ -143,6 +138,10 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 		}); saveErr != nil {
 			slog.Warn("failed to save memory", "err", saveErr)
 		}
+	}
+
+	if err == nil {
+		a.recordVerifiedStrategy(ctx, sess, msg)
 	}
 
 	// Fact extraction (async)
@@ -161,68 +160,8 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 
 // buildSystemPrompt constructs the system prompt from personality + memories + skills + plan + profile.
 func (a *Agent) buildSystemPrompt(ctx context.Context, sess *session.Session, userText string) string {
-	var sb strings.Builder
-
-	if a.deps.Core.Cfg.Personality != "" {
-		sb.WriteString("## Personality\n")
-		sb.WriteString(a.deps.Core.Cfg.Personality)
-		sb.WriteString("\n\n")
-	}
-	sb.WriteString(a.deps.Core.Cfg.SystemPrompt)
-
-	if a.deps.Core.Cfg.PersistentRules != "" {
-		sb.WriteString("\n\n## Rules\n")
-		sb.WriteString(a.deps.Core.Cfg.PersistentRules)
-	}
-
-	sb.WriteString("\n")
-	sb.WriteString(dynamicContextMarker)
-	sb.WriteString("\n")
-
-	// Current plan (injected each message so model always sees latest state)
-	if sess != nil {
-		if planJSON := sess.GetMetadata("plan"); planJSON != "" {
-			sb.WriteString("\n\n## Current Plan\n")
-			sb.WriteString("The plan below tracks your progress. Update it via the `plan` tool as you complete steps.\n\n")
-			sb.WriteString(planJSON)
-			sb.WriteString("\n")
-		}
-	}
-
-	// Memories
-	if a.deps.Memory.Store != nil {
-		results, err := a.deps.Memory.Store.Search(ctx, memory.SearchQuery{
-			Text:         userText,
-			Limit:        5,
-			ExcludeTypes: []string{"profile"},
-		})
-		if err == nil && len(results) > 0 {
-			sb.WriteString("\n\n## Relevant memories\n")
-			for _, res := range results {
-				sb.WriteString("- ")
-				sb.WriteString(res.Entry.Content)
-				sb.WriteString("\n")
-			}
-		}
-	}
-
-	// Skills
-	if a.deps.MultiAgent.SkillMgr != nil {
-		if section := a.deps.MultiAgent.SkillMgr.BuildPromptSection(userText); section != "" {
-			sb.WriteString("\n\n")
-			sb.WriteString(section)
-		}
-	}
-
-	// Agents
-	if a.deps.MultiAgent.AgentMgr != nil {
-		if section := a.deps.MultiAgent.AgentMgr.BuildPromptSection(); section != "" {
-			sb.WriteString("\n\n")
-			sb.WriteString(section)
-		}
-	}
-
-	return sb.String()
+	frame := a.buildPromptFrame(ctx, userText)
+	return a.renderPromptFrame(ctx, frame, sess)
 }
 
 // buildToolDefs returns tool definitions for the LLM request.
@@ -240,13 +179,17 @@ func (a *Agent) buildToolDefs() []ToolDefinition {
 }
 
 // executeToolCall runs a single tool through the interceptor chain and emits ToolExecuted.
-func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, tc ToolUseBlock, budgetWarning string) {
+func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, tc ToolUseBlock, budgetWarning string) {
 	call := &tool.ToolCall{
 		ToolName: tc.Name, Input: tc.Input, SessionID: sess.ID,
 	}
+	if t, getErr := a.deps.Core.Tools.Get(tc.Name); getErr == nil {
+		call.Capabilities = tool.GetCapabilities(t)
+	}
 	start := time.Now()
+	toolCtx := agentToolContext(ctx, call.SessionID)
 
-	result, err := a.deps.Security.Interceptor.Execute(ctx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
+	result, err := a.deps.Security.Interceptor.Execute(toolCtx, call, func(ctx context.Context, call *tool.ToolCall) (*tool.ToolResult, error) {
 		t, getErr := a.deps.Core.Tools.Get(call.ToolName)
 		if getErr != nil {
 			return &tool.ToolResult{Error: getErr.Error()}, nil
@@ -260,7 +203,7 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 			}
 		}
 
-		r, execErr := t.Execute(tool.WithSessionID(ctx, call.SessionID), []byte(call.Input))
+		r, execErr := t.Execute(ctx, []byte(call.Input))
 		if execErr != nil {
 			return &tool.ToolResult{Error: execErr.Error()}, nil
 		}
@@ -279,6 +222,9 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 			isError = true
 		} else {
 			content = result.Output
+			if result.Metadata["verify"] != "" {
+				sess.SetMetadata("verified_tool_success", "true")
+			}
 			// Append plan verification hint so the model sees it in the conversation
 			if hint := result.Metadata["plan_verify_hint"]; hint != "" {
 				content += "\n\n" + hint
@@ -312,36 +258,102 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 		SessionID: sess.ID, ToolName: tc.Name, Succeeded: !isError,
 		DurationMs: duration.Milliseconds(), Error: content,
 	})
+	a.eventBus.Publish(ToolRoundTrip{
+		SessionID:  sess.ID,
+		Iteration:  iteration,
+		ToolName:   tc.Name,
+		ArgsJSON:   replayRawJSONString(tc.Input),
+		ResultJSON: replayToolResultJSON(result, err),
+		Succeeded:  !isError,
+		DurationMs: duration.Milliseconds(),
+	})
 
 	if budgetWarning != "" {
 		sess.UpdateLastToolResult(budgetWarning)
 	}
 }
 
+func agentToolContext(ctx context.Context, sessionID string) context.Context {
+	ctx = tool.WithSessionID(ctx, sessionID)
+	if tool.WorkDirFromContext(ctx) != "" {
+		return ctx
+	}
+	cwd, err := os.Getwd()
+	if err != nil || cwd == "" {
+		return ctx
+	}
+	return tool.WithWorkDir(ctx, cwd)
+}
+
 // dispatchToolsParallel executes multiple independent tool calls concurrently.
 // Each call goes through the full executeToolCall pipeline.
-func (a *Agent) dispatchToolsParallel(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, calls []ToolUseBlock, budgetWarning string) {
+func (a *Agent) dispatchToolsParallel(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, calls []ToolUseBlock, budgetWarning string) {
 	if len(calls) == 0 {
 		return
 	}
-	if len(calls) == 1 {
-		a.executeToolCall(ctx, ch, sess, target, calls[0], budgetWarning)
+	for _, batch := range a.scheduleToolBatches(calls) {
+		if len(batch) == 1 {
+			a.executeToolCall(ctx, ch, sess, target, iteration, batch[0], budgetWarning)
+			continue
+		}
+		var wg sync.WaitGroup
+		for i := range batch {
+			wg.Add(1)
+			go func(tc ToolUseBlock) {
+				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("agent: panic in parallel tool dispatch", "tool", tc.Name, "panic", r)
+					}
+				}()
+				a.executeToolCall(ctx, ch, sess, target, iteration, tc, budgetWarning)
+			}(batch[i])
+		}
+		wg.Wait()
+	}
+}
+
+func replayToolResultJSON(result *tool.ToolResult, err error) json.RawMessage {
+	if err != nil {
+		return replayMarshalJSON(tool.ToolResult{Error: err.Error()})
+	}
+	if result == nil {
+		return replayMarshalJSON(tool.ToolResult{})
+	}
+	return replayMarshalJSON(result)
+}
+
+func (a *Agent) recordVerifiedStrategy(ctx context.Context, sess *session.Session, msg channel.InboundMessage) {
+	if a == nil || sess == nil || sess.GetMetadata("verified_tool_success") != "true" {
 		return
 	}
-	var wg sync.WaitGroup
-	for i := range calls {
-		wg.Add(1)
-		go func(tc ToolUseBlock) {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("agent: panic in parallel tool dispatch", "tool", tc.Name, "panic", r)
-				}
-			}()
-			a.executeToolCall(ctx, ch, sess, target, tc, budgetWarning)
-		}(calls[i])
+	if a.deps.Memory.Cortex == nil || a.deps.Memory.Cortex.GetProcedural() == nil {
+		return
 	}
-	wg.Wait()
+	tools := toolSequenceFromHistory(sess.History())
+	if len(tools) == 0 {
+		return
+	}
+	hints := []string{
+		"channel=" + msg.Channel,
+	}
+	if plan := strings.TrimSpace(sess.GetMetadata("plan")); plan != "" {
+		hints = append(hints, "active_plan="+plan)
+	}
+	if err := a.deps.Memory.Cortex.GetProcedural().RecordStrategy(ctx, msg.Text, tools, hints, true, sess.ID, msg.UserID); err != nil {
+		slog.Warn("agent: record procedural strategy failed", "err", err)
+	}
+}
+
+func toolSequenceFromHistory(history []session.Message) []string {
+	tools := make([]string, 0)
+	for _, m := range history {
+		if m.Role != "tool_use" || m.ToolName == "" {
+			continue
+		}
+		tools = append(tools, m.ToolName)
+	}
+	return tools
 }
 
 // extractFacts runs fact extraction and lifecycle management in the background.

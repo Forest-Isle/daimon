@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/daimon/internal/session"
 )
 
 const maxContextMessages = 50

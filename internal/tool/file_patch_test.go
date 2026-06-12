@@ -224,3 +224,24 @@ func TestFilePatchEmptyPatch(t *testing.T) {
 		t.Fatalf("unexpected output: %q", result.Output)
 	}
 }
+
+func TestFilePatchRejectsPathOutsideWorkDir(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	path := filepath.Join(outside, "sample.txt")
+	if err := os.WriteFile(path, []byte("one\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	tool := NewFilePatchTool(dir)
+	result, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":  path,
+		"patch": "@@ -1 +1 @@\n-one\n+two\n",
+	}))
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.Error == "" {
+		t.Fatalf("expected path fence error, got %+v", result)
+	}
+}

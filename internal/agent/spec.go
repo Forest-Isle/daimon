@@ -102,7 +102,7 @@ func (s *AgentSpec) Validate() error {
 		s.MaxIterations = DefaultMaxIterations
 	}
 	if s.Mode == "" {
-		s.Mode = "simple"
+		s.Mode = "linear"
 	}
 	if s.Timeout == 0 {
 		s.Timeout = duration(120 * time.Second)

@@ -237,13 +237,16 @@ func TestPathScopedToolImplementation(t *testing.T) {
 		t.Error("ExtractPaths should return canonical absolute path, got relative path")
 	}
 
-	patchInput := []byte(`{"path": "/tmp/test.go", "patch": "@@ -1 +1 @@\n-a\n+b"}`)
+	patchInput := []byte(`{"path": "relative/test.go", "patch": "@@ -1 +1 @@\n-a\n+b"}`)
 	paths, err = patchT.ExtractPaths(patchInput)
 	if err != nil {
 		t.Fatalf("FilePatchTool.ExtractPaths error: %v", err)
 	}
-	if len(paths) != 1 || paths[0] != "/tmp/test.go" {
-		t.Errorf("FilePatchTool.ExtractPaths = %v, want [/tmp/test.go]", paths)
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 patch path, got %d", len(paths))
+	}
+	if paths[0] == "relative/test.go" {
+		t.Errorf("FilePatchTool.ExtractPaths should canonicalize relative paths, got %v", paths)
 	}
 
 	// Empty path should return nil

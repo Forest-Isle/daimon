@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 // GatewayToolApprover implements tool.ToolApprover by routing approval
@@ -35,7 +35,7 @@ func NewGatewayToolApprover(sessions *session.Manager, channels *ChannelSubsyste
 
 func (a *GatewayToolApprover) RequestApproval(ctx context.Context, call *tool.ToolCall) (bool, error) {
 	// Look up the session to find which channel this tool execution belongs to.
-	sess, err := a.sessions.Get(ctx, "", call.SessionID)
+	sess, err := a.sessions.GetByID(ctx, call.SessionID)
 	if err != nil || sess == nil {
 		slog.Warn("gateway: cannot find session for approval, denying",
 			"session_id", call.SessionID, "tool", call.ToolName, "err", err)
@@ -55,6 +55,7 @@ func (a *GatewayToolApprover) RequestApproval(ctx context.Context, call *tool.To
 	// Route through ApprovalSender if the channel supports it.
 	if sender, ok := ch.(channel.ApprovalSender); ok {
 		target := channel.MessageTarget{
+			Channel:   sess.Channel,
 			ChannelID: sess.ChannelID,
 		}
 		approved, err := sender.SendApprovalRequest(ctx, target, call.ToolName, call.Input)

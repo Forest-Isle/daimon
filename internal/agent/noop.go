@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"github.com/Forest-Isle/IronClaw/internal/session"
+	"github.com/Forest-Isle/daimon/internal/session"
 )
 
 // noopContextManager implements ContextManager with no compression.

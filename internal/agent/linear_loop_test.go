@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/channel"
-	"github.com/Forest-Isle/IronClaw/internal/session"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 type testChannel struct{}
@@ -109,7 +109,7 @@ func TestLinearLoop_SingleToolCall(t *testing.T) {
 	loop := &LinearLoop{}
 	err := loop.Execute(context.Background(), a, ch, channel.InboundMessage{
 		Channel: "test", ChannelID: "ch1", Text: "read /tmp/test",
-	}, sess)
+	}, sess, nil)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -136,7 +136,7 @@ func TestLinearLoop_NoToolCall(t *testing.T) {
 	loop := &LinearLoop{}
 	err := loop.Execute(context.Background(), a, ch, channel.InboundMessage{
 		Channel: "test", ChannelID: "ch1", Text: "hello",
-	}, sess)
+	}, sess, nil)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -169,7 +169,7 @@ func TestLinearLoop_ParallelDispatch(t *testing.T) {
 	loop := &LinearLoop{}
 	err := loop.Execute(context.Background(), a, ch, channel.InboundMessage{
 		Channel: "test", ChannelID: "ch1", Text: "read both files",
-	}, sess)
+	}, sess, nil)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

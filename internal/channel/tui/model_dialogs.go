@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,10 +36,18 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 
 	case "help", "h", "?":
 		m.showHelpPanel = !m.showHelpPanel
+		if m.showHelpPanel {
+			m.showModelPanel = false
+		}
 		return true, nil
 
 	case "version", "v":
-		m.addMessage("system", fmt.Sprintf("IronClaw %s", m.version))
+		m.addMessage("system", fmt.Sprintf("Daimon %s", m.version))
+		m.updateViewportKeepScroll()
+		return true, nil
+
+	case "status", "stats":
+		m.showStatus()
 		m.updateViewportKeepScroll()
 		return true, nil
 
@@ -49,6 +59,9 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 			} else if m.showModelPanel && len(m.modelItems) > 0 {
 				m.modelSelectionIdx = 0
 			}
+			if m.showModelPanel {
+				m.showHelpPanel = false
+			}
 			return true, nil
 		}
 		// /model <name> — let the gateway handle the switch
@@ -59,19 +72,59 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 		m.updateViewportKeepScroll()
 		return true, nil
 
+	case "mouse", "m":
+		return true, m.toggleMouseMode()
+
 	case "export":
 		filename := "conversation.txt"
 		if len(args) > 0 {
 			filename = args[0]
 		}
-		m.exportConversation(filename)
-		m.updateViewportKeepScroll()
-		return true, nil
+		return true, m.exportConversation(filename)
 
 	default:
 		// Not a local command, let it go to the agent
 		return false, nil
 	}
+}
+
+func (m *Model) toggleMouseMode() tea.Cmd {
+	m.mouseEnabled = !m.mouseEnabled
+	if m.mouseEnabled {
+		m.addMessage("system", "Mouse scroll on (text selection off)")
+	} else {
+		m.addMessage("system", "Text selection on (mouse scroll off)")
+	}
+	m.updateViewportKeepScroll()
+	if m.mouseEnabled {
+		return func() tea.Msg { return tea.EnableMouseCellMotion() }
+	}
+	return func() tea.Msg { return tea.DisableMouse() }
+}
+
+// showStatus displays a compact snapshot of the current TUI session.
+func (m *Model) showStatus() {
+	mouse := "on"
+	if !m.mouseEnabled {
+		mouse = "off"
+	}
+	follow := "on"
+	if !m.autoScroll {
+		follow = "off"
+	}
+	model := m.currentModel
+	if model == "" {
+		model = "not set"
+	}
+	var b strings.Builder
+	b.WriteString("Status\n\n")
+	fmt.Fprintf(&b, "Version: %s\n", m.version)
+	fmt.Fprintf(&b, "Model: %s\n", model)
+	fmt.Fprintf(&b, "Messages: %d\n", len(m.messages))
+	fmt.Fprintf(&b, "Auto-scroll: %s\n", follow)
+	fmt.Fprintf(&b, "Mouse scroll: %s\n", mouse)
+	fmt.Fprintf(&b, "Working directory: %s", m.cwd)
+	m.addMessage("system", b.String())
 }
 
 // showHelp displays available commands.
@@ -136,8 +189,50 @@ func (m *Model) showHistory() {
 }
 
 // exportConversation exports the conversation to a file.
-func (m *Model) exportConversation(filename string) {
-	// This is a placeholder - actual file writing would need to be done
-	// through a proper channel or command since Bubble Tea models shouldn't do I/O
-	m.addMessage("system", fmt.Sprintf("📤 Export requested: %s\n(Note: File export not yet implemented in TUI)", filename))
+func (m *Model) exportConversation(filename string) tea.Cmd {
+	content := formatConversationExport(m.messages)
+	return func() tea.Msg {
+		path, err := writeConversationExport(filename, content)
+		return exportCompleteMsg{path: path, err: err}
+	}
+}
+
+func formatConversationExport(messages []chatMessage) string {
+	var b strings.Builder
+	b.WriteString("Daimon Conversation Export\n\n")
+	if len(messages) == 0 {
+		b.WriteString("No messages.\n")
+		return b.String()
+	}
+	for _, msg := range messages {
+		role := msg.role
+		if role == "" {
+			role = "message"
+		}
+		fmt.Fprintf(&b, "[%s] %s\n", msg.timestamp.Format("2006-01-02 15:04:05"), strings.ToUpper(role))
+		b.WriteString(msg.content)
+		if !strings.HasSuffix(msg.content, "\n") {
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func writeConversationExport(filename string, content string) (string, error) {
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		filename = "conversation.txt"
+	}
+	clean := filepath.Clean(filename)
+	dir := filepath.Dir(clean)
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return clean, fmt.Errorf("create export directory: %w", err)
+		}
+	}
+	if err := os.WriteFile(clean, []byte(content), 0o600); err != nil {
+		return clean, fmt.Errorf("write export: %w", err)
+	}
+	return clean, nil
 }

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/store"
+	"github.com/Forest-Isle/daimon/internal/store"
 )
 
 func TestSearchQuery_ExcludeTypes(t *testing.T) {

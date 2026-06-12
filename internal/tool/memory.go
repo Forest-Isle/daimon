@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/memory"
 )
 
 // MemoryTool is the single LLM-facing memory tool.

@@ -92,7 +92,10 @@ func (t *FileEditTool) Execute(ctx context.Context, input []byte) (Result, error
 		return Result{Error: "old_string and new_string are identical"}, nil
 	}
 
-	path := ResolveWorkPath(ctx, in.Path)
+	path, err := ResolveWorkPath(ctx, in.Path)
+	if err != nil {
+		return Result{Error: err.Error()}, nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Result{Error: err.Error()}, nil

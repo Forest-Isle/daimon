@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Update handles all incoming messages and routes them to the appropriate
@@ -21,20 +22,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 		// Update markdown renderer width for proper text wrapping
-		updateRendererWidth(m.width)
+		updateRendererWidth(m.messageContentWidth() + 4)
+		m.textarea.SetWidth(m.textareaWidth())
+		m.syncInputHeight()
 
 		if !m.ready {
-			m.viewport = viewport.New(m.width, m.viewportHeight())
+			m.viewport = viewport.New(m.termWidth(), m.viewportHeight())
 			m.viewport.SetContent(m.renderChat())
 			m.ready = true
 		} else {
-			m.viewport.Width = m.width
+			m.viewport.Width = m.termWidth()
 			m.viewport.Height = m.viewportHeight()
 			m.viewport.SetContent(m.renderChat()) // Re-render with new width
+			if m.autoScroll {
+				m.viewport.GotoBottom()
+			}
 		}
-		m.textarea.SetWidth(m.width - 4) // account for input box padding+border
-		m.syncInputHeight()
-		m.viewport.Height = m.viewportHeight()
 
 	case tickMsg:
 		m.typingTick = (m.typingTick + 1) % 3
@@ -53,7 +56,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
-		if m.ready {
+		if m.ready && m.mouseEnabled {
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			m.autoScroll = m.viewport.AtBottom()
@@ -111,6 +114,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addMessage("system", msg.text)
 		m.updateViewportKeepScroll()
 
+	case exportCompleteMsg:
+		if msg.err != nil {
+			m.addMessage("system", "Export failed: "+msg.err.Error())
+		} else {
+			m.addMessage("system", "Exported conversation: "+msg.path)
+		}
+		m.updateViewportKeepScroll()
+
 	case toolActivityMsg:
 		if msg.done {
 			// Only clear if this finish refers to the tool we're showing.
@@ -137,36 +148,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleChatKey processes key events when in normal chat mode.
 func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-		// Handle model selection navigation
-		if m.showModelPanel && len(m.modelItems) > 0 {
-			switch msg.Type {
-			case tea.KeyUp:
-				if m.modelSelectionIdx > 0 {
-					m.modelSelectionIdx--
-				} else {
-					m.modelSelectionIdx = len(m.modelItems) - 1
-				}
-				return m, nil
-			case tea.KeyDown:
-				if m.modelSelectionIdx < len(m.modelItems)-1 {
-					m.modelSelectionIdx++
-				} else {
-					m.modelSelectionIdx = 0
-				}
-				return m, nil
-			case tea.KeyEnter:
-				if m.modelSelectionIdx >= 0 && m.modelSelectionIdx < len(m.modelItems) {
-					selected := m.modelItems[m.modelSelectionIdx]
-					m.textarea.SetValue("/model " + selected.Name)
-					m.showModelPanel = false
-					return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
-				}
-				return m, nil
-			case tea.KeyEsc:
-				m.showModelPanel = false
-				return m, nil
+	// Handle model selection navigation
+	if m.showModelPanel && len(m.modelItems) > 0 {
+		switch msg.Type {
+		case tea.KeyUp:
+			if m.modelSelectionIdx > 0 {
+				m.modelSelectionIdx--
+			} else {
+				m.modelSelectionIdx = len(m.modelItems) - 1
 			}
+			return m, nil
+		case tea.KeyDown:
+			if m.modelSelectionIdx < len(m.modelItems)-1 {
+				m.modelSelectionIdx++
+			} else {
+				m.modelSelectionIdx = 0
+			}
+			return m, nil
+		case tea.KeyEnter:
+			if m.modelSelectionIdx >= 0 && m.modelSelectionIdx < len(m.modelItems) {
+				selected := m.modelItems[m.modelSelectionIdx]
+				m.textarea.SetValue("/model " + selected.Name)
+				m.showModelPanel = false
+				return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+			}
+			return m, nil
+		case tea.KeyEsc:
+			m.showModelPanel = false
+			return m, nil
 		}
+	}
 
 	// Handle suggestion navigation
 	if m.showingSuggestions && len(m.suggestions) > 0 {
@@ -205,6 +216,11 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clearSuggestions()
 			return m, nil
 		}
+	}
+
+	// ── Mouse toggle ──────────────────────────────────────────────
+	if msg.Type == tea.KeyCtrlO {
+		return m, m.toggleMouseMode()
 	}
 
 	switch msg.Type {
@@ -443,19 +459,118 @@ func (m *Model) clearToolActivity() {
 	m.activeToolSummary = ""
 }
 
-// viewportHeight returns the chat viewport height given the current terminal
-// size and input box height. Layout rows: header(1) + viewport + input(border
-// 2 + textarea height) + status(1).
+// viewportHeight returns the chat viewport height for the current chrome.
+// The bottom area is measured from the same render path used by View, so
+// panels and dialogs cannot push the status bar below the terminal.
 func (m *Model) viewportHeight() int {
-	inputH := m.textarea.Height()
-	if inputH < 1 {
-		inputH = 1
-	}
-	h := m.height - 1 - (inputH + 2) - 1
+	h := m.termHeight() - 1 - m.typingIndicatorHeight() - m.bottomAreaHeight() - 1
 	if h < 1 {
 		h = 1
 	}
 	return h
+}
+
+func (m Model) termWidth() int {
+	if m.width > 0 {
+		return m.width
+	}
+	return 80
+}
+
+func (m Model) termHeight() int {
+	if m.height > 0 {
+		return m.height
+	}
+	return 24
+}
+
+func (m Model) textareaWidth() int {
+	w := m.termWidth() - 4
+	if w < 1 {
+		return 1
+	}
+	return w
+}
+
+func (m Model) inputBoxWidth() int {
+	w := m.termWidth() - 2
+	if w < 1 {
+		return 1
+	}
+	return w
+}
+
+func (m Model) panelWidth() int {
+	w := m.termWidth() - 4
+	if w < 1 {
+		return 1
+	}
+	return w
+}
+
+func (m Model) panelContentWidth() int {
+	w := m.termWidth() - 8
+	if w < 12 {
+		return maxInt(1, m.termWidth()-4)
+	}
+	return w
+}
+
+func (m Model) messageContentWidth() int {
+	w := m.termWidth() - 10
+	if w < 12 {
+		return maxInt(1, m.termWidth()-4)
+	}
+	return w
+}
+
+func (m Model) typingIndicatorHeight() int {
+	if m.waitingForResponse && m.streamingID == "" {
+		return 1
+	}
+	return 0
+}
+
+func (m Model) bottomAreaHeight() int {
+	return lipgloss.Height(m.renderBottomArea())
+}
+
+func (m Model) inputBoxHeight() int {
+	inputH := m.textarea.Height()
+	if inputH < 1 {
+		inputH = 1
+	}
+	return inputH + 2
+}
+
+func (m Model) maxPanelHeight() int {
+	h := m.termHeight() - 1 - 1 - 1 - m.typingIndicatorHeight() - m.inputBoxHeight()
+	if h < 3 {
+		return 3
+	}
+	if h > 12 {
+		return 12
+	}
+	return h
+}
+
+func (m Model) maxPanelListItems(reservedRows int) int {
+	items := m.maxPanelHeight() - reservedRows
+	if items < 1 {
+		return 1
+	}
+	return items
+}
+
+func (m Model) maxSuggestionItems() int {
+	items := m.maxPanelHeight() - 6
+	if items < 1 {
+		return 1
+	}
+	if items > 5 {
+		return 5
+	}
+	return items
 }
 
 // syncInputHeight grows or shrinks the input box to fit the wrapped content,

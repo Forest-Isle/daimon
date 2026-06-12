@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Forest-Isle/IronClaw/internal/config"
-	"github.com/Forest-Isle/IronClaw/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/tool"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -140,7 +140,7 @@ func (m *Manager) startServer(ctx context.Context, name string, srv config.MCPSe
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initReq.Params.ClientInfo = mcp.Implementation{
-		Name:    "ironclaw",
+		Name:    "daimon",
 		Version: "1.0.0",
 	}
 	if _, err := c.Initialize(ctx, initReq); err != nil {

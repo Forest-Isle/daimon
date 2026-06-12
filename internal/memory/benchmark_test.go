@@ -13,9 +13,11 @@ import (
 type mockEmbedder struct {
 	dimension int
 	delay     time.Duration
+	calls     int
 }
 
 func (m *mockEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	m.calls++
 	if m.delay > 0 {
 		time.Sleep(m.delay)
 	}
@@ -163,10 +165,8 @@ func TestCacheHitRate(t *testing.T) {
 	}
 	elapsed := time.Since(start)
 
-	// With cache, should be much faster than totalCalls * delay
-	maxExpected := time.Duration(uniqueQueries) * baseEmbedder.delay * 2
-	if elapsed > maxExpected {
-		t.Errorf("Cache not effective: took %v, expected < %v", elapsed, maxExpected)
+	if baseEmbedder.calls != uniqueQueries {
+		t.Errorf("base embedder calls = %d, want %d unique queries", baseEmbedder.calls, uniqueQueries)
 	}
 
 	t.Logf("Cache hit rate: %.1f%% (expected: %.1f%%)", expectedHitRate*100, expectedHitRate*100)

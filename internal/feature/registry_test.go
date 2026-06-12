@@ -114,3 +114,30 @@ func TestUnknownFeature(t *testing.T) {
 	reg.Resolve(context.Background(), nil)
 	assert.False(t, reg.IsEnabled("nope"))
 }
+
+func TestHas(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(Feature{Name: "real", Default: true})
+
+	assert.True(t, reg.Has("real"))
+	assert.False(t, reg.Has("missing"))
+}
+
+func TestSetUpdatesResolvedFeature(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(Feature{Name: "memory", Default: true})
+	reg.Resolve(context.Background(), nil)
+
+	require.NoError(t, reg.Set("memory", false, "disabled by test"))
+	assert.False(t, reg.IsEnabled("memory"))
+	list := reg.List()
+	require.Len(t, list, 1)
+	assert.Equal(t, "disabled by test", list[0].Reason)
+}
+
+func TestSetUnknownFeature(t *testing.T) {
+	reg := NewRegistry()
+	reg.Resolve(context.Background(), nil)
+
+	assert.Error(t, reg.Set("missing", true, ""))
+}
