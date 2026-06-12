@@ -11,7 +11,6 @@ import (
 
 	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/store"
-	"github.com/Forest-Isle/daimon/internal/tool"
 	"github.com/Forest-Isle/daimon/internal/world"
 )
 
@@ -71,19 +70,6 @@ func (s *episodeTestStream) Next() (agent.StreamDelta, error) {
 
 func (s *episodeTestStream) Close() {}
 
-type countingTool struct {
-	count atomic.Int32
-}
-
-func (t *countingTool) Name() string                { return "count_tool" }
-func (t *countingTool) Description() string         { return "Count tool calls." }
-func (t *countingTool) InputSchema() map[string]any { return map[string]any{"type": "object"} }
-func (t *countingTool) RequiresApproval() bool      { return false }
-func (t *countingTool) Execute(context.Context, []byte) (tool.Result, error) {
-	t.count.Add(1)
-	return tool.Result{Output: "counted"}, nil
-}
-
 func openEpisodeWorldTestDB(t *testing.T) *store.DB {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "episode.db"))
@@ -94,93 +80,97 @@ func openEpisodeWorldTestDB(t *testing.T) *store.DB {
 	return db
 }
 
-func testRunner(t *testing.T, p agent.Provider, registry *tool.Registry) (*Runner, *world.Store) {
+func testRunner(t *testing.T, p agent.Provider) (*Runner, *world.Store) {
 	t.Helper()
 	db := openEpisodeWorldTestDB(t)
 	ws := world.NewStore(db.DB)
-	if registry == nil {
-		registry = tool.NewRegistry()
-	}
 	id := &world.Identity{Dir: t.TempDir()}
-	return NewRunner(p, registry, ws, id), ws
+	return NewRunner(p, ws, id, nil), ws
+}
+
+// countingInvoke records tool invocations and returns a fixed output.
+func countingInvoke(counter *atomic.Int32) agent.ToolInvokeFunc {
+	return func(_ context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+		counter.Add(1)
+		return "counted", false
+	}
 }
 
 func closeCall(input string) agent.ToolUseBlock {
 	return agent.ToolUseBlock{ID: "close_1", Name: episodeCloseToolName, Input: input}
 }
 
-func TestRunnerBasicHappyPath(t *testing.T) {
+func chatRequest(goal, text string) agent.CognitiveRequest {
+	return agent.CognitiveRequest{
+		SessionID:  "sess_test",
+		Goal:       goal,
+		Trigger:    text,
+		Transcript: []agent.CompletionMessage{{Role: "user", Content: text}},
+	}
+}
+
+func TestExecuteBasicHappyPath(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
-		text:      "closing",
+		text:      "Here is your answer.",
 		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled request."}`)},
 	}}}
-	runner, ws := testRunner(t, provider, nil)
+	runner, ws := testRunner(t, provider)
 
-	out, err := runner.Run(context.Background(), State{
-		ID:      "episode_happy",
-		Goal:    "Handle request",
-		Trigger: "chat: hello",
-	})
+	out, err := runner.Execute(context.Background(), chatRequest("Handle request", "hello"))
 	if err != nil {
-		t.Fatalf("Run() error = %v", err)
+		t.Fatalf("Execute() error = %v", err)
 	}
-	if out.Status != "done" || out.Salvaged {
-		t.Fatalf("outcome = %#v", out)
+	if out.Status != "done" {
+		t.Fatalf("status = %q, want done", out.Status)
+	}
+	if out.Reply != "Here is your answer." {
+		t.Fatalf("reply = %q, want assistant text", out.Reply)
 	}
 	journal, err := ws.ListJournal(context.Background(), "", 10)
 	if err != nil {
 		t.Fatalf("ListJournal() error = %v", err)
 	}
-	if len(journal) != 1 || journal[0].EpisodeID != "episode_happy" || journal[0].Summary != "Handled request." {
+	if len(journal) != 1 || journal[0].Summary != "Handled request." {
 		t.Fatalf("journal = %#v", journal)
 	}
 }
 
-func TestRunnerMaxIterationsSalvage(t *testing.T) {
-	provider := &episodeTestProvider{
-		streams: []providerResponse{
-			{text: "I am blocked waiting for credentials."},
-			{text: "Still blocked without credentials."},
-		},
-		complete: providerResponse{text: "not json"},
+func TestExecuteMaxIterationsSalvage(t *testing.T) {
+	streams := make([]providerResponse, defaultMaxIterations)
+	for i := range streams {
+		streams[i] = providerResponse{text: "I am blocked waiting for credentials."}
 	}
-	runner, _ := testRunner(t, provider, nil)
+	provider := &episodeTestProvider{streams: streams, complete: providerResponse{text: "not json"}}
+	runner, _ := testRunner(t, provider)
 
-	out, err := runner.Run(context.Background(), State{
-		ID:      "episode_salvage",
-		Goal:    "Deploy service",
-		Trigger: "chat: deploy now",
-		Budget:  Budget{MaxIterations: 2},
-	})
+	out, err := runner.Execute(context.Background(), chatRequest("Deploy service", "deploy now"))
 	if err != nil {
-		t.Fatalf("Run() error = %v", err)
+		t.Fatalf("Execute() error = %v", err)
 	}
-	if !out.Salvaged || out.Status != "blocked" {
-		t.Fatalf("outcome = %#v, want salvaged blocked", out)
+	if out.Status != "blocked" {
+		t.Fatalf("status = %q, want blocked", out.Status)
 	}
 	if !strings.Contains(out.Summary, "Deploy service") {
 		t.Fatalf("summary = %q, want goal context", out.Summary)
 	}
 }
 
-func TestRunnerStreamError(t *testing.T) {
+func TestExecuteStreamError(t *testing.T) {
 	streamErr := errors.New("stream failed")
 	provider := &episodeTestProvider{streams: []providerResponse{{err: streamErr}}}
-	runner, _ := testRunner(t, provider, nil)
+	runner, _ := testRunner(t, provider)
 
-	out, err := runner.Run(context.Background(), State{ID: "episode_error", Trigger: "chat: hi"})
+	out, err := runner.Execute(context.Background(), chatRequest("", "hi"))
 	if err == nil {
-		t.Fatal("Run() error = nil, want stream error")
+		t.Fatal("Execute() error = nil, want stream error")
 	}
-	if !out.Salvaged || out.Status != "failed" {
-		t.Fatalf("outcome = %#v, want salvaged failed", out)
+	if out.Status != "failed" {
+		t.Fatalf("status = %q, want failed", out.Status)
 	}
 }
 
-func TestRunnerToolDispatchBeforeClose(t *testing.T) {
-	ct := &countingTool{}
-	registry := tool.NewRegistry()
-	registry.Register(ct)
+func TestExecuteToolDispatchBeforeClose(t *testing.T) {
+	var calls atomic.Int32
 	provider := &episodeTestProvider{streams: []providerResponse{
 		{
 			text:      "using a tool",
@@ -191,26 +181,23 @@ func TestRunnerToolDispatchBeforeClose(t *testing.T) {
 			toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Tool dispatched."}`)},
 		},
 	}}
-	runner, _ := testRunner(t, provider, registry)
+	runner, _ := testRunner(t, provider)
 
-	out, err := runner.Run(context.Background(), State{
-		ID:      "episode_tool",
-		Goal:    "Use a tool",
-		Trigger: "chat: use tool",
-		Budget:  Budget{MaxIterations: 3},
-	})
+	req := chatRequest("Use a tool", "use tool")
+	req.Invoke = countingInvoke(&calls)
+	out, err := runner.Execute(context.Background(), req)
 	if err != nil {
-		t.Fatalf("Run() error = %v", err)
+		t.Fatalf("Execute() error = %v", err)
 	}
-	if out.Status != "done" || out.Salvaged {
-		t.Fatalf("outcome = %#v", out)
+	if out.Status != "done" {
+		t.Fatalf("status = %q, want done", out.Status)
 	}
-	if got := ct.count.Load(); got != 1 {
-		t.Fatalf("tool executions = %d, want 1", got)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("tool invocations = %d, want 1", got)
 	}
 }
 
-func TestComposePromptContent(t *testing.T) {
+func TestComposeSystemContent(t *testing.T) {
 	db := openEpisodeWorldTestDB(t)
 	ws := world.NewStore(db.DB)
 	ctx := context.Background()
@@ -227,20 +214,24 @@ func TestComposePromptContent(t *testing.T) {
 		t.Fatalf("write digest: %v", err)
 	}
 
-	system, messages := composePrompt(ctx, State{
-		Goal:    "Handle the chat",
-		Trigger: "chat: hello",
+	system := composeSystem(ctx, agent.CognitiveRequest{
+		Goal:     "Handle the chat",
+		Persona:  "You are friendly.",
+		Rules:    "Never reveal secrets.",
+		Memories: "User prefers concise answers.",
 	}, ws, id)
-	if !strings.Contains(system, "name: Test Daimon") {
-		t.Fatalf("system prompt missing identity digest:\n%s", system)
-	}
-	if !strings.Contains(system, "project/Ship episode kernel/active/no due") {
-		t.Fatalf("system prompt missing commitments digest:\n%s", system)
-	}
-	if len(messages) != 1 || messages[0].Role != "user" {
-		t.Fatalf("messages = %#v", messages)
-	}
-	if !strings.Contains(messages[0].Content, "## Goal\nHandle the chat") {
-		t.Fatalf("user message content = %q", messages[0].Content)
+
+	for _, want := range []string{
+		"name: Test Daimon",
+		"project/Ship episode kernel/active/no due",
+		"You are friendly.",
+		"Never reveal secrets.",
+		"User prefers concise answers.",
+		"Handle the chat",
+		"episode_close",
+	} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("system prompt missing %q:\n%s", want, system)
+		}
 	}
 }

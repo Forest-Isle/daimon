@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	crand "crypto/rand"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -95,7 +94,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	}
 
 	agentSub := InitAgentRuntime(builder, cfg)
-	gw.EpisodeRunner = episode.NewRunner(agentSub.Provider, gw.toolSub.Registry, gw.toolSub.WorldStore, &gw.toolSub.WorldIdentity)
+	gw.EpisodeRunner = episode.NewRunner(agentSub.Provider, gw.toolSub.WorldStore, &gw.toolSub.WorldIdentity, eventBus)
 	gw.EpisodeEnabled = cfg.Agent.EpisodeEnabled
 
 	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)
@@ -124,6 +123,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	deps := builder.Build()
 	gw.agent = agent.NewAgent(&deps, &agent.LinearLoop{}, eventBus)
 	gw.agent.SetApprovalFunc(gw.handleApproval)
+	gw.agent.SetKernel(gw.EpisodeRunner, gw.EpisodeEnabled)
 
 	gw.health = InitHealth(cfg, gw.db)
 	gw.commands = InitCommands(gw)
@@ -136,6 +136,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.config.OnReload(func(newCfg *config.Config) {
 		if gw.agent != nil {
 			gw.agent.SetModel(newCfg.LLM.Model)
+			gw.agent.SetKernel(gw.EpisodeRunner, newCfg.Agent.EpisodeEnabled)
 			gw.agent.EventBus().Publish(agent.ConfigChanged{Path: opt.ConfigPath})
 		}
 		gw.EpisodeEnabled = newCfg.Agent.EpisodeEnabled
@@ -245,23 +246,6 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	if msg.Channel == "scheduler" {
 		gw.publishTaskTransition(msg.ChannelID, "scheduled", "", "running", "scheduler message handling started")
 	}
-	if gw.EpisodeEnabled && gw.EpisodeRunner != nil {
-		outcome, runErr := gw.EpisodeRunner.Run(ctx, msgToEpisodeState(msg))
-		if runErr == nil && outcome.Status != "failed" {
-			if outcome.Summary != "" {
-				if err := ch.Send(ctx, channel.OutboundMessage{Channel: msg.Channel, ChannelID: msg.ChannelID, Text: outcome.Summary}); err != nil {
-					slog.Warn("gateway: episode response send failed", "err", err)
-				}
-			}
-			gw.finishInbound(ctx, msg, nil)
-			return
-		}
-		if runErr != nil {
-			slog.Warn("gateway: episode runner failed; falling back to agent", "err", runErr)
-		} else {
-			slog.Warn("gateway: episode outcome failed; falling back to agent", "summary", outcome.Summary)
-		}
-	}
 	err := gw.agent.HandleMessage(ctx, ch, msg)
 	if err != nil {
 		slog.Error("agent error", "err", err)
@@ -280,61 +264,6 @@ func (gw *Gateway) finishInbound(ctx context.Context, msg channel.InboundMessage
 		}
 		gw.publishTaskTransition(msg.ChannelID, "scheduled", "running", toState, "scheduler message handling completed")
 	}
-}
-
-func msgToEpisodeState(msg channel.InboundMessage) episode.State {
-	now := time.Now().UTC()
-	return episode.State{
-		ID:        newULID(now),
-		Goal:      "Respond to the user's message",
-		Trigger:   "chat: " + msg.Text,
-		CreatedAt: now,
-		Budget:    episode.Budget{},
-	}
-}
-
-const ulidEncoding = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-
-func newULID(t time.Time) string {
-	var entropy [10]byte
-	if _, err := crand.Read(entropy[:]); err != nil {
-		seed := uint64(t.UnixNano())
-		for i := range entropy {
-			seed = seed*6364136223846793005 + 1442695040888963407
-			entropy[i] = byte(seed >> 56)
-		}
-	}
-
-	ms := uint64(t.UnixMilli())
-	var id [26]byte
-	id[0] = ulidEncoding[(ms>>45)&0x1f]
-	id[1] = ulidEncoding[(ms>>40)&0x1f]
-	id[2] = ulidEncoding[(ms>>35)&0x1f]
-	id[3] = ulidEncoding[(ms>>30)&0x1f]
-	id[4] = ulidEncoding[(ms>>25)&0x1f]
-	id[5] = ulidEncoding[(ms>>20)&0x1f]
-	id[6] = ulidEncoding[(ms>>15)&0x1f]
-	id[7] = ulidEncoding[(ms>>10)&0x1f]
-	id[8] = ulidEncoding[(ms>>5)&0x1f]
-	id[9] = ulidEncoding[ms&0x1f]
-
-	id[10] = ulidEncoding[(entropy[0]&0xf8)>>3]
-	id[11] = ulidEncoding[((entropy[0]&0x07)<<2)|((entropy[1]&0xc0)>>6)]
-	id[12] = ulidEncoding[(entropy[1]&0x3e)>>1]
-	id[13] = ulidEncoding[((entropy[1]&0x01)<<4)|((entropy[2]&0xf0)>>4)]
-	id[14] = ulidEncoding[((entropy[2]&0x0f)<<1)|((entropy[3]&0x80)>>7)]
-	id[15] = ulidEncoding[(entropy[3]&0x7c)>>2]
-	id[16] = ulidEncoding[((entropy[3]&0x03)<<3)|((entropy[4]&0xe0)>>5)]
-	id[17] = ulidEncoding[entropy[4]&0x1f]
-	id[18] = ulidEncoding[(entropy[5]&0xf8)>>3]
-	id[19] = ulidEncoding[((entropy[5]&0x07)<<2)|((entropy[6]&0xc0)>>6)]
-	id[20] = ulidEncoding[(entropy[6]&0x3e)>>1]
-	id[21] = ulidEncoding[((entropy[6]&0x01)<<4)|((entropy[7]&0xf0)>>4)]
-	id[22] = ulidEncoding[((entropy[7]&0x0f)<<1)|((entropy[8]&0x80)>>7)]
-	id[23] = ulidEncoding[(entropy[8]&0x7c)>>2]
-	id[24] = ulidEncoding[((entropy[8]&0x03)<<3)|((entropy[9]&0xe0)>>5)]
-	id[25] = ulidEncoding[entropy[9]&0x1f]
-	return string(id[:])
 }
 
 func (gw *Gateway) publishTaskTransition(taskID, kind, from, to, reason string) {

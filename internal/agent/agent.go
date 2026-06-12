@@ -43,11 +43,13 @@ func AgentFromContext(ctx context.Context) *Agent {
 // reads from the pointer on every access, so late-bound dependencies are
 // immediately visible without a by-value copy staleness problem.
 type Agent struct {
-	deps         *AgentDeps
-	strategy     LoopStrategy
-	approvalFn   ApprovalFunc
-	eventBus     EventBus
-	sessionLocks sync.Map // key: "channel:channel_id" → *sync.Mutex
+	deps          *AgentDeps
+	strategy      LoopStrategy
+	approvalFn    ApprovalFunc
+	eventBus      EventBus
+	sessionLocks  sync.Map // key: "channel:channel_id" → *sync.Mutex
+	kernel        CognitiveKernel
+	kernelEnabled bool
 }
 
 // NewAgent creates a new Agent with the given dependencies, strategy, and event bus.
@@ -105,6 +107,10 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 	start := time.Now()
 	a.eventBus.Publish(SessionStarted{SessionID: sess.ID, Channel: msg.Channel})
 
+	// Transcript before the current turn is appended, so the kernel's message
+	// list ends with the new user message without duplicating it.
+	priorTranscript := BuildMessages(sess)
+
 	// Add user message
 	sess.AddMessage(session.Message{
 		ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
@@ -113,18 +119,24 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 		CreatedAt: time.Now(),
 	})
 
-	// Prepare layered prompt context once for this turn. Iteration-dynamic
-	// layers such as the current plan are rendered inside the loop.
-	frame := a.preparePromptFrame(ctx, sess, msg)
-	systemPrompt := a.renderPromptFrame(ctx, frame, sess)
-
-	// Compress context
-	if _, err := a.deps.Memory.ContextMgr.Compress(ctx, sess, systemPrompt); err != nil {
-		slog.Warn("context manager compression failed", "session", sess.ID, "err", err)
+	handled := false
+	if a.kernel != nil && a.kernelEnabled {
+		handled, err = a.runKernel(ctx, ch, sess, msg, priorTranscript)
 	}
 
-	// Execute strategy
-	err = a.strategy.Execute(ctx, a, ch, msg, sess, frame)
+	if !handled {
+		// Prepare layered prompt context once for this turn.
+		frame := a.preparePromptFrame(ctx, sess, msg)
+		systemPrompt := a.renderPromptFrame(ctx, frame, sess)
+
+		// Compress context
+		if _, cerr := a.deps.Memory.ContextMgr.Compress(ctx, sess, systemPrompt); cerr != nil {
+			slog.Warn("context manager compression failed", "session", sess.ID, "err", cerr)
+		}
+
+		// Execute strategy
+		err = a.strategy.Execute(ctx, a, ch, msg, sess, frame)
+	}
 
 	// Save user message to memory
 	if a.deps.Memory.Store != nil {
@@ -153,6 +165,55 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 	return err
 }
 
+// runKernel routes one turn through the cognitive kernel, reusing the agent's
+// tool pipeline, memory retrieval, and session. It returns handled=false when
+// the kernel errors or reports a failed outcome, so HandleMessage falls back to
+// the legacy loop.
+func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session.Session, msg channel.InboundMessage, priorTranscript []CompletionMessage) (bool, error) {
+	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
+	transcript := append(priorTranscript, CompletionMessage{Role: "user", Content: msg.Text})
+
+	req := CognitiveRequest{
+		SessionID:  sess.ID,
+		Goal:       "Respond to the user's message",
+		Trigger:    msg.Text,
+		Persona:    a.deps.Core.Cfg.Personality,
+		Rules:      a.deps.Core.Cfg.PersistentRules,
+		Memories:   a.buildMemoryPromptSection(ctx, msg.Text),
+		Model:      a.deps.Core.LLMCfg.Model,
+		Provider:   a.deps.Core.LLMCfg.Provider,
+		Transcript: transcript,
+		ToolDefs:   a.buildToolDefs(),
+		Invoke: func(ctx context.Context, iteration int, call ToolUseBlock) (string, bool) {
+			return a.invokeTool(ctx, ch, sess, target, iteration, call, "", false)
+		},
+	}
+
+	outcome, kerr := a.kernel.Execute(ctx, req)
+	if kerr != nil || outcome.Status == "failed" {
+		slog.Warn("agent: cognitive kernel failed; falling back to legacy loop",
+			"session", sess.ID, "err", kerr, "status", outcome.Status)
+		return false, nil
+	}
+
+	reply := outcome.Reply
+	if reply == "" {
+		reply = outcome.Summary
+	}
+	if reply != "" {
+		sess.AddMessage(session.Message{
+			ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+			Role:      "assistant",
+			Content:   reply,
+			CreatedAt: time.Now(),
+		})
+		if sendErr := ch.Send(ctx, channel.OutboundMessage{Channel: target.Channel, ChannelID: target.ChannelID, Text: reply}); sendErr != nil {
+			slog.Warn("agent: kernel reply send failed", "session", sess.ID, "err", sendErr)
+		}
+	}
+	return true, nil
+}
+
 // buildSystemPrompt constructs the system prompt from personality + memories + skills + profile.
 func (a *Agent) buildSystemPrompt(ctx context.Context, sess *session.Session, userText string) string {
 	frame := a.buildPromptFrame(ctx, userText)
@@ -173,8 +234,22 @@ func (a *Agent) buildToolDefs() []ToolDefinition {
 	return defs
 }
 
-// executeToolCall runs a single tool through the interceptor chain and emits ToolExecuted.
+// executeToolCall runs a single tool through the interceptor chain, records the
+// tool_result in the session, and emits ToolExecuted.
 func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, tc ToolUseBlock, budgetWarning string) {
+	a.invokeTool(ctx, ch, sess, target, iteration, tc, budgetWarning, true)
+}
+
+// invokeTool runs one tool call through the full security pipeline (interceptor
+// chain, approval, PostToolUse hooks), emits ToolExecuted/ToolRoundTrip, and
+// returns the output and error flag. Both the legacy loop and the cognitive
+// kernel route tool execution through here so they share identical governance
+// and replay recording. recordToSession controls whether the tool_result is
+// written back to the session transcript: the legacy loop rebuilds each request
+// from session history (so it needs it), while the kernel keeps its own message
+// list and persists only the user/assistant exchange (so it does not, avoiding
+// orphan tool_results in the session).
+func (a *Agent) invokeTool(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, tc ToolUseBlock, budgetWarning string, recordToSession bool) (string, bool) {
 	call := &tool.ToolCall{
 		ToolName: tc.Name, Input: tc.Input, SessionID: sess.ID,
 	}
@@ -237,13 +312,15 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 		})
 	}
 
-	sess.AddMessage(session.Message{
-		ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
-		Role:      "tool_result",
-		Content:   content,
-		ToolName:  tc.ID,
-		CreatedAt: time.Now(),
-	})
+	if recordToSession {
+		sess.AddMessage(session.Message{
+			ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+			Role:      "tool_result",
+			Content:   content,
+			ToolName:  tc.ID,
+			CreatedAt: time.Now(),
+		})
+	}
 
 	a.eventBus.Publish(ToolExecuted{
 		SessionID: sess.ID, ToolName: tc.Name, Succeeded: !isError,
@@ -262,6 +339,7 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 	if budgetWarning != "" {
 		sess.UpdateLastToolResult(budgetWarning)
 	}
+	return content, isError
 }
 
 func agentToolContext(ctx context.Context, sessionID string) context.Context {
