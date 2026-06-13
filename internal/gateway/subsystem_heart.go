@@ -22,10 +22,11 @@ import (
 // corrections. It is built only when agent.heart_enabled is true; otherwise the
 // binary behaves exactly as before (no heart, chat path unchanged).
 type HeartSubsystem struct {
-	enabled bool
-	store   *heart.Store
-	heart   *heart.Heart
-	chain   *attention.Chain
+	enabled  bool
+	store    *heart.Store
+	heart    *heart.Heart
+	chain    *attention.Chain
+	feedback *attention.FeedbackStore
 }
 
 func (hs *HeartSubsystem) Name() string { return "heart" }
@@ -77,7 +78,17 @@ func InitHeart(cfg *config.Config, db *store.DB, provider agent.Provider, worldS
 		}
 	}
 	hs.chain = attention.NewChain(rulesRouter, model)
+	hs.chain.SetHighRiskKinds(highRiskKinds(cfg))
+	hs.feedback = attention.NewFeedbackStore(db.DB)
 	return hs
+}
+
+// highRiskKinds merges the safe default always-wake whitelist with any
+// user-configured additions. Defaults are never removed: a config can only widen
+// the safety net, never shrink it.
+func highRiskKinds(cfg *config.Config) []string {
+	kinds := attention.DefaultHighRiskKinds()
+	return append(kinds, cfg.Agent.Heart.HighRiskKinds...)
 }
 
 // loadAttentionRules reads ~/.daimon/attention/rules.yaml (a top-level YAML list

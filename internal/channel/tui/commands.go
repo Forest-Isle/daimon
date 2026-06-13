@@ -64,6 +64,15 @@ var commandRegistry = []Command{
 		SubArgs:     []string{"list", "search", "clear"},
 	},
 
+	// Attention routing feedback
+	{
+		Name:        "attention",
+		Description: "Inspect or correct attention routing",
+		ArgHint:     "<events|recent|feedback>",
+		Category:    "builtin",
+		SubArgs:     []string{"events", "recent", "feedback"},
+	},
+
 	// Skill management
 	{
 		Name:        "skills",

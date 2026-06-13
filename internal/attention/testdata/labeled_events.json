@@ -1,0 +1,24 @@
+[
+  {"source": "bank",     "kind": "payment.charge",        "payload": "$420 to ACME",            "expected": "wake_user"},
+  {"source": "bank",     "kind": "payment.refund",        "payload": "$12 refunded",            "expected": "wake_user"},
+  {"source": "bank",     "kind": "payment.failed",        "payload": "card declined",           "expected": "wake_user"},
+  {"source": "auth",     "kind": "security.alert",        "payload": "new login from NL",       "expected": "wake_user"},
+  {"source": "auth",     "kind": "security.breach",       "payload": "password leaked",         "expected": "wake_user"},
+  {"source": "gov",      "kind": "legal.notice",          "payload": "court summons",           "expected": "wake_user"},
+  {"source": "cloud",    "kind": "account.delete",        "payload": "deletion scheduled",      "expected": "wake_user"},
+
+  {"source": "fs",       "kind": "fs.modified",           "payload": "build/out.tmp",           "expected": "ignore"},
+  {"source": "fs",       "kind": "fs.modified",           "payload": "cache/x.tmp",             "expected": "ignore"},
+  {"source": "fs",       "kind": "fs.modified",           "payload": ".cache/session.tmp",      "expected": "ignore"},
+  {"source": "ads",      "kind": "spam.promo",            "payload": "50% off!",                "expected": "ignore"},
+  {"source": "ads",      "kind": "spam.promo",            "payload": "act now",                 "expected": "ignore"},
+  {"source": "newsletter","kind": "mail.received",        "payload": "weekly digest",           "expected": "ignore"},
+  {"source": "newsletter","kind": "mail.received",        "payload": "monthly roundup",         "expected": "ignore"},
+
+  {"source": "mail",     "kind": "mail.received",         "payload": "project update from boss","expected": "cognize"},
+  {"source": "telegram", "kind": "message",               "payload": "can you help with X?",    "expected": "cognize"},
+  {"source": "calendar", "kind": "calendar.changed",      "payload": "meeting moved to 3pm",    "expected": "cognize"},
+  {"source": "mail",     "kind": "mail.received",         "payload": "invoice attached",        "expected": "cognize"},
+  {"source": "fs",       "kind": "fs.modified",           "payload": "src/main.go",             "expected": "cognize"},
+  {"source": "webhook",  "kind": "ci.failed",             "payload": "build broke on main",     "expected": "cognize"}
+]

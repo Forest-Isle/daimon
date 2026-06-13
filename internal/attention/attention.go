@@ -121,12 +121,23 @@ type ModelRouter interface {
 	Route(ctx context.Context, ev heart.Event) (verdict Verdict, decided bool)
 }
 
-// Chain runs the tiers cheapest-first: rules → model → default Cognize. The
-// default is deliberately Cognize, not Ignore: an unclassified event is worth a
-// thought rather than silently dropped.
+// DefaultHighRiskKinds are event kinds that must always wake the user, ahead of
+// any rule or model decision (constitution rule 4: irreversible/high-risk always
+// human-signed). Matched by exact value or prefix, so "payment.charge" and
+// "payment.refund" both qualify.
+func DefaultHighRiskKinds() []string {
+	return []string{"payment.", "security.", "legal.", "account.delete"}
+}
+
+// Chain runs the tiers cheapest-first: hard whitelist → rules → model → default
+// Cognize. The hard whitelist is checked first and cannot be overridden by a
+// (possibly synthesized) rule or the model, so high-risk events can never be
+// down-routed to Ignore. The default is deliberately Cognize, not Ignore: an
+// unclassified event is worth a thought rather than silently dropped.
 type Chain struct {
-	rules *RulesRouter
-	model ModelRouter
+	highRiskKinds []string
+	rules         *RulesRouter
+	model         ModelRouter
 }
 
 func NewChain(rules *RulesRouter, model ModelRouter) *Chain {
@@ -136,7 +147,30 @@ func NewChain(rules *RulesRouter, model ModelRouter) *Chain {
 	return &Chain{rules: rules, model: model}
 }
 
+// SetHighRiskKinds installs the always-wake whitelist. Kinds are matched by exact
+// value or prefix. Call during setup, before the heart's Route loop starts: the
+// whitelist is not protected for concurrent mutation (it is configured once and
+// re-applied only on restart).
+func (c *Chain) SetHighRiskKinds(kinds []string) { c.highRiskKinds = kinds }
+
+func (c *Chain) isHighRisk(kind string) bool {
+	for _, p := range c.highRiskKinds {
+		if p == "" {
+			continue
+		}
+		if kind == p || strings.HasPrefix(kind, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Chain) Route(ctx context.Context, ev heart.Event) (Verdict, error) {
+	// Hard whitelist first: high-risk kinds always wake the user and are never
+	// delegated to rule or model routing.
+	if c.isHighRisk(ev.Kind) {
+		return Verdict{Action: WakeUser, Priority: 0, Reason: "high-risk kind: always wake"}, nil
+	}
 	if v, ok := c.rules.Route(ctx, ev); ok {
 		return v, nil
 	}

@@ -54,9 +54,14 @@ agent:
   heart:
     heartbeat_interval_minutes: 0  # 0 = no timer source; >0 fires internal.heartbeat every N minutes
     model_router: false            # also triage events with the small (haiku) model when rules don't match
+    # Event kinds (exact or prefix) that ALWAYS wake the user, ahead of any rule
+    # or model decision. Safe defaults (payment./security./legal./account.delete)
+    # are always applied; these only widen the net, never shrink it.
+    high_risk_kinds: []
   # Routing is governed by ~/.daimon/attention/rules.yaml — a top-level YAML list
-  # matched first (cheapest tier). Unmatched events default to Cognize (prefer to
-  # wake over silently dropping). Example to keep the heartbeat cheap:
+  # matched first (after the high-risk whitelist). Unmatched events default to
+  # Cognize (prefer to wake over silently dropping). Record routing corrections
+  # with /attention feedback <event_id> <given> <expected> [note]. Example rule:
   #   - source: timer
   #     kind: internal.heartbeat
   #     action: ignore        # ignore | reflex | cognize | wake_user

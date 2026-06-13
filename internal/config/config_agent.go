@@ -16,8 +16,9 @@ type AgentConfig struct {
 // true. Durations are expressed as integers (the codebase's yaml decoder does
 // not parse "24h" into time.Duration), matching ExecutionConfig.ApprovalTimeoutSeconds.
 type HeartConfig struct {
-	HeartbeatIntervalMinutes int  `yaml:"heartbeat_interval_minutes"` // 0 = no timer source registered
-	ModelRouter              bool `yaml:"model_router"`               // wire the small-model (haiku) triage tier
+	HeartbeatIntervalMinutes int      `yaml:"heartbeat_interval_minutes"` // 0 = no timer source registered
+	ModelRouter              bool     `yaml:"model_router"`               // wire the small-model (haiku) triage tier
+	HighRiskKinds            []string `yaml:"high_risk_kinds"`            // extra always-wake event-kind prefixes (added to safe defaults)
 }
 
 // CompressionConfig controls the context compression strategy.

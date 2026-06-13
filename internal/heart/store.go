@@ -87,6 +87,46 @@ func (s *Store) Unrouted(ctx context.Context) ([]Event, error) {
 	return out, nil
 }
 
+// RoutedEvent is a summary of a delivered event, for the feedback UX (so a user
+// can find an event id to correct its routing).
+type RoutedEvent struct {
+	ID         string
+	Source     string
+	Kind       string
+	OccurredAt string
+}
+
+// RecentRouted returns recently delivered events, newest first.
+func (s *Store) RecentRouted(ctx context.Context, limit int) ([]RoutedEvent, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, source, kind, occurred_at
+		FROM events WHERE routed_at IS NOT NULL
+		ORDER BY occurred_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query routed events: %w", err)
+	}
+	defer rows.Close()
+
+	var out []RoutedEvent
+	for rows.Next() {
+		var ev RoutedEvent
+		if err := rows.Scan(&ev.ID, &ev.Source, &ev.Kind, &ev.OccurredAt); err != nil {
+			return nil, fmt.Errorf("scan routed event: %w", err)
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate routed events: %w", err)
+	}
+	return out, nil
+}
+
 func (s *Store) ensure() error {
 	if s == nil || s.db == nil {
 		return errors.New("heart store unavailable")

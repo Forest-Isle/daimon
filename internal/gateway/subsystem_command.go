@@ -16,20 +16,21 @@ func (cs *CommandSubsystem) Stop(_ context.Context) error  { return nil }
 func InitCommands(gwRef *Gateway) *CommandSubsystem {
 	cs := &CommandSubsystem{}
 	cs.Table = commandTable{
-		"/feature":  {gwRef.handleFeature, false},
-		"/config":   {gwRef.handleConfig, true},
-		"/compact":  {gwRef.handleCompact, true},
-		"/memory":   {gwRef.handleMemory, false},
-		"/model":    {gwRef.handleModel, false},
-		"/new":      {gwRef.handleReset, true},
-		"/reset":    {gwRef.handleReset, true},
-		"/resume":   {gwRef.handleResume, false},
-		"/start":    {gwRef.handleReset, true},
-		"/skill":    {gwRef.handleSkills, false},
-		"/skills":   {gwRef.handleSkills, false},
-		"/schedule": {gwRef.handleSchedule, false},
-		"/tasks":    {gwRef.handleTasks, true},
-		"/team":     {gwRef.handleTeam, false},
+		"/attention": {gwRef.handleAttention, false},
+		"/feature":   {gwRef.handleFeature, false},
+		"/config":    {gwRef.handleConfig, true},
+		"/compact":   {gwRef.handleCompact, true},
+		"/memory":    {gwRef.handleMemory, false},
+		"/model":     {gwRef.handleModel, false},
+		"/new":       {gwRef.handleReset, true},
+		"/reset":     {gwRef.handleReset, true},
+		"/resume":    {gwRef.handleResume, false},
+		"/start":     {gwRef.handleReset, true},
+		"/skill":     {gwRef.handleSkills, false},
+		"/skills":    {gwRef.handleSkills, false},
+		"/schedule":  {gwRef.handleSchedule, false},
+		"/tasks":     {gwRef.handleTasks, true},
+		"/team":      {gwRef.handleTeam, false},
 	}
 	return cs
 }
