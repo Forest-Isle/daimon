@@ -150,7 +150,13 @@ func callIsIrreversible(call *syntax.CallExpr, depth int) bool {
 	if commandNameIsDestructive(base) {
 		return true
 	}
-	if base == "git" && gitArgsForcePush(args) {
+	if base == "git" && gitArgsIrreversible(args) {
+		return true
+	}
+	if base == "find" && findArgsDestructive(args) {
+		return true
+	}
+	if base == "rsync" && rsyncDeletes(args) {
 		return true
 	}
 	if deviceWriters[base] && anyArgIsRawDevice(args) {
@@ -251,13 +257,14 @@ func wrappedCommandIsIrreversible(args []*syntax.Word, depth int) bool {
 	return false
 }
 
-// gitArgsForcePush reports whether a `git` invocation is a force push, which
-// rewrites remote history irrecoverably. Recognises `git push --force`,
-// `git push -f`, `git push --force-with-lease`, combined short flags (-vf), and
-// the global `-C <dir>` form since it scans all arguments.
-func gitArgsForcePush(args []*syntax.Word) bool {
-	sawPush := false
-	force := false
+// gitArgsIrreversible reports whether a `git` invocation destroys work
+// irrecoverably: a force push (rewrites remote history), `reset --hard`
+// (discards uncommitted changes), or `clean` with a force flag (deletes
+// untracked files). It scans all arguments, so the global `-C <dir>` form is
+// covered.
+func gitArgsIrreversible(args []*syntax.Word) bool {
+	var subcommand string
+	sawPush, force, hard, cleanForce := false, false, false, false
 	for _, w := range args {
 		arg, static := wordLiteral(w)
 		if !static {
@@ -266,13 +273,67 @@ func gitArgsForcePush(args []*syntax.Word) bool {
 		switch {
 		case arg == "push":
 			sawPush = true
+		case arg == "reset" || arg == "clean":
+			if subcommand == "" {
+				subcommand = arg
+			}
 		case arg == "--force" || strings.HasPrefix(arg, "--force-with-lease"):
 			force = true
+		case arg == "--hard":
+			hard = true
 		case strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.Contains(arg, "f"):
-			force = true // combined short flags, e.g. -f or -vf
+			// combined short flags, e.g. push -vf, clean -fdx
+			force, cleanForce = true, true
 		}
 	}
-	return sawPush && force
+	if sawPush && force {
+		return true
+	}
+	if subcommand == "reset" && hard {
+		return true
+	}
+	if subcommand == "clean" && (cleanForce || force) {
+		return true
+	}
+	return false
+}
+
+// findArgsDestructive reports whether a `find` invocation deletes: the -delete
+// primary, or -exec/-execdir running a destructive command.
+func findArgsDestructive(args []*syntax.Word) bool {
+	inExec := false
+	for _, w := range args {
+		arg, static := wordLiteral(w)
+		if !static {
+			continue
+		}
+		switch {
+		case arg == "-delete":
+			return true
+		case arg == "-exec" || arg == "-execdir":
+			inExec = true
+		case arg == ";" || arg == "+":
+			inExec = false
+		case inExec && commandNameIsDestructive(path.Base(arg)):
+			return true
+		}
+	}
+	return false
+}
+
+// rsyncDeletes reports whether an `rsync` invocation deletes files in the
+// destination (--delete and its variants), which is not recoverable.
+func rsyncDeletes(args []*syntax.Word) bool {
+	for _, w := range args {
+		arg, static := wordLiteral(w)
+		if !static {
+			continue
+		}
+		if arg == "--del" || strings.HasPrefix(arg, "--delete") {
+			return true
+		}
+	}
+	return false
 }
 
 // redirectIsIrreversible reports whether a redirection writes to a raw device.

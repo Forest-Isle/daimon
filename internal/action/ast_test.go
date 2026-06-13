@@ -51,6 +51,13 @@ func TestClassifyBashCommand_Adversarial(t *testing.T) {
 		{"tee to device", "tee /dev/sda"},
 		{"cp to device", "cp file /dev/sda"},
 		{"mv to device", "mv x /dev/disk0"},
+		{"find -delete", "find . -name '*.log' -delete"},
+		{"find -exec rm", `find . -type f -exec rm {} \;`},
+		{"git reset hard", "git reset --hard HEAD~1"},
+		{"git clean force", "git clean -fdx"},
+		{"git clean long force", "git clean --force"},
+		{"rsync delete", "rsync -a --delete src/ dst/"},
+		{"rsync del short", "rsync --del a b"},
 	}
 	for _, tc := range irreversible {
 		t.Run(tc.name, func(t *testing.T) {
@@ -91,6 +98,11 @@ func TestClassifyBashCommand_Benign(t *testing.T) {
 		{"eval benign", `eval "echo hi"`},
 		{"tee to file", "tee output.log"},
 		{"cp to dev null path-like", "cp a /tmp/devnull"},
+		{"git reset soft", "git reset --soft HEAD~1"},
+		{"git reset mixed", "git reset HEAD file.go"},
+		{"git clean dry run", "git clean -n"},
+		{"find no delete", "find . -name '*.go'"},
+		{"rsync no delete", "rsync -a src/ dst/"},
 	}
 	for _, tc := range reversible {
 		t.Run(tc.name, func(t *testing.T) {
