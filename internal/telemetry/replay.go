@@ -121,7 +121,7 @@ func (r *ReplayRecorder) openForDateLocked(date string) error {
 
 func isReplayEvent(event agent.Event) bool {
 	switch event.(type) {
-	case agent.ProviderExchange, agent.ToolRoundTrip, agent.TurnClosed:
+	case agent.ProviderExchange, agent.ToolRoundTrip, agent.TurnClosed, agent.EpisodeSalvaged:
 		return true
 	default:
 		return false

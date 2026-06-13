@@ -123,10 +123,10 @@ func TestApplyOutcomeAppendsIdempotentJournal(t *testing.T) {
 				Title: "Persist outcome",
 			}),
 		},
-	}, "Outcome summary"); err != nil {
+	}, "Outcome summary", false); err != nil {
 		t.Fatalf("ApplyOutcome() error = %v", err)
 	}
-	if err := world.ApplyOutcome(ctx, "episode_outcome", nil, "Outcome summary"); err != nil {
+	if err := world.ApplyOutcome(ctx, "episode_outcome", nil, "Outcome summary", false); err != nil {
 		t.Fatalf("ApplyOutcome() duplicate journal error = %v", err)
 	}
 

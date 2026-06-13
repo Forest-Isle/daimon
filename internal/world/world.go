@@ -77,8 +77,10 @@ func (s *Store) Apply(ctx context.Context, episodeID string, muts []Mutation) er
 }
 
 // ApplyOutcome applies world writes from an episode outcome, stamps episodeID,
-// and appends one idempotent journal entry for the outcome summary.
-func (s *Store) ApplyOutcome(ctx context.Context, episodeID string, muts []Mutation, summary string) error {
+// and appends one idempotent journal entry for the outcome summary. salvaged
+// records whether the Outcome was framework-recovered (the model never called
+// episode_close), which the journal detail captures for the salvaged-rate metric.
+func (s *Store) ApplyOutcome(ctx context.Context, episodeID string, muts []Mutation, summary string, salvaged bool) error {
 	if err := s.ensure(); err != nil {
 		return err
 	}
@@ -96,7 +98,7 @@ func (s *Store) ApplyOutcome(ctx context.Context, episodeID string, muts []Mutat
 	if err := applyMutations(ctx, tx, episodeID, muts); err != nil {
 		return err
 	}
-	if err := appendOutcomeJournal(ctx, tx, episodeID, summary); err != nil {
+	if err := appendOutcomeJournal(ctx, tx, episodeID, summary, salvaged); err != nil {
 		return err
 	}
 
@@ -330,12 +332,16 @@ func updateCommitment(ctx context.Context, exec sqlExecer, id string, set map[st
 	return nil
 }
 
-func appendOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, summary string) error {
+func appendOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, summary string, salvaged bool) error {
+	detail := ""
+	if salvaged {
+		detail = "salvaged=true"
+	}
 	_, err := exec.ExecContext(ctx, `
 		INSERT OR IGNORE INTO journal
-			(id, episode_id, kind, summary)
-		VALUES (?, ?, ?, ?)`,
-		"journal_outcome_"+episodeID, episodeID, "outcome", summary)
+			(id, episode_id, kind, summary, detail)
+		VALUES (?, ?, ?, ?, ?)`,
+		"journal_outcome_"+episodeID, episodeID, "outcome", summary, detail)
 	if err != nil {
 		return fmt.Errorf("append outcome journal: %w", err)
 	}

@@ -123,6 +123,16 @@ type TurnClosed struct {
 
 func (TurnClosed) EventType() string { return "replay.turn_closed" }
 
+// EpisodeSalvaged is emitted when an episode's Outcome had to be framework-
+// recovered because the model never called episode_close. The salvaged rate is a
+// north-star metric for exit-contract health (target <2%).
+type EpisodeSalvaged struct {
+	SessionID string
+	EpisodeID string
+}
+
+func (EpisodeSalvaged) EventType() string { return "replay.episode_salvaged" }
+
 // ──────────────────────── Context Events ────────────────────────
 
 // ContextCompressed is emitted after context compression runs.

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -28,13 +29,26 @@ type Outcome struct {
 	Receipts     []string         `json:"receipts,omitempty"`
 	FollowUps    []FollowUp       `json:"follow_ups,omitempty"`
 	OpenQuestion *string          `json:"open_question,omitempty"`
+	// Salvaged is set by the framework (not the model) when the Outcome was
+	// recovered because episode_close was never called. It feeds the salvaged-rate
+	// metric and is recorded in the journal detail.
+	Salvaged bool `json:"-"`
 }
 
-// FollowUp describes future work to plant after an episode closes.
+// FollowUp describes future work to plant after an episode closes. Kind is one of
+// timer (re-enter at a later time), watch, or check.
 type FollowUp struct {
 	Kind   string `json:"kind"`
 	Detail string `json:"detail"`
 	Goal   string `json:"goal"`
+}
+
+// FollowUpPlanter schedules a timer follow-up for autonomous re-entry. The
+// gateway provides the implementation (backed by the event heart); a nil planter
+// drops timer follow-ups with a warning. watch/check follow-ups never reach the
+// planter — they persist transactionally as commitments alongside the outcome.
+type FollowUpPlanter interface {
+	Plant(ctx context.Context, episodeID string, f FollowUp) error
 }
 
 // Runner is the cognitive kernel: it composes context from the world model,
@@ -46,12 +60,18 @@ type Runner struct {
 	world    *world.Store
 	identity *world.Identity
 	bus      agent.EventBus
+	planter  FollowUpPlanter
 }
 
 // NewRunner builds a cognitive kernel. bus may be nil (events are then skipped).
 func NewRunner(p agent.Provider, ws *world.Store, id *world.Identity, bus agent.EventBus) *Runner {
 	return &Runner{provider: p, world: ws, identity: id, bus: bus}
 }
+
+// SetPlanter wires the timer follow-up planter. Optional: a nil planter (the
+// default) means timer follow-ups are dropped with a warning, leaving the binary
+// behaviorally unchanged when the event heart is disabled.
+func (r *Runner) SetPlanter(p FollowUpPlanter) { r.planter = p }
 
 // Execute implements agent.CognitiveKernel.
 func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (agent.CognitiveOutcome, error) {
@@ -129,20 +149,86 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (agent
 	return r.close(ctx, req, episodeID, out, lastReply), nil
 }
 
-// close applies the outcome's world writes plus a journal entry, records the
-// turn-close event, and shapes the user-facing reply.
+// close applies the outcome's world writes plus a journal entry, plants
+// follow-ups, records the turn-close event, and shapes the user-facing reply.
 func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeID string, out Outcome, lastReply string) agent.CognitiveOutcome {
+	// Expand follow-ups: watch/check persist as commitments transactionally with
+	// the outcome; timer follow-ups are planted into the heart for re-entry. Kind
+	// is normalized so casing/whitespace variants are not silently dropped.
+	var timers []FollowUp
+	for _, f := range out.FollowUps {
+		f.Kind = strings.ToLower(strings.TrimSpace(f.Kind))
+		switch f.Kind {
+		case "timer":
+			timers = append(timers, f)
+		case "watch", "check":
+			if mut, ok := followUpCommitment(f); ok {
+				out.WorldWrites = append(out.WorldWrites, mut)
+			}
+		default:
+			slog.Warn("episode: dropping follow-up with unknown kind", "episode", episodeID, "kind", f.Kind)
+		}
+	}
+
 	if r.world != nil {
-		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary); err != nil {
+		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, out.Salvaged); err != nil {
 			return r.fail(req, "world write failed: "+err.Error())
 		}
 	}
+
+	// Timer follow-ups are planted best-effort after the outcome commits: the
+	// planter writes to the heart's follow-up queue (a separate store), so it
+	// cannot share the world transaction. A failure here loses only the re-entry
+	// convenience — progress is already durable in the committed outcome and any
+	// handed_off commitment, which sleep/selfops can detect. Logged at Error so the
+	// loss is visible. A transactional outbox is a P1 follow-up.
+	for _, f := range timers {
+		if r.planter == nil {
+			slog.Warn("episode: timer follow-up dropped (no planter)", "episode", episodeID, "goal", f.Goal)
+			continue
+		}
+		if err := r.planter.Plant(ctx, episodeID, f); err != nil {
+			slog.Error("episode: plant timer follow-up failed", "episode", episodeID, "goal", f.Goal, "err", err)
+		}
+	}
+
+	if out.Salvaged {
+		r.publishSalvaged(req.SessionID, episodeID)
+	}
+
 	reply := strings.TrimSpace(lastReply)
 	if reply == "" {
 		reply = out.Summary
 	}
 	r.publishTurnClosed(req.SessionID, reply)
 	return agent.CognitiveOutcome{Status: out.Status, Reply: reply, Summary: out.Summary}
+}
+
+// followUpCommitment turns a watch/check follow-up into a commitment.create
+// mutation so it persists transactionally with the outcome. Returns ok=false when
+// there is nothing to record.
+func followUpCommitment(f FollowUp) (world.Mutation, bool) {
+	kind := "watch"
+	if f.Kind == "check" {
+		kind = "routine"
+	}
+	title := strings.TrimSpace(f.Detail)
+	if title == "" {
+		title = strings.TrimSpace(f.Goal)
+	}
+	if title == "" {
+		return world.Mutation{}, false
+	}
+	body, err := json.Marshal(world.Commitment{
+		Kind:  kind,
+		Title: truncateRunes(title, 200),
+		Body:  strings.TrimSpace(f.Goal),
+		State: "active",
+	})
+	if err != nil {
+		return world.Mutation{}, false
+	}
+	return world.Mutation{Op: "commitment.create", Body: body}, true
 }
 
 func (r *Runner) fail(req agent.CognitiveRequest, summary string) agent.CognitiveOutcome {
@@ -216,10 +302,13 @@ func (r *Runner) salvage(ctx context.Context, req agent.CognitiveRequest, system
 	})
 	if err == nil && resp != nil {
 		if out, perr := parseOutcome(resp.Text); perr == nil {
+			out.Salvaged = true
 			return out
 		}
 	}
-	return inferOutcomeFromTranscript(req.Goal, transcript)
+	out := inferOutcomeFromTranscript(req.Goal, transcript)
+	out.Salvaged = true
+	return out
 }
 
 func inferOutcomeFromTranscript(goal string, transcript []transcriptTurn) Outcome {
@@ -287,6 +376,13 @@ func (r *Runner) publishTurnClosed(sessionID, reply string) {
 		return
 	}
 	r.bus.Publish(agent.TurnClosed{SessionID: sessionID, FinalReply: reply})
+}
+
+func (r *Runner) publishSalvaged(sessionID, episodeID string) {
+	if r.bus == nil {
+		return
+	}
+	r.bus.Publish(agent.EpisodeSalvaged{SessionID: sessionID, EpisodeID: episodeID})
 }
 
 func marshalRaw(v any) json.RawMessage {

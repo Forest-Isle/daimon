@@ -141,6 +141,14 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	if cfg.Agent.HeartEnabled {
 		gw.heart = InitHeart(cfg, gw.db, agentSub.Provider, gw.toolSub.WorldStore)
 		gw.heart.heart = heart.New(gw.heart.store, gw.newEventDispatcher().handle)
+
+		// Timer follow-ups planted by episodes re-enter through the heart: the
+		// runner gets a planter backed by the follow-up store, and a source polls
+		// the queue to fire due entries as internal.followup events.
+		followUps := heart.NewFollowUpStore(gw.db.DB)
+		gw.EpisodeRunner.SetPlanter(followUpPlanter{store: followUps, now: time.Now})
+		gw.heart.heart.Register(&heart.FollowUpSource{Store: followUps})
+
 		if mins := cfg.Agent.Heart.HeartbeatIntervalMinutes; mins > 0 {
 			gw.heart.heart.Register(&heart.TimerSource{
 				SourceName: "timer",

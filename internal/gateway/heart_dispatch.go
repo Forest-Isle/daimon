@@ -4,9 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/Forest-Isle/daimon/internal/attention"
 	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/episode"
 	"github.com/Forest-Isle/daimon/internal/heart"
 )
 
@@ -65,9 +68,44 @@ func goalForEvent(ev heart.Event) string {
 	switch ev.Kind {
 	case "internal.heartbeat":
 		return "Review active commitments and surface anything that needs attention; if nothing is due, close quietly without taking action."
+	case "internal.followup":
+		// A planted follow-up carries its re-entry goal in the payload.
+		if goal := strings.TrimSpace(ev.Payload); goal != "" {
+			return goal
+		}
+		return "Continue the work that planted this follow-up."
 	default:
 		return "Handle internal event: " + ev.Kind
 	}
+}
+
+// followUpPlanter adapts the heart follow-up store to episode.FollowUpPlanter: it
+// schedules a timer follow-up by computing its fire time from the follow-up's
+// Detail (a Go duration string, defaulting to 1h).
+type followUpPlanter struct {
+	store *heart.FollowUpStore
+	now   func() time.Time
+}
+
+func (p followUpPlanter) Plant(ctx context.Context, episodeID string, f episode.FollowUp) error {
+	now := p.now
+	if now == nil {
+		now = time.Now
+	}
+	dur := time.Hour
+	if d, err := time.ParseDuration(strings.TrimSpace(f.Detail)); err == nil && d > 0 {
+		dur = d
+	}
+	// Leave the goal empty when the model gave none: goalForEvent then supplies a
+	// generic continuation goal. Do not fall back to Detail — that is the timer
+	// interval, not a goal.
+	return p.store.Create(ctx, heart.FollowUp{
+		SourceEpisode: episodeID,
+		Kind:          "timer",
+		Goal:          strings.TrimSpace(f.Goal),
+		Trigger:       f.Detail,
+		FireAt:        now().Add(dur).Unix(),
+	})
 }
 
 // wakeUser delivers an urgent event to the user via the primary notification
