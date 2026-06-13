@@ -24,10 +24,12 @@ type Event struct {
 
 // Source is a long-running producer of events (a channel adapter, a mail poller,
 // a timer). Run must keep emitting until ctx is cancelled, reconnecting on its
-// own transient failures.
+// own transient failures. emit returns an error when the event could not be
+// persisted, so a source that mutates its own state on emit (e.g. marking a
+// follow-up fired) can avoid losing work that never reached the stream.
 type Source interface {
 	Name() string
-	Run(ctx context.Context, emit func(Event)) error
+	Run(ctx context.Context, emit func(Event) error) error
 }
 
 // Handler consumes a routed event. The router (attention) plugs in here.
@@ -68,9 +70,9 @@ func (h *Heart) Run(ctx context.Context) error {
 		wg.Add(1)
 		go func(src Source) {
 			defer wg.Done()
-			emit := func(ev Event) {
+			emit := func(ev Event) error {
 				ev.Source = src.Name()
-				h.process(ctx, ev)
+				return h.process(ctx, ev)
 			}
 			if err := src.Run(ctx, emit); err != nil && ctx.Err() == nil {
 				slog.Error("heart: source stopped", "source", src.Name(), "err", err)
@@ -82,20 +84,23 @@ func (h *Heart) Run(ctx context.Context) error {
 }
 
 // process persists one event and, if it was newly stored (not a duplicate),
-// hands it to the router and marks it routed.
-func (h *Heart) process(ctx context.Context, ev Event) {
+// hands it to the router and marks it routed. It returns an error only when the
+// event could not be persisted; a duplicate is reported as success (it was
+// already handled), so a caller mutating its own state may safely proceed.
+func (h *Heart) process(ctx context.Context, ev Event) error {
 	if ev.OccurredAt == "" {
 		ev.OccurredAt = time.Now().UTC().Format("2006-01-02 15:04:05")
 	}
 	inserted, err := h.store.Persist(ctx, &ev)
 	if err != nil {
 		slog.Error("heart: persist event failed", "source", ev.Source, "kind", ev.Kind, "err", err)
-		return
+		return err
 	}
 	if !inserted {
-		return // duplicate; already handled
+		return nil // duplicate; already handled
 	}
 	h.deliver(ctx, ev)
+	return nil
 }
 
 // deliver routes an event and records the outcome. Routing failures are not

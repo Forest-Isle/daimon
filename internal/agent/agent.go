@@ -336,7 +336,11 @@ func (a *Agent) invokeTool(ctx context.Context, ch channel.Channel, sess *sessio
 		if execErr != nil {
 			return &tool.ToolResult{Error: execErr.Error()}, nil
 		}
-		return &tool.ToolResult{Output: r.Output}, nil
+		// Tools report soft failures (e.g. file_edit "old_string not found") via
+		// Result.Error with a nil Go error. Propagate it: dropping it makes the
+		// model see an empty result on failure, and makes the action interceptor
+		// treat the failed run as a success (false undo record + verified trust).
+		return &tool.ToolResult{Output: r.Output, Error: r.Error}, nil
 	})
 
 	duration := time.Since(start)

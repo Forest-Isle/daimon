@@ -71,4 +71,12 @@ func TestGoalForEvent(t *testing.T) {
 	if g := goalForEvent(heart.Event{Kind: "mail.received"}); g != "Handle internal event: mail.received" {
 		t.Fatalf("generic goal wrong: %q", g)
 	}
+	// A planted follow-up carries its re-entry goal in the payload.
+	if g := goalForEvent(heart.Event{Kind: "internal.followup", Payload: "Resume the deploy"}); g != "Resume the deploy" {
+		t.Fatalf("followup goal should be the payload, got %q", g)
+	}
+	// A follow-up with no goal falls back to a generic continuation.
+	if g := goalForEvent(heart.Event{Kind: "internal.followup"}); g == "" || g != "Continue the work that planted this follow-up." {
+		t.Fatalf("empty-payload followup goal wrong: %q", g)
+	}
 }

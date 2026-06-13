@@ -139,6 +139,13 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// binary behaves exactly as before (chat path untouched). The dispatch
 	// handler needs gw.agent and gw.channels, so it is wired here after both exist.
 	if cfg.Agent.HeartEnabled {
+		// The heart routes events into autonomous episodes, which need the
+		// cognitive kernel. With episodes off, every routed event would fail with
+		// "cognitive kernel unavailable" and any due follow-up would burn silently.
+		// Refuse the combination rather than run a loop that can only fail.
+		if !cfg.Agent.EpisodeEnabled {
+			return nil, fmt.Errorf("config: agent.heart_enabled requires agent.episode_enabled (the heart drives episodes through the kernel)")
+		}
 		gw.heart = InitHeart(cfg, gw.db, agentSub.Provider, gw.toolSub.WorldStore)
 		gw.heart.heart = heart.New(gw.heart.store, gw.newEventDispatcher().handle)
 
@@ -162,12 +169,19 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	}
 
 	gw.config.OnReload(func(newCfg *config.Config) {
+		// A running heart requires the kernel; never disable episodes out from
+		// under it on reload, or routed events would start failing mid-session.
+		episodeEnabled := newCfg.Agent.EpisodeEnabled
+		if gw.heart != nil && !episodeEnabled {
+			slog.Warn("config reload: ignoring episode_enabled=false while heart is running (heart requires the kernel)")
+			episodeEnabled = true
+		}
 		if gw.agent != nil {
 			gw.agent.SetModel(newCfg.LLM.Model)
-			gw.agent.SetKernel(gw.EpisodeRunner, newCfg.Agent.EpisodeEnabled)
+			gw.agent.SetKernel(gw.EpisodeRunner, episodeEnabled)
 			gw.agent.EventBus().Publish(agent.ConfigChanged{Path: opt.ConfigPath})
 		}
-		gw.EpisodeEnabled = newCfg.Agent.EpisodeEnabled
+		gw.EpisodeEnabled = episodeEnabled
 	})
 
 	gw.subsystems = Subsystems{gw.memory, gw.channels, gw.mcpSub, gw.health, gw.config, gw.scheduler, gw.telemetry}

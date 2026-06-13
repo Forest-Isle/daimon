@@ -116,7 +116,7 @@ type FollowUpSource struct {
 
 func (f *FollowUpSource) Name() string { return "followup" }
 
-func (f *FollowUpSource) Run(ctx context.Context, emit func(Event)) error {
+func (f *FollowUpSource) Run(ctx context.Context, emit func(Event) error) error {
 	if f.Store == nil {
 		<-ctx.Done()
 		return ctx.Err()
@@ -145,7 +145,14 @@ func (f *FollowUpSource) Run(ctx context.Context, emit func(Event)) error {
 				continue
 			}
 			for _, fu := range due {
-				emit(Event{Kind: "internal.followup", Payload: fu.Goal, DedupKey: "followup:" + fu.ID})
+				// Mark fired only once the event is persisted. If emit fails to
+				// store it, leave the follow-up pending so the next poll retries
+				// it — marking it fired here would burn the trigger without ever
+				// reaching the stream (lost work, not at-least-once).
+				if err := emit(Event{Kind: "internal.followup", Payload: fu.Goal, DedupKey: "followup:" + fu.ID}); err != nil {
+					slog.Error("heart: emit follow-up failed; leaving pending", "id", fu.ID, "err", err)
+					continue
+				}
 				if err := f.Store.MarkFired(ctx, fu.ID); err != nil {
 					slog.Error("heart: mark follow-up fired failed", "id", fu.ID, "err", err)
 				}

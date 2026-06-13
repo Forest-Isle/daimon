@@ -75,3 +75,19 @@ func TestWorldToolsRegisteredAsCoreTools(t *testing.T) {
 		require.NoError(t, err, "%s must be registered", name)
 	}
 }
+
+// TestHeartEnabledRequiresEpisode pins the config invariant: the heart routes
+// events into episodes, so enabling it without the episode kernel is a broken
+// loop and must be rejected at construction rather than failing per-event.
+func TestHeartEnabledRequiresEpisode(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Agent.HeartEnabled = true
+	cfg.Agent.EpisodeEnabled = false
+
+	gw, err := New(cfg)
+	if gw != nil && gw.db != nil {
+		defer func() { _ = gw.db.Close() }()
+	}
+	require.Error(t, err, "heart_enabled without episode_enabled must fail construction")
+	assert.Contains(t, err.Error(), "episode_enabled")
+}

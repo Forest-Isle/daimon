@@ -92,9 +92,9 @@ func TestHeartProcessDeliversOnceAndDedups(t *testing.T) {
 	h := New(s, rec.handle)
 	ctx := context.Background()
 
-	h.process(ctx, Event{Source: "mail", Kind: "mail.received", DedupKey: "m1"})
-	h.process(ctx, Event{Source: "mail", Kind: "mail.received", DedupKey: "m1"}) // duplicate
-	h.process(ctx, Event{Source: "mail", Kind: "mail.received", DedupKey: "m2"})
+	_ = h.process(ctx, Event{Source: "mail", Kind: "mail.received", DedupKey: "m1"})
+	_ = h.process(ctx, Event{Source: "mail", Kind: "mail.received", DedupKey: "m1"}) // duplicate
+	_ = h.process(ctx, Event{Source: "mail", Kind: "mail.received", DedupKey: "m2"})
 
 	if rec.count() != 2 {
 		t.Fatalf("delivered = %d, want 2 (duplicate suppressed)", rec.count())

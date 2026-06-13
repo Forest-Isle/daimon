@@ -21,7 +21,7 @@ func (t *TimerSource) Name() string {
 	return t.SourceName
 }
 
-func (t *TimerSource) Run(ctx context.Context, emit func(Event)) error {
+func (t *TimerSource) Run(ctx context.Context, emit func(Event) error) error {
 	if t.Interval <= 0 {
 		<-ctx.Done()
 		return ctx.Err()
@@ -33,7 +33,9 @@ func (t *TimerSource) Run(ctx context.Context, emit func(Event)) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			emit(Event{Kind: t.Kind, Payload: t.Payload})
+			// A dropped heartbeat is self-healing: the next tick emits again, so
+			// the persist result is intentionally ignored.
+			_ = emit(Event{Kind: t.Kind, Payload: t.Payload})
 		}
 	}
 }

@@ -2,6 +2,7 @@ package heart
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -52,6 +53,49 @@ func TestFollowUpStoreDueAndMarkFired(t *testing.T) {
 	}
 }
 
+func TestFollowUpSourceLeavesPendingWhenEmitFails(t *testing.T) {
+	s := openFollowUpStore(t)
+	ctx := context.Background()
+	if err := s.Create(ctx, FollowUp{ID: "f1", Goal: "do the thing", FireAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	src := &FollowUpSource{Store: s, Interval: 2 * time.Millisecond, Now: func() time.Time { return time.Unix(1000, 0) }}
+
+	// emit always fails to persist: the source must NOT mark the follow-up fired,
+	// or it would burn the trigger without it ever reaching the stream.
+	var mu sync.Mutex
+	calls := 0
+	emit := func(Event) error { mu.Lock(); calls++; mu.Unlock(); return errors.New("persist failed") }
+	count := func() int { mu.Lock(); defer mu.Unlock(); return calls }
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { _ = src.Run(runCtx, emit); close(done) }()
+
+	deadline := time.After(2 * time.Second)
+	for count() == 0 {
+		select {
+		case <-deadline:
+			cancel()
+			<-done
+			t.Fatal("follow-up source never attempted to emit within 2s")
+		case <-time.After(2 * time.Millisecond):
+		}
+	}
+	cancel()
+	<-done
+
+	// The failed emit must leave the entry pending for a later retry.
+	due, err := s.Due(ctx, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 1 || due[0].ID != "f1" {
+		t.Fatalf("due after failed emit = %#v, want still-pending f1", due)
+	}
+}
+
 func TestFollowUpSourceEmitsDueAndDedups(t *testing.T) {
 	s := openFollowUpStore(t)
 	ctx := context.Background()
@@ -65,7 +109,7 @@ func TestFollowUpSourceEmitsDueAndDedups(t *testing.T) {
 	// goroutine while polling, so it must be mutex-guarded.
 	var mu sync.Mutex
 	var got []Event
-	emit := func(ev Event) { mu.Lock(); got = append(got, ev); mu.Unlock() }
+	emit := func(ev Event) error { mu.Lock(); got = append(got, ev); mu.Unlock(); return nil }
 	count := func() int { mu.Lock(); defer mu.Unlock(); return len(got) }
 
 	runCtx, cancel := context.WithCancel(ctx)
