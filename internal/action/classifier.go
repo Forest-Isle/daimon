@@ -2,7 +2,6 @@ package action
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
@@ -31,10 +30,7 @@ func (defaultClassifier) Classify(call *tool.ToolCall) (Class, bool) {
 	// reversibility range. The permission engine still does the real gating;
 	// this heuristic only feeds the trust record.
 	if call.ToolName == "bash" {
-		if bashLooksDestructive(call.Input) {
-			return Irreversible, true
-		}
-		return Reversible, true
+		return classifyBash(call.Input), true
 	}
 	if call.Capabilities.IsDestructive {
 		return Irreversible, true
@@ -49,22 +45,16 @@ func (defaultClassifier) ContextKey(call *tool.ToolCall) string {
 	return call.ToolName
 }
 
-// bashLooksDestructive is a conservative heuristic over the bash command. It is
-// not a security boundary (the permission policy is) — it only decides whether a
-// command earns the cautious Irreversible classification for trust accounting.
-// A future task can replace it with a shell AST parse.
-func bashLooksDestructive(input string) bool {
+// classifyBash decides whether a bash tool call earns the cautious Irreversible
+// classification for trust accounting. It parses the command's "command" field
+// into a shell AST (see classifyBashCommand); a malformed tool input is treated
+// as Irreversible. This is not a security boundary (the permission policy is).
+func classifyBash(input string) Class {
 	var in struct {
 		Command string `json:"command"`
 	}
 	if err := json.Unmarshal([]byte(input), &in); err != nil {
-		return true
+		return Irreversible
 	}
-	lower := strings.ToLower(in.Command)
-	for _, marker := range []string{"rm ", "rm-", "rmdir", "dd ", "mkfs", "shred", "truncate", "> /dev", ":(){", "fdisk", "format ", "git push --force", "drop table", "drop database"} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
+	return classifyBashCommand(in.Command)
 }
