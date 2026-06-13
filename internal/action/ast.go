@@ -4,6 +4,7 @@ import (
 	"path"
 	"strings"
 
+	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -153,7 +154,7 @@ func callIsIrreversible(call *syntax.CallExpr, depth int) bool {
 	if base == "git" && gitArgsIrreversible(args) {
 		return true
 	}
-	if base == "find" && findArgsDestructive(args) {
+	if base == "find" && findArgsDestructive(args, depth) {
 		return true
 	}
 	if base == "rsync" && rsyncDeletes(args) {
@@ -264,10 +265,11 @@ func wrappedCommandIsIrreversible(args []*syntax.Word, depth int) bool {
 // covered.
 func gitArgsIrreversible(args []*syntax.Word) bool {
 	var subcommand string
-	sawPush, force, hard, cleanForce := false, false, false, false
+	sawPush, force, hard, cleanForce, nonStatic := false, false, false, false, false
 	for _, w := range args {
 		arg, static := wordLiteral(w)
 		if !static {
+			nonStatic = true
 			continue
 		}
 		switch {
@@ -295,39 +297,55 @@ func gitArgsIrreversible(args []*syntax.Word) bool {
 	if subcommand == "clean" && (cleanForce || force) {
 		return true
 	}
+	// Fail closed: a destructive subcommand with an argument we cannot evaluate
+	// (git push "$FORCE" ...) could carry the dangerous flag.
+	if nonStatic && (sawPush || subcommand == "reset" || subcommand == "clean") {
+		return true
+	}
 	return false
 }
 
 // findArgsDestructive reports whether a `find` invocation deletes: the -delete
-// primary, or -exec/-execdir running a destructive command.
-func findArgsDestructive(args []*syntax.Word) bool {
+// primary, or -exec/-execdir running a destructive command (including a nested
+// interpreter like `sh -c "rm ..."`). A non-static argument fails closed.
+func findArgsDestructive(args []*syntax.Word, depth int) bool {
+	var execSegment []*syntax.Word
 	inExec := false
 	for _, w := range args {
 		arg, static := wordLiteral(w)
 		if !static {
-			continue
+			return true // cannot prove a dynamic find argument benign
 		}
 		switch {
 		case arg == "-delete":
 			return true
 		case arg == "-exec" || arg == "-execdir":
 			inExec = true
+			execSegment = nil
 		case arg == ";" || arg == "+":
+			if inExec && wrappedCommandIsIrreversible(execSegment, depth) {
+				return true
+			}
 			inExec = false
-		case inExec && commandNameIsDestructive(path.Base(arg)):
-			return true
+		case inExec:
+			execSegment = append(execSegment, w)
 		}
+	}
+	// -exec not terminated by an explicit ; / + within the parsed args.
+	if inExec && wrappedCommandIsIrreversible(execSegment, depth) {
+		return true
 	}
 	return false
 }
 
 // rsyncDeletes reports whether an `rsync` invocation deletes files in the
-// destination (--delete and its variants), which is not recoverable.
+// destination (--delete and its variants), which is not recoverable. A
+// non-static argument fails closed.
 func rsyncDeletes(args []*syntax.Word) bool {
 	for _, w := range args {
 		arg, static := wordLiteral(w)
 		if !static {
-			continue
+			return true
 		}
 		if arg == "--del" || strings.HasPrefix(arg, "--delete") {
 			return true
@@ -396,43 +414,44 @@ func isRawDevice(target string) bool {
 	return true
 }
 
-// wordLiteral returns the static string value of a shell word and whether it is
-// fully static. Adjacent literal and single-quoted parts concatenate (so r''m is
-// the literal "rm"); any expansion, command substitution, or arithmetic makes the
-// word non-static (ok=false), because its value depends on runtime state.
+// wordLiteral returns the static, fully-unquoted value of a shell word and
+// whether it is static. A word is static only if every part is a literal or a
+// quoted string with no inner expansion; any parameter/command/arithmetic
+// expansion makes it non-static (ok=false), because its value depends on runtime
+// state. Quoting is then resolved by expand.Literal so the morphs a raw
+// concatenation would miss collapse to their real value: r''m and $'r\x6d' both
+// become "rm". A residual backslash escape (r\m) is stripped too — no legitimate
+// command name or device path contains a backslash on Unix, and bash itself
+// reads r\m as rm — so this only tightens matching, never loosens it.
 func wordLiteral(w *syntax.Word) (string, bool) {
-	if w == nil {
+	if w == nil || !isStaticWord(w) {
 		return "", false
 	}
-	var b strings.Builder
-	for _, part := range w.Parts {
-		switch p := part.(type) {
-		case *syntax.Lit:
-			b.WriteString(p.Value)
-		case *syntax.SglQuoted:
-			b.WriteString(p.Value)
-		case *syntax.DblQuoted:
-			s, ok := dblQuotedLiteral(p)
-			if !ok {
-				return "", false
-			}
-			b.WriteString(s)
-		default:
-			// ParamExp, CmdSubst, ArithmExp, ProcSubst, ExtGlob: not static.
-			return "", false
-		}
+	v, err := expand.Literal(&expand.Config{}, w)
+	if err != nil {
+		return "", false
 	}
-	return b.String(), true
+	return strings.ReplaceAll(v, `\`, ""), true
 }
 
-func dblQuotedLiteral(d *syntax.DblQuoted) (string, bool) {
-	var b strings.Builder
-	for _, part := range d.Parts {
-		lit, ok := part.(*syntax.Lit)
-		if !ok {
-			return "", false // an expansion inside the quotes
+// isStaticWord reports whether a word's value is independent of runtime state:
+// every part must be a literal or a quoted string containing only literals.
+// expand.Literal alone is not enough — it resolves an unset ${VAR} to "" with no
+// error, which would masquerade as a static empty command name.
+func isStaticWord(w *syntax.Word) bool {
+	for _, part := range w.Parts {
+		switch p := part.(type) {
+		case *syntax.Lit, *syntax.SglQuoted:
+		case *syntax.DblQuoted:
+			for _, dp := range p.Parts {
+				if _, ok := dp.(*syntax.Lit); !ok {
+					return false // an expansion inside double quotes
+				}
+			}
+		default:
+			// ParamExp, CmdSubst, ArithmExp, ProcSubst, ExtGlob: not static.
+			return false
 		}
-		b.WriteString(lit.Value)
 	}
-	return b.String(), true
+	return true
 }

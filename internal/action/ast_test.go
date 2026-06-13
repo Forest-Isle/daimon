@@ -58,6 +58,17 @@ func TestClassifyBashCommand_Adversarial(t *testing.T) {
 		{"git clean long force", "git clean --force"},
 		{"rsync delete", "rsync -a --delete src/ dst/"},
 		{"rsync del short", "rsync --del a b"},
+		// Codex review: shell unquoting morphs.
+		{"backslash escape rm", `r\m -rf x`},
+		{"ansi-c quote rm", `$'r\x6d' -rf x`},
+		{"backslash sudo", `\sudo rm -rf x`},
+		// Codex review: fail closed on non-static args to risky subcommands.
+		{"git push dynamic flag", `git push "$FORCE" origin main`},
+		{"git reset dynamic", `git reset $MODE`},
+		{"find dynamic arg", `find . $PREDICATE`},
+		{"rsync dynamic arg", `rsync -a $FLAGS src/ dst/`},
+		// Codex review: find -exec nested interpreter.
+		{"find exec sh -c rm", `find . -type f -exec sh -c 'rm -rf "$1"' sh {} \;`},
 	}
 	for _, tc := range irreversible {
 		t.Run(tc.name, func(t *testing.T) {
