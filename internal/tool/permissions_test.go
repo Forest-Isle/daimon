@@ -176,3 +176,44 @@ func TestPermissionProfileLocalPreservesExplicitAllow(t *testing.T) {
 		t.Fatalf("local explicit allow action = %v, want none", r.Action)
 	}
 }
+
+// TestPermissionInternalReadOnlyAllowedOnLegacyPath is the regression for the
+// autonomous-episode read bug: with no rules + a legacy Policy + a default of
+// "approve" (the empty-string default), the legacy path would return approve for
+// every tool, and an internal episode — having no channel — could never read its
+// own world. A pure read must be allowed regardless of that path.
+func TestPermissionInternalReadOnlyAllowedOnLegacyPath(t *testing.T) {
+	pe := NewPermissionEngine(nil, "", NewPolicy(nil)) // defaultAct = approve, legacy active
+
+	ctx := WithChannelClass(context.Background(), ToolChannelInternal)
+	r := pe.EvaluateWithContext(ctx, "world_read", `{}`, ToolCapabilities{IsReadOnly: true})
+	if r.Action != PermissionNone {
+		t.Fatalf("internal read-only action = %v, want none (reason: %s)", r.Action, r.Reason)
+	}
+	if r.Reason != "internal_readonly" {
+		t.Fatalf("reason = %q, want internal_readonly", r.Reason)
+	}
+}
+
+func TestPermissionInternalWriteStillEscalates(t *testing.T) {
+	pe := NewPermissionEngine(nil, "none", nil) // default allow — only the floor should gate
+
+	ctx := WithChannelClass(context.Background(), ToolChannelInternal)
+	r := pe.EvaluateWithContext(ctx, "world_edit", `{}`, ToolCapabilities{IsReadOnly: false})
+	if r.Action != PermissionApprove {
+		t.Fatalf("internal write action = %v, want approve", r.Action)
+	}
+}
+
+// TestPermissionInternalReadWithNetworkEscalates guards the carve-out: a
+// read-only tool that still reaches the network (e.g. a web fetch) must not slip
+// past the internal network floor.
+func TestPermissionInternalReadWithNetworkEscalates(t *testing.T) {
+	pe := NewPermissionEngine(nil, "none", nil)
+
+	ctx := WithChannelClass(context.Background(), ToolChannelInternal)
+	r := pe.EvaluateWithContext(ctx, "web_fetch", `{}`, ToolCapabilities{IsReadOnly: true, RequiresNetwork: true})
+	if r.Action != PermissionApprove {
+		t.Fatalf("internal read+network action = %v, want approve", r.Action)
+	}
+}

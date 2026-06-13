@@ -10,6 +10,11 @@ const (
 	ToolChannelRemote     ToolChannelClass = "remote"
 	ToolChannelScheduled  ToolChannelClass = "scheduled"
 	ToolChannelBackground ToolChannelClass = "background"
+	// ToolChannelInternal is an autonomous episode the agent runs for itself (a
+	// timer/heartbeat/mail event), with no human channel to approve anything. Its
+	// profile allows read-only tools but gates every write/destructive/network
+	// call to approval — which, lacking a channel, is denied.
+	ToolChannelInternal ToolChannelClass = "internal"
 )
 
 type channelClassCtxKey struct{}
@@ -37,6 +42,8 @@ func ChannelClassForName(name string) ToolChannelClass {
 		return ToolChannelScheduled
 	case "subagent":
 		return ToolChannelBackground
+	case "internal":
+		return ToolChannelInternal
 	case "":
 		return ToolChannelLocal
 	default:

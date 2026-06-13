@@ -111,6 +111,17 @@ func DefaultPermissionProfiles(defaultAct PermissionAction) map[ToolChannelClass
 			RequireApprovalForDestructive: true,
 			RequireApprovalForNetwork:     true,
 		},
+		// Autonomous episodes (timer/heartbeat/mail) run with no human channel to
+		// approve anything. Reads are always safe, so they default to allow even
+		// when the configured default is stricter — otherwise the agent could not
+		// read its own world to act on an event. Every write/destructive/network
+		// call still escalates to approval, which without a channel is denied.
+		ToolChannelInternal: {
+			DefaultAction:                 PermissionNone,
+			RequireApprovalForWrite:       true,
+			RequireApprovalForDestructive: true,
+			RequireApprovalForNetwork:     true,
+		},
 	}
 }
 
@@ -124,6 +135,18 @@ func (pe *PermissionEngine) EvaluateWithContext(ctx context.Context, toolName, i
 }
 
 func (pe *PermissionEngine) evaluate(channelClass ToolChannelClass, toolName, input string, caps ToolCapabilities) PermissionResult {
+	// Autonomous (internal) episodes have no human to approve anything. A pure
+	// read — no writes, no network, not destructive — is constitutionally safe,
+	// so allow it unconditionally, even under a stricter configured default or
+	// the legacy policy path. Without this the agent could never read its own
+	// world to act on a timer/mail event. Writes/network/destructive calls fall
+	// through to the normal path, where the internal profile escalates them to
+	// approval — which, lacking a channel, is denied.
+	if channelClass == ToolChannelInternal && caps.IsReadOnly &&
+		!caps.RequiresNetwork && !caps.IsDestructive {
+		return PermissionResult{Action: PermissionNone, Reason: "internal_readonly"}
+	}
+
 	// If no rules configured, fall back to legacy behavior
 	if len(pe.rules) == 0 && pe.legacy != nil {
 		return pe.applyProfileFloor(channelClass, pe.evaluateLegacy(toolName, input, caps), caps)

@@ -101,14 +101,30 @@ func (c *ClaudeProvider) Stream(ctx context.Context, req CompletionRequest) (Str
 
 func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNewParams {
 	messages := make([]anthropic.MessageParam, 0, len(req.Messages))
-	for _, m := range req.Messages {
+	for i := 0; i < len(req.Messages); i++ {
+		m := req.Messages[i]
 		switch m.Role {
 		case "user":
 			if m.ToolUseID != "" {
-				// Tool result message
-				messages = append(messages, anthropic.NewUserMessage(
+				// Tool result(s). The Anthropic wire format requires every
+				// tool_use in the preceding assistant turn to be answered by a
+				// tool_result in the SINGLE next message; strict compatible
+				// endpoints (e.g. DeepSeek) reject split tool_result messages with
+				// a 400. The episode runner and legacy loop both append one
+				// message per parallel tool call, so coalesce a consecutive run of
+				// tool-result messages into one user message here.
+				blocks := []anthropic.ContentBlockParamUnion{
 					anthropic.NewToolResultBlock(m.ToolUseID, m.Content, false),
-				))
+				}
+				for i+1 < len(req.Messages) {
+					next := req.Messages[i+1]
+					if next.Role != "user" || next.ToolUseID == "" {
+						break
+					}
+					blocks = append(blocks, anthropic.NewToolResultBlock(next.ToolUseID, next.Content, false))
+					i++
+				}
+				messages = append(messages, anthropic.NewUserMessage(blocks...))
 			} else {
 				messages = append(messages, anthropic.NewUserMessage(
 					anthropic.NewTextBlock(m.Content),
