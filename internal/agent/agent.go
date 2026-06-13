@@ -350,10 +350,17 @@ func (a *Agent) invokeTool(ctx context.Context, ch channel.Channel, sess *sessio
 		content = err.Error()
 		isError = true
 	} else if result != nil {
-		if result.Error != "" {
+		switch {
+		case result.Error != "" && result.Output != "":
+			// Tools like bash/test_run report a failure marker in Error while
+			// still returning stdout/stderr (or failing cases) in Output; the
+			// model needs both, so show the output followed by the error.
+			content = result.Output + "\n" + result.Error
+			isError = true
+		case result.Error != "":
 			content = result.Error
 			isError = true
-		} else {
+		default:
 			content = result.Output
 			if result.Metadata["verify"] != "" {
 				sess.SetMetadata("verified_tool_success", "true")

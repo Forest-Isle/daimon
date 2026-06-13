@@ -65,6 +65,15 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		opt = opts[0]
 	}
 
+	// The heart routes events into autonomous episodes, which need the cognitive
+	// kernel. With episodes off, every routed event would fail with "cognitive
+	// kernel unavailable" and any due follow-up would burn silently. Reject the
+	// combination here, before any resources are allocated, rather than running a
+	// loop that can only fail.
+	if cfg.Agent.HeartEnabled && !cfg.Agent.EpisodeEnabled {
+		return nil, fmt.Errorf("config: agent.heart_enabled requires agent.episode_enabled (the heart drives episodes through the kernel)")
+	}
+
 	gw := &Gateway{stopCh: make(chan struct{})}
 	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
 	eventBus := agent.NewEventBus()
@@ -139,13 +148,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// binary behaves exactly as before (chat path untouched). The dispatch
 	// handler needs gw.agent and gw.channels, so it is wired here after both exist.
 	if cfg.Agent.HeartEnabled {
-		// The heart routes events into autonomous episodes, which need the
-		// cognitive kernel. With episodes off, every routed event would fail with
-		// "cognitive kernel unavailable" and any due follow-up would burn silently.
-		// Refuse the combination rather than run a loop that can only fail.
-		if !cfg.Agent.EpisodeEnabled {
-			return nil, fmt.Errorf("config: agent.heart_enabled requires agent.episode_enabled (the heart drives episodes through the kernel)")
-		}
+		// Invariant (heart ⇒ episode) is enforced at the top of New().
 		gw.heart = InitHeart(cfg, gw.db, agentSub.Provider, gw.toolSub.WorldStore)
 		gw.heart.heart = heart.New(gw.heart.store, gw.newEventDispatcher().handle)
 
