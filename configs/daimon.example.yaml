@@ -44,6 +44,22 @@ tui:
 agent:
   max_iterations: 20
   episode_enabled: true  # route inbound chat through the episode kernel; false falls back to legacy agent loop
+  # Heart: the autonomous event path. When enabled, non-chat events (a timer
+  # heartbeat today; mail/calendar later) flow through heart → attention router
+  # → a channel-less episode. The chat reply path is unaffected. Off by default;
+  # turning it on is the "resident agent" switch. Autonomous episodes deny any
+  # tool that requires approval (no human channel to sign off), so only
+  # read-only/auto-approved tools run unattended.
+  heart_enabled: false
+  heart:
+    heartbeat_interval_minutes: 0  # 0 = no timer source; >0 fires internal.heartbeat every N minutes
+    model_router: false            # also triage events with the small (haiku) model when rules don't match
+  # Routing is governed by ~/.daimon/attention/rules.yaml — a top-level YAML list
+  # matched first (cheapest tier). Unmatched events default to Cognize (prefer to
+  # wake over silently dropping). Example to keep the heartbeat cheap:
+  #   - source: timer
+  #     kind: internal.heartbeat
+  #     action: ignore        # ignore | reflex | cognize | wake_user
   execution:
     max_parallel_tools: 3
   # Context compression strategy (Phase 1 performance optimization)

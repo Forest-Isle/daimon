@@ -3,11 +3,21 @@ package config
 type AgentConfig struct {
 	MaxIterations   int               `yaml:"max_iterations"`
 	EpisodeEnabled  bool              `yaml:"episode_enabled"`
+	HeartEnabled    bool              `yaml:"heart_enabled"` // route autonomous (non-chat) events through heart→attention→episode
+	Heart           HeartConfig       `yaml:"heart"`
 	SystemPrompt    string            `yaml:"system_prompt"`
 	Personality     string            `yaml:"-"` // Soul.md → persona/style (injected by userdir)
 	PersistentRules string            `yaml:"-"` // Memory.md → long-term rules (injected by userdir)
 	Execution       ExecutionConfig   `yaml:"execution"`
 	Compression     CompressionConfig `yaml:"compression"`
+}
+
+// HeartConfig tunes the event heart. It only takes effect when HeartEnabled is
+// true. Durations are expressed as integers (the codebase's yaml decoder does
+// not parse "24h" into time.Duration), matching ExecutionConfig.ApprovalTimeoutSeconds.
+type HeartConfig struct {
+	HeartbeatIntervalMinutes int  `yaml:"heartbeat_interval_minutes"` // 0 = no timer source registered
+	ModelRouter              bool `yaml:"model_router"`               // wire the small-model (haiku) triage tier
 }
 
 // CompressionConfig controls the context compression strategy.

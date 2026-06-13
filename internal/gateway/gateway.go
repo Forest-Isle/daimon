@@ -14,6 +14,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/episode"
 	"github.com/Forest-Isle/daimon/internal/feature"
+	"github.com/Forest-Isle/daimon/internal/heart"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/taskruntime"
@@ -49,6 +50,7 @@ type Gateway struct {
 	scheduler  *SchedulerSubsystem
 	taskLedger *taskruntime.Ledger
 	telemetry  *TelemetrySubsystem
+	heart      *HeartSubsystem // nil unless agent.heart_enabled
 
 	subsystems Subsystems
 }
@@ -133,6 +135,24 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.scheduler = InitScheduler(gw.db, nil, gw.taskLedger)
 	gw.AddChannel(gw.scheduler.Channel)
 
+	// Heart: the autonomous event path. Built only when enabled; when off, the
+	// binary behaves exactly as before (chat path untouched). The dispatch
+	// handler needs gw.agent and gw.channels, so it is wired here after both exist.
+	if cfg.Agent.HeartEnabled {
+		gw.heart = InitHeart(cfg, gw.db, agentSub.Provider, gw.toolSub.WorldStore)
+		gw.heart.heart = heart.New(gw.heart.store, gw.newEventDispatcher().handle)
+		if mins := cfg.Agent.Heart.HeartbeatIntervalMinutes; mins > 0 {
+			gw.heart.heart.Register(&heart.TimerSource{
+				SourceName: "timer",
+				Kind:       "internal.heartbeat",
+				Interval:   time.Duration(mins) * time.Minute,
+			})
+		}
+		slog.Info("heart enabled",
+			"heartbeat_interval_minutes", cfg.Agent.Heart.HeartbeatIntervalMinutes,
+			"model_router", cfg.Agent.Heart.ModelRouter)
+	}
+
 	gw.config.OnReload(func(newCfg *config.Config) {
 		if gw.agent != nil {
 			gw.agent.SetModel(newCfg.LLM.Model)
@@ -143,6 +163,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	})
 
 	gw.subsystems = Subsystems{gw.memory, gw.channels, gw.mcpSub, gw.health, gw.config, gw.scheduler, gw.telemetry}
+	if gw.heart != nil {
+		gw.subsystems = append(gw.subsystems, gw.heart)
+	}
 	return gw, nil
 }
 
@@ -190,6 +213,15 @@ func (gw *Gateway) Start(ctx context.Context) error {
 			return err
 		}
 		slog.Info("channel started", "name", name)
+	}
+
+	// Heart runs after channels so its wake_user path can reach them. Its run
+	// loop (backlog recovery + sources) lives on this serve ctx and exits at
+	// shutdown when ctx is cancelled.
+	if gw.heart != nil {
+		if err := gw.heart.Start(ctx); err != nil {
+			return err
+		}
 	}
 
 	if gw.features.IsEnabled("server") {
@@ -280,6 +312,13 @@ func (gw *Gateway) publishTaskTransition(taskID, kind, from, to, reason string) 
 }
 
 func (gw *Gateway) handleApproval(ctx context.Context, ch channel.Channel, target channel.MessageTarget, toolName, input string) (bool, error) {
+	if ch == nil {
+		// No interactive channel (autonomous internal episode): we cannot get a
+		// human sign-off, so deny tools that require approval. Only auto-approved
+		// / read-only tools run autonomously. Routing autonomous approvals to
+		// Telegram is a later increment.
+		return false, nil
+	}
 	if sender, ok := ch.(channel.ApprovalSender); ok {
 		return sender.SendApprovalRequest(ctx, target, toolName, input)
 	}

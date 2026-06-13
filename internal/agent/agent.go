@@ -214,6 +214,65 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 	return true, nil
 }
 
+// RunInternalEpisode fires a cognitive episode for an autonomous, non-chat
+// trigger (a timer, a mail event, an internal signal). Unlike runKernel there is
+// no channel and no user waiting: the episode reuses the kernel, tool pipeline,
+// and world side-effects, but produces no channel reply — its outcome lands in
+// the journal and world through the Runner's own ApplyOutcome. Because there is
+// no interactive channel to ask, tools requiring approval are denied (the
+// approval callback treats a nil channel as "cannot get sign-off"), so only
+// auto-approved / read-only tools run autonomously. Each call gets its own
+// "internal" session so the tool transcript is captured for replay without
+// colliding with chat sessions.
+func (a *Agent) RunInternalEpisode(ctx context.Context, goal, trigger string) (CognitiveOutcome, error) {
+	if a.kernel == nil || !a.kernelEnabled {
+		return CognitiveOutcome{}, fmt.Errorf("cognitive kernel unavailable")
+	}
+	ctx = AgentToContext(ctx, a)
+	ctx = tool.WithChannelClass(ctx, tool.ChannelClassForName("internal"))
+
+	channelID := fmt.Sprintf("evt_%d", time.Now().UnixNano())
+	sess, err := a.deps.Core.Sessions.Get(ctx, "internal", channelID)
+	if err != nil {
+		return CognitiveOutcome{}, fmt.Errorf("get internal session: %w", err)
+	}
+	target := channel.MessageTarget{Channel: "internal", ChannelID: channelID}
+
+	start := time.Now()
+	a.eventBus.Publish(SessionStarted{SessionID: sess.ID, Channel: "internal"})
+
+	req := CognitiveRequest{
+		SessionID:  sess.ID,
+		Goal:       goal,
+		Trigger:    trigger,
+		Persona:    a.deps.Core.Cfg.Personality,
+		Rules:      a.deps.Core.Cfg.PersistentRules,
+		Memories:   a.buildMemoryPromptSection(ctx, trigger),
+		Model:      a.deps.Core.LLMCfg.Model,
+		Provider:   a.deps.Core.LLMCfg.Provider,
+		Transcript: []CompletionMessage{{Role: "user", Content: trigger}},
+		ToolDefs:   a.buildToolDefs(),
+		Invoke: func(ctx context.Context, iteration int, call ToolUseBlock) (string, bool) {
+			// nil channel ⇒ approval-required tools are denied (see handleApproval).
+			return a.invokeTool(ctx, nil, sess, target, iteration, call, "", false)
+		},
+	}
+
+	outcome, kerr := a.kernel.Execute(ctx, req)
+	if perr := a.deps.Core.Sessions.Persist(ctx, sess); perr != nil {
+		slog.Error("agent: persist internal session failed", "session", sess.ID, "err", perr)
+	}
+	a.eventBus.Publish(SessionEnded{
+		SessionID:  sess.ID,
+		Succeeded:  kerr == nil && outcome.Status != "failed",
+		DurationMs: time.Since(start).Milliseconds(),
+	})
+	if kerr != nil {
+		return outcome, fmt.Errorf("internal episode: %w", kerr)
+	}
+	return outcome, nil
+}
+
 // buildSystemPrompt constructs the system prompt from personality + memories + skills + profile.
 func (a *Agent) buildSystemPrompt(ctx context.Context, sess *session.Session, userText string) string {
 	frame := a.buildPromptFrame(ctx, userText)
