@@ -263,6 +263,15 @@ func applyMutations(ctx context.Context, exec sqlExecer, episodeID string, muts 
 			if err := appendJournal(ctx, exec, entry); err != nil {
 				return err
 			}
+		case "fact.upsert":
+			var entry JournalEntry
+			if err := json.Unmarshal(mut.Body, &entry); err != nil {
+				return fmt.Errorf("decode fact.upsert: %w", err)
+			}
+			entry.EpisodeID = episodeID
+			if err := upsertFact(ctx, exec, entry); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unknown world mutation op %q", mut.Op)
 		}
@@ -346,6 +355,24 @@ func appendOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string,
 		return fmt.Errorf("append outcome journal: %w", err)
 	}
 	return nil
+}
+
+// upsertFact records a durable fact as a journal entry of kind=fact, indexed for
+// retrieval by the journal_fts trigger. When the caller supplies an id, an
+// existing fact with that id is replaced (delete-then-insert, so the FTS delete
+// trigger fires — INSERT OR REPLACE would not with recursive_triggers off,
+// leaving a stale index row). Without an id it is appended.
+func upsertFact(ctx context.Context, exec sqlExecer, entry JournalEntry) error {
+	entry.Kind = "fact"
+	if strings.TrimSpace(entry.Summary) == "" {
+		return fmt.Errorf("fact.upsert requires a summary")
+	}
+	if entry.ID != "" {
+		if _, err := exec.ExecContext(ctx, `DELETE FROM journal WHERE id = ?`, entry.ID); err != nil {
+			return fmt.Errorf("upsert fact (delete prior): %w", err)
+		}
+	}
+	return appendJournal(ctx, exec, entry)
 }
 
 func appendJournal(ctx context.Context, exec sqlExecer, entry JournalEntry) error {

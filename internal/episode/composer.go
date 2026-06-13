@@ -29,7 +29,7 @@ func composeSystem(ctx context.Context, req agent.CognitiveRequest, ws *world.St
 	sections = append(sections, "## Identity Digest\n"+identityDigest(id))
 	sections = append(sections, "## Active Commitments\n"+commitmentsDigest(ctx, ws))
 
-	if mem := strings.TrimSpace(req.Memories); mem != "" {
+	if mem := relevantMemories(ctx, ws, req); mem != "" {
 		sections = append(sections, "## Relevant Memories\n"+mem)
 	}
 
@@ -47,6 +47,29 @@ func identityDigest(id *world.Identity) string {
 		}
 	}
 	return "Not yet configured."
+}
+
+// relevantMemories assembles the "Relevant Memories" section from the world
+// model — journal entries and commitments retrieved for the episode goal. This
+// is the strangler switch from the legacy memory package: world.Retrieve is the
+// primary source; req.Memories (legacy injection) is used only as a fallback
+// while the memory package is still present. Once the replay harness confirms
+// assembly quality, the legacy path and req.Memories can be removed.
+func relevantMemories(ctx context.Context, ws *world.Store, req agent.CognitiveRequest) string {
+	if ws != nil {
+		if hits, err := ws.Retrieve(ctx, world.Query{Text: req.Goal, Limit: 6}); err == nil && len(hits) > 0 {
+			var b strings.Builder
+			for _, h := range hits {
+				label := h.Kind
+				if label == "" {
+					label = h.Source
+				}
+				fmt.Fprintf(&b, "- [%s] %s\n", label, strings.TrimSpace(h.Title))
+			}
+			return strings.TrimRight(b.String(), "\n")
+		}
+	}
+	return strings.TrimSpace(req.Memories)
 }
 
 func commitmentsDigest(ctx context.Context, ws *world.Store) string {

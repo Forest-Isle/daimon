@@ -235,3 +235,32 @@ func TestComposeSystemContent(t *testing.T) {
 		}
 	}
 }
+
+// TestComposeSystemUsesWorldMemories verifies the strangler switch: when the
+// world model has entries relevant to the goal, the Relevant Memories section is
+// sourced from world.Retrieve, and the legacy req.Memories is not used.
+func TestComposeSystemUsesWorldMemories(t *testing.T) {
+	db := openEpisodeWorldTestDB(t)
+	ws := world.NewStore(db.DB)
+	ctx := context.Background()
+	if err := ws.AppendJournal(ctx, world.JournalEntry{
+		ID: "j_storage", Kind: "decision", Summary: "chose SQLite for local storage",
+	}); err != nil {
+		t.Fatalf("AppendJournal: %v", err)
+	}
+
+	system := composeSystem(ctx, agent.CognitiveRequest{
+		Goal:     "what storage engine did we choose",
+		Memories: "LEGACY_MEMORY_SENTINEL",
+	}, ws, &world.Identity{Dir: t.TempDir()})
+
+	if !strings.Contains(system, "chose SQLite for local storage") {
+		t.Fatalf("expected world journal hit in memories section:\n%s", system)
+	}
+	if strings.Contains(system, "LEGACY_MEMORY_SENTINEL") {
+		t.Fatalf("legacy memories should be superseded when world has hits:\n%s", system)
+	}
+	if !strings.Contains(system, "[decision]") {
+		t.Fatalf("expected kind label in memories section:\n%s", system)
+	}
+}
