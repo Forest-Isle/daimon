@@ -130,6 +130,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 		UserID:    strconv.FormatInt(userID, 10),
 		UserName:  update.Message.From.UserName,
 		Text:      update.Message.Text,
+		MessageID: strconv.Itoa(update.UpdateID),
 	})
 }
 

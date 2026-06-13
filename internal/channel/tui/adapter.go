@@ -166,6 +166,11 @@ func (a *Adapter) routeInput(ctx context.Context) {
 					a.cancelMu.Unlock()
 					cancel()
 				}()
+				// MessageID is intentionally empty: the local TUI has no redelivery
+				// semantics, and its per-session counter resets on restart — using it
+				// as a heart dedup key could collide with a pre-restart event and
+				// silently drop a new message. Telegram (update_id) is the channel that
+				// needs and has a durable, monotonic id.
 				a.handler(reqCtx, channel.InboundMessage{
 					Channel:   "tui",
 					ChannelID: a.channelID,

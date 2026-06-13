@@ -43,6 +43,32 @@ func (s *Store) Persist(ctx context.Context, ev *Event) (bool, error) {
 	return rows > 0, nil
 }
 
+// PersistRouted stores an event already marked routed, in a single statement, so
+// there is no window in which it appears unrouted (and would be replayed by crash
+// recovery). It is the storage path for events whose handling is owned by the
+// caller, not the heart dispatcher (chat ingress). Returns inserted=false on a
+// dedup-key collision, like Persist.
+func (s *Store) PersistRouted(ctx context.Context, ev *Event, verdict string) (bool, error) {
+	if err := s.ensure(); err != nil {
+		return false, err
+	}
+	if ev.ID == "" {
+		ev.ID = "evt_" + uuid.NewString()
+	}
+	res, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO events (id, source, kind, payload, occurred_at, dedup_key, routed_at, verdict)
+		VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+		ev.ID, ev.Source, ev.Kind, ev.Payload, ev.OccurredAt, ev.DedupKey, verdict)
+	if err != nil {
+		return false, fmt.Errorf("persist routed event: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("persist routed event rows: %w", err)
+	}
+	return rows > 0, nil
+}
+
 // MarkRouted records that an event was delivered to the handler.
 func (s *Store) MarkRouted(ctx context.Context, id, verdict string) error {
 	if err := s.ensure(); err != nil {

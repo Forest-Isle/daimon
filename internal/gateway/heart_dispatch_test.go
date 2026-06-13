@@ -48,6 +48,28 @@ func TestEventDispatcherRoutesVerdicts(t *testing.T) {
 	}
 }
 
+// TestEventDispatcherIgnoresChatMessages verifies a "message" event (chat
+// ingress, handled synchronously elsewhere) is never routed or cognized by the
+// dispatcher — guarding against a stray/recovered chat event becoming a spurious
+// autonomous episode.
+func TestEventDispatcherIgnoresChatMessages(t *testing.T) {
+	routed := false
+	cognized := false
+	d := &eventDispatcher{
+		route: func(_ context.Context, _ heart.Event) (attention.Verdict, error) {
+			routed = true
+			return attention.Verdict{Action: attention.Cognize}, nil
+		},
+		cognize: func(_ context.Context, _ heart.Event) { cognized = true },
+		reflex:  func(_ context.Context, _ heart.Event, _ string) {},
+		wake:    func(_ context.Context, _ heart.Event, _ attention.Verdict) {},
+	}
+	d.handle(context.Background(), heart.Event{Source: "telegram", Kind: "message", Payload: "hi"})
+	if routed || cognized {
+		t.Fatalf("message event must not be routed/cognized (routed=%v cognized=%v)", routed, cognized)
+	}
+}
+
 // TestHandleApprovalDeniesNilChannel pins the autonomous-episode safety rule:
 // with no interactive channel there is no one to sign off, so approval-required
 // tools must be denied (not auto-approved).

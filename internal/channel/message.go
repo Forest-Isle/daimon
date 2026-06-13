@@ -7,6 +7,10 @@ type InboundMessage struct {
 	UserID    string
 	UserName  string
 	Text      string
+	// MessageID is the channel-native identifier for this inbound (telegram
+	// update_id, a TUI line counter). It is the dedup key for the event heart so a
+	// redelivered message is recorded once. Empty when the channel has no stable id.
+	MessageID string
 	// CallbackData is set for inline keyboard callbacks (e.g. tool approval).
 	CallbackData string
 	// ReplyToMsgID is the platform message ID being replied to, if any.

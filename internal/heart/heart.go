@@ -103,6 +103,25 @@ func (h *Heart) process(ctx context.Context, ev Event) error {
 	return nil
 }
 
+// Record persists an event for the audit stream and deduplicates it, WITHOUT
+// delivering it to the handler. It is the ingress path for events whose handling
+// is owned elsewhere (chat, where the channel goroutine synchronously runs the
+// turn): the heart's value here is the unified, deduplicated, crash-auditable
+// record, not the dispatch. It returns inserted=false when the dedup key collides
+// with an already-seen event, so the caller can skip reprocessing a redelivery.
+//
+// Newly stored events are marked routed immediately (verdict "recorded") so the
+// crash-recovery replay does not re-handle them — a chat turn that crashed
+// mid-flight is not silently re-answered later, matching the legacy behavior.
+func (h *Heart) Record(ctx context.Context, ev *Event) (bool, error) {
+	if ev.OccurredAt == "" {
+		ev.OccurredAt = time.Now().UTC().Format("2006-01-02 15:04:05")
+	}
+	// Stored already-routed in one statement: there is no unrouted window for crash
+	// recovery to replay, so a recorded chat turn is never re-handled later.
+	return h.store.PersistRouted(ctx, ev, "recorded")
+}
+
 // deliver routes an event and records the outcome. Routing failures are not
 // fatal: the event stays marked routed (the handler owns its own retries), but
 // the persisted event remains for audit.

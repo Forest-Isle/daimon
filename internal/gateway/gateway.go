@@ -304,6 +304,19 @@ func (gw *Gateway) handleInbound(ctx context.Context, msg channel.InboundMessage
 	if msg.Channel == "scheduler" {
 		gw.publishTaskTransition(msg.ChannelID, "scheduled", "", "running", "scheduler message handling started")
 	}
+
+	// Chat ingress through the heart (when enabled): record the message in the
+	// unified event stream for audit + idempotent dedup. A redelivered message
+	// (same channel-native id) is skipped so the turn is not handled twice. A
+	// recording error is best-effort — never drop the user's turn over an audit
+	// failure, so fall through to normal handling. Disabled ⇒ inserted=true.
+	if inserted, recErr := gw.heart.RecordChatEvent(ctx, msg); recErr != nil {
+		slog.Warn("gateway: record chat event failed; handling anyway", "channel", msg.Channel, "err", recErr)
+	} else if !inserted {
+		slog.Info("gateway: skipping redelivered chat message", "channel", msg.Channel, "message_id", msg.MessageID)
+		return
+	}
+
 	err := gw.agent.HandleMessage(ctx, ch, msg)
 	if err != nil {
 		slog.Error("agent error", "err", err)

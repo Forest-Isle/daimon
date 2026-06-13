@@ -16,12 +16,14 @@ heart_enabled: true
 heart:
   heartbeat_interval_minutes: 5
   model_router: true
+  chat_through_heart: true
 `
 	var ac AgentConfig
 	require.NoError(t, yaml.Unmarshal([]byte(y), &ac))
 	assert.True(t, ac.HeartEnabled)
 	assert.Equal(t, 5, ac.Heart.HeartbeatIntervalMinutes)
 	assert.True(t, ac.Heart.ModelRouter)
+	assert.True(t, ac.Heart.ChatThroughHeart)
 }
 
 // TestHeartConfigDefaultsOff verifies the zero value keeps the autonomous path
@@ -32,4 +34,5 @@ func TestHeartConfigDefaultsOff(t *testing.T) {
 	assert.False(t, ac.HeartEnabled)
 	assert.Equal(t, 0, ac.Heart.HeartbeatIntervalMinutes)
 	assert.False(t, ac.Heart.ModelRouter)
+	assert.False(t, ac.Heart.ChatThroughHeart)
 }

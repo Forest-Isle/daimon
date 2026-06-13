@@ -11,6 +11,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/appdir"
 	"github.com/Forest-Isle/daimon/internal/attention"
+	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/heart"
 	"github.com/Forest-Isle/daimon/internal/store"
@@ -22,11 +23,32 @@ import (
 // corrections. It is built only when agent.heart_enabled is true; otherwise the
 // binary behaves exactly as before (no heart, chat path unchanged).
 type HeartSubsystem struct {
-	enabled  bool
-	store    *heart.Store
-	heart    *heart.Heart
-	chain    *attention.Chain
-	feedback *attention.FeedbackStore
+	enabled          bool
+	chatThroughHeart bool
+	store            *heart.Store
+	heart            *heart.Heart
+	chain            *attention.Chain
+	feedback         *attention.FeedbackStore
+}
+
+// RecordChatEvent records an inbound chat message in the unified event stream
+// for audit and idempotent dedup, returning inserted=false when the message (by
+// its channel-native id) was already seen — a redelivery the caller should skip.
+// It does NOT dispatch the turn: chat is handled synchronously by the caller
+// (the agent's HandleMessage), so the heart's role here is the durable,
+// deduplicated record, not the execution. A nil/disabled subsystem records
+// nothing and reports inserted=true so the caller always proceeds.
+func (hs *HeartSubsystem) RecordChatEvent(ctx context.Context, msg channel.InboundMessage) (bool, error) {
+	if hs == nil || !hs.enabled || !hs.chatThroughHeart || hs.heart == nil {
+		return true, nil
+	}
+	ev := &heart.Event{
+		Source:   msg.Channel,
+		Kind:     "message",
+		Payload:  msg.Text,
+		DedupKey: msg.MessageID, // unique within source; "" disables dedup for this msg
+	}
+	return hs.heart.Record(ctx, ev)
 }
 
 func (hs *HeartSubsystem) Name() string { return "heart" }
@@ -54,7 +76,10 @@ func (hs *HeartSubsystem) Stop(_ context.Context) error { return nil }
 // feedback store). The heart itself — with its dispatch handler — and any event
 // sources are attached by the gateway once the agent exists.
 func InitHeart(cfg *config.Config, db *store.DB, provider agent.Provider, worldStore *world.Store) *HeartSubsystem {
-	hs := &HeartSubsystem{enabled: cfg.Agent.HeartEnabled}
+	hs := &HeartSubsystem{
+		enabled:          cfg.Agent.HeartEnabled,
+		chatThroughHeart: cfg.Agent.Heart.ChatThroughHeart,
+	}
 	hs.store = heart.NewStore(db.DB)
 
 	rulesRouter := attention.NewRulesRouter(loadAttentionRules())

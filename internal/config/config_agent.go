@@ -19,6 +19,7 @@ type HeartConfig struct {
 	HeartbeatIntervalMinutes int      `yaml:"heartbeat_interval_minutes"` // 0 = no timer source registered
 	ModelRouter              bool     `yaml:"model_router"`               // wire the small-model (haiku) triage tier
 	HighRiskKinds            []string `yaml:"high_risk_kinds"`            // extra always-wake event-kind prefixes (added to safe defaults)
+	ChatThroughHeart         bool     `yaml:"chat_through_heart"`         // record inbound chat in the event stream (dedup + audit) before handling
 }
 
 // CompressionConfig controls the context compression strategy.

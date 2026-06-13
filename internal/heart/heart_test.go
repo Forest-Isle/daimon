@@ -37,6 +37,40 @@ func (r *recorder) count() int {
 	return len(r.events)
 }
 
+func TestRecordDedupsAndDoesNotDeliver(t *testing.T) {
+	s := openHeartTestStore(t)
+	rec := &recorder{}
+	h := New(s, rec.handle)
+	ctx := context.Background()
+
+	ev := Event{Source: "telegram", Kind: "message", Payload: "hi", DedupKey: "telegram:42"}
+	inserted, err := h.Record(ctx, &ev)
+	if err != nil || !inserted {
+		t.Fatalf("first record inserted=%v err=%v", inserted, err)
+	}
+	// Same dedup key (channel redelivered the same update) → not inserted.
+	dup := Event{Source: "telegram", Kind: "message", Payload: "hi", DedupKey: "telegram:42"}
+	inserted2, err := h.Record(ctx, &dup)
+	if err != nil {
+		t.Fatalf("second record err=%v", err)
+	}
+	if inserted2 {
+		t.Fatal("redelivered message must not be recorded twice")
+	}
+	// Record must NOT deliver to the handler (chat is handled by the caller).
+	if rec.count() != 0 {
+		t.Fatalf("Record delivered to handler %d times, want 0", rec.count())
+	}
+	// Recorded events are marked routed, so crash-recovery does not replay them.
+	pending, err := s.Unrouted(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("recorded event left unrouted (would re-handle on recovery): %d", len(pending))
+	}
+}
+
 func TestStorePersistDedup(t *testing.T) {
 	s := openHeartTestStore(t)
 	ctx := context.Background()

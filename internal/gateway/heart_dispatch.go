@@ -28,6 +28,14 @@ type eventDispatcher struct {
 // routing error is not fatal — we fall through to Cognize (prefer to wake rather
 // than silently drop a possibly-important event), matching attention's bias.
 func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) {
+	// Chat "message" events are recorded for audit/dedup and handled synchronously
+	// by the chat path (HandleMessage); they are never dispatched here. Ignore one
+	// defensively in case a stray/recovered message event reaches the dispatcher,
+	// so it is never re-handled as an autonomous episode.
+	if ev.Kind == "message" {
+		slog.Debug("heart: ignoring chat message event in dispatcher", "id", ev.ID, "source", ev.Source)
+		return
+	}
 	v, err := d.route(ctx, ev)
 	if err != nil {
 		slog.Error("heart: route failed; defaulting to cognize", "kind", ev.Kind, "err", err)
