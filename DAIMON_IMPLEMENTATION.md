@@ -41,7 +41,7 @@ P0 ─▶ P1 ─▶ P2 ─▶ P3
 | **P1-E** | attention feedback 回流 + 高风险硬白名单 | 2-3d | WakeUser 零漏报；纠正入库 |
 | **P2-F** | world 检索门面（吸收 memory/retriever） | 5-8d | 连续性测试过；记忆走 world.Retrieve |
 | ~~**P2-G**~~ ✅ | values 价值模型（ask-once；漂移→P3-J） | 4-6d | 价值权衡30天零重复问 |
-| **P2-H** | mail/calendar/fs 源 + chat 经 heart | 8-12d | 三源并发无丢失；聊天经 heart |
+| **P2-H** 🟡 | mail/calendar/fs 源 + chat 经 heart | 8-12d | H1 done(chat ingress 经 heart: dedup+统一事件流, gated); 余: async dispatch+删 legacy(需生产浸泡), mail/cal/fs 源→Phase 4 |
 | **P3-I** | mind 拆出 + 影子脑 | 6-10d | 换脑回归零；影子周报 |
 | **P3-J** | sleep + proposals + replay harness | 15-25d | 首个蒸馏技能转正；首次"它先做了" |
 | **P3-K** | economy + selfops | 10-15d | 月报；故障自报；金丝雀回滚 |
