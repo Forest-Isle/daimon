@@ -61,6 +61,7 @@ type Runner struct {
 	identity *world.Identity
 	bus      agent.EventBus
 	planter  FollowUpPlanter
+	values   valueDigester
 }
 
 // NewRunner builds a cognitive kernel. bus may be nil (events are then skipped).
@@ -73,6 +74,10 @@ func NewRunner(p agent.Provider, ws *world.Store, id *world.Identity, bus agent.
 // behaviorally unchanged when the event heart is disabled.
 func (r *Runner) SetPlanter(p FollowUpPlanter) { r.planter = p }
 
+// SetValues wires the value digester whose high-confidence entries are injected
+// into the episode system prompt. Optional: a nil digester omits the section.
+func (r *Runner) SetValues(v valueDigester) { r.values = v }
+
 // Execute implements agent.CognitiveKernel.
 func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (agent.CognitiveOutcome, error) {
 	if r == nil || r.provider == nil {
@@ -80,7 +85,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (agent
 	}
 
 	episodeID := newEpisodeID()
-	system := composeSystem(ctx, req, r.world, r.identity)
+	system := composeSystem(ctx, req, r.world, r.identity, r.values)
 	messages := append([]agent.CompletionMessage(nil), req.Transcript...)
 	if len(messages) == 0 {
 		messages = []agent.CompletionMessage{{Role: "user", Content: req.Trigger}}

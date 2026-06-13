@@ -15,6 +15,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/tool"
+	"github.com/Forest-Isle/daimon/internal/values"
 	"github.com/Forest-Isle/daimon/internal/world"
 )
 
@@ -30,6 +31,7 @@ type ToolSubsystem struct {
 	WorldStore       *world.Store
 	WorldIdentity    world.Identity
 	ActionStore      *action.Store
+	ValuesStore      *values.Store
 }
 
 func (ts *ToolSubsystem) Name() string                  { return "tool" }
@@ -54,6 +56,15 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	ts.Registry.Register(tool.NewWorldEditTool(ts.WorldIdentity))
 
 	ts.ActionStore = action.NewStore(db.DB)
+
+	// Value model: markdown-backed durable user values, the permission source for
+	// autonomous action. Loaded at startup; a load failure is non-fatal (an empty
+	// store just means every autonomous non-low-risk action triggers ask-once).
+	ts.ValuesStore = values.NewStore(filepath.Join(appdir.BaseDir(), "world", "values"))
+	if err := ts.ValuesStore.Load(ctx); err != nil {
+		slog.Warn("values: load failed", "err", err)
+	}
+	ts.Registry.Register(tool.NewValuesTool(ts.ValuesStore))
 
 	if cfg.Tools.Bash.Enabled {
 		// Route bash through host/sandbox per call: non-local triggers are forced
@@ -157,7 +168,10 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	// Action interceptor records governed (non-read-only) executions in the
 	// trust ledger and stamps the reversibility class. It sits inside the
 	// permission gate so it only sees allowed calls and the raw execution result.
-	interceptors = append(interceptors, action.NewInterceptor(ts.ActionStore, nil))
+	// The value gate is the pipeline head: autonomous non-low-risk actions need a
+	// covering value decision or earned trust, else they are blocked (ask-once).
+	interceptors = append(interceptors, action.NewInterceptorWithGate(
+		ts.ActionStore, nil, newValueGate(ts.ValuesStore, ts.ActionStore)))
 	// Activity reporter sits innermost so it wraps the real tool execution
 	// tightest — it reports only tools that passed permission and hook gates,
 	// avoiding a flicker for denied/blocked calls.

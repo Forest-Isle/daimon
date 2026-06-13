@@ -219,7 +219,7 @@ func TestComposeSystemContent(t *testing.T) {
 		Persona:  "You are friendly.",
 		Rules:    "Never reveal secrets.",
 		Memories: "User prefers concise answers.",
-	}, ws, id)
+	}, ws, id, nil)
 
 	for _, want := range []string{
 		"name: Test Daimon",
@@ -252,7 +252,7 @@ func TestComposeSystemUsesWorldMemories(t *testing.T) {
 	system := composeSystem(ctx, agent.CognitiveRequest{
 		Goal:     "what storage engine did we choose",
 		Memories: "LEGACY_MEMORY_SENTINEL",
-	}, ws, &world.Identity{Dir: t.TempDir()})
+	}, ws, &world.Identity{Dir: t.TempDir()}, nil)
 
 	if !strings.Contains(system, "chose SQLite for local storage") {
 		t.Fatalf("expected world journal hit in memories section:\n%s", system)
@@ -262,5 +262,35 @@ func TestComposeSystemUsesWorldMemories(t *testing.T) {
 	}
 	if !strings.Contains(system, "[decision]") {
 		t.Fatalf("expected kind label in memories section:\n%s", system)
+	}
+}
+
+// stubDigester is a fixed value digester for the composer test.
+type stubDigester struct{ digest string }
+
+func (s stubDigester) Digest() string { return s.digest }
+
+// TestComposeSystemInjectsValues verifies the high-confidence values digest is
+// rendered as its own section when a digester is wired, and omitted otherwise.
+func TestComposeSystemInjectsValues(t *testing.T) {
+	db := openEpisodeWorldTestDB(t)
+	ws := world.NewStore(db.DB)
+	ctx := context.Background()
+	id := &world.Identity{Dir: t.TempDir()}
+	req := agent.CognitiveRequest{Goal: "do a thing"}
+
+	withValues := composeSystem(ctx, req, ws, id, stubDigester{digest: "- [travel] no red-eye flights (confidence 0.90)"})
+	if !strings.Contains(withValues, "## Values") || !strings.Contains(withValues, "no red-eye flights") {
+		t.Fatalf("values section missing:\n%s", withValues)
+	}
+
+	without := composeSystem(ctx, req, ws, id, stubDigester{digest: "   "})
+	if strings.Contains(without, "## Values") {
+		t.Fatalf("empty digest should omit the values section:\n%s", without)
+	}
+
+	nilCase := composeSystem(ctx, req, ws, id, nil)
+	if strings.Contains(nilCase, "## Values") {
+		t.Fatalf("nil digester should omit the values section:\n%s", nilCase)
 	}
 }

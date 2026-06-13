@@ -11,11 +11,19 @@ import (
 
 const constitutionSummary = `You are Daimon, a local-first cognitive agent. Stay grounded in the user's durable world model, use tools when they materially improve the result, preserve commitments and decisions as world writes, and end every episode by declaring the structured outcome. Be concise, honest about uncertainty, and ask only when blocked.`
 
+// valueDigester supplies the high-confidence values digest — the durable, sourced
+// user values that permit autonomous action — for injection into the system
+// prompt. The episode runner wires the values store; a nil digester omits the
+// section, so the kernel is behaviorally unchanged when values are not present.
+type valueDigester interface {
+	Digest() string
+}
+
 // composeSystem builds the episode system prompt by freshly assembling the
-// durable world context (identity, commitments) with the runtime-provided
+// durable world context (identity, commitments, values) with the runtime-provided
 // context (persona, rules, memories) and the mandatory exit instruction. The
 // message list (transcript) is supplied separately by the caller.
-func composeSystem(ctx context.Context, req agent.CognitiveRequest, ws *world.Store, id *world.Identity) string {
+func composeSystem(ctx context.Context, req agent.CognitiveRequest, ws *world.Store, id *world.Identity, vd valueDigester) string {
 	var sections []string
 	sections = append(sections, "## Personality and Daimon Constitution\n"+constitutionSummary)
 
@@ -28,6 +36,12 @@ func composeSystem(ctx context.Context, req agent.CognitiveRequest, ws *world.St
 
 	sections = append(sections, "## Identity Digest\n"+identityDigest(id))
 	sections = append(sections, "## Active Commitments\n"+commitmentsDigest(ctx, ws))
+
+	if vd != nil {
+		if vals := strings.TrimSpace(vd.Digest()); vals != "" {
+			sections = append(sections, "## Values\n"+vals)
+		}
+	}
 
 	if mem := relevantMemories(ctx, ws, req); mem != "" {
 		sections = append(sections, "## Relevant Memories\n"+mem)

@@ -34,6 +34,18 @@ func ChannelClassFromContext(ctx context.Context) ToolChannelClass {
 	return class
 }
 
+// ChannelClassFromContextOK reports the channel class and whether it was
+// explicitly stamped. Security gates that must fail closed (e.g. the action
+// value gate) use ok to refuse the permissive default: an unstamped context is
+// treated as untrusted rather than silently interactive.
+func ChannelClassFromContextOK(ctx context.Context) (ToolChannelClass, bool) {
+	class, ok := ctx.Value(channelClassCtxKey{}).(ToolChannelClass)
+	if !ok || class == "" {
+		return ToolChannelLocal, false
+	}
+	return class, true
+}
+
 func ChannelClassForName(name string) ToolChannelClass {
 	switch name {
 	case "tui":

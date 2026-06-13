@@ -106,6 +106,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	agentSub := InitAgentRuntime(builder, cfg)
 	gw.EpisodeRunner = episode.NewRunner(agentSub.Provider, gw.toolSub.WorldStore, &gw.toolSub.WorldIdentity, eventBus)
+	gw.EpisodeRunner.SetValues(gw.toolSub.ValuesStore)
 	gw.EpisodeEnabled = cfg.Agent.EpisodeEnabled
 
 	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)
