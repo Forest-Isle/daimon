@@ -132,6 +132,14 @@ tools:
     enabled: true
     requires_approval: false
     timeout: 30s
+  # Shell execution backend for the bash tool.
+  #   host     — run commands directly (default)
+  #   seatbelt — run every command under the macOS sandbox (sandbox-exec)
+  # Regardless of this default, commands triggered by a non-local source
+  # (remote/scheduled/internal/background) are ALWAYS sandboxed. On non-darwin
+  # hosts the sandbox is unavailable and falls back to host with a warning.
+  exec:
+    backend: host
   # MCP (Model Context Protocol) 工具集成
   # 通过 STDIO 传输连接外部 MCP Server，动态加载工具
   # 工具命名格式: mcp_{server名}_{tool名}

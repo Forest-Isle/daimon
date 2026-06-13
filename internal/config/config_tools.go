@@ -6,10 +6,19 @@ type ToolsConfig struct {
 	Bash                BashToolConfig            `yaml:"bash"`
 	File                FileToolConfig            `yaml:"file"`
 	HTTP                HTTPToolConfig            `yaml:"http"`
+	Exec                ExecConfig                `yaml:"exec"`
 	Verify              VerifyConfig              `yaml:"verify"`
 	MCP                 MCPConfig                 `yaml:"mcp"`
 	ConcurrentExecution ConcurrentExecutionConfig `yaml:"concurrent_execution"`
 	ResultPersistence   ResultPersistenceConfig   `yaml:"result_persistence"`
+}
+
+// ExecConfig controls the shell execution backend for the bash tool. Backend
+// "host" (default) runs commands directly; "seatbelt" runs every command under
+// the macOS sandbox. Regardless of this default, commands triggered by a
+// non-local source (remote/scheduled/internal/background) are always sandboxed.
+type ExecConfig struct {
+	Backend string `yaml:"backend"` // "host" (default) | "seatbelt"
 }
 
 type VerifyConfig struct {

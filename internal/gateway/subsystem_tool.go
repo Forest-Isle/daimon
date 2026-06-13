@@ -56,7 +56,14 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	ts.ActionStore = action.NewStore(db.DB)
 
 	if cfg.Tools.Bash.Enabled {
-		ts.Registry.Register(tool.NewBashTool(cfg.Tools.Bash.Timeout, cfg.Tools.Bash.RequiresApproval, policy))
+		// Route bash through host/sandbox per call: non-local triggers are forced
+		// into the seatbelt sandbox; the configured default applies to local ones.
+		shellBackend := tool.NewChannelRoutingBackend(
+			tool.NewHostShellBackend(),
+			tool.NewSeatbeltShellBackend(),
+			cfg.Tools.Exec.Backend == "seatbelt",
+		)
+		ts.Registry.Register(tool.NewBashToolWithBackend(cfg.Tools.Bash.Timeout, cfg.Tools.Bash.RequiresApproval, policy, shellBackend))
 		ts.Registry.Register(tool.NewTestRunTool("."))
 	}
 	if cfg.Tools.File.Enabled {
