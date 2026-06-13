@@ -33,6 +33,14 @@ func (i *Interceptor) Name() string { return "action" }
 func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next tool.InterceptorFunc) (*tool.ToolResult, error) {
 	class, governed := i.classifier.Classify(call)
 
+	// Snapshot the target file's prior state BEFORE execution so a reversible file
+	// mutation can be reversed. Best-effort: capture never blocks the tool.
+	var undo UndoRecord
+	captureUndo := false
+	if governed && i.store != nil && class == Reversible {
+		undo, captureUndo = captureFileUndo(ctx, call.ToolName, call.Input)
+	}
+
 	result, err := next(ctx, call)
 
 	if !governed || i.store == nil {
@@ -55,6 +63,16 @@ func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next t
 			result.Metadata = map[string]string{}
 		}
 		result.Metadata["action_class"] = class.String()
+	}
+
+	// A successful reversible file mutation earns an undo journal entry; its
+	// receipt id is stamped onto the result so callers can reference the action.
+	if captureUndo && succeeded {
+		if recErr := i.store.RecordUndo(ctx, undo); recErr != nil {
+			slog.Warn("action: record undo failed", "tool", call.ToolName, "err", recErr)
+		} else if result != nil {
+			result.Metadata["receipt_id"] = undo.ReceiptID
+		}
 	}
 	return result, err
 }
