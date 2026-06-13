@@ -106,19 +106,24 @@ func rrfMerge(lists ...[]rankedHit) []Hit {
 
 func (s *Store) searchJournal(ctx context.Context, ftsText string, kinds []string, limit int) []rankedHit {
 	// FTS5 first. OR the terms so any one can match (recall-oriented for memory
-	// retrieval); RRF + bm25 rank handle relevance ordering.
+	// retrieval); RRF + bm25 rank handle relevance ordering. The kind filter is
+	// pushed into SQL so it applies before LIMIT (filtering after LIMIT could
+	// drop all of a small result page and return too few).
+	kindSQL, kindArgs := kindClause(kinds, "j.kind")
+	args := append([]any{ftsOrExpr(ftsText)}, kindArgs...)
+	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT j.id, j.kind, j.summary, j.detail, j.occurred_at
 		FROM journal_fts f
 		JOIN journal j ON j.id = f.journal_id
-		WHERE journal_fts MATCH ?
+		WHERE journal_fts MATCH ?`+kindSQL+`
 		ORDER BY f.rank
-		LIMIT ?`, ftsOrExpr(ftsText), limit)
+		LIMIT ?`, args...)
 	if err != nil {
 		return s.likeJournal(ctx, ftsText, kinds, limit)
 	}
 	defer func() { _ = rows.Close() }()
-	hits := scanJournalHits(rows, kinds, limit)
+	hits := scanJournalHits(rows, limit)
 	if err := rows.Err(); err != nil {
 		return s.likeJournal(ctx, ftsText, kinds, limit)
 	}
@@ -127,28 +132,27 @@ func (s *Store) searchJournal(ctx context.Context, ftsText string, kinds []strin
 
 func (s *Store) likeJournal(ctx context.Context, text string, kinds []string, limit int) []rankedHit {
 	like := "%" + strings.ReplaceAll(text, " ", "%") + "%"
+	kindSQL, kindArgs := kindClause(kinds, "kind")
+	args := append([]any{like, like}, kindArgs...)
+	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, kind, summary, detail, occurred_at
 		FROM journal
-		WHERE (summary LIKE ? OR detail LIKE ?)
+		WHERE (summary LIKE ? OR detail LIKE ?)`+kindSQL+`
 		ORDER BY occurred_at DESC
-		LIMIT ?`, like, like, limit)
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil
 	}
 	defer func() { _ = rows.Close() }()
-	return scanJournalHits(rows, kinds, limit)
+	return scanJournalHits(rows, limit)
 }
 
-func scanJournalHits(rows *sql.Rows, kinds []string, limit int) []rankedHit {
-	allow := kindSet(kinds)
+func scanJournalHits(rows *sql.Rows, limit int) []rankedHit {
 	var out []rankedHit
 	for rows.Next() {
 		var id, kind, summary, detail, occurred string
 		if err := rows.Scan(&id, &kind, &summary, &detail, &occurred); err != nil {
-			continue
-		}
-		if allow != nil && !allow[kind] {
 			continue
 		}
 		out = append(out, rankedHit{
@@ -163,6 +167,21 @@ func scanJournalHits(rows *sql.Rows, kinds []string, limit int) []rankedHit {
 		}
 	}
 	return out
+}
+
+// kindClause builds an " AND <col> IN (?,?...)" SQL fragment and its args for an
+// optional journal-kind filter. Empty kinds yields an empty fragment.
+func kindClause(kinds []string, col string) (string, []any) {
+	if len(kinds) == 0 {
+		return "", nil
+	}
+	ph := make([]string, len(kinds))
+	args := make([]any, len(kinds))
+	for i, k := range kinds {
+		ph[i] = "?"
+		args[i] = k
+	}
+	return " AND " + col + " IN (" + strings.Join(ph, ",") + ")", args
 }
 
 func (s *Store) searchCommitments(ctx context.Context, ftsText string, limit int) []rankedHit {
@@ -222,16 +241,22 @@ func scanCommitmentHits(rows *sql.Rows, limit int) []rankedHit {
 
 // recentJournal returns the newest journal entries when there is no query text.
 func (s *Store) recentJournal(ctx context.Context, kinds []string, limit int) ([]Hit, error) {
+	kindSQL, kindArgs := kindClause(kinds, "kind")
+	where := ""
+	if kindSQL != "" {
+		where = " WHERE " + strings.TrimPrefix(kindSQL, " AND ")
+	}
+	args := append(append([]any{}, kindArgs...), limit)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, kind, summary, detail, occurred_at
-		FROM journal
+		FROM journal`+where+`
 		ORDER BY occurred_at DESC
-		LIMIT ?`, limit*3)
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	ranked := scanJournalHits(rows, kinds, limit)
+	ranked := scanJournalHits(rows, limit)
 	out := make([]Hit, 0, len(ranked))
 	for i, rh := range ranked {
 		// Recency-ordered: score by position so callers can treat it uniformly.
@@ -241,27 +266,21 @@ func (s *Store) recentJournal(ctx context.Context, kinds []string, limit int) ([
 	return out, nil
 }
 
-func kindSet(kinds []string) map[string]bool {
-	if len(kinds) == 0 {
-		return nil
-	}
-	set := make(map[string]bool, len(kinds))
-	for _, k := range kinds {
-		set[k] = true
-	}
-	return set
-}
-
-// ftsOrExpr turns a sanitized space-separated term list into an FTS5 OR
-// expression ("daimon storage" -> "daimon OR storage"), so a row matching any
-// term is retrieved. The caller guarantees the input is already sanitized
-// (no FTS operators), so the only token added is OR.
+// ftsOrExpr turns a sanitized term list into an FTS5 OR expression of quoted
+// phrases ("daimon p2-f" -> "\"daimon\" OR \"p2-f\""), so a row matching any term
+// is retrieved. Quoting each term as a phrase neutralizes FTS5 operator
+// characters that survive sanitization (notably the hyphen, which is otherwise
+// the NOT/column syntax), avoiding the error path.
 func ftsOrExpr(sanitized string) string {
 	fields := strings.Fields(sanitized)
 	if len(fields) == 0 {
 		return sanitized
 	}
-	return strings.Join(fields, " OR ")
+	quoted := make([]string, len(fields))
+	for i, f := range fields {
+		quoted[i] = `"` + f + `"` // sanitize already stripped any embedded quote
+	}
+	return strings.Join(quoted, " OR ")
 }
 
 // sanitizeFTSQuery strips FTS5 operators and punctuation, dropping bare boolean

@@ -423,7 +423,7 @@ func episodeCloseToolDefinition() agent.ToolDefinition {
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"op":     map[string]any{"type": "string", "description": "Mutation op: commitment.create, commitment.update, or journal.append."},
+							"op":     map[string]any{"type": "string", "enum": []string{"commitment.create", "commitment.update", "journal.append", "fact.upsert"}, "description": "Mutation op. Use fact.upsert to record a durable, retrievable fact (provide body.summary; optional body.id replaces a prior fact)."},
 							"target": map[string]any{"type": "string", "description": "Optional mutation target ID."},
 							"body":   map[string]any{"type": "object", "description": "Mutation body."},
 						},
