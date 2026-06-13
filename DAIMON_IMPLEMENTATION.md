@@ -15,7 +15,7 @@
 | Phase 2 heart+attention+action | 🟠 地基+骨架 | action 只观测不强制；feedback/holds 死表；仅 timer 源；无 AST/seatbelt |
 | Phase 3 sleep+proposals+shadow | ❌ 未开工 | 包不存在 |
 | Phase 4 economy+selfops+sensors | ❌ 未开工 | 包不存在 |
-| §4.5 values | ❌ 未开工 | 包不存在 |
+| §4.5 values | 🟡 主体完成 (P2-G) | ask-once 门控+条目+digest 已落；漂移检测归 P3-J |
 | §4.7 mind | ❌ 未拆出 | 仍在 agent/ |
 
 **三处"标称完成实为骨架"的承重墙隐患（最高优先级）**：
@@ -40,7 +40,7 @@ P0 ─▶ P1 ─▶ P2 ─▶ P3
 | **P1-D** | hold 执行环 + Telegram 撤回 UX | 3-5d | hold 到期自动执行；撤回 <1s |
 | **P1-E** | attention feedback 回流 + 高风险硬白名单 | 2-3d | WakeUser 零漏报；纠正入库 |
 | **P2-F** | world 检索门面（吸收 memory/retriever） | 5-8d | 连续性测试过；记忆走 world.Retrieve |
-| **P2-G** | values 价值模型（ask-once + 漂移） | 4-6d | 价值权衡30天零重复问 |
+| ~~**P2-G**~~ ✅ | values 价值模型（ask-once；漂移→P3-J） | 4-6d | 价值权衡30天零重复问 |
 | **P2-H** | mail/calendar/fs 源 + chat 经 heart | 8-12d | 三源并发无丢失；聊天经 heart |
 | **P3-I** | mind 拆出 + 影子脑 | 6-10d | 换脑回归零；影子周报 |
 | **P3-J** | sleep + proposals + replay harness | 15-25d | 首个蒸馏技能转正；首次"它先做了" |
