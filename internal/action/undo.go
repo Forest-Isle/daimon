@@ -24,19 +24,6 @@ var fileMutatingTools = map[string]bool{
 	"file_patch": true,
 }
 
-// Receipt is the durable record of one governed action: which tool ran, its
-// reversibility class, what authorized it, and how to reverse it. For reversible
-// file actions the undo journal row (UndoReceiptID) carries the reversal spec.
-// Trust gating, ValueRef, and Verified are populated by later increments.
-type Receipt struct {
-	ID            string
-	Tool          string
-	Class         Class
-	ValueRef      string
-	UndoReceiptID string
-	Verified      *bool
-}
-
 // fileUndoSnapshot is the JSON shape stored in undo_journal.undo_spec for a
 // reversible file mutation. Existed=false means the action created the file, so
 // undo deletes it. Truncated means prior content could not be captured (too

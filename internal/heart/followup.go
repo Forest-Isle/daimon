@@ -138,6 +138,9 @@ func (f *FollowUpSource) Run(ctx context.Context, emit func(Event)) error {
 		case <-ticker.C:
 			due, err := f.Store.Due(ctx, now().Unix())
 			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err() // clean shutdown, not a real failure
+				}
 				slog.Error("heart: load due follow-ups failed", "err", err)
 				continue
 			}

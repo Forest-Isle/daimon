@@ -3,6 +3,7 @@ package heart
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,14 +61,19 @@ func TestFollowUpSourceEmitsDueAndDedups(t *testing.T) {
 
 	src := &FollowUpSource{Store: s, Interval: 2 * time.Millisecond, Now: func() time.Time { return time.Unix(1000, 0) }}
 
+	// got is written by the source goroutine (via emit) and read by this
+	// goroutine while polling, so it must be mutex-guarded.
+	var mu sync.Mutex
 	var got []Event
-	emit := func(ev Event) { got = append(got, ev) }
+	emit := func(ev Event) { mu.Lock(); got = append(got, ev); mu.Unlock() }
+	count := func() int { mu.Lock(); defer mu.Unlock(); return len(got) }
+
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { _ = src.Run(runCtx, emit); close(done) }()
 
 	deadline := time.After(2 * time.Second)
-	for len(got) == 0 {
+	for count() == 0 {
 		select {
 		case <-deadline:
 			cancel()
@@ -76,7 +82,7 @@ func TestFollowUpSourceEmitsDueAndDedups(t *testing.T) {
 		}
 	}
 	cancel()
-	<-done
+	<-done // source goroutine has exited; no more writes to got
 
 	if got[0].Kind != "internal.followup" || got[0].Payload != "do the thing" {
 		t.Fatalf("event = %#v", got[0])
