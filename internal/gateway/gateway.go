@@ -124,6 +124,10 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		sleep.NewDigestJob(gw.toolSub.WorldStore, sleepSummarizer),
 		sleep.NewDriftJob(gw.toolSub.ValuesStore, gw.toolSub.WorldStore, sleepSummarizer),
 		sleep.NewRollupJob(gw.toolSub.WorldStore, sleepSummarizer),
+		// Reconcile: supersede contradicting/duplicate facts so the world stays
+		// internally consistent (invariant #1); the canonical fact survives, stale
+		// ones are removed from retrieval with a correction journal audit trace.
+		sleep.NewReconcileJob(gw.toolSub.WorldStore, sleepSummarizer),
 		// Anticipation: scan commitments due soon and queue proposals the user will
 		// likely need. Reads the world, writes the proposals queue; delivery/decision
 		// UX is a later increment that reads from that queue.

@@ -248,6 +248,41 @@ func (s *Store) UnrolledBeyond(ctx context.Context, keepRecent, limit int) ([]Jo
 	return out, nil
 }
 
+// ListFacts returns durable facts (journal entries of kind=fact), most recent
+// first, capped at limit (default 200). Reconcile uses these to detect
+// contradictions and near-duplicates among the agent's accumulated facts.
+func (s *Store) ListFacts(ctx context.Context, limit int) ([]JournalEntry, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, episode_id, kind, summary, detail, occurred_at, rollup_id
+		FROM journal
+		WHERE kind = 'fact'
+		ORDER BY occurred_at DESC, id DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list facts: %w", err)
+	}
+	defer rows.Close()
+
+	var out []JournalEntry
+	for rows.Next() {
+		entry, err := scanJournalEntry(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan fact: %w", err)
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate facts: %w", err)
+	}
+	return out, nil
+}
+
 // Rollup folds the given journal entries into one summary: it appends a single
 // kind="rollup" entry and stamps each folded entry's rollup_id so they are not
 // folded again. It is atomic (one transaction) and non-destructive — folded
@@ -406,6 +441,10 @@ func applyMutations(ctx context.Context, exec sqlExecer, episodeID string, muts 
 			if err := upsertFact(ctx, exec, entry); err != nil {
 				return err
 			}
+		case "fact.delete":
+			if err := deleteFact(ctx, exec, strings.TrimSpace(mut.Target)); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unknown world mutation op %q", mut.Op)
 		}
@@ -516,6 +555,23 @@ func upsertFact(ctx context.Context, exec sqlExecer, entry JournalEntry) error {
 		}
 	}
 	return appendJournal(ctx, exec, entry)
+}
+
+// deleteFact removes a fact (kind=fact) by id, firing the journal_fts delete
+// trigger so the retrieval index drops it too. The kind='fact' guard is a
+// safety floor: outcomes, decisions, and corrections are append-only audit and
+// must never be removed even if a stray target id points at one. A missing id is
+// a no-op (no error): reconcile may supersede the same stale fact across
+// overlapping passes, and a re-delivered sleep cycle must not fail because the
+// fact is already gone. id must be non-empty so a blank target cannot match.
+func deleteFact(ctx context.Context, exec sqlExecer, id string) error {
+	if id == "" {
+		return fmt.Errorf("fact.delete requires a non-empty target id")
+	}
+	if _, err := exec.ExecContext(ctx, `DELETE FROM journal WHERE id = ? AND kind = 'fact'`, id); err != nil {
+		return fmt.Errorf("delete fact %q: %w", id, err)
+	}
+	return nil
 }
 
 func appendJournal(ctx context.Context, exec sqlExecer, entry JournalEntry) error {

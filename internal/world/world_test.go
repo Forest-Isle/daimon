@@ -273,6 +273,67 @@ func TestCommitmentsDigestFormattingAndCap(t *testing.T) {
 	}
 }
 
+func TestListFactsFiltersKindAndFactDeleteGuardsAuditRows(t *testing.T) {
+	db := openWorldTestDB(t)
+	w := NewStore(db.DB)
+	ctx := context.Background()
+
+	// Seed one fact and two append-only audit rows of other kinds.
+	for _, e := range []JournalEntry{
+		{ID: "f-1", Kind: "fact", Summary: "a durable fact"},
+		{ID: "d-1", Kind: "decision", Summary: "a decision"},
+		{ID: "o-1", Kind: "outcome", Summary: "an outcome"},
+	} {
+		if err := w.AppendJournal(ctx, e); err != nil {
+			t.Fatalf("seed %s: %v", e.ID, err)
+		}
+	}
+
+	// ListFacts returns only kind=fact rows.
+	facts, err := w.ListFacts(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListFacts: %v", err)
+	}
+	if len(facts) != 1 || facts[0].ID != "f-1" {
+		t.Fatalf("ListFacts = %+v, want only f-1", facts)
+	}
+
+	// fact.delete on an audit row's id is a guarded no-op: the decision row stays.
+	if err := w.Apply(ctx, "sleep", []Mutation{{Op: "fact.delete", Target: "d-1"}}); err != nil {
+		t.Fatalf("fact.delete (guarded): %v", err)
+	}
+	entries, err := w.ListJournal(ctx, "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundDecision := false
+	for _, e := range entries {
+		if e.ID == "d-1" {
+			foundDecision = true
+		}
+	}
+	if !foundDecision {
+		t.Fatal("fact.delete must NOT remove a non-fact (append-only audit) row")
+	}
+
+	// fact.delete on the fact removes it from retrieval.
+	if err := w.Apply(ctx, "sleep", []Mutation{{Op: "fact.delete", Target: "f-1"}}); err != nil {
+		t.Fatalf("fact.delete (fact): %v", err)
+	}
+	facts, err = w.ListFacts(ctx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 0 {
+		t.Fatalf("fact f-1 should be deleted, ListFacts = %+v", facts)
+	}
+
+	// A blank target id is rejected (so it can never match an arbitrary row).
+	if err := w.Apply(ctx, "sleep", []Mutation{{Op: "fact.delete", Target: ""}}); err == nil {
+		t.Fatal("fact.delete with empty target must error")
+	}
+}
+
 func TestIdentityDigestMissingFile(t *testing.T) {
 	identity := Identity{Dir: filepath.Join(t.TempDir(), "identity")}
 	if got := identity.Digest(); got != "" {
