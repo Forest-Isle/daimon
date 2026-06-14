@@ -114,20 +114,24 @@ func TestApplyOutcomeAppendsIdempotentJournal(t *testing.T) {
 	world := NewStore(db.DB)
 	ctx := context.Background()
 
-	if err := world.ApplyOutcome(ctx, "episode_outcome", []Mutation{
+	// The commitment.create mutation carries no id, so each apply would generate a
+	// fresh uuid — a non-idempotent write. Applying the SAME outcome twice (a
+	// re-delivery) must create it only once: the second ApplyOutcome sees the
+	// outcome marker already claimed and skips its mutations entirely.
+	outcomeMut := []Mutation{
 		{
 			Op: "commitment.create",
 			Body: mustJSON(t, Commitment{
-				ID:    "commit_outcome",
 				Kind:  "project",
 				Title: "Persist outcome",
 			}),
 		},
-	}, "Outcome summary", false); err != nil {
+	}
+	if err := world.ApplyOutcome(ctx, "episode_outcome", outcomeMut, "Outcome summary", false); err != nil {
 		t.Fatalf("ApplyOutcome() error = %v", err)
 	}
-	if err := world.ApplyOutcome(ctx, "episode_outcome", nil, "Outcome summary", false); err != nil {
-		t.Fatalf("ApplyOutcome() duplicate journal error = %v", err)
+	if err := world.ApplyOutcome(ctx, "episode_outcome", outcomeMut, "Outcome summary", false); err != nil {
+		t.Fatalf("ApplyOutcome() duplicate error = %v", err)
 	}
 
 	commitments, err := world.ListCommitments(ctx, []string{"active"}, "")
@@ -135,7 +139,7 @@ func TestApplyOutcomeAppendsIdempotentJournal(t *testing.T) {
 		t.Fatalf("ListCommitments() error = %v", err)
 	}
 	if len(commitments) != 1 || commitments[0].SourceEpisode != "episode_outcome" {
-		t.Fatalf("commitments = %#v", commitments)
+		t.Fatalf("duplicate ApplyOutcome must not re-apply mutations; commitments = %#v", commitments)
 	}
 	journal, err := world.ListJournal(ctx, "", 10)
 	if err != nil {

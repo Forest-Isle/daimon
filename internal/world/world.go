@@ -95,10 +95,20 @@ func (s *Store) ApplyOutcome(ctx context.Context, episodeID string, muts []Mutat
 		}
 	}()
 
-	if err := applyMutations(ctx, tx, episodeID, muts); err != nil {
+	// Claim the outcome marker first: its row id is deterministic in episodeID, so
+	// a second ApplyOutcome for the same episode (a re-delivery the kernel's
+	// OutcomeExists skip did not catch — e.g. a concurrent or direct double
+	// dispatch) inserts nothing and is treated as already-applied. This keeps the
+	// world write idempotent at the truth layer, not just at the kernel: mutations
+	// (some non-idempotent, e.g. commitment.create) run only on the first claim.
+	claimed, err := claimOutcomeJournal(ctx, tx, episodeID, summary, salvaged)
+	if err != nil {
 		return err
 	}
-	if err := appendOutcomeJournal(ctx, tx, episodeID, summary, salvaged); err != nil {
+	if !claimed {
+		return nil // outcome already applied by the original run; do not re-apply mutations
+	}
+	if err := applyMutations(ctx, tx, episodeID, muts); err != nil {
 		return err
 	}
 
@@ -128,6 +138,24 @@ func (s *Store) ListCommitments(ctx context.Context, states []string, dueBefore 
 		return nil, err
 	}
 	return s.listCommitments(ctx, states, dueBefore, 0)
+}
+
+// OutcomeExists reports whether the episode with the given id has already
+// committed its outcome. The outcome journal row (id "journal_outcome_<id>") is
+// written atomically with the episode's world writes in ApplyOutcome, so its
+// presence means the whole episode completed. A re-delivered trigger (heart's
+// at-least-once replay after a crash before the event was marked routed) uses
+// this to skip an already-finished episode instead of re-running it.
+func (s *Store) OutcomeExists(ctx context.Context, episodeID string) (bool, error) {
+	if err := s.ensure(); err != nil {
+		return false, err
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM journal WHERE id = ?`, "journal_outcome_"+episodeID).Scan(&n); err != nil {
+		return false, fmt.Errorf("check outcome exists: %w", err)
+	}
+	return n > 0, nil
 }
 
 func (s *Store) AppendJournal(ctx context.Context, entry JournalEntry) error {
@@ -447,20 +475,29 @@ func updateCommitment(ctx context.Context, exec sqlExecer, id string, set map[st
 	return nil
 }
 
-func appendOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, summary string, salvaged bool) error {
+// claimOutcomeJournal inserts the deterministic outcome marker for an episode and
+// reports whether this call inserted it (true) or it already existed (false). The
+// id is "journal_outcome_<episodeID>" with INSERT OR IGNORE, so it doubles as an
+// idempotency claim: a false return means the episode's outcome was already
+// recorded and the caller must not re-apply its world writes.
+func claimOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, summary string, salvaged bool) (bool, error) {
 	detail := ""
 	if salvaged {
 		detail = "salvaged=true"
 	}
-	_, err := exec.ExecContext(ctx, `
+	res, err := exec.ExecContext(ctx, `
 		INSERT OR IGNORE INTO journal
 			(id, episode_id, kind, summary, detail)
 		VALUES (?, ?, ?, ?, ?)`,
 		"journal_outcome_"+episodeID, episodeID, "outcome", summary, detail)
 	if err != nil {
-		return fmt.Errorf("append outcome journal: %w", err)
+		return false, fmt.Errorf("append outcome journal: %w", err)
 	}
-	return nil
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("append outcome journal: rows affected: %w", err)
+	}
+	return affected > 0, nil
 }
 
 // upsertFact records a durable fact as a journal entry of kind=fact, indexed for

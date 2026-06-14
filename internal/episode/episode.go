@@ -84,7 +84,21 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (agent
 		return agent.CognitiveOutcome{Status: "failed", Summary: "episode provider unavailable"}, errors.New("episode provider unavailable")
 	}
 
-	episodeID := newEpisodeID()
+	// A caller-supplied EpisodeID is a deterministic idempotency key (the trigger
+	// event id). If its outcome already committed, this is a re-delivery after a
+	// crash that happened before the event was marked routed — skip rather than
+	// re-run. A check error is non-fatal: fall through and run (at-least-once
+	// bias), since the outcome write itself is idempotent.
+	episodeID := req.EpisodeID
+	if episodeID == "" {
+		episodeID = newEpisodeID()
+	} else if r.world != nil {
+		if done, err := r.world.OutcomeExists(ctx, episodeID); err != nil {
+			slog.Warn("episode: outcome-exists check failed; running anyway", "episode_id", episodeID, "err", err)
+		} else if done {
+			return agent.CognitiveOutcome{Status: "done", Summary: "already handled (idempotent replay skip)"}, nil
+		}
+	}
 	system := composeSystem(ctx, req, r.world, r.identity, r.values)
 	messages := append([]agent.CompletionMessage(nil), req.Transcript...)
 	if len(messages) == 0 {

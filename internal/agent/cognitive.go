@@ -21,7 +21,13 @@ type ToolInvokeFunc func(ctx context.Context, iteration int, call ToolUseBlock) 
 // runtime-owned context (persona, rules, retrieved memories, transcript) is
 // pre-assembled by the agent so the kernel stays free of subsystem wiring.
 type CognitiveRequest struct {
-	SessionID  string
+	SessionID string
+	// EpisodeID, when set, is a deterministic idempotency key for the episode
+	// (e.g. the triggering heart event id). The kernel uses it as the episode id
+	// and skips execution if an outcome already exists for it, so a re-delivered
+	// trigger does not run the episode twice. Empty ⇒ the kernel generates a
+	// fresh id (chat turns and ad-hoc episodes).
+	EpisodeID  string
 	Goal       string
 	Trigger    string
 	Persona    string

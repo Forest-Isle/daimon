@@ -224,14 +224,20 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 // auto-approved / read-only tools run autonomously. Each call gets its own
 // "internal" session so the tool transcript is captured for replay without
 // colliding with chat sessions.
-func (a *Agent) RunInternalEpisode(ctx context.Context, goal, trigger string) (CognitiveOutcome, error) {
+func (a *Agent) RunInternalEpisode(ctx context.Context, idempotencyKey, goal, trigger string) (CognitiveOutcome, error) {
 	if a.kernel == nil || !a.kernelEnabled {
 		return CognitiveOutcome{}, fmt.Errorf("cognitive kernel unavailable")
 	}
 	ctx = AgentToContext(ctx, a)
 	ctx = tool.WithChannelClass(ctx, tool.ChannelClassForName("internal"))
 
+	// A non-empty idempotency key (the triggering event id) makes the session and
+	// episode deterministic, so a re-delivered event reuses the same identity and
+	// the kernel can skip an already-completed episode. Empty ⇒ a fresh ad-hoc id.
 	channelID := fmt.Sprintf("evt_%d", time.Now().UnixNano())
+	if idempotencyKey != "" {
+		channelID = "evt_" + idempotencyKey
+	}
 	sess, err := a.deps.Core.Sessions.Get(ctx, "internal", channelID)
 	if err != nil {
 		return CognitiveOutcome{}, fmt.Errorf("get internal session: %w", err)
@@ -243,6 +249,7 @@ func (a *Agent) RunInternalEpisode(ctx context.Context, goal, trigger string) (C
 
 	req := CognitiveRequest{
 		SessionID:  sess.ID,
+		EpisodeID:  idempotencyKey,
 		Goal:       goal,
 		Trigger:    trigger,
 		Persona:    a.deps.Core.Cfg.Personality,

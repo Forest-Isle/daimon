@@ -135,6 +135,54 @@ func TestExecuteBasicHappyPath(t *testing.T) {
 	}
 }
 
+// TestExecuteIdempotentReplaySkip verifies CF2: when a CognitiveRequest carries a
+// deterministic EpisodeID whose outcome already committed, a re-delivery skips
+// without re-running the model (heart's at-least-once replay must not double-run).
+func TestExecuteIdempotentReplaySkip(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{{
+		text:      "done work",
+		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"did the thing"}`)},
+	}}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("Handle event", "trigger")
+	req.EpisodeID = "evt-dedup-1"
+
+	// First delivery: runs and commits an outcome.
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+	callsAfterFirst := len(provider.requests)
+	if callsAfterFirst == 0 {
+		t.Fatal("provider should have been called on first delivery")
+	}
+
+	// Second delivery of the same event id (at-least-once replay): must skip.
+	out, err := runner.Execute(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second Execute: %v", err)
+	}
+	if len(provider.requests) != callsAfterFirst {
+		t.Fatalf("idempotent replay re-ran the provider: %d calls (want %d)", len(provider.requests), callsAfterFirst)
+	}
+	if !strings.Contains(out.Summary, "already handled") {
+		t.Fatalf("expected idempotent-skip summary, got %q", out.Summary)
+	}
+	journal, err := ws.ListJournal(context.Background(), "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcomes := 0
+	for _, e := range journal {
+		if e.Kind == "outcome" {
+			outcomes++
+		}
+	}
+	if outcomes != 1 {
+		t.Fatalf("expected exactly 1 outcome row after replay, got %d", outcomes)
+	}
+}
+
 func TestExecuteMaxIterationsSalvage(t *testing.T) {
 	streams := make([]providerResponse, defaultMaxIterations)
 	for i := range streams {

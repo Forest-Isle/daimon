@@ -60,7 +60,10 @@ func (gw *Gateway) newEventDispatcher() *eventDispatcher {
 	return &eventDispatcher{
 		route: gw.heart.chain.Route,
 		cognize: func(ctx context.Context, ev heart.Event) {
-			if _, err := gw.agent.RunInternalEpisode(ctx, goalForEvent(ev), ev.Payload); err != nil {
+			// Pass the event id as the idempotency key: heart's at-least-once replay
+			// (after a crash before the event was marked routed) re-delivers the same
+			// event id, and the kernel skips an already-completed episode.
+			if _, err := gw.agent.RunInternalEpisode(ctx, ev.ID, goalForEvent(ev), ev.Payload); err != nil {
 				slog.Error("heart: internal episode failed", "kind", ev.Kind, "err", err)
 			}
 		},

@@ -30,7 +30,7 @@ func TestRunInternalEpisode_KernelDisabled(t *testing.T) {
 	deps := AgentDeps{Core: CoreDeps{AgentID: "t"}}.WithDefaults()
 	a := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
-	if _, err := a.RunInternalEpisode(context.Background(), "goal", "trigger"); err == nil {
+	if _, err := a.RunInternalEpisode(context.Background(), "", "goal", "trigger"); err == nil {
 		t.Fatal("expected error when kernel is unavailable")
 	}
 }
@@ -55,12 +55,15 @@ func TestRunInternalEpisode_HappyPath(t *testing.T) {
 	fake := &fakeKernel{outcome: CognitiveOutcome{Status: "done", Summary: "reviewed commitments"}}
 	a.SetKernel(fake, true)
 
-	out, err := a.RunInternalEpisode(context.Background(), "Review commitments", "heartbeat")
+	out, err := a.RunInternalEpisode(context.Background(), "evt-123", "Review commitments", "heartbeat")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !fake.called {
 		t.Fatal("kernel was not invoked")
+	}
+	if fake.req.EpisodeID != "evt-123" {
+		t.Fatalf("idempotency key not threaded to kernel: got %q", fake.req.EpisodeID)
 	}
 	if out.Status != "done" {
 		t.Fatalf("want outcome status done, got %q", out.Status)
