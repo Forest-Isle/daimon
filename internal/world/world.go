@@ -175,6 +175,112 @@ func (s *Store) ListJournal(ctx context.Context, sinceOccurredAt string, limit i
 	return out, nil
 }
 
+// UnrolledBeyond returns journal entries eligible to be folded into a rollup:
+// regular (non-fact, non-rollup) entries not yet rolled up, EXCEPT the most
+// recent keepRecent of them, which stay raw so the recent window keeps full
+// detail. Facts (upserted singletons like the self-digest) and prior rollups are
+// never folded. Results are oldest-first (a natural reading order for a summary);
+// limit caps how many are folded in one pass.
+func (s *Store) UnrolledBeyond(ctx context.Context, keepRecent, limit int) ([]JournalEntry, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	if keepRecent < 0 {
+		keepRecent = 0
+	}
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, episode_id, kind, summary, detail, occurred_at, rollup_id
+		FROM journal
+		WHERE rollup_id = '' AND kind NOT IN ('fact', 'rollup')
+		ORDER BY occurred_at DESC, id DESC
+		LIMIT ? OFFSET ?`, limit, keepRecent)
+	if err != nil {
+		return nil, fmt.Errorf("list unrolled journal: %w", err)
+	}
+	defer rows.Close()
+
+	var out []JournalEntry
+	for rows.Next() {
+		entry, err := scanJournalEntry(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan journal entry: %w", err)
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate journal: %w", err)
+	}
+	// Reverse to oldest-first so a summary reads chronologically.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
+// Rollup folds the given journal entries into one summary: it appends a single
+// kind="rollup" entry and stamps each folded entry's rollup_id so they are not
+// folded again. It is atomic (one transaction) and non-destructive — folded
+// entries are tagged, never deleted, so their detail stays recoverable. Returns
+// the new rollup id.
+func (s *Store) Rollup(ctx context.Context, summary string, foldedIDs []string) (string, error) {
+	if err := s.ensure(); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(summary) == "" {
+		return "", fmt.Errorf("rollup requires a summary")
+	}
+	if len(foldedIDs) == 0 {
+		return "", fmt.Errorf("rollup requires at least one entry to fold")
+	}
+	rollupID := "rollup_" + uuid.NewString()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin rollup transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if err := appendJournal(ctx, tx, JournalEntry{ID: rollupID, Kind: "rollup", Summary: "Journal rollup", Detail: summary}); err != nil {
+		return "", err
+	}
+	args := make([]any, 0, len(foldedIDs)+1)
+	args = append(args, rollupID)
+	for _, id := range foldedIDs {
+		args = append(args, id)
+	}
+	// Re-assert eligibility in the UPDATE itself: only fold rows still untagged and
+	// still regular (not a fact/rollup), so a stale id can never overwrite an
+	// existing tag or fold an upserted singleton. The whole rollup is rolled back
+	// if the eligible set changed since selection, so the summary never claims to
+	// cover entries it did not tag.
+	res, err := tx.ExecContext(ctx,
+		`UPDATE journal SET rollup_id = ? WHERE rollup_id = '' AND kind NOT IN ('fact', 'rollup') AND id IN (`+placeholders(len(foldedIDs))+`)`, args...)
+	if err != nil {
+		return "", fmt.Errorf("tag folded entries: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return "", fmt.Errorf("rollup rows affected: %w", err)
+	}
+	if int(affected) != len(foldedIDs) {
+		return "", fmt.Errorf("rollup eligibility changed: tagged %d of %d entries", affected, len(foldedIDs))
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit rollup: %w", err)
+	}
+	committed = true
+	return rollupID, nil
+}
+
 func (s *Store) CommitmentsDigest(ctx context.Context, dueWithin string) (string, error) {
 	if err := s.ensure(); err != nil {
 		return "", err

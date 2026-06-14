@@ -119,6 +119,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.sleep = sleep.NewRunner(
 		sleep.NewDigestJob(gw.toolSub.WorldStore, sleepSummarizer),
 		sleep.NewDriftJob(gw.toolSub.ValuesStore, gw.toolSub.WorldStore, sleepSummarizer),
+		sleep.NewRollupJob(gw.toolSub.WorldStore, sleepSummarizer),
 	)
 
 	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)
