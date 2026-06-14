@@ -23,7 +23,7 @@ func TestCommandSubsystemRegistersUserVisibleCommands(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = gw.db.Close() }()
 
-	for _, cmd := range []string{"/feature", "/memory", "/skills", "/skill", "/tasks", "/resume", "/team", "/reset"} {
+	for _, cmd := range []string{"/feature", "/memory", "/skills", "/skill", "/sleep", "/tasks", "/resume", "/team", "/reset"} {
 		if _, ok := gw.commands.Table[cmd]; !ok {
 			t.Fatalf("command %s is not registered", cmd)
 		}

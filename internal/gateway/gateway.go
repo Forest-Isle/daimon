@@ -16,6 +16,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/feature"
 	"github.com/Forest-Isle/daimon/internal/heart"
 	"github.com/Forest-Isle/daimon/internal/session"
+	"github.com/Forest-Isle/daimon/internal/sleep"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/taskruntime"
 	"github.com/Forest-Isle/daimon/internal/tool"
@@ -51,6 +52,7 @@ type Gateway struct {
 	taskLedger *taskruntime.Ledger
 	telemetry  *TelemetrySubsystem
 	heart      *HeartSubsystem // nil unless agent.heart_enabled
+	sleep      *sleep.Runner   // consolidation jobs, triggered by /sleep (and later the heart)
 
 	subsystems Subsystems
 }
@@ -108,6 +110,13 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.EpisodeRunner = episode.NewRunner(agentSub.Provider, gw.toolSub.WorldStore, &gw.toolSub.WorldIdentity, eventBus)
 	gw.EpisodeRunner.SetValues(gw.toolSub.ValuesStore)
 	gw.EpisodeEnabled = cfg.Agent.EpisodeEnabled
+
+	// Sleep: consolidation jobs over the world model. The digest job regenerates
+	// the agent's self-summary from recent world state using the LLM provider.
+	// Triggered on demand via /sleep today; the heart can schedule it later.
+	gw.sleep = sleep.NewRunner(
+		sleep.NewDigestJob(gw.toolSub.WorldStore, &completerAdapter{provider: agentSub.Provider, model: cfg.LLM.Model, maxTokens: 1024}),
+	)
 
 	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)
 	gw.memory.BuildCortex()
@@ -367,17 +376,30 @@ func (gw *Gateway) handleApproval(ctx context.Context, ch channel.Channel, targe
 type completerAdapter struct {
 	provider agent.Provider
 	model    string
+	// maxTokens caps the response; 0 falls back to completerDefaultMaxTokens so
+	// existing callers keep their prior behavior.
+	maxTokens int
 }
 
+const completerDefaultMaxTokens = 512
+
 func (a *completerAdapter) Complete(ctx context.Context, systemPrompt, userMessage string) (string, error) {
+	maxTokens := a.maxTokens
+	if maxTokens <= 0 {
+		maxTokens = completerDefaultMaxTokens
+	}
 	req := agent.CompletionRequest{
 		Model: a.model, System: systemPrompt,
 		Messages:  []agent.CompletionMessage{{Role: "user", Content: userMessage}},
-		MaxTokens: 512,
+		MaxTokens: maxTokens,
 	}
 	resp, err := a.provider.Complete(ctx, req)
 	if err != nil {
 		return "", err
+	}
+	if resp.StopReason == agent.StopMaxToken {
+		slog.Warn("completerAdapter: response truncated at max_tokens",
+			"model", a.model, "max_tokens", maxTokens)
 	}
 	return resp.Text, nil
 }
