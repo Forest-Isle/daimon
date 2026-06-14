@@ -12,9 +12,10 @@ import (
 // rather than speculating about the distant one.
 const proposalsHorizonHours = 72
 
-// proposalsDailyCap bounds how many proposals one cycle queues, so a noisy model
-// or a busy week cannot flood the user. Excess (lower-priority by order) is
-// dropped this cycle and reconsidered next.
+// proposalsDailyCap bounds the LIVE pending proposal queue depth, so a noisy
+// model or repeated sleep cycles cannot flood the user. A cycle adds at most
+// (cap - current pending) proposals; excess is dropped and reconsidered next
+// cycle once the user has acted on some.
 const proposalsDailyCap = 5
 
 const proposalsSystemPrompt = `You are the anticipation phase of a personal agent's sleep cycle. You are given the user's UPCOMING COMMITMENTS (things due soon). Propose only concrete next actions the user will plausibly need in order to meet these commitments — preparation, follow-ups, reminders grounded in the commitments listed. Invent nothing that is not grounded in a listed commitment; when nothing useful is anticipatable, return an empty array. Respond with ONLY a JSON array of objects {"title":"<short imperative>","body":"<one or two sentences of context>","action_plan":"<the goal to pursue if accepted>","urgency":<integer 0-3>} and nothing else. Return [] when there is nothing worth proposing.`
@@ -108,26 +109,38 @@ func (j *ProposalsJob) Run(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("proposals: read pending titles: %w", err)
 	}
 
+	// The cap bounds the LIVE pending queue depth, not one cycle's batch: if the
+	// queue already holds proposalsDailyCap live proposals, this cycle adds none.
+	// This honors the blueprint's anti-spam "硬上限" robustly across multiple sleep
+	// cycles in a day (a per-batch cap would let each cycle add a fresh N).
+	budget := proposalsDailyCap - len(pending)
+	if budget <= 0 {
+		return "no new proposals (queue full)", nil
+	}
+
 	// Stamp the expiry to the horizon and best-effort attribute each proposal to a
 	// source commitment (the first one — the model is not asked to map per-item,
-	// and the attribution is advisory). Drop blank titles and ones already pending.
+	// and the attribution is advisory). Drop blank titles, ones already pending, and
+	// duplicates within this same batch (the model may repeat a title).
 	source := ""
 	if len(due) > 0 {
 		source = due[0].ID
 	}
-	kept := make([]ProposedItem, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	kept := make([]ProposedItem, 0, budget)
 	for _, it := range items {
 		title := strings.TrimSpace(it.Title)
-		if title == "" || pending[title] {
+		if title == "" || pending[title] || seen[title] {
 			continue
 		}
+		seen[title] = true
 		it.Title = title
 		it.ExpiresAt = horizon
 		if it.SourceCommitment == "" {
 			it.SourceCommitment = source
 		}
 		kept = append(kept, it)
-		if len(kept) >= proposalsDailyCap {
+		if len(kept) >= budget {
 			break
 		}
 	}

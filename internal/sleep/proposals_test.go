@@ -63,8 +63,9 @@ func TestProposalsJobQueuesWithCapAndDedup(t *testing.T) {
 	c := &stubCommitments{due: []CommitmentBrief{
 		{ID: "commit_1", Kind: "deadline", Title: "Submit report", DueAt: 5000},
 	}}
-	// "Draft outline" is already pending — must be skipped. Seven items returned,
-	// one a dup, one blank-titled: only proposalsDailyCap (5) of the rest survive.
+	// "Draft outline" is already pending (1 live), so the queue-depth budget is
+	// proposalsDailyCap-1 = 4. The reply has a dup, a blank, and 6 fresh titles; the
+	// dup+blank are dropped and only 4 of the 6 fresh ones fit the budget.
 	w := &stubProposals{pending: map[string]bool{"Draft outline": true}}
 	sum := &stubSummarizer{out: `Here you go:
 [
@@ -83,11 +84,11 @@ func TestProposalsJobQueuesWithCapAndDedup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if msg != "queued 5 proposal(s)" {
-		t.Fatalf("msg = %q, want queued 5 proposal(s)", msg)
+	if msg != "queued 4 proposal(s)" {
+		t.Fatalf("msg = %q, want queued 4 proposal(s)", msg)
 	}
-	if len(w.added) != 5 {
-		t.Fatalf("added = %d, want 5: %#v", len(w.added), w.added)
+	if len(w.added) != 4 {
+		t.Fatalf("added = %d, want 4 (budget = cap - 1 pending): %#v", len(w.added), w.added)
 	}
 	wantHorizon := int64(1000) + int64(proposalsHorizonHours)*3600
 	for _, it := range w.added {
@@ -104,6 +105,48 @@ func TestProposalsJobQueuesWithCapAndDedup(t *testing.T) {
 	// The commitment must have reached the summarizer input.
 	if !strings.Contains(sum.gotInput, "Submit report") {
 		t.Fatalf("commitment not fed to summarizer:\n%s", sum.gotInput)
+	}
+}
+
+func TestProposalsJobQueueFullAddsNothing(t *testing.T) {
+	c := &stubCommitments{due: []CommitmentBrief{{ID: "commit_1", Title: "Do thing", DueAt: 5000}}}
+	// Queue already at the cap → budget 0 → nothing queued, summarizer still ran.
+	full := map[string]bool{}
+	for i := 0; i < proposalsDailyCap; i++ {
+		full[string(rune('A'+i))] = true
+	}
+	w := &stubProposals{pending: full}
+	sum := &stubSummarizer{out: `[{"title":"New idea","body":"b","action_plan":"x","urgency":3}]`}
+	job := NewProposalsJob(c, w, sum, fixedClock(1000))
+
+	msg, err := job.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "no new proposals (queue full)" {
+		t.Fatalf("msg = %q, want queue full", msg)
+	}
+	if len(w.added) != 0 {
+		t.Fatalf("nothing should be queued when full: %#v", w.added)
+	}
+}
+
+func TestProposalsJobDedupsWithinBatch(t *testing.T) {
+	c := &stubCommitments{due: []CommitmentBrief{{ID: "commit_1", Title: "Do thing", DueAt: 5000}}}
+	w := &stubProposals{}
+	// The model repeats a title within one reply; only one copy may be queued.
+	sum := &stubSummarizer{out: `[
+  {"title":"Same idea","body":"a","action_plan":"x","urgency":2},
+  {"title":"Same idea","body":"b","action_plan":"y","urgency":1}
+]`}
+	job := NewProposalsJob(c, w, sum, fixedClock(1000))
+
+	msg, err := job.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "queued 1 proposal(s)" || len(w.added) != 1 {
+		t.Fatalf("within-batch dup not deduped: msg=%q added=%#v", msg, w.added)
 	}
 }
 

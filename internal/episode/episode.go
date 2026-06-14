@@ -121,7 +121,10 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (agent
 		fullText, toolCalls, stopReason, streamErr := streamCompletion(ctx, r.provider, creq)
 		r.publishExchange(req, iteration, system, messages, fullText, toolCalls, stopReason, time.Since(start).Milliseconds())
 		if streamErr != nil {
-			return r.fail(req, "episode stream error: "+streamErr.Error()), streamErr
+			// Invariant #3 (交账强制): an episode that started must leave a durable
+			// Outcome even when the provider errors mid-run, so a crashed/failed
+			// episode is accounted for in the world rather than vanishing.
+			return r.failEpisode(ctx, req, episodeID, "episode stream error: "+streamErr.Error()), streamErr
 		}
 
 		if fullText != "" {
@@ -253,6 +256,24 @@ func followUpCommitment(f FollowUp) (world.Mutation, bool) {
 func (r *Runner) fail(req agent.CognitiveRequest, summary string) agent.CognitiveOutcome {
 	r.publishTurnClosed(req.SessionID, "")
 	return agent.CognitiveOutcome{Status: "failed", Summary: truncateRunes(strings.TrimSpace(summary), 500)}
+}
+
+// failEpisode records a durable blocked Outcome for an episode that started but
+// could not complete (a provider/stream error), then returns the failed result.
+// This honors invariant #3 (every episode leaves an Outcome): without it, a
+// mid-run provider error would end the episode with no journal trace. The outcome
+// marker is idempotent (ApplyOutcome claims journal_outcome_<episodeID>), so a
+// re-delivery does not double-record. A write failure here is logged, not fatal —
+// the caller still learns the episode failed.
+func (r *Runner) failEpisode(ctx context.Context, req agent.CognitiveRequest, episodeID, summary string) agent.CognitiveOutcome {
+	summary = truncateRunes(strings.TrimSpace(summary), 500)
+	if r.world != nil {
+		if err := r.world.ApplyOutcome(ctx, episodeID, nil, summary, false); err != nil {
+			slog.Error("episode: record blocked outcome failed", "episode", episodeID, "err", err)
+		}
+	}
+	r.publishTurnClosed(req.SessionID, "")
+	return agent.CognitiveOutcome{Status: "failed", Summary: summary}
 }
 
 func streamCompletion(ctx context.Context, p agent.Provider, req agent.CompletionRequest) (string, []agent.ToolUseBlock, string, error) {

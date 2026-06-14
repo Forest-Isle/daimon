@@ -206,14 +206,35 @@ func TestExecuteMaxIterationsSalvage(t *testing.T) {
 func TestExecuteStreamError(t *testing.T) {
 	streamErr := errors.New("stream failed")
 	provider := &episodeTestProvider{streams: []providerResponse{{err: streamErr}}}
-	runner, _ := testRunner(t, provider)
+	runner, ws := testRunner(t, provider)
 
-	out, err := runner.Execute(context.Background(), chatRequest("", "hi"))
+	req := chatRequest("", "hi")
+	req.EpisodeID = "evt-streamfail-1"
+	out, err := runner.Execute(context.Background(), req)
 	if err == nil {
 		t.Fatal("Execute() error = nil, want stream error")
 	}
 	if out.Status != "failed" {
 		t.Fatalf("status = %q, want failed", out.Status)
+	}
+
+	// CF4 / invariant #3 (交账强制): a provider error mid-episode must still leave a
+	// durable Outcome in the world, not vanish without a trace.
+	journal, jerr := ws.ListJournal(context.Background(), "", 10)
+	if jerr != nil {
+		t.Fatalf("ListJournal: %v", jerr)
+	}
+	found := false
+	for _, e := range journal {
+		if e.ID == "journal_outcome_evt-streamfail-1" && e.Kind == "outcome" {
+			found = true
+			if !strings.Contains(e.Summary, "stream error") {
+				t.Fatalf("outcome summary should record the failure, got %q", e.Summary)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("stream-error episode left no outcome journal: %#v", journal)
 	}
 }
 

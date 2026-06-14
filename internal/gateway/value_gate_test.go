@@ -34,18 +34,45 @@ func TestValueGateInteractiveOnlyWhenExplicitLocal(t *testing.T) {
 func TestValueGateAutonomousPermittedByValue(t *testing.T) {
 	store := values.NewStore(t.TempDir())
 	if _, err := store.Add(context.Background(), values.Entry{
-		Domain: "bash", Statement: "may auto-run destructive bash in /tmp", Confidence: 0.9,
+		Domain: "mailer", Statement: "may send routine status mail autonomously", Confidence: 0.9,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	g := newValueGate(store, nil)
 
+	// A covering value permits a COMPENSABLE autonomous action (compensable =
+	// reversible-with-effort, so a value can authorize it).
 	ictx := tool.WithChannelClass(context.Background(), tool.ToolChannelScheduled)
-	ref, ok := g.Permit(ictx, action.Irreversible, "bash")
+	ref, ok := g.Permit(ictx, action.Compensable, "mailer")
 	if !ok {
-		t.Fatal("covering value should permit the autonomous action")
+		t.Fatal("covering value should permit the autonomous compensable action")
 	}
 	if ref == "" || ref[:6] != "value:" {
 		t.Fatalf("permit ref = %q, want value:<id>", ref)
+	}
+}
+
+// TestValueGateIrreversibleNeverAutonomous verifies CF5 / invariant #4: an
+// irreversible action is never released autonomously — not by a covering value,
+// not by earned trust. Only a present human (interactive Local channel) may
+// authorize it.
+func TestValueGateIrreversibleNeverAutonomous(t *testing.T) {
+	store := values.NewStore(t.TempDir())
+	if _, err := store.Add(context.Background(), values.Entry{
+		Domain: "bash", Statement: "may run destructive bash", Confidence: 0.95,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	g := newValueGate(store, nil)
+
+	// Even with a covering value, an autonomous irreversible action is blocked.
+	ictx := tool.WithChannelClass(context.Background(), tool.ToolChannelScheduled)
+	if ref, ok := g.Permit(ictx, action.Irreversible, "bash"); ok {
+		t.Fatalf("irreversible must not be auto-permitted by a value, got ref=%q", ref)
+	}
+	// But a present human (interactive Local) may still authorize it.
+	lctx := tool.WithChannelClass(context.Background(), tool.ToolChannelLocal)
+	if ref, ok := g.Permit(lctx, action.Irreversible, "bash"); !ok || ref != "interactive" {
+		t.Fatalf("interactive human should authorize irreversible, got %q %v", ref, ok)
 	}
 }

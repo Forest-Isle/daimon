@@ -161,6 +161,9 @@ func TestRescoreMaxExchangesCap(t *testing.T) {
 	if rep.Compared != 2 {
 		t.Fatalf("cap not honored: compared=%d, want 2", rep.Compared)
 	}
+	if !rep.Capped {
+		t.Fatal("Capped must be true when the cap stopped the run with exchanges remaining")
+	}
 }
 
 func TestRescoreSkipsBaselineToolCallTurns(t *testing.T) {

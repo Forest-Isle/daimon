@@ -44,6 +44,15 @@ func (g valueGate) Permit(ctx context.Context, class action.Class, contextKey st
 		return "interactive", true
 	}
 
+	// Invariant #4 (不可逆高风险永远人签): an irreversible action is NEVER released
+	// autonomously. Only a present human (the interactive branch above) can
+	// authorize it; neither a recorded value nor earned trust substitutes for a
+	// human signature on an irreversible, high-stakes action. Value/trust cover
+	// autonomy only for reversible and compensable actions.
+	if class == action.Irreversible {
+		return "", false
+	}
+
 	// Autonomous: a covering active value decision permits the action.
 	if g.values != nil {
 		if e, ok := g.values.Lookup(contextKey); ok {

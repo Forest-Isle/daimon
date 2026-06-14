@@ -115,8 +115,8 @@ func runReplayAgainst(ctx context.Context, dir, configPath, judgeModel string, m
 
 func printRescoreReport(dir, configPath, model string, rep replay.RescoreReport, provider agent.Provider) {
 	fmt.Printf("Replay re-score — recorded=%s against=%s model=%s\n", dir, configPath, model)
-	fmt.Printf("compared=%d avg_score=%d regressions=%d errors=%d skipped=%d\n",
-		rep.Compared, rep.AvgScore, rep.Regressions, rep.Errors, rep.Skipped)
+	fmt.Printf("compared=%d avg_score=%d regressions=%d errors=%d skipped=%d capped=%t\n",
+		rep.Compared, rep.AvgScore, rep.Regressions, rep.Errors, rep.Skipped, rep.Capped)
 	// Cost: cumulative tokens spent by this run (candidate re-runs + judge calls
 	// share one freshly-built provider, so its cumulative usage is the run total).
 	if ts, ok := provider.(interface {

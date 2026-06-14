@@ -67,7 +67,10 @@ type RescoreReport struct {
 	Errors      int
 	Skipped     int
 	AvgScore    int
-	Results     []ExchangeResult
+	// Capped is true when the run stopped at MaxExchanges with more scorable
+	// exchanges left unscored — so the report is not mistaken for full coverage.
+	Capped  bool
+	Results []ExchangeResult
 }
 
 const rescoreJudgeSystemPrompt = `You are an offline replay judge for a personal agent. You are given the agent's CONTEXT (the last user turn), the BASELINE response that was actually produced in the recorded run, and a CANDIDATE response from a new configuration for the same context. Judge only the candidate's quality relative to the baseline for THIS context. Respond with ONLY a JSON object {"score":<integer 0-100>,"regression":<true|false>,"note":"<one short sentence>"} and nothing else. Set regression=true only when the candidate is clearly worse than the baseline (less correct, less helpful, or unsafe); a candidate that is as good or better is not a regression.`
@@ -110,6 +113,7 @@ func Rescore(ctx context.Context, sessions []Session, cand Candidate, judge Judg
 			// garbage rows cannot exhaust the budget before the requested number of
 			// re-runs happen.
 			if opts.MaxExchanges > 0 && attempts >= opts.MaxExchanges {
+				rep.Capped = true // more scorable exchanges remain unscored
 				return finalize(rep, scoreSum), nil
 			}
 
