@@ -13,7 +13,7 @@
 | Phase 0 改名+录制 | ✅ 符合 | — |
 | Phase 1 episode+world | 🟡 主体完成 | world 无检索门面；FollowUps 不种入；salvaged 不计；Budget/Receipt 未接 |
 | Phase 2 heart+attention+action | 🟠 地基+骨架 | action 只观测不强制；feedback/holds 死表；仅 timer 源；无 AST/seatbelt |
-| Phase 3 sleep+proposals+shadow | 🟡 sleep 推进 (P3-J1..J5) | sleep 包+digest+drift+synthesize-rules+rollup + replay 读侧 已落；replay 实跑/distill/reconcile/proposals/shadow 未开工 |
+| Phase 3 sleep+proposals+shadow | 🟡 sleep 推进 (P3-J1..J6) | sleep 包+digest+drift+synthesize-rules+rollup + replay 读侧 + proposals 引擎核心 已落；replay 实跑/distill/reconcile/proposals 投递 UX/shadow 未开工 |
 | Phase 4 economy+selfops+sensors | ❌ 未开工 | 包不存在 |
 | §4.5 values | ✅ 完成 (P2-G + P3-J2) | ask-once 门控+条目+digest+漂移检测(sleep DriftJob)全落 |
 | §4.7 mind | ❌ 未拆出 | 仍在 agent/ |
@@ -43,7 +43,7 @@ P0 ─▶ P1 ─▶ P2 ─▶ P3
 | ~~**P2-G**~~ ✅ | values 价值模型（ask-once；漂移→P3-J） | 4-6d | 价值权衡30天零重复问 |
 | **P2-H** 🟡 | mail/calendar/fs 源 + chat 经 heart | 8-12d | H1 done(chat ingress 经 heart: dedup+统一事件流, gated); 余: async dispatch+删 legacy(需生产浸泡), mail/cal/fs 源→Phase 4 |
 | **P3-I** | mind 拆出 + 影子脑 | 6-10d | 换脑回归零；影子周报 |
-| **P3-J** 🟡 | sleep + proposals + replay harness | 15-25d | J1 done(sleep Runner+digest+/sleep); J2 done(drift→值漂移, 完成 P2-G deferred); J3 done(synthesize-rules→修正学成 attention 规则, 闭 P1-E loop); J4 done(rollup→旧 journal 折叠为紧凑摘要, 保留近期窗口); J5 done(replay 读侧→`daimon replay` 离线读回放日志重建 session+健康指标); 余: replay 实跑(--against)/distill/reconcile + proposals |
+| **P3-J** 🟡 | sleep + proposals + replay harness | 15-25d | J1 done(sleep Runner+digest+/sleep); J2 done(drift→值漂移, 完成 P2-G deferred); J3 done(synthesize-rules→修正学成 attention 规则, 闭 P1-E loop); J4 done(rollup→旧 journal 折叠为紧凑摘要, 保留近期窗口); J5 done(replay 读侧→`daimon replay` 离线读回放日志重建 session+健康指标); J6 done(proposals 引擎核心→sleep 扫 commitments(72h) 生成提案队列+`daimon proposals` 只读列出); 余: replay 实跑(--against)/distill/reconcile + proposals 投递 UX |
 | **P3-K** | economy + selfops | 10-15d | 月报；故障自报；金丝雀回滚 |
 
 > 说明：P0/P1 在已"完成"阶段内补承重墙与护栏，是放开自治前的硬前置。P2 完成绞杀（剥离 memory/agent 残留）。P3 为复利与极限器官，蓝图明示不设死线。
@@ -344,7 +344,7 @@ P2-F（Composer 稳定）、P3-J（replay 评分）。
 
 ### 目标
 - `internal/sleep`：reconcile（记忆和解，吸收 `memory/lifecycle.go`）/ rollup（journal 周卷叠）/ digest（重算 identity+commitments digest）/ distill（技能蒸馏：重复≥3且全 verified → workflow/SKILL + 金丝雀转正）/ synthesize-rules（从 feedback 合成路由规则）/ drift（价值漂移）。
-- `internal/proposals`：模拟情节扫 commitments(72h)+日历+watches → 提案队列（迁移 031→改号，注意与 follow_ups 031 冲突，proposals 用 032）；Telegram inline [做/不做/改]；每日早报。
+- `internal/proposals`：✅ 核心已落（J6, 迁移 033）。sleep 扫 commitments(72h) → 提案队列（commitments 部分；日历+watches 待 Phase 4 sensors）。投递 Telegram inline [做/不做/改] + 每日早报为后续增量。
 - `internal/replay` harness：离线重打分 + 回归集（correction 关联情节自动入集）+ 金丝雀（最近50情节回放）。
 
 ### 数据
@@ -366,7 +366,8 @@ P2 全部；replay 依赖 telemetry 录制（已在）。
 - **J3 ✅** synthesize-rules slice（commit 1e3be47）。`internal/sleep/synthesize.go` SynthesizeRulesJob：挖用户路由修正(attention feedback)→生成确定性 attention 规则，重复修正不再耗 model/cognize 调用。仅当某 (source,kind) 修正**一致**且来自 **≥2 不同事件**才合成；跳过已被现有规则(通配/有效 action 语义)覆盖者。安全：合成 action=用户自身 expected；高风险白名单在 Chain 中先于 rules→合成的 ignore 永不丢高风险事件。`heart.Store.KindsByID` 批量解析 event source/kind(feedback 仅存 event_id)。gateway `feedbackCorrectionSource`(feedback⋈events join 在边界,job 纯逻辑) + `rulesFileSink`(读/merge/原子 temp+rename 重写 rules.yaml,mtime 守卫防覆盖手改)。合成规则次次重启生效。**闭 P1-E feedback loop。** Codex 审查采纳：跳过 reflex(无 ReflexID)/通配+有效 action 覆盖检查/原子写+mtime 守卫/distinct-event 计数。
 - **J4 ✅** rollup slice（commit 39dbad8）。`internal/sleep/rollup.go` RollupJob：把早于近期窗口（keepRecent=50）的旧 journal 条目折叠成单条 LLM 摘要，近期窗口保留完整明细。非破坏：折叠条目打 `rollup_id` 标签而非删除（rollup 是仍在原地明细的有损索引）；fact/rollup 两类永不折叠。`world.UnrolledBeyond`（oldest-first 可折叠条目，排除 fact/rollup，OFFSET keepRecent）+ `world.Rollup`（事务：追加 rollup 条目→守卫式 UPDATE 打标→RowsAffected 断言）。不足 rollupMinFold(3) 条则跳过。Codex 审查采纳：Rollup UPDATE 带与读取同一资格谓词 + 事务内断言 RowsAffected==len(foldedIDs)（全有或全无，资格漂移即整批回滚）；buildRollupInput 仅给真正渲染出内容的条目打标，min-fold 闸按已渲染 id 计数（rollup 绝不声称摘要了没见过的条目）。
 - **J5 ✅（读侧）** replay harness 读侧。`internal/replay`：读 `<appdir>/replays/*.jsonl`（telemetry P0-B 录的回放日志）→ 按 SessionID 重建 `Session`（ProviderExchange/ToolRoundTrip/TurnClosed/EpisodeSalvaged，保留录制顺序，跨日按文件名=日期排序）→ `Analyze` 离线健康指标（exchanges/tool_calls/tool_failures/salvaged/abnormal_stops/max_token_stops）。`LoadDir` 缺目录→无 session 不报错；`parseFile` 用 ReadBytes 容超长行（完整 system prompt+messages），畸形/崩溃截断的末行 skip+计数（回放日志是 best-effort 遥测，非权威配置→不 fail-loud）。`daimon replay [--replays <dir>] [--session <id>]` cobra 命令打印报告（只读，绝不重跑/连 provider，不碰 DB→可与运行中 daemon 并行）。纯逻辑+边界 I/O，6 单测（重建/跨日时序/畸形+截断跳过/缺目录/非 jsonl 忽略/指标聚合）。**最低风险切片**（无变更/网络/鉴权）。Codex 审查待补（合并 main 前）。
-- **余 (J6+)**: replay `--against <config>` 实跑对比（需先在 ProviderExchange 录 Tools 数组 + 从 config 构 provider，耗真 token、`make test` 不可全验，故隔离单独切片）；回归集（correction/salvaged 关联情节自动入集）；金丝雀（最近50情节回放）。distill（技能蒸馏转正）/ reconcile（吸收 memory/lifecycle，含 P2-F deferred 连续性回归测试）；proposals 预期引擎。
+- **J6 ✅** proposals 预期引擎核心（commit 6d6b9a3）。`internal/sleep/proposals.go` ProposalsJob：扫 commitments(horizon 72h) → summarizer 提案 → `parseProposals`(扫所有平衡 `[...]` span，首个非空数组胜，垃圾降级 nil) → 与**仍存活**的 pending 标题去重 → 每周期硬上限 5 → 写 proposals 队列；无 commitment 则不调模型。纯 + 时钟注入（job 不读墙钟）。`internal/proposals` 时钟自由 SQLite Store（Create/ListPending/PendingTitles/Decide；PendingTitles 用存活谓词→过期未决标题不再永久挡复提；Decide 仅改 pending 行，已决/未知报错）。迁移 033 proposals 表 + (state,expires_at) 索引。gateway 边界适配器 `worldCommitmentSource`(due_at 自由格式→Go 内多布局解析，无时区布局走 `ParseInLocation(time.Local)` 防 UTC 偏移误桶；丢无/不可解析 due，留 overdue) + `proposalsStoreSink`(边界盖 created_at)；job 注入墙钟构造。`daimon proposals` 只读列出存活队列。Codex 只读审查 5 项全采纳：存活感知去重 / 本地时区 due 解析 / 去 sleep 包内 time.Now 兜底（nil 时钟=接线错误，Run 报错）/ 多候选 JSON 解析 / `FindConfigPath` 解析配置。投递(Telegram inline [做/不做/改])+采纳点燃情节+dismiss→attention_feedback 为后续增量。
+- **余 (J7+)**: replay `--against <config>` 实跑对比（需先在 ProviderExchange 录 Tools 数组 + 从 config 构 provider，耗真 token、`make test` 不可全验，故隔离单独切片）；回归集（correction/salvaged 关联情节自动入集）；金丝雀（最近50情节回放）。distill（技能蒸馏转正）/ reconcile（吸收 memory/lifecycle，含 P2-F deferred 连续性回归测试）；proposals 投递/采纳 UX。
 
 ---
 
@@ -391,12 +392,12 @@ P3-J（replay 金丝雀、proposals）。
 | 表 | 迁移号 | 增量 |
 |---|---|---|
 | follow_ups | 031 | P0-A |
-| proposals | 032 | P3-J |
-| costs | 033 | P3-K |
-| episodes/outcomes 扩列 | 034 | P3-J |
-| drop task_checkpoints | 035 | P3-J（重组取代 checkpoint 后） |
+| proposals | 033 | P3-J（032 已被 world_fts 占用，proposals 续号 033） |
+| costs | 034 | P3-K |
+| episodes/outcomes 扩列 | 035 | P3-J |
+| drop task_checkpoints | 036 | P3-J（重组取代 checkpoint 后） |
 
-> 已用：027 world_model、028 action_ledger、029 events、030 attention_feedback。
+> 已用：027 world_model、028 action_ledger、029 events、030 attention_feedback、031 follow_ups、032 world_fts、033 proposals。
 
 ---
 
