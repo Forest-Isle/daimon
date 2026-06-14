@@ -13,9 +13,9 @@
 | Phase 0 改名+录制 | ✅ 符合 | — |
 | Phase 1 episode+world | 🟡 主体完成 | world 无检索门面；FollowUps 不种入；salvaged 不计；Budget/Receipt 未接 |
 | Phase 2 heart+attention+action | 🟠 地基+骨架 | action 只观测不强制；feedback/holds 死表；仅 timer 源；无 AST/seatbelt |
-| Phase 3 sleep+proposals+shadow | ❌ 未开工 | 包不存在 |
+| Phase 3 sleep+proposals+shadow | 🟡 sleep 起步 (P3-J1/J2) | sleep 包+digest+drift 已落；proposals/replay/shadow 未开工 |
 | Phase 4 economy+selfops+sensors | ❌ 未开工 | 包不存在 |
-| §4.5 values | 🟡 主体完成 (P2-G) | ask-once 门控+条目+digest 已落；漂移检测归 P3-J |
+| §4.5 values | ✅ 完成 (P2-G + P3-J2) | ask-once 门控+条目+digest+漂移检测(sleep DriftJob)全落 |
 | §4.7 mind | ❌ 未拆出 | 仍在 agent/ |
 
 **三处"标称完成实为骨架"的承重墙隐患（最高优先级）**：
@@ -43,7 +43,7 @@ P0 ─▶ P1 ─▶ P2 ─▶ P3
 | ~~**P2-G**~~ ✅ | values 价值模型（ask-once；漂移→P3-J） | 4-6d | 价值权衡30天零重复问 |
 | **P2-H** 🟡 | mail/calendar/fs 源 + chat 经 heart | 8-12d | H1 done(chat ingress 经 heart: dedup+统一事件流, gated); 余: async dispatch+删 legacy(需生产浸泡), mail/cal/fs 源→Phase 4 |
 | **P3-I** | mind 拆出 + 影子脑 | 6-10d | 换脑回归零；影子周报 |
-| **P3-J** 🟡 | sleep + proposals + replay harness | 15-25d | J1 done(sleep Runner+digest job+/sleep, 串行+panic隔离+TryLock去重+超时); 余: rollup/distill/drift/synthesize-rules/reconcile + proposals + replay |
+| **P3-J** 🟡 | sleep + proposals + replay harness | 15-25d | J1 done(sleep Runner+digest+/sleep); J2 done(drift DriftJob→active值漂移标记, 完成 P2-G deferred); 余: rollup/distill/synthesize-rules/reconcile + proposals + replay |
 | **P3-K** | economy + selfops | 10-15d | 月报；故障自报；金丝雀回滚 |
 
 > 说明：P0/P1 在已"完成"阶段内补承重墙与护栏，是放开自治前的硬前置。P2 完成绞杀（剥离 memory/agent 残留）。P3 为复利与极限器官，蓝图明示不设死线。
@@ -362,7 +362,8 @@ P2 全部；replay 依赖 telemetry 录制（已在）。
   DigestJob 从 commitments+近期 journal 经 LLM 重算自我 digest，幂等 upsert 为稳定 world fact（`fact_sleep_digest`），空 world 跳过 LLM，绝不自喂上轮 digest。
   `/sleep` 在 2 分钟 bounded ctx 下按需跑并汇报。completerAdapter 增可配 maxTokens（默认 512 不变；digest 用 1024）+ 截断告警。
   Codex 审查采纳：panic 隔离 / 周期串行 / 命令超时 / 取消 break / 截断可见。
-- **余 (J2+)**: rollup（journal 周卷叠）/ distill（技能蒸馏转正）/ drift（价值漂移，吸收 P2-G deferred）/ synthesize-rules（feedback→路由规则）/ reconcile（吸收 memory/lifecycle）；proposals 预期引擎；replay harness（含 P2-F deferred 连续性回归测试）。
+- **J2 ✅** drift slice（commit 2abcb16）。`internal/sleep/drift.go` DriftJob：LLM 判近期 journal 是否抵触某 active value → 标 active→drifting；drifting 值不再授权自主行动（Lookup 仅 active）→ 下次自主行动重跑 ask-once 用户复核。fail-safe（误报仅多问一次）。无 active 值/无活动则跳过 LLM；校验 flagged id（忽略幻觉）；每标记 1 值落一条 kind="drift" journal 审计。`values.Store.MarkDrifting` 单锁 read-modify-write（防并发复核被陈旧快照覆盖）+ id→path 索引（改名不再生成幽灵文件）。**完成 §4.5 flow-2（P2-G deferred）。** Codex 审查采纳：幽灵文件/锁内丢更新/journal Detail 纳入(漏检即不安全方向)/字符串感知 JSON 解析降级 no-drift。
+- **余 (J3+)**: rollup（journal 周卷叠）/ distill（技能蒸馏转正）/ synthesize-rules（feedback→路由规则）/ reconcile（吸收 memory/lifecycle）；proposals 预期引擎；replay harness（含 P2-F deferred 连续性回归测试）。
 
 ---
 
