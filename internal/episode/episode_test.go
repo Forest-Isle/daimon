@@ -238,6 +238,69 @@ func TestExecuteStreamError(t *testing.T) {
 	}
 }
 
+// TestParseOutcomeRejectsInvalidStatus verifies invariant #3 (schema-validated
+// Outcome): episode_close must declare a status in the enum, so an out-of-enum
+// value is rejected (forcing the model to retry) rather than silently propagated
+// into the journal.
+func TestParseOutcomeRejectsInvalidStatus(t *testing.T) {
+	for _, status := range []string{"success", "partial", "DONE", "", "complete"} {
+		raw := `{"status":"` + status + `","summary":"ok"}`
+		if _, err := parseOutcome(raw); err == nil {
+			t.Fatalf("parseOutcome accepted invalid status %q", status)
+		}
+	}
+	for _, status := range []string{"done", "blocked", "handed_off", " done "} {
+		raw := `{"status":"` + status + `","summary":"ok"}`
+		out, err := parseOutcome(raw)
+		if err != nil {
+			t.Fatalf("parseOutcome rejected valid status %q: %v", status, err)
+		}
+		if out.Status != strings.TrimSpace(status) {
+			t.Fatalf("status = %q, want trimmed %q", out.Status, strings.TrimSpace(status))
+		}
+	}
+}
+
+// TestExecuteWorldWriteFailureStillRecordsTrace verifies invariant #3 (交账强制):
+// a malformed WorldWrite makes ApplyOutcome's transaction roll back, which would
+// otherwise erase the episode's journal trace too. The runner must re-record the
+// outcome with no writes so the episode is accounted for rather than vanishing.
+func TestExecuteWorldWriteFailureStillRecordsTrace(t *testing.T) {
+	bad := `{"status":"done","summary":"did work","world_writes":[{"op":"bogus.op","target":"x","body":{}}]}`
+	provider := &episodeTestProvider{streams: []providerResponse{{
+		text:      "working",
+		toolCalls: []agent.ToolUseBlock{closeCall(bad)},
+	}}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("Do a thing", "go")
+	req.EpisodeID = "evt-badwrite-1"
+	out, err := runner.Execute(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != "failed" {
+		t.Fatalf("status = %q, want failed", out.Status)
+	}
+
+	journal, jerr := ws.ListJournal(context.Background(), "", 10)
+	if jerr != nil {
+		t.Fatalf("ListJournal: %v", jerr)
+	}
+	found := false
+	for _, e := range journal {
+		if e.ID == "journal_outcome_evt-badwrite-1" && e.Kind == "outcome" {
+			found = true
+			if !strings.Contains(e.Summary, "world write failed") {
+				t.Fatalf("outcome summary should note the write failure, got %q", e.Summary)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("bad-write episode left no outcome journal: %#v", journal)
+	}
+}
+
 func TestExecuteToolDispatchBeforeClose(t *testing.T) {
 	var calls atomic.Int32
 	provider := &episodeTestProvider{streams: []providerResponse{

@@ -194,7 +194,11 @@ func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeI
 
 	if r.world != nil {
 		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, out.Salvaged); err != nil {
-			return r.fail(req, "world write failed: "+err.Error())
+			// Invariant #3 (交账强制): a malformed WorldWrite must not roll back the
+			// episode's journal trace along with it. failEpisode re-applies the
+			// outcome with no writes (idempotent), so the summary still lands and the
+			// episode is accounted for rather than vanishing.
+			return r.failEpisode(ctx, req, episodeID, out.Summary+" [world write failed: "+err.Error()+"]")
 		}
 	}
 
@@ -253,11 +257,6 @@ func followUpCommitment(f FollowUp) (world.Mutation, bool) {
 	return world.Mutation{Op: "commitment.create", Body: body}, true
 }
 
-func (r *Runner) fail(req agent.CognitiveRequest, summary string) agent.CognitiveOutcome {
-	r.publishTurnClosed(req.SessionID, "")
-	return agent.CognitiveOutcome{Status: "failed", Summary: truncateRunes(strings.TrimSpace(summary), 500)}
-}
-
 // failEpisode records a durable blocked Outcome for an episode that started but
 // could not complete (a provider/stream error), then returns the failed result.
 // This honors invariant #3 (every episode leaves an Outcome): without it, a
@@ -312,8 +311,16 @@ func parseOutcome(raw string) (Outcome, error) {
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		return Outcome{}, fmt.Errorf("decode outcome: %w", err)
 	}
-	if strings.TrimSpace(out.Status) == "" {
-		return Outcome{}, errors.New("status is required")
+	// Invariant #3 (交账强制): the Outcome is schema-validated, not merely
+	// non-empty. Status must be one of the declared enum values (the episode_close
+	// tool schema advertises the same set); an out-of-enum status is rejected so
+	// the model retries (the salvage path falls back to a heuristic Outcome).
+	status := strings.TrimSpace(out.Status)
+	switch status {
+	case "done", "blocked", "handed_off":
+		out.Status = status
+	default:
+		return Outcome{}, fmt.Errorf("status %q must be one of done, blocked, handed_off", out.Status)
 	}
 	if utf8.RuneCountInString(out.Summary) > 500 {
 		return Outcome{}, fmt.Errorf("summary is %d chars, max 500", utf8.RuneCountInString(out.Summary))
