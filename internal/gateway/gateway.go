@@ -15,6 +15,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/episode"
 	"github.com/Forest-Isle/daimon/internal/feature"
 	"github.com/Forest-Isle/daimon/internal/heart"
+	"github.com/Forest-Isle/daimon/internal/proposals"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/sleep"
 	"github.com/Forest-Isle/daimon/internal/store"
@@ -116,10 +117,22 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// activity contradicts. Both use the LLM provider. Triggered on demand via
 	// /sleep today; the heart can schedule it later.
 	sleepSummarizer := &completerAdapter{provider: agentSub.Provider, model: cfg.LLM.Model, maxTokens: 1024}
+	proposalsStore := proposals.NewStore(gw.db.DB)
+	// The clock is injected at this boundary so the sleep jobs stay clock-free.
+	unixNow := func() int64 { return time.Now().Unix() }
 	gw.sleep = sleep.NewRunner(
 		sleep.NewDigestJob(gw.toolSub.WorldStore, sleepSummarizer),
 		sleep.NewDriftJob(gw.toolSub.ValuesStore, gw.toolSub.WorldStore, sleepSummarizer),
 		sleep.NewRollupJob(gw.toolSub.WorldStore, sleepSummarizer),
+		// Anticipation: scan commitments due soon and queue proposals the user will
+		// likely need. Reads the world, writes the proposals queue; delivery/decision
+		// UX is a later increment that reads from that queue.
+		sleep.NewProposalsJob(
+			worldCommitmentSource{world: gw.toolSub.WorldStore},
+			proposalsStoreSink{store: proposalsStore, now: unixNow},
+			sleepSummarizer,
+			unixNow,
+		),
 	)
 
 	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)
