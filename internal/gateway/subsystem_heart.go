@@ -116,12 +116,18 @@ func highRiskKinds(cfg *config.Config) []string {
 	return append(kinds, cfg.Agent.Heart.HighRiskKinds...)
 }
 
+// attentionRulesPath is the on-disk location of the attention rule list, read at
+// startup and appended to by the sleep synthesize-rules job.
+func attentionRulesPath() string {
+	return filepath.Join(appdir.BaseDir(), "attention", "rules.yaml")
+}
+
 // loadAttentionRules reads ~/.daimon/attention/rules.yaml (a top-level YAML list
 // of rules) if present. A missing file yields no rules — every event falls
 // through to the Cognize default. A malformed file is logged and ignored rather
 // than failing startup or, worse, silently swallowing events.
 func loadAttentionRules() []attention.Rule {
-	path := filepath.Join(appdir.BaseDir(), "attention", "rules.yaml")
+	path := attentionRulesPath()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {

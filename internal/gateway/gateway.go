@@ -179,6 +179,14 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 				Interval:   time.Duration(mins) * time.Minute,
 			})
 		}
+
+		// Sleep can now learn from routing corrections: the synthesize-rules job
+		// needs the heart's feedback + event stores, which only exist when the heart
+		// is enabled. Registered here (construction, before Start) so no cycle runs.
+		gw.sleep.Register(sleep.NewSynthesizeRulesJob(
+			feedbackCorrectionSource{feedback: gw.heart.feedback, events: gw.heart.store},
+			rulesFileSink{path: attentionRulesPath()},
+		))
 		slog.Info("heart enabled",
 			"heartbeat_interval_minutes", cfg.Agent.Heart.HeartbeatIntervalMinutes,
 			"model_router", cfg.Agent.Heart.ModelRouter)

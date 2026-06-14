@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -149,6 +150,45 @@ func (s *Store) RecentRouted(ctx context.Context, limit int) ([]RoutedEvent, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate routed events: %w", err)
+	}
+	return out, nil
+}
+
+// KindsByID looks up the source and kind of each given event id. Missing ids are
+// simply absent from the result (not an error). The sleep phase uses this to join
+// routing corrections back to the event they correct, so it can synthesize rules
+// keyed by source/kind. An empty id list returns an empty map without a query.
+func (s *Store) KindsByID(ctx context.Context, ids []string) (map[string]RoutedEvent, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	out := map[string]RoutedEvent{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := `SELECT id, source, kind, occurred_at FROM events WHERE id IN (` +
+		strings.Join(placeholders, ",") + `)`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("lookup events by id: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var ev RoutedEvent
+		if err := rows.Scan(&ev.ID, &ev.Source, &ev.Kind, &ev.OccurredAt); err != nil {
+			return nil, fmt.Errorf("scan event: %w", err)
+		}
+		out[ev.ID] = ev
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate events: %w", err)
 	}
 	return out, nil
 }
