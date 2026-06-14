@@ -43,7 +43,7 @@ P0 ─▶ P1 ─▶ P2 ─▶ P3
 | ~~**P2-G**~~ ✅ | values 价值模型（ask-once；漂移→P3-J） | 4-6d | 价值权衡30天零重复问 |
 | **P2-H** 🟡 | mail/calendar/fs 源 + chat 经 heart | 8-12d | H1 done(chat ingress 经 heart: dedup+统一事件流, gated); 余: async dispatch+删 legacy(需生产浸泡), mail/cal/fs 源→Phase 4 |
 | **P3-I** | mind 拆出 + 影子脑 | 6-10d | 换脑回归零；影子周报 |
-| **P3-J** | sleep + proposals + replay harness | 15-25d | 首个蒸馏技能转正；首次"它先做了" |
+| **P3-J** 🟡 | sleep + proposals + replay harness | 15-25d | J1 done(sleep Runner+digest job+/sleep, 串行+panic隔离+TryLock去重+超时); 余: rollup/distill/drift/synthesize-rules/reconcile + proposals + replay |
 | **P3-K** | economy + selfops | 10-15d | 月报；故障自报；金丝雀回滚 |
 
 > 说明：P0/P1 在已"完成"阶段内补承重墙与护栏，是放开自治前的硬前置。P2 完成绞杀（剥离 memory/agent 残留）。P3 为复利与极限器官，蓝图明示不设死线。
@@ -355,6 +355,14 @@ P2-F（Composer 稳定）、P3-J（replay 评分）。
 
 ### 依赖
 P2 全部；replay 依赖 telemetry 录制（已在）。
+
+### 进度
+- **J1 ✅** `internal/sleep` 基座 + digest job + `/sleep` 命令（commit 2144085）。
+  Runner 串行执行 jobs（per-job error+panic 隔离；mutex TryLock 防并发周期互相覆盖陈旧快照；取消即停）。
+  DigestJob 从 commitments+近期 journal 经 LLM 重算自我 digest，幂等 upsert 为稳定 world fact（`fact_sleep_digest`），空 world 跳过 LLM，绝不自喂上轮 digest。
+  `/sleep` 在 2 分钟 bounded ctx 下按需跑并汇报。completerAdapter 增可配 maxTokens（默认 512 不变；digest 用 1024）+ 截断告警。
+  Codex 审查采纳：panic 隔离 / 周期串行 / 命令超时 / 取消 break / 截断可见。
+- **余 (J2+)**: rollup（journal 周卷叠）/ distill（技能蒸馏转正）/ drift（价值漂移，吸收 P2-G deferred）/ synthesize-rules（feedback→路由规则）/ reconcile（吸收 memory/lifecycle）；proposals 预期引擎；replay harness（含 P2-F deferred 连续性回归测试）。
 
 ---
 
