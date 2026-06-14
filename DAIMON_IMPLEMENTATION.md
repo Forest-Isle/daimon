@@ -13,7 +13,7 @@
 | Phase 0 改名+录制 | ✅ 符合 | — |
 | Phase 1 episode+world | 🟡 主体完成 | world 无检索门面；FollowUps 不种入；salvaged 不计；Budget/Receipt 未接 |
 | Phase 2 heart+attention+action | 🟠 地基+骨架 | action 只观测不强制；feedback/holds 死表；仅 timer 源；无 AST/seatbelt |
-| Phase 3 sleep+proposals+shadow | 🟡 sleep 推进 (P3-J1..J4) | sleep 包+digest+drift+synthesize-rules+rollup 已落；distill/reconcile/proposals/replay/shadow 未开工 |
+| Phase 3 sleep+proposals+shadow | 🟡 sleep 推进 (P3-J1..J5) | sleep 包+digest+drift+synthesize-rules+rollup + replay 读侧 已落；replay 实跑/distill/reconcile/proposals/shadow 未开工 |
 | Phase 4 economy+selfops+sensors | ❌ 未开工 | 包不存在 |
 | §4.5 values | ✅ 完成 (P2-G + P3-J2) | ask-once 门控+条目+digest+漂移检测(sleep DriftJob)全落 |
 | §4.7 mind | ❌ 未拆出 | 仍在 agent/ |
@@ -43,7 +43,7 @@ P0 ─▶ P1 ─▶ P2 ─▶ P3
 | ~~**P2-G**~~ ✅ | values 价值模型（ask-once；漂移→P3-J） | 4-6d | 价值权衡30天零重复问 |
 | **P2-H** 🟡 | mail/calendar/fs 源 + chat 经 heart | 8-12d | H1 done(chat ingress 经 heart: dedup+统一事件流, gated); 余: async dispatch+删 legacy(需生产浸泡), mail/cal/fs 源→Phase 4 |
 | **P3-I** | mind 拆出 + 影子脑 | 6-10d | 换脑回归零；影子周报 |
-| **P3-J** 🟡 | sleep + proposals + replay harness | 15-25d | J1 done(sleep Runner+digest+/sleep); J2 done(drift→值漂移, 完成 P2-G deferred); J3 done(synthesize-rules→修正学成 attention 规则, 闭 P1-E loop); J4 done(rollup→旧 journal 折叠为紧凑摘要, 保留近期窗口); 余: distill/reconcile + proposals + replay |
+| **P3-J** 🟡 | sleep + proposals + replay harness | 15-25d | J1 done(sleep Runner+digest+/sleep); J2 done(drift→值漂移, 完成 P2-G deferred); J3 done(synthesize-rules→修正学成 attention 规则, 闭 P1-E loop); J4 done(rollup→旧 journal 折叠为紧凑摘要, 保留近期窗口); J5 done(replay 读侧→`daimon replay` 离线读回放日志重建 session+健康指标); 余: replay 实跑(--against)/distill/reconcile + proposals |
 | **P3-K** | economy + selfops | 10-15d | 月报；故障自报；金丝雀回滚 |
 
 > 说明：P0/P1 在已"完成"阶段内补承重墙与护栏，是放开自治前的硬前置。P2 完成绞杀（剥离 memory/agent 残留）。P3 为复利与极限器官，蓝图明示不设死线。
@@ -365,7 +365,8 @@ P2 全部；replay 依赖 telemetry 录制（已在）。
 - **J2 ✅** drift slice（commit 2abcb16）。`internal/sleep/drift.go` DriftJob：LLM 判近期 journal 是否抵触某 active value → 标 active→drifting；drifting 值不再授权自主行动（Lookup 仅 active）→ 下次自主行动重跑 ask-once 用户复核。fail-safe（误报仅多问一次）。无 active 值/无活动则跳过 LLM；校验 flagged id（忽略幻觉）；每标记 1 值落一条 kind="drift" journal 审计。`values.Store.MarkDrifting` 单锁 read-modify-write（防并发复核被陈旧快照覆盖）+ id→path 索引（改名不再生成幽灵文件）。**完成 §4.5 flow-2（P2-G deferred）。** Codex 审查采纳：幽灵文件/锁内丢更新/journal Detail 纳入(漏检即不安全方向)/字符串感知 JSON 解析降级 no-drift。
 - **J3 ✅** synthesize-rules slice（commit 1e3be47）。`internal/sleep/synthesize.go` SynthesizeRulesJob：挖用户路由修正(attention feedback)→生成确定性 attention 规则，重复修正不再耗 model/cognize 调用。仅当某 (source,kind) 修正**一致**且来自 **≥2 不同事件**才合成；跳过已被现有规则(通配/有效 action 语义)覆盖者。安全：合成 action=用户自身 expected；高风险白名单在 Chain 中先于 rules→合成的 ignore 永不丢高风险事件。`heart.Store.KindsByID` 批量解析 event source/kind(feedback 仅存 event_id)。gateway `feedbackCorrectionSource`(feedback⋈events join 在边界,job 纯逻辑) + `rulesFileSink`(读/merge/原子 temp+rename 重写 rules.yaml,mtime 守卫防覆盖手改)。合成规则次次重启生效。**闭 P1-E feedback loop。** Codex 审查采纳：跳过 reflex(无 ReflexID)/通配+有效 action 覆盖检查/原子写+mtime 守卫/distinct-event 计数。
 - **J4 ✅** rollup slice（commit 39dbad8）。`internal/sleep/rollup.go` RollupJob：把早于近期窗口（keepRecent=50）的旧 journal 条目折叠成单条 LLM 摘要，近期窗口保留完整明细。非破坏：折叠条目打 `rollup_id` 标签而非删除（rollup 是仍在原地明细的有损索引）；fact/rollup 两类永不折叠。`world.UnrolledBeyond`（oldest-first 可折叠条目，排除 fact/rollup，OFFSET keepRecent）+ `world.Rollup`（事务：追加 rollup 条目→守卫式 UPDATE 打标→RowsAffected 断言）。不足 rollupMinFold(3) 条则跳过。Codex 审查采纳：Rollup UPDATE 带与读取同一资格谓词 + 事务内断言 RowsAffected==len(foldedIDs)（全有或全无，资格漂移即整批回滚）；buildRollupInput 仅给真正渲染出内容的条目打标，min-fold 闸按已渲染 id 计数（rollup 绝不声称摘要了没见过的条目）。
-- **余 (J5+)**: distill（技能蒸馏转正）/ reconcile（吸收 memory/lifecycle）；proposals 预期引擎；replay harness（含 P2-F deferred 连续性回归测试）。
+- **J5 ✅（读侧）** replay harness 读侧。`internal/replay`：读 `<appdir>/replays/*.jsonl`（telemetry P0-B 录的回放日志）→ 按 SessionID 重建 `Session`（ProviderExchange/ToolRoundTrip/TurnClosed/EpisodeSalvaged，保留录制顺序，跨日按文件名=日期排序）→ `Analyze` 离线健康指标（exchanges/tool_calls/tool_failures/salvaged/abnormal_stops/max_token_stops）。`LoadDir` 缺目录→无 session 不报错；`parseFile` 用 ReadBytes 容超长行（完整 system prompt+messages），畸形/崩溃截断的末行 skip+计数（回放日志是 best-effort 遥测，非权威配置→不 fail-loud）。`daimon replay [--replays <dir>] [--session <id>]` cobra 命令打印报告（只读，绝不重跑/连 provider，不碰 DB→可与运行中 daemon 并行）。纯逻辑+边界 I/O，6 单测（重建/跨日时序/畸形+截断跳过/缺目录/非 jsonl 忽略/指标聚合）。**最低风险切片**（无变更/网络/鉴权）。Codex 审查待补（合并 main 前）。
+- **余 (J6+)**: replay `--against <config>` 实跑对比（需先在 ProviderExchange 录 Tools 数组 + 从 config 构 provider，耗真 token、`make test` 不可全验，故隔离单独切片）；回归集（correction/salvaged 关联情节自动入集）；金丝雀（最近50情节回放）。distill（技能蒸馏转正）/ reconcile（吸收 memory/lifecycle，含 P2-F deferred 连续性回归测试）；proposals 预期引擎。
 
 ---
 
