@@ -112,10 +112,13 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.EpisodeEnabled = cfg.Agent.EpisodeEnabled
 
 	// Sleep: consolidation jobs over the world model. The digest job regenerates
-	// the agent's self-summary from recent world state using the LLM provider.
-	// Triggered on demand via /sleep today; the heart can schedule it later.
+	// the agent's self-summary; the drift job flags active values that recent
+	// activity contradicts. Both use the LLM provider. Triggered on demand via
+	// /sleep today; the heart can schedule it later.
+	sleepSummarizer := &completerAdapter{provider: agentSub.Provider, model: cfg.LLM.Model, maxTokens: 1024}
 	gw.sleep = sleep.NewRunner(
-		sleep.NewDigestJob(gw.toolSub.WorldStore, &completerAdapter{provider: agentSub.Provider, model: cfg.LLM.Model, maxTokens: 1024}),
+		sleep.NewDigestJob(gw.toolSub.WorldStore, sleepSummarizer),
+		sleep.NewDriftJob(gw.toolSub.ValuesStore, gw.toolSub.WorldStore, sleepSummarizer),
 	)
 
 	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)

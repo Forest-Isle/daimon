@@ -60,6 +60,62 @@ func TestLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMarkDriftingTransitionsAndPersists(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	ctx := context.Background()
+	if _, err := s.Add(ctx, Entry{Domain: "spending", Statement: "Never auto-spend over $100", Confidence: 0.9}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Lookup("spending")
+
+	e, changed, err := s.MarkDrifting(ctx, got.ID, "recent large autonomous purchase")
+	if err != nil {
+		t.Fatalf("MarkDrifting: %v", err)
+	}
+	if !changed || e.State != StateDrifting {
+		t.Fatalf("expected transition to drifting, got changed=%v state=%q", changed, e.State)
+	}
+	// No longer authorizes autonomous action.
+	if _, ok := s.Lookup("spending"); ok {
+		t.Fatal("drifting value should not be returned by Lookup")
+	}
+	// The reason is recorded as a provenance note.
+	if len(e.Provenance) == 0 || e.Provenance[len(e.Provenance)-1].Quote == "" {
+		t.Fatalf("drift reason not recorded in provenance: %+v", e.Provenance)
+	}
+
+	// Persisted: a fresh store over the same dir sees the drifting state.
+	s2 := NewStore(dir)
+	if err := s2.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	reloaded := s2.List()
+	if len(reloaded) != 1 || reloaded[0].State != StateDrifting {
+		t.Fatalf("drift not persisted: %+v", reloaded)
+	}
+}
+
+func TestMarkDriftingNoOpForUnknownOrInactive(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	ctx := context.Background()
+
+	// Unknown id: no-op, no error.
+	if _, changed, err := s.MarkDrifting(ctx, "v-missing", "x"); err != nil || changed {
+		t.Fatalf("unknown id should be a no-op, got changed=%v err=%v", changed, err)
+	}
+
+	// Already drifting: no second transition.
+	if _, err := s.Add(ctx, Entry{Domain: "spending", Statement: "already drifting", State: StateDrifting, Confidence: 0.9}); err != nil {
+		t.Fatal(err)
+	}
+	drifting := s.List()[0]
+	if _, changed, err := s.MarkDrifting(ctx, drifting.ID, "x"); err != nil || changed {
+		t.Fatalf("non-active value should not transition, got changed=%v err=%v", changed, err)
+	}
+}
+
 func TestLookupIgnoresNonActive(t *testing.T) {
 	dir := t.TempDir()
 	s := NewStore(dir)

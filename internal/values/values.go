@@ -55,6 +55,7 @@ type Store struct {
 	mu       sync.RWMutex
 	byID     map[string]Entry
 	byDomain map[string][]string // domain -> entry ids, insertion order
+	byPath   map[string]string   // id -> source file path (for in-place rewrite)
 }
 
 // NewStore builds a value store rooted at dir (typically <world>/values). The
@@ -64,6 +65,7 @@ func NewStore(dir string) *Store {
 		root:     dir,
 		byID:     map[string]Entry{},
 		byDomain: map[string][]string{},
+		byPath:   map[string]string{},
 	}
 }
 
@@ -77,9 +79,10 @@ func (s *Store) Load(_ context.Context) error {
 	}
 	byID := map[string]Entry{}
 	byDomain := map[string][]string{}
+	byPath := map[string]string{}
 
 	if _, err := os.Stat(s.root); os.IsNotExist(err) {
-		s.swap(byID, byDomain)
+		s.swap(byID, byDomain, byPath)
 		return nil
 	}
 
@@ -105,19 +108,21 @@ func (s *Store) Load(_ context.Context) error {
 			return nil
 		}
 		index(byID, byDomain, entry)
+		byPath[entry.ID] = path
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("values: load: %w", err)
 	}
-	s.swap(byID, byDomain)
+	s.swap(byID, byDomain, byPath)
 	return nil
 }
 
-func (s *Store) swap(byID map[string]Entry, byDomain map[string][]string) {
+func (s *Store) swap(byID map[string]Entry, byDomain map[string][]string, byPath map[string]string) {
 	s.mu.Lock()
 	s.byID = byID
 	s.byDomain = byDomain
+	s.byPath = byPath
 	s.mu.Unlock()
 }
 
@@ -182,6 +187,7 @@ func (s *Store) Add(_ context.Context, e Entry) (Entry, error) {
 
 	s.mu.Lock()
 	index(s.byID, s.byDomain, e)
+	s.byPath[e.ID] = path
 	s.mu.Unlock()
 	return e, nil
 }
@@ -201,6 +207,67 @@ func (s *Store) Lookup(domain string) (Entry, bool) {
 		}
 	}
 	return Entry{}, false
+}
+
+// MarkDrifting transitions an active value to the drifting state and re-persists
+// it. A drifting value no longer authorizes autonomous action (Lookup returns
+// active entries only), so the next autonomous action in its domain re-runs
+// ask-once and the user reconfirms (or abandons) it. This is fail-safe: a false
+// positive costs only a harmless re-ask, never an unsafe action. The reason is
+// appended as a provenance note for the audit trail. Returns changed=false
+// (no error) for an unknown id or a value that is not currently active.
+func (s *Store) MarkDrifting(_ context.Context, id, reason string) (Entry, bool, error) {
+	if s == nil {
+		return Entry{}, false, fmt.Errorf("values: store unavailable")
+	}
+	// The whole read-modify-write runs under the write lock so a concurrent
+	// reconfirmation (Add) cannot be clobbered by a stale snapshot: we read the
+	// CURRENT entry, not one captured before the I/O. Holding the lock across the
+	// file write briefly blocks Lookup, but this is a background sleep job that
+	// runs "while no one waits", so the contention is acceptable. (Add still does
+	// its own file write outside the lock; a same-value reconfirm racing this exact
+	// write is negligible and fail-safe — the value ends drifting, i.e. re-asked.)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	e, ok := s.byID[id]
+	if !ok || e.State != StateActive {
+		return e, false, nil
+	}
+
+	e.State = StateDrifting
+	if r := strings.TrimSpace(reason); r != "" {
+		// Clone before append: the stored entry shares this slice's backing array,
+		// so appending in place would corrupt copies already handed to readers.
+		prov := make([]Provenance, len(e.Provenance), len(e.Provenance)+1)
+		copy(prov, e.Provenance)
+		e.Provenance = append(prov, Provenance{Episode: "sleep:drift", Quote: r})
+	}
+
+	// Rewrite the file the entry was loaded from, not a path recomputed from the
+	// (possibly hand-edited) statement — otherwise a renamed statement would spawn
+	// a second file and leave the original active copy to re-authorize on reload.
+	path := s.byPath[id]
+	if path == "" {
+		slug := slugify(e.Statement)
+		if slug == "" {
+			slug = "value"
+		}
+		path = filepath.Join(s.root, e.Domain, slug+".md")
+	}
+	if err := ensureWithinRoot(s.root, filepath.Dir(path)); err != nil {
+		return e, false, err
+	}
+	data, err := marshalEntry(e)
+	if err != nil {
+		return e, false, err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return e, false, fmt.Errorf("values: persist drift: %w", err)
+	}
+
+	s.byID[id] = e
+	return e, true, nil
 }
 
 // List returns all entries sorted by id, for inspection and tests.
