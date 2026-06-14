@@ -7,8 +7,9 @@ import (
 
 // TestChannelRoutingBackend verifies the per-call host/sandbox decision: local
 // interactive calls stay on the host, every non-local trust boundary is forced
-// into the sandbox, the seatbelt default forces even local calls, and an
-// unavailable sandbox falls back to the host.
+// into the sandbox, the seatbelt default forces even local calls, a non-local
+// call whose sandbox is unavailable fails closed (never falls back to the host),
+// and the local seatbelt opt-in degrades to the host when the sandbox is gone.
 func TestChannelRoutingBackend(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -16,15 +17,16 @@ func TestChannelRoutingBackend(t *testing.T) {
 		defaultSandbox bool
 		sandboxAvail   bool
 		want           string // "HOST" or "SANDBOX"
+		wantErr        bool   // fail closed: refuse rather than run on host
 	}{
-		{"local stays host", ToolChannelLocal, false, true, "HOST"},
-		{"remote forced sandbox", ToolChannelRemote, false, true, "SANDBOX"},
-		{"scheduled forced sandbox", ToolChannelScheduled, false, true, "SANDBOX"},
-		{"internal forced sandbox", ToolChannelInternal, false, true, "SANDBOX"},
-		{"background forced sandbox", ToolChannelBackground, false, true, "SANDBOX"},
-		{"seatbelt default forces local", ToolChannelLocal, true, true, "SANDBOX"},
-		{"sandbox unavailable falls back to host", ToolChannelRemote, false, false, "HOST"},
-		{"seatbelt default but unavailable falls back", ToolChannelLocal, true, false, "HOST"},
+		{"local stays host", ToolChannelLocal, false, true, "HOST", false},
+		{"remote forced sandbox", ToolChannelRemote, false, true, "SANDBOX", false},
+		{"scheduled forced sandbox", ToolChannelScheduled, false, true, "SANDBOX", false},
+		{"internal forced sandbox", ToolChannelInternal, false, true, "SANDBOX", false},
+		{"background forced sandbox", ToolChannelBackground, false, true, "SANDBOX", false},
+		{"seatbelt default forces local", ToolChannelLocal, true, true, "SANDBOX", false},
+		{"non-local sandbox unavailable fails closed", ToolChannelRemote, false, false, "", true},
+		{"seatbelt default but unavailable falls back", ToolChannelLocal, true, false, "HOST", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -34,6 +36,12 @@ func TestChannelRoutingBackend(t *testing.T) {
 
 			ctx := WithChannelClass(context.Background(), tc.class)
 			res, err := b.Run(ctx, "echo hi", "/tmp", nil)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected fail-closed error, ran %q backend instead", res.Stdout)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Run error = %v", err)
 			}

@@ -3,6 +3,7 @@ package tool
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os/exec"
@@ -80,9 +81,13 @@ func runShellCommand(ctx context.Context, cmd *exec.Cmd, workDir string, streamC
 // call based on the trust boundary the command came from. Commands triggered by a
 // remote, scheduled, internal, or background source — i.e. not the local
 // interactive user — are forced into the sandbox, as is every command when the
-// configured default backend is "seatbelt". If the sandbox is requested but
-// unavailable (non-darwin, or sandbox-exec missing) it falls back to the host
-// with a warning, so the agent keeps working rather than losing bash entirely.
+// configured default backend is "seatbelt". If the sandbox is required but
+// unavailable (non-darwin, or sandbox-exec missing), the behavior splits by
+// origin: a non-local trust boundary fails closed (the command is refused, never
+// run on the host — running an untrusted-origin command unsandboxed would be a
+// privilege escalation), while the local seatbelt opt-in degrades to the host
+// with a warning (the interactive user is the origin, so keeping bash working is
+// the safer tradeoff).
 type ChannelRoutingBackend struct {
 	host           ShellBackend
 	sandbox        ShellBackend
@@ -101,9 +106,19 @@ func NewChannelRoutingBackend(host, sandbox ShellBackend, defaultSandbox bool) *
 func (b *ChannelRoutingBackend) Available() bool { return b.host.Available() }
 
 func (b *ChannelRoutingBackend) Run(ctx context.Context, command, workDir string, streamCB StreamCallback) (ShellRunResult, error) {
-	if b.shouldSandbox(ctx) {
+	nonLocal := b.nonLocalOrigin(ctx)
+	if nonLocal || b.defaultSandbox {
 		if b.sandbox != nil && b.sandbox.Available() {
 			return b.sandbox.Run(ctx, command, workDir, streamCB)
+		}
+		// Sandbox required but unavailable. A non-local trust boundary did not
+		// originate with the interactive user, so a host fallback would run an
+		// untrusted-origin command unsandboxed — fail closed instead. Only the
+		// local seatbelt opt-in (defaultSandbox with a local origin) may degrade
+		// to the host.
+		if nonLocal {
+			return ShellRunResult{}, fmt.Errorf("bash: sandbox required for %s-origin command but unavailable; refusing host fallback",
+				ChannelClassFromContext(ctx))
 		}
 		slog.Warn("bash: sandbox requested but unavailable; running on host",
 			"channel_class", ChannelClassFromContext(ctx))
@@ -111,12 +126,10 @@ func (b *ChannelRoutingBackend) Run(ctx context.Context, command, workDir string
 	return b.host.Run(ctx, command, workDir, streamCB)
 }
 
-// shouldSandbox reports whether a call must be sandboxed: any non-local trust
-// boundary, or the configured seatbelt default.
-func (b *ChannelRoutingBackend) shouldSandbox(ctx context.Context) bool {
-	if b.defaultSandbox {
-		return true
-	}
+// nonLocalOrigin reports whether the call came from a trust boundary other than
+// the local interactive user (remote/scheduled/internal/background). Such calls
+// must be sandboxed and may never fall back to the host.
+func (b *ChannelRoutingBackend) nonLocalOrigin(ctx context.Context) bool {
 	switch ChannelClassFromContext(ctx) {
 	case ToolChannelRemote, ToolChannelScheduled, ToolChannelInternal, ToolChannelBackground:
 		return true
