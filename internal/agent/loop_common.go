@@ -466,17 +466,29 @@ func publishProviderExchange(
 		return
 	}
 	a.eventBus.Publish(ProviderExchange{
-		SessionID:     sessionID,
-		Iteration:     iteration,
-		Model:         req.Model,
-		Provider:      a.deps.Core.LLMCfg.Provider,
-		SystemPrompt:  req.System,
-		MessagesJSON:  replayMessagesJSON(req.Messages),
-		ResponseText:  responseText,
-		ToolCallsJSON: replayToolCallsJSON(toolCalls),
-		StopReason:    string(stopReason),
-		DurationMs:    durationMs,
+		SessionID:      sessionID,
+		Iteration:      iteration,
+		Model:          req.Model,
+		Provider:       a.deps.Core.LLMCfg.Provider,
+		SystemPrompt:   req.System,
+		MessagesJSON:   replayMessagesJSON(req.Messages),
+		ResponseText:   responseText,
+		ToolCallsJSON:  replayToolCallsJSON(toolCalls),
+		StopReason:     string(stopReason),
+		DurationMs:     durationMs,
+		ToolsJSON:      replayToolsJSON(req.Tools),
+		ToolChoice:     req.ToolChoice,
+		ThinkingBudget: req.ThinkingBudget,
 	})
+}
+
+// replayToolsJSON marshals the tool affordances offered in the request so a
+// re-run can present the same tools. Nil/empty tools omit the field entirely.
+func replayToolsJSON(tools []ToolDefinition) json.RawMessage {
+	if len(tools) == 0 {
+		return nil
+	}
+	return replayMarshalJSON(tools)
 }
 
 func replayMessagesJSON(messages []CompletionMessage) json.RawMessage {

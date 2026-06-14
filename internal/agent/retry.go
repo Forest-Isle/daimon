@@ -39,6 +39,18 @@ func NewRetryProvider(inner Provider, cfg config.RetryConfig) *RetryProvider {
 	}
 }
 
+// GetTokenStats forwards cumulative token usage from the wrapped provider so
+// callers (metrics, replay cost reporting) see usage through the retry wrapper.
+// Returns zero when the inner provider does not track tokens.
+func (r *RetryProvider) GetTokenStats() (input, output int64) {
+	if ts, ok := r.inner.(interface {
+		GetTokenStats() (int64, int64)
+	}); ok {
+		return ts.GetTokenStats()
+	}
+	return 0, 0
+}
+
 // Complete calls the inner provider's Complete, retrying on transient errors.
 func (r *RetryProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	if !r.cb.Allow() {

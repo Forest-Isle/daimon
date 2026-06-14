@@ -97,6 +97,14 @@ type ProviderExchange struct {
 	ToolCallsJSON json.RawMessage
 	StopReason    string
 	DurationMs    int64
+
+	// Request-shaping fields needed to faithfully re-run the exchange offline
+	// (replay --against): the tool affordances and decoding contract the model
+	// saw. Without these a re-run would judge the turn under a different contract.
+	// All omitempty so older journals (which lack them) stay decodable.
+	ToolsJSON      json.RawMessage `json:",omitempty"`
+	ToolChoice     string          `json:",omitempty"`
+	ThinkingBudget int             `json:",omitempty"`
 }
 
 func (ProviderExchange) EventType() string { return "replay.provider_exchange" }

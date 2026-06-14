@@ -1,6 +1,31 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"log/slog"
+
+	"github.com/Forest-Isle/daimon/internal/config"
+)
+
+// NewProviderFromConfig builds the LLM provider described by an LLMConfig: an
+// OpenAI-compatible or Claude backend, wrapped in the retry provider when retries
+// are configured. It is the single construction point shared by the gateway
+// runtime and offline tools (e.g. `daimon replay --against`), so adding a backend
+// is a one-place change.
+func NewProviderFromConfig(llm config.LLMConfig) Provider {
+	var p Provider
+	if llm.Provider == "openai" || llm.Provider == "openai-compatible" {
+		p = NewOpenAIProvider(llm.APIKey, llm.Model, llm.BaseURL)
+		slog.Info("LLM provider: openai-compatible", "model", llm.Model)
+	} else {
+		p = NewClaudeProvider(llm.APIKey, llm.Model, llm.BaseURL)
+		slog.Info("LLM provider: claude", "model", llm.Model)
+	}
+	if llm.Retry.MaxRetries > 0 {
+		p = NewRetryProvider(p, llm.Retry)
+	}
+	return p
+}
 
 // ToolDefinition describes a tool for the LLM.
 type ToolDefinition struct {
