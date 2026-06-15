@@ -184,6 +184,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 
 	var transcript []transcriptTurn
 	var lastReply string
+	var toolFailures int // non-close tool calls that returned an error (clean-execution signal)
 	closeReminderSent := false
 
 	for iteration := 0; iteration < defaultMaxIterations; iteration++ {
@@ -231,10 +232,13 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 					transcript = append(transcript, transcriptTurn{Role: "tool", Content: rejection})
 					continue
 				}
-				return r.close(ctx, req, episodeID, out, lastReply), nil
+				return r.close(ctx, req, episodeID, out, lastReply, toolFailures), nil
 			}
 
-			output, _ := req.Invoke(ctx, iteration, tc)
+			output, isErr := req.Invoke(ctx, iteration, tc)
+			if isErr {
+				toolFailures++
+			}
 			messages = append(messages, agent.CompletionMessage{Role: "user", Content: output, ToolUseID: tc.ID})
 			transcript = append(transcript, transcriptTurn{Role: "tool", Content: output})
 		}
@@ -245,12 +249,12 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 	}
 
 	out := r.salvage(ctx, req, system, messages, transcript, &used)
-	return r.close(ctx, req, episodeID, out, lastReply), nil
+	return r.close(ctx, req, episodeID, out, lastReply, toolFailures), nil
 }
 
 // close applies the outcome's world writes plus a journal entry, plants
 // follow-ups, records the turn-close event, and shapes the user-facing reply.
-func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeID string, out Outcome, lastReply string) agent.CognitiveOutcome {
+func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeID string, out Outcome, lastReply string, toolFailures int) agent.CognitiveOutcome {
 	// Expand follow-ups: watch/check persist as commitments transactionally with
 	// the outcome; timer follow-ups are planted into the heart for re-entry. Kind
 	// is normalized so casing/whitespace variants are not silently dropped.
@@ -270,7 +274,7 @@ func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeI
 	}
 
 	if r.world != nil {
-		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, out.Salvaged); err != nil {
+		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, world.OutcomeMeta{Salvaged: out.Salvaged, ToolFailures: toolFailures}); err != nil {
 			// Invariant #3 (交账强制): a malformed WorldWrite must not roll back the
 			// episode's journal trace along with it. failEpisode re-applies the
 			// outcome with no writes (idempotent), so the summary still lands and the
@@ -347,7 +351,10 @@ func followUpCommitment(f FollowUp) (world.Mutation, bool) {
 func (r *Runner) failEpisode(ctx context.Context, req agent.CognitiveRequest, episodeID, summary string) agent.CognitiveOutcome {
 	summary = truncateRunes(strings.TrimSpace(summary), 500)
 	if r.world != nil {
-		if err := r.world.ApplyOutcome(ctx, episodeID, nil, summary, false); err != nil {
+		// A framework-failed episode is already excluded downstream by its summary
+		// marker (isFailedOutcome); leave meta empty rather than ascribe tool
+		// failures, since it failed for a framework reason (stream/panic/world write).
+		if err := r.world.ApplyOutcome(ctx, episodeID, nil, summary, world.OutcomeMeta{}); err != nil {
 			slog.Error("episode: record blocked outcome failed", "episode", episodeID, "err", err)
 		}
 	}

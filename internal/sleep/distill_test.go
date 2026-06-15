@@ -22,6 +22,16 @@ func seedOutcome(t *testing.T, ws *world.Store, episodeID, summary string, salva
 	}
 }
 
+func seedOutcomeDetail(t *testing.T, ws *world.Store, episodeID, summary, detail string) {
+	t.Helper()
+	if err := ws.AppendJournal(context.Background(), world.JournalEntry{
+		ID: "journal_outcome_" + episodeID, EpisodeID: episodeID, Kind: "outcome",
+		Summary: summary, Detail: detail,
+	}); err != nil {
+		t.Fatalf("seed outcome %s: %v", episodeID, err)
+	}
+}
+
 func distillCandidates(t *testing.T, ws *world.Store) []world.JournalEntry {
 	t.Helper()
 	entries, err := ws.ListJournal(context.Background(), "", 200)
@@ -120,6 +130,27 @@ func TestDistillExcludesFailedOutcomes(t *testing.T) {
 	}
 	if msg != "not enough successful episodes to distill" {
 		t.Fatalf("framework-failure outcomes must be excluded: msg = %q", msg)
+	}
+}
+
+func TestDistillExcludesToolFailureOutcomes(t *testing.T) {
+	ctx := context.Background()
+	ws := openWorldStore(t)
+	// 2 clean + 2 episodes that closed cleanly but had a failing tool call. Only the
+	// 2 clean remain below the floor, so tool-failure episodes are not mined as
+	// pristine patterns (the J11 conservative proxy for "all verified").
+	seedOutcome(t, ws, "ep1", "clean one", false)
+	seedOutcome(t, ws, "ep2", "clean two", false)
+	seedOutcomeDetail(t, ws, "ep3", "had a tool error", "tool_failures=1")
+	seedOutcomeDetail(t, ws, "ep4", "had two tool errors", "tool_failures=2")
+	sum := &stubSummarizer{err: context.Canceled} // must NOT be called
+
+	msg, err := NewDistillJob(ws, sum).Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "not enough successful episodes to distill" {
+		t.Fatalf("tool-failure outcomes must be excluded: msg = %q", msg)
 	}
 }
 

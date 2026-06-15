@@ -479,6 +479,73 @@ func TestExecutePanicInToolDispatchStillRecordsTrace(t *testing.T) {
 	}
 }
 
+// TestExecuteRecordsToolFailuresInOutcomeDetail verifies the J11 clean-execution
+// signal: an episode whose tool call returns an error stamps "tool_failures=N" on
+// the outcome journal detail (the conservative distill-candidacy proxy).
+func TestExecuteRecordsToolFailuresInOutcomeDetail(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{
+		{text: "trying a tool", toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "flaky_tool", Input: `{}`}}},
+		{text: "closing", toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Recovered after a tool error."}`)}},
+	}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("Use a flaky tool", "go")
+	req.EpisodeID = "evt-toolfail-1"
+	req.Invoke = func(_ context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+		return "tool error: connection refused", true // isError
+	}
+
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	journal, jerr := ws.ListJournal(context.Background(), "", 10)
+	if jerr != nil {
+		t.Fatalf("ListJournal: %v", jerr)
+	}
+	var detail string
+	for _, e := range journal {
+		if e.ID == "journal_outcome_evt-toolfail-1" && e.Kind == "outcome" {
+			detail = e.Detail
+		}
+	}
+	if detail != "tool_failures=1" {
+		t.Fatalf("outcome detail = %q, want tool_failures=1", detail)
+	}
+}
+
+// TestExecuteCleanEpisodeHasEmptyDetail verifies a fully clean episode (no tool
+// failures, not salvaged) records empty detail — backward-compatible with readers
+// that treat empty detail as "clean".
+func TestExecuteCleanEpisodeHasEmptyDetail(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{{
+		text:      "answer",
+		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"All good."}`)},
+	}}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("Handle", "hi")
+	req.EpisodeID = "evt-clean-1"
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	journal, jerr := ws.ListJournal(context.Background(), "", 10)
+	if jerr != nil {
+		t.Fatalf("ListJournal: %v", jerr)
+	}
+	found := false
+	for _, e := range journal {
+		if e.ID == "journal_outcome_evt-clean-1" && e.Kind == "outcome" {
+			found = true
+			if e.Detail != "" {
+				t.Fatalf("clean episode detail = %q, want empty", e.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("clean episode left no outcome journal: %#v", journal)
+	}
+}
+
 func TestParseOutcomeRejectsBlankSummary(t *testing.T) {
 	for _, summary := range []string{"", " ", "\t\n"} {
 		raw := `{"status":"done","summary":"` + summary + `"}`

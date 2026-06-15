@@ -76,11 +76,22 @@ func (s *Store) Apply(ctx context.Context, episodeID string, muts []Mutation) er
 	return nil
 }
 
+// OutcomeMeta is the per-episode metadata stamped onto the outcome journal
+// marker's detail field, for downstream consumers (distill candidacy, ROI).
+// Salvaged marks a framework-recovered episode (the model never called
+// episode_close). ToolFailures is how many of the episode's tool calls returned
+// an error — a clean-execution signal: 0 means every tool call the episode made
+// succeeded. It is observational and never affects control flow.
+type OutcomeMeta struct {
+	Salvaged     bool
+	ToolFailures int
+}
+
 // ApplyOutcome applies world writes from an episode outcome, stamps episodeID,
-// and appends one idempotent journal entry for the outcome summary. salvaged
-// records whether the Outcome was framework-recovered (the model never called
-// episode_close), which the journal detail captures for the salvaged-rate metric.
-func (s *Store) ApplyOutcome(ctx context.Context, episodeID string, muts []Mutation, summary string, salvaged bool) error {
+// and appends one idempotent journal entry for the outcome summary. meta records
+// per-episode signals (salvaged, tool-failure count) which the journal detail
+// captures for the salvaged-rate metric and distill candidacy.
+func (s *Store) ApplyOutcome(ctx context.Context, episodeID string, muts []Mutation, summary string, meta OutcomeMeta) error {
 	if err := s.ensure(); err != nil {
 		return err
 	}
@@ -101,7 +112,7 @@ func (s *Store) ApplyOutcome(ctx context.Context, episodeID string, muts []Mutat
 	// dispatch) inserts nothing and is treated as already-applied. This keeps the
 	// world write idempotent at the truth layer, not just at the kernel: mutations
 	// (some non-idempotent, e.g. commitment.create) run only on the first claim.
-	claimed, err := claimOutcomeJournal(ctx, tx, episodeID, summary, salvaged)
+	claimed, err := claimOutcomeJournal(ctx, tx, episodeID, summary, meta)
 	if err != nil {
 		return err
 	}
@@ -538,10 +549,18 @@ func updateCommitment(ctx context.Context, exec sqlExecer, id string, set map[st
 // id is "journal_outcome_<episodeID>" with INSERT OR IGNORE, so it doubles as an
 // idempotency claim: a false return means the episode's outcome was already
 // recorded and the caller must not re-apply its world writes.
-func claimOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, summary string, salvaged bool) (bool, error) {
+func claimOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, summary string, meta OutcomeMeta) (bool, error) {
+	// Detail encodes one per-episode signal. Salvaged takes precedence: those
+	// episodes are already framework-recovered and excluded downstream, so its
+	// "salvaged=true" value is preserved unchanged (backward-compatible). A clean
+	// (non-salvaged) episode that had tool failures records "tool_failures=N";
+	// a fully clean episode records "" exactly as before.
 	detail := ""
-	if salvaged {
+	switch {
+	case meta.Salvaged:
 		detail = "salvaged=true"
+	case meta.ToolFailures > 0:
+		detail = fmt.Sprintf("tool_failures=%d", meta.ToolFailures)
 	}
 	res, err := exec.ExecContext(ctx, `
 		INSERT OR IGNORE INTO journal

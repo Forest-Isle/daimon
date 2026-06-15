@@ -109,6 +109,49 @@ func TestApplyBatchAndRollback(t *testing.T) {
 	}
 }
 
+func TestApplyOutcomeEncodesMetaDetail(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name string
+		meta OutcomeMeta
+		want string
+	}{
+		{"clean", OutcomeMeta{}, ""},
+		{"tool_failures", OutcomeMeta{ToolFailures: 3}, "tool_failures=3"},
+		{"salvaged", OutcomeMeta{Salvaged: true}, "salvaged=true"},
+		// Salvaged takes precedence over the tool-failure count: salvaged episodes
+		// are already excluded downstream, and the legacy "salvaged=true" value must
+		// stay exact for backward compatibility.
+		{"salvaged_precedence", OutcomeMeta{Salvaged: true, ToolFailures: 2}, "salvaged=true"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openWorldTestDB(t)
+			world := NewStore(db.DB)
+			if err := world.ApplyOutcome(ctx, "ep_"+tc.name, nil, "summary", tc.meta); err != nil {
+				t.Fatalf("ApplyOutcome: %v", err)
+			}
+			journal, err := world.ListJournal(ctx, "", 10)
+			if err != nil {
+				t.Fatalf("ListJournal: %v", err)
+			}
+			var detail string
+			found := false
+			for _, e := range journal {
+				if e.ID == "journal_outcome_ep_"+tc.name {
+					detail, found = e.Detail, true
+				}
+			}
+			if !found {
+				t.Fatalf("outcome row not found: %#v", journal)
+			}
+			if detail != tc.want {
+				t.Fatalf("detail = %q, want %q", detail, tc.want)
+			}
+		})
+	}
+}
+
 func TestApplyOutcomeAppendsIdempotentJournal(t *testing.T) {
 	db := openWorldTestDB(t)
 	world := NewStore(db.DB)
@@ -127,10 +170,10 @@ func TestApplyOutcomeAppendsIdempotentJournal(t *testing.T) {
 			}),
 		},
 	}
-	if err := world.ApplyOutcome(ctx, "episode_outcome", outcomeMut, "Outcome summary", false); err != nil {
+	if err := world.ApplyOutcome(ctx, "episode_outcome", outcomeMut, "Outcome summary", OutcomeMeta{}); err != nil {
 		t.Fatalf("ApplyOutcome() error = %v", err)
 	}
-	if err := world.ApplyOutcome(ctx, "episode_outcome", outcomeMut, "Outcome summary", false); err != nil {
+	if err := world.ApplyOutcome(ctx, "episode_outcome", outcomeMut, "Outcome summary", OutcomeMeta{}); err != nil {
 		t.Fatalf("ApplyOutcome() duplicate error = %v", err)
 	}
 

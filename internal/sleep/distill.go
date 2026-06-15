@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -29,13 +30,13 @@ const distillSystemPrompt = `You are the skill-distillation phase of a personal 
 // highest "带病转正" risk (§706). This job only writes append-only candidate
 // decisions an operator (or a later promotion job) can act on.
 //
-// "All verified" (blueprint's distill criterion) has no structured per-episode
-// source yet — Receipt.Verified is not aggregated per episode and the journal
-// outcome row carries no status. As a conservative proxy this job mines only
-// non-salvaged outcomes (episodes that closed through episode_close, not framework
-// salvage) and leans on the conservative judge prompt to require genuine success.
-// This is acceptable precisely because nothing here promotes; the proxy gates
-// detection only, not execution.
+// "All verified" (blueprint's distill criterion) has no full action-level source
+// yet — Receipt.Verified is not aggregated per episode. As a conservative proxy
+// this job mines only outcomes that both closed through episode_close (not
+// framework salvage / failure) AND made no failing tool calls (the outcome
+// detail's tool_failures=N signal), and leans on the conservative judge prompt to
+// require genuine success. This is acceptable precisely because nothing here
+// promotes; the proxy gates detection only, not execution.
 type DistillJob struct {
 	world      *world.Store
 	summarizer Summarizer
@@ -70,12 +71,23 @@ func (j *DistillJob) Run(ctx context.Context) (string, error) {
 		if e.Kind != "outcome" {
 			continue
 		}
-		// Exclude framework-salvaged outcomes and framework-recorded failures
-		// (failEpisode summaries). With no per-episode "verified" signal yet, this is
-		// the conservative proxy for the blueprint's "all verified"; the judge prompt
-		// further requires genuine success before grouping.
-		if oneLine(e.Detail) == "salvaged=true" || isFailedOutcome(e.Summary) {
+		// Exclude framework-salvaged outcomes, framework-recorded failures
+		// (failEpisode summaries), and episodes that had any failing tool call
+		// (detail "tool_failures=N"). This is the conservative proxy for the
+		// blueprint's "all verified": a pattern is only distillation-worthy if the
+		// episode reached it without a single tool error. The judge prompt further
+		// requires genuine success before grouping.
+		detail := oneLine(e.Detail)
+		if detail == "salvaged=true" || isFailedOutcome(e.Summary) {
 			continue
+		}
+		// Exclude episodes that had any failing tool call. Parse the count rather
+		// than prefix-match so a "tool_failures=0" (or any non-numeric value) is not
+		// treated as a failure — only N>0 excludes.
+		if rest, ok := strings.CutPrefix(detail, "tool_failures="); ok {
+			if n, convErr := strconv.Atoi(rest); convErr == nil && n > 0 {
+				continue
+			}
 		}
 		cleanOutcomes = append(cleanOutcomes, e)
 		if e.EpisodeID != "" {
