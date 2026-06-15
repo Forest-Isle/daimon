@@ -417,7 +417,8 @@ P3-J（replay 金丝雀、proposals）。
 - **C1（per-episode token 归因，done）** — `agent.Usage`{Input/Output/CacheRead/CacheCreation} 落在 `CompletionResponse` 与 stream 终态 `StreamDelta`；Claude/OpenAI provider 各自归一化（OpenAI 的 cache-inclusive prompt_tokens 拆成 exclusive；无 drain，finish_reason 即终态）。零=未知非免费，纯观测不入控制流。episode loop 对每次 Stream 累加 delta，`recordCost` 经 `CostRecorder` 写出。
 - **C2a（成本记录基底，done）** — `internal/economy`：`Entry`/`Totals`/`Store.Record`（按 EpisodeID 幂等 `cost_<id>` + INSERT OR IGNORE，负值钳零）/`TotalSince`；迁移 034 costs（含 idx_costs_occurred、idx_costs_class）。gateway 适配器 fire-and-forget 异步写（recover 包裹，永不阻塞情节返回）。
 - **C2b（月报 CLI + 配置定价，done，commit 88b452d）** — `Prices.CostUSD`（精确→最长子串匹配，确定性 tie-break，空模型/空 key 不定价）+ `ByModelSince`；`config.EconomyConfig.Prices`（leaf）；`daimon costs [--since DUR]` 按模型出 token（恒显）+ $（仅定价模型，未定价脚注，TOTAL 只累加已定价）。无硬编码费率。
-- **C2c（待实施，task #9）** — activity-class 落成本行（`CognitiveRequest.ActivityClass`→episode→Entry）；ROI-by-class（接 proposals adopted / verified actions 分母）；某 class 超预算自动降级 throttle。
+- **C2c（activity-class 线程化 + by-class 报表，done，commit d83c249）** — 纯加性穿字段：`CognitiveRequest.ActivityClass`（runKernel="chat"；`RunInternalEpisode` 新增 activityClass 参，heart_dispatch cognize 传 `ev.Kind`）→`EpisodeCost.ActivityClass`→`economy.Entry.ActivityClass`（列+idx 早在 034）。`economy.ByClassSince`（GROUP BY activity_class）+ `daimon costs` by-class 表（仅 token，空=`(unclassified)`，脚注指向 by-model 的 $）。Codex 审无 blocker/high/med，1 LOW（by-class tokens-only 提示）已修。
+- **C2d（待实施，task #10）** — per-(class,model) 美元归因（class 跨模型）；ROI 分母（proposals adopted / verified actions / salvaged 比例）；超预算 class 自动降级 throttle。
 
 ---
 
