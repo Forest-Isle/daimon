@@ -72,22 +72,29 @@ func (j *DistillJob) Run(ctx context.Context) (string, error) {
 			continue
 		}
 		// Exclude framework-salvaged outcomes, framework-recorded failures
-		// (failEpisode summaries), and episodes that had any failing tool call
-		// (detail "tool_failures=N"). This is the conservative proxy for the
-		// blueprint's "all verified": a pattern is only distillation-worthy if the
-		// episode reached it without a single tool error. The judge prompt further
+		// (failEpisode summaries), episodes that had any failing tool call
+		// ("tool_failures=N"), and episodes whose governed actions were not all
+		// verified ("unverified_actions=N"). Together these are the conservative
+		// proxy for the blueprint's "all verified": a pattern is only
+		// distillation-worthy if the episode reached it with no tool error AND every
+		// governed action it took earned objective trust. The judge prompt further
 		// requires genuine success before grouping.
 		detail := oneLine(e.Detail)
 		if detail == "salvaged=true" || isFailedOutcome(e.Summary) {
 			continue
 		}
-		// Exclude episodes that had any failing tool call. Parse the count rather
-		// than prefix-match so a "tool_failures=0" (or any non-numeric value) is not
-		// treated as a failure — only N>0 excludes.
-		if rest, ok := strings.CutPrefix(detail, "tool_failures="); ok {
-			if n, convErr := strconv.Atoi(rest); convErr == nil && n > 0 {
-				continue
+		// Parse the count rather than prefix-match so "<key>=0" (or any non-numeric
+		// value) is not treated as a failure — only N>0 excludes.
+		excludeByCount := func(prefix string) bool {
+			if rest, ok := strings.CutPrefix(detail, prefix); ok {
+				if n, convErr := strconv.Atoi(rest); convErr == nil && n > 0 {
+					return true
+				}
 			}
+			return false
+		}
+		if excludeByCount("tool_failures=") || excludeByCount("unverified_actions=") {
+			continue
 		}
 		cleanOutcomes = append(cleanOutcomes, e)
 		if e.EpisodeID != "" {

@@ -69,7 +69,7 @@ func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next t
 
 	result, err := next(ctx, call)
 
-	if !governed || i.store == nil {
+	if !governed {
 		return result, err
 	}
 
@@ -80,6 +80,21 @@ func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next t
 	// success — they stay at ask-every until an explicit objective verification
 	// mechanism marks them, keeping high-stakes actions behind a human gate.
 	verified := succeeded && class == Reversible
+
+	// Report this governed action into the episode's verification collector (if the
+	// caller installed one). This is about the action, not the trust ledger, so it
+	// happens for EVERY governed call — independent of whether a trust store is
+	// wired. Doing it before the store-nil guard prevents a governed (possibly
+	// unverified) action from being silently dropped to "0 unverified" when no
+	// store is configured, which would wrongly let its episode look distill-clean.
+	// Read-only calls returned above, so only governed actions are counted.
+	// Observational — never affects the result.
+	tool.ActionCollectorFromContext(ctx).Record(verified)
+
+	if i.store == nil {
+		return result, err
+	}
+
 	if recErr := i.store.RecordAttempt(ctx, class, contextKey, verified); recErr != nil {
 		slog.Warn("action: record trust attempt failed", "tool", call.ToolName, "err", recErr)
 	}

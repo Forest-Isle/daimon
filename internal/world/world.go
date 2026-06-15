@@ -81,10 +81,14 @@ func (s *Store) Apply(ctx context.Context, episodeID string, muts []Mutation) er
 // Salvaged marks a framework-recovered episode (the model never called
 // episode_close). ToolFailures is how many of the episode's tool calls returned
 // an error — a clean-execution signal: 0 means every tool call the episode made
-// succeeded. It is observational and never affects control flow.
+// succeeded. UnverifiedActions is how many of the episode's governed action calls
+// were not verified this run (§4.8): 0 means every governed action earned
+// objective trust (or it took none). All are observational, never affecting
+// control flow.
 type OutcomeMeta struct {
-	Salvaged     bool
-	ToolFailures int
+	Salvaged          bool
+	ToolFailures      int
+	UnverifiedActions int
 }
 
 // ApplyOutcome applies world writes from an episode outcome, stamps episodeID,
@@ -550,17 +554,19 @@ func updateCommitment(ctx context.Context, exec sqlExecer, id string, set map[st
 // idempotency claim: a false return means the episode's outcome was already
 // recorded and the caller must not re-apply its world writes.
 func claimOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, summary string, meta OutcomeMeta) (bool, error) {
-	// Detail encodes one per-episode signal. Salvaged takes precedence: those
-	// episodes are already framework-recovered and excluded downstream, so its
-	// "salvaged=true" value is preserved unchanged (backward-compatible). A clean
-	// (non-salvaged) episode that had tool failures records "tool_failures=N";
-	// a fully clean episode records "" exactly as before.
+	// Detail encodes one per-episode signal, by precedence. Each is independently
+	// an exclusion signal downstream (distill), so which one wins the single detail
+	// slot does not change any decision — it only picks what is displayed. Salvaged
+	// is preserved byte-exact for backward compatibility; a fully clean, fully
+	// verified episode records "" exactly as before.
 	detail := ""
 	switch {
 	case meta.Salvaged:
 		detail = "salvaged=true"
 	case meta.ToolFailures > 0:
 		detail = fmt.Sprintf("tool_failures=%d", meta.ToolFailures)
+	case meta.UnverifiedActions > 0:
+		detail = fmt.Sprintf("unverified_actions=%d", meta.UnverifiedActions)
 	}
 	res, err := exec.ExecContext(ctx, `
 		INSERT OR IGNORE INTO journal

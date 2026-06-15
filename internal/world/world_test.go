@@ -119,10 +119,16 @@ func TestApplyOutcomeEncodesMetaDetail(t *testing.T) {
 		{"clean", OutcomeMeta{}, ""},
 		{"tool_failures", OutcomeMeta{ToolFailures: 3}, "tool_failures=3"},
 		{"salvaged", OutcomeMeta{Salvaged: true}, "salvaged=true"},
+		{"unverified_actions", OutcomeMeta{UnverifiedActions: 1}, "unverified_actions=1"},
 		// Salvaged takes precedence over the tool-failure count: salvaged episodes
 		// are already excluded downstream, and the legacy "salvaged=true" value must
 		// stay exact for backward compatibility.
 		{"salvaged_precedence", OutcomeMeta{Salvaged: true, ToolFailures: 2}, "salvaged=true"},
+		// Precedence chain salvaged > tool_failures > unverified_actions: only one slot
+		// is displayed but distill excludes on ANY of the three, so which wins the slot
+		// changes nothing downstream — these just pin the displayed value.
+		{"salvaged_over_unverified", OutcomeMeta{Salvaged: true, UnverifiedActions: 4}, "salvaged=true"},
+		{"tool_failures_over_unverified", OutcomeMeta{ToolFailures: 1, UnverifiedActions: 4}, "tool_failures=1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

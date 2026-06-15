@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/tool"
 	"github.com/Forest-Isle/daimon/internal/world"
 )
 
@@ -175,6 +176,13 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 	var used agent.Usage
 	defer r.recordCost(ctx, req, episodeID, &used)
 
+	// Install a per-episode action-verification collector in the context so the
+	// action interceptor reports each governed action's verified status into it.
+	// Read once at close to derive the unverified-actions signal (§4.8 distill
+	// candidacy). Observational: the collector never affects the episode.
+	actions := &tool.ActionVerification{}
+	ctx = tool.WithActionCollector(ctx, actions)
+
 	system := composeSystem(ctx, req, r.world, r.identity, r.values)
 	messages := append([]agent.CompletionMessage(nil), req.Transcript...)
 	if len(messages) == 0 {
@@ -232,7 +240,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 					transcript = append(transcript, transcriptTurn{Role: "tool", Content: rejection})
 					continue
 				}
-				return r.close(ctx, req, episodeID, out, lastReply, toolFailures), nil
+				return r.close(ctx, req, episodeID, out, lastReply, toolFailures, unverifiedActionCount(actions)), nil
 			}
 
 			output, isErr := req.Invoke(ctx, iteration, tc)
@@ -249,12 +257,20 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 	}
 
 	out := r.salvage(ctx, req, system, messages, transcript, &used)
-	return r.close(ctx, req, episodeID, out, lastReply, toolFailures), nil
+	return r.close(ctx, req, episodeID, out, lastReply, toolFailures, unverifiedActionCount(actions)), nil
+}
+
+// unverifiedActionCount is how many of the episode's governed action calls were
+// not verified this run (governed minus verified). Zero means every governed
+// action the episode took earned objective trust (or it took none).
+func unverifiedActionCount(a *tool.ActionVerification) int {
+	governed, verified := a.Snapshot()
+	return governed - verified
 }
 
 // close applies the outcome's world writes plus a journal entry, plants
 // follow-ups, records the turn-close event, and shapes the user-facing reply.
-func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeID string, out Outcome, lastReply string, toolFailures int) agent.CognitiveOutcome {
+func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeID string, out Outcome, lastReply string, toolFailures, unverifiedActions int) agent.CognitiveOutcome {
 	// Expand follow-ups: watch/check persist as commitments transactionally with
 	// the outcome; timer follow-ups are planted into the heart for re-entry. Kind
 	// is normalized so casing/whitespace variants are not silently dropped.
@@ -274,7 +290,7 @@ func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeI
 	}
 
 	if r.world != nil {
-		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, world.OutcomeMeta{Salvaged: out.Salvaged, ToolFailures: toolFailures}); err != nil {
+		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, world.OutcomeMeta{Salvaged: out.Salvaged, ToolFailures: toolFailures, UnverifiedActions: unverifiedActions}); err != nil {
 			// Invariant #3 (交账强制): a malformed WorldWrite must not roll back the
 			// episode's journal trace along with it. failEpisode re-applies the
 			// outcome with no writes (idempotent), so the summary still lands and the

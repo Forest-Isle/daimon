@@ -11,6 +11,7 @@ import (
 
 	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/tool"
 	"github.com/Forest-Isle/daimon/internal/world"
 )
 
@@ -510,6 +511,84 @@ func TestExecuteRecordsToolFailuresInOutcomeDetail(t *testing.T) {
 	}
 	if detail != "tool_failures=1" {
 		t.Fatalf("outcome detail = %q, want tool_failures=1", detail)
+	}
+}
+
+// TestExecuteRecordsUnverifiedActionsInOutcomeDetail verifies the J12 keystone: an
+// episode that took a governed action which was NOT verified stamps
+// "unverified_actions=N" on the outcome journal detail. The real action interceptor
+// reports into the context-scoped collector; here the fake Invoke stands in for it
+// by recording an unverified governed action through the same context channel.
+func TestExecuteRecordsUnverifiedActionsInOutcomeDetail(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{
+		{text: "taking an action", toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "world_edit", Input: `{}`}}},
+		{text: "closing", toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Did a governed action."}`)}},
+	}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("Take a governed action", "go")
+	req.EpisodeID = "evt-unverified-1"
+	req.Invoke = func(ctx context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+		// Stand in for the action interceptor: a governed action that did not earn
+		// objective trust on this run (compensable/irreversible, or a failed reversible).
+		tool.ActionCollectorFromContext(ctx).Record(false)
+		return "action taken", false // not a tool error → tool_failures stays 0
+	}
+
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	journal, jerr := ws.ListJournal(context.Background(), "", 10)
+	if jerr != nil {
+		t.Fatalf("ListJournal: %v", jerr)
+	}
+	var detail string
+	for _, e := range journal {
+		if e.ID == "journal_outcome_evt-unverified-1" && e.Kind == "outcome" {
+			detail = e.Detail
+		}
+	}
+	if detail != "unverified_actions=1" {
+		t.Fatalf("outcome detail = %q, want unverified_actions=1", detail)
+	}
+}
+
+// TestExecuteAllVerifiedActionsHasEmptyDetail verifies that an episode whose
+// governed actions were ALL verified records empty detail (governed - verified = 0):
+// taking governed actions is not itself a distill disqualifier — only unverified
+// ones are.
+func TestExecuteAllVerifiedActionsHasEmptyDetail(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{
+		{text: "taking an action", toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "world_edit", Input: `{}`}}},
+		{text: "closing", toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Did a verified action."}`)}},
+	}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("Take a verified action", "go")
+	req.EpisodeID = "evt-verified-1"
+	req.Invoke = func(ctx context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+		tool.ActionCollectorFromContext(ctx).Record(true) // verified governed action
+		return "action taken", false
+	}
+
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	journal, jerr := ws.ListJournal(context.Background(), "", 10)
+	if jerr != nil {
+		t.Fatalf("ListJournal: %v", jerr)
+	}
+	found := false
+	for _, e := range journal {
+		if e.ID == "journal_outcome_evt-verified-1" && e.Kind == "outcome" {
+			found = true
+			if e.Detail != "" {
+				t.Fatalf("all-verified episode detail = %q, want empty", e.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("verified-action episode left no outcome journal: %#v", journal)
 	}
 }
 

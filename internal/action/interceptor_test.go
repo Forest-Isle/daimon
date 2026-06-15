@@ -152,3 +152,118 @@ func TestInterceptorFailureNotVerified(t *testing.T) {
 		t.Fatalf("level = %v, want AskEvery after a failed attempt", lvl)
 	}
 }
+
+// TestInterceptorReportsToActionCollector pins the J12 contract: when the caller
+// installs an ActionVerification collector in the context, the interceptor reports
+// each governed call into it (with the same verified verdict it records in the
+// ledger), and read-only calls — which return before the governed block — are not
+// counted.
+func TestInterceptorReportsToActionCollector(t *testing.T) {
+	ctx := context.Background()
+	okFinal := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		return &tool.ToolResult{Output: "done"}, nil
+	}
+	errFinal := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		return nil, errors.New("boom")
+	}
+
+	cases := []struct {
+		name         string
+		call         *tool.ToolCall
+		final        tool.InterceptorFunc
+		wantErr      bool
+		wantGoverned int
+		wantVerified int
+	}{
+		{
+			// reversible + clean execution = the only path that earns a verified attempt.
+			name:         "reversible_success",
+			call:         &tool.ToolCall{ToolName: "world_edit"},
+			final:        okFinal,
+			wantGoverned: 1,
+			wantVerified: 1,
+		},
+		{
+			// reversible but the tool errored → governed, not verified.
+			name:         "reversible_failure",
+			call:         &tool.ToolCall{ToolName: "world_edit"},
+			final:        errFinal,
+			wantErr:      true,
+			wantGoverned: 1,
+			wantVerified: 0,
+		},
+		{
+			// irreversible never auto-verifies on mere success → governed, not verified.
+			name:         "irreversible_success",
+			call:         &tool.ToolCall{ToolName: "bash", Input: `{"command":"rm -rf build"}`},
+			final:        okFinal,
+			wantGoverned: 1,
+			wantVerified: 0,
+		},
+		{
+			// read-only returns before the governed block → never counted.
+			name:         "read_only_not_counted",
+			call:         &tool.ToolCall{ToolName: "world_read", Capabilities: tool.ToolCapabilities{IsReadOnly: true}},
+			final:        okFinal,
+			wantGoverned: 0,
+			wantVerified: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := openActionTestStore(t)
+			ic := NewInterceptor(store, nil)
+			coll := &tool.ActionVerification{}
+			cctx := tool.WithActionCollector(ctx, coll)
+			_, err := ic.Intercept(cctx, tc.call, tc.final)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Intercept() error = %v, wantErr = %v", err, tc.wantErr)
+			}
+			gov, ver := coll.Snapshot()
+			if gov != tc.wantGoverned || ver != tc.wantVerified {
+				t.Fatalf("collector = (governed=%d, verified=%d), want (%d, %d)", gov, ver, tc.wantGoverned, tc.wantVerified)
+			}
+		})
+	}
+}
+
+// TestInterceptorNilCollectorSafe confirms a governed call with no collector in
+// context is a no-op for reporting (nil-safe) and does not affect the result.
+func TestInterceptorNilCollectorSafe(t *testing.T) {
+	store := openActionTestStore(t)
+	ic := NewInterceptor(store, nil)
+	call := &tool.ToolCall{ToolName: "world_edit"}
+	final := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		return &tool.ToolResult{Output: "done"}, nil
+	}
+	res, err := ic.Intercept(context.Background(), call, final)
+	if err != nil {
+		t.Fatalf("Intercept() error = %v", err)
+	}
+	if res.Metadata["action_class"] != "reversible" {
+		t.Fatalf("metadata action_class = %q, want reversible", res.Metadata["action_class"])
+	}
+}
+
+// TestInterceptorNilStoreStillReportsToCollector guards the J12 store-nil decoupling:
+// a governed action with no trust store wired must STILL be counted by the episode
+// collector, so its episode is not mislabeled distill-clean. (Without a store the
+// interceptor cannot earn trust, but the verification signal is about the action.)
+func TestInterceptorNilStoreStillReportsToCollector(t *testing.T) {
+	ic := NewInterceptor(nil, nil) // observe-only, no trust ledger
+	coll := &tool.ActionVerification{}
+	ctx := tool.WithActionCollector(context.Background(), coll)
+
+	// An irreversible governed action: succeeds but is never auto-verified.
+	call := &tool.ToolCall{ToolName: "bash", Input: `{"command":"rm -rf build"}`}
+	final := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		return &tool.ToolResult{Output: "done"}, nil
+	}
+	if _, err := ic.Intercept(ctx, call, final); err != nil {
+		t.Fatalf("Intercept() error = %v", err)
+	}
+	gov, ver := coll.Snapshot()
+	if gov != 1 || ver != 0 {
+		t.Fatalf("collector = (governed=%d, verified=%d), want (1, 0) even with nil store", gov, ver)
+	}
+}

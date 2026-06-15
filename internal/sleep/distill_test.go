@@ -154,6 +154,48 @@ func TestDistillExcludesToolFailureOutcomes(t *testing.T) {
 	}
 }
 
+func TestDistillExcludesUnverifiedActionOutcomes(t *testing.T) {
+	ctx := context.Background()
+	ws := openWorldStore(t)
+	// 2 clean + 2 episodes that closed cleanly but took a governed action that was
+	// not verified (touched a compensable/irreversible tool, or a reversible one
+	// that failed). Only the 2 clean remain below the floor, so episodes with
+	// unverified governed actions are not mined as pristine patterns (the J12
+	// upgrade of the "all verified" proxy).
+	seedOutcome(t, ws, "ep1", "clean one", false)
+	seedOutcome(t, ws, "ep2", "clean two", false)
+	seedOutcomeDetail(t, ws, "ep3", "took an unverified action", "unverified_actions=1")
+	seedOutcomeDetail(t, ws, "ep4", "took two unverified actions", "unverified_actions=2")
+	sum := &stubSummarizer{err: context.Canceled} // must NOT be called
+
+	msg, err := NewDistillJob(ws, sum).Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "not enough successful episodes to distill" {
+		t.Fatalf("unverified-action outcomes must be excluded: msg = %q", msg)
+	}
+}
+
+// TestDistillKeepsZeroCountDetails guards the parse-not-prefix exclusion: an
+// outcome whose detail is "<key>=0" is NOT a failure and must remain minable.
+func TestDistillKeepsZeroCountDetails(t *testing.T) {
+	ctx := context.Background()
+	ws := openWorldStore(t)
+	seedOutcomeDetail(t, ws, "ep1", "did the task", "unverified_actions=0")
+	seedOutcomeDetail(t, ws, "ep2", "did the task", "tool_failures=0")
+	seedOutcome(t, ws, "ep3", "did the task", false)
+	sum := &stubSummarizer{out: `{"candidates":[{"name":"recurring task","skill":"automate it","episode_ids":["ep1","ep2","ep3"]}]}`}
+
+	msg, err := NewDistillJob(ws, sum).Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "surfaced 1 distill candidate(s)" {
+		t.Fatalf("=0 details must remain minable: msg = %q", msg)
+	}
+}
+
 func TestDistillDropsCandidateWithTooFewRealIDs(t *testing.T) {
 	ctx := context.Background()
 	ws := openWorldStore(t)
