@@ -419,7 +419,8 @@ P3-J（replay 金丝雀、proposals）。
 - **C2a（成本记录基底，done）** — `internal/economy`：`Entry`/`Totals`/`Store.Record`（按 EpisodeID 幂等 `cost_<id>` + INSERT OR IGNORE，负值钳零）/`TotalSince`；迁移 034 costs（含 idx_costs_occurred、idx_costs_class）。gateway 适配器 fire-and-forget 异步写（recover 包裹，永不阻塞情节返回）。
 - **C2b（月报 CLI + 配置定价，done，commit 88b452d）** — `Prices.CostUSD`（精确→最长子串匹配，确定性 tie-break，空模型/空 key 不定价）+ `ByModelSince`；`config.EconomyConfig.Prices`（leaf）；`daimon costs [--since DUR]` 按模型出 token（恒显）+ $（仅定价模型，未定价脚注，TOTAL 只累加已定价）。无硬编码费率。
 - **C2c（activity-class 线程化 + by-class 报表，done，commit d83c249）** — 纯加性穿字段：`CognitiveRequest.ActivityClass`（runKernel="chat"；`RunInternalEpisode` 新增 activityClass 参，heart_dispatch cognize 传 `ev.Kind`）→`EpisodeCost.ActivityClass`→`economy.Entry.ActivityClass`（列+idx 早在 034）。`economy.ByClassSince`（GROUP BY activity_class）+ `daimon costs` by-class 表（仅 token，空=`(unclassified)`，脚注指向 by-model 的 $）。Codex 审无 blocker/high/med，1 LOW（by-class tokens-only 提示）已修。
-- **C2d（待实施，task #10）** — per-(class,model) 美元归因（class 跨模型）；ROI 分母（proposals adopted / verified actions / salvaged 比例）；超预算 class 自动降级 throttle。
+- **C2d（per-class 美元归因，done，commit 8d28c48）** — `economy.ByClassModelSince`（GROUP BY activity_class, model）取代 tokens-only `ByClassSince`；`cmd/daimon foldClassCosts` 按 class 折叠、每 model 子行各自费率定价累加，任一 model 未定价→该 class COST "—"（不完整非低估），output 降序+class 升序确定排序。by-class 表加 COST 列。实跑验证（chat 跨 opus+haiku+未定价 gpt-4o 正确定价并标 "—"）。Codex 审无 blocker/high/med，4 LOW（全测试覆盖）修。
+- **C2e（待实施，task #12）** — ROI 分母（value-per-class：proposals adopted / verified actions / clean-vs-salvaged|tool-failure 比例，J11 信号可作代理）+ ROI=value/cost 报表 + 超预算/负 ROI class 自动降级 throttle（绝不 WakeUser）。部分受阻于全 action-level verified 真值。
 
 ---
 
