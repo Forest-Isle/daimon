@@ -14,7 +14,7 @@
 | Phase 1 episode+world | 🟡 主体完成 | world 无检索门面；FollowUps 不种入；salvaged 不计；Budget/Receipt 未接 |
 | Phase 2 heart+attention+action | 🟠 地基+骨架 | action 只观测不强制；feedback/holds 死表；仅 timer 源；无 AST/seatbelt |
 | Phase 3 sleep+proposals+shadow | 🟡 sleep 推进 (P3-J1..J7) | sleep 包+digest+drift+synthesize-rules+rollup + replay 读侧+重打分(--against) + proposals 引擎核心 已落；回归集/金丝雀/distill/reconcile/proposals 投递 UX/shadow 未开工 |
-| Phase 4 economy+selfops+sensors | ❌ 未开工 | 包不存在 |
+| Phase 4 economy+selfops+sensors | 🟡 economy 推进 (C1/C2a/C2b) | per-episode token 归因+成本记录基底+月报CLI已落；activity-class/ROI/throttle(C2c)、selfops、sensors 未开工 |
 | §4.5 values | ✅ 完成 (P2-G + P3-J2) | ask-once 门控+条目+digest+漂移检测(sleep DriftJob)全落 |
 | §4.7 mind | ❌ 未拆出 | 仍在 agent/ |
 
@@ -412,6 +412,12 @@ P2 全部；replay 依赖 telemetry 录制（已在）。
 
 ### 依赖
 P3-J（replay 金丝雀、proposals）。
+
+### 进度（economy 切片）
+- **C1（per-episode token 归因，done）** — `agent.Usage`{Input/Output/CacheRead/CacheCreation} 落在 `CompletionResponse` 与 stream 终态 `StreamDelta`；Claude/OpenAI provider 各自归一化（OpenAI 的 cache-inclusive prompt_tokens 拆成 exclusive；无 drain，finish_reason 即终态）。零=未知非免费，纯观测不入控制流。episode loop 对每次 Stream 累加 delta，`recordCost` 经 `CostRecorder` 写出。
+- **C2a（成本记录基底，done）** — `internal/economy`：`Entry`/`Totals`/`Store.Record`（按 EpisodeID 幂等 `cost_<id>` + INSERT OR IGNORE，负值钳零）/`TotalSince`；迁移 034 costs（含 idx_costs_occurred、idx_costs_class）。gateway 适配器 fire-and-forget 异步写（recover 包裹，永不阻塞情节返回）。
+- **C2b（月报 CLI + 配置定价，done，commit 88b452d）** — `Prices.CostUSD`（精确→最长子串匹配，确定性 tie-break，空模型/空 key 不定价）+ `ByModelSince`；`config.EconomyConfig.Prices`（leaf）；`daimon costs [--since DUR]` 按模型出 token（恒显）+ $（仅定价模型，未定价脚注，TOTAL 只累加已定价）。无硬编码费率。
+- **C2c（待实施，task #9）** — activity-class 落成本行（`CognitiveRequest.ActivityClass`→episode→Entry）；ROI-by-class（接 proposals adopted / verified actions 分母）；某 class 超预算自动降级 throttle。
 
 ---
 
