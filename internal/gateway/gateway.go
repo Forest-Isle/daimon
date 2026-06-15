@@ -128,6 +128,12 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		// internally consistent (invariant #1); the canonical fact survives, stale
 		// ones are removed from retrieval with a correction journal audit trace.
 		sleep.NewReconcileJob(gw.toolSub.WorldStore, sleepSummarizer),
+		// Distill: mine the journal for recurring successful episode patterns and
+		// surface each as an append-only "distill candidate" decision (blueprint §4.8
+		// detection half). It does NOT generate or promote skills — promotion is a
+		// separate canary-gated step, since an auto-promoted skill executes
+		// autonomously (the blueprint's highest 带病转正 risk, §706).
+		sleep.NewDistillJob(gw.toolSub.WorldStore, sleepSummarizer),
 		// Anticipation: scan commitments due soon and queue proposals the user will
 		// likely need. Reads the world, writes the proposals queue; delivery/decision
 		// UX is a later increment that reads from that queue.

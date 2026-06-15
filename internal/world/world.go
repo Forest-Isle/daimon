@@ -158,6 +158,25 @@ func (s *Store) OutcomeExists(ctx context.Context, episodeID string) (bool, erro
 	return n > 0, nil
 }
 
+// JournalExists reports whether a journal row with the given id exists. It lets
+// callers de-duplicate by a deterministic id independently of any recency window
+// (e.g. the distill job, which must not re-record a candidate whose prior entry
+// has scrolled out of a bounded ListJournal scan).
+func (s *Store) JournalExists(ctx context.Context, id string) (bool, error) {
+	if err := s.ensure(); err != nil {
+		return false, err
+	}
+	if id == "" {
+		return false, nil
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM journal WHERE id = ?`, id).Scan(&n); err != nil {
+		return false, fmt.Errorf("check journal exists: %w", err)
+	}
+	return n > 0, nil
+}
+
 func (s *Store) AppendJournal(ctx context.Context, entry JournalEntry) error {
 	if err := s.ensure(); err != nil {
 		return err

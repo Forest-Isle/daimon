@@ -210,8 +210,11 @@ func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeI
 			// Invariant #3 (交账强制): a malformed WorldWrite must not roll back the
 			// episode's journal trace along with it. failEpisode re-applies the
 			// outcome with no writes (idempotent), so the summary still lands and the
-			// episode is accounted for rather than vanishing.
-			return r.failEpisode(ctx, req, episodeID, out.Summary+" [world write failed: "+err.Error()+"]")
+			// episode is accounted for rather than vanishing. The failure marker goes
+			// FIRST so failEpisode's 500-char truncation can never drop it (a long
+			// model summary must still be recognizable as a failed outcome downstream,
+			// e.g. by the distiller).
+			return r.failEpisode(ctx, req, episodeID, "[world write failed: "+err.Error()+"] "+out.Summary)
 		}
 	}
 
