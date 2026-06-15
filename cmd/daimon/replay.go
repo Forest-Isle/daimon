@@ -117,13 +117,18 @@ func printRescoreReport(dir, configPath, model string, rep replay.RescoreReport,
 	fmt.Printf("Replay re-score — recorded=%s against=%s model=%s\n", dir, configPath, model)
 	fmt.Printf("compared=%d avg_score=%d regressions=%d errors=%d skipped=%d capped=%t\n",
 		rep.Compared, rep.AvgScore, rep.Regressions, rep.Errors, rep.Skipped, rep.Capped)
+	// §4.7 shadow efficiency: the candidate model's own spend (judge calls
+	// excluded) and the quality it bought per 1k of that spend — the "每千 token
+	// 质量分" that lets a cheaper-but-comparable brain rank above a pricier one.
+	fmt.Printf("cand_tokens_in=%d cand_tokens_out=%d quality_per_1k_tok=%.1f\n",
+		rep.CandidateUsage.InputTokens, rep.CandidateUsage.OutputTokens, rep.QualityPer1kTokens())
 	// Cost: cumulative tokens spent by this run (candidate re-runs + judge calls
 	// share one freshly-built provider, so its cumulative usage is the run total).
 	if ts, ok := provider.(interface {
 		GetTokenStats() (int64, int64)
 	}); ok {
 		in, out := ts.GetTokenStats()
-		fmt.Printf("tokens_in=%d tokens_out=%d\n", in, out)
+		fmt.Printf("run_tokens_in=%d run_tokens_out=%d\n", in, out)
 	}
 	fmt.Println()
 

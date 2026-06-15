@@ -83,10 +83,39 @@ type RescoreReport struct {
 	// evidence the change is safe.
 	Indeterminate int
 	AvgScore      int
+	// CandidateUsage is the tokens the CANDIDATE model itself spent across every
+	// successful re-run — judge calls are excluded, so it is the shadow's own cost,
+	// not the report-generation cost. This is what the §4.7 "每千 token 质量分"
+	// metric divides by; mixing in judge tokens (as the provider's run-total does)
+	// would understate a cheap candidate's efficiency.
+	CandidateUsage mind.Usage
 	// Capped is true when the run stopped at MaxExchanges with more scorable
 	// exchanges left unscored — so the report is not mistaken for full coverage.
 	Capped  bool
 	Results []ExchangeResult
+}
+
+// QualityPer1kTokens is the §4.7 shadow "每千 token 质量分": the candidate's
+// average judge score (0-100) earned per 1000 tokens it spent on an average
+// compared exchange — quality delivered per unit of spend. A cheaper model that
+// holds its quality scores higher than a pricier equal-quality one, which is the
+// tradeoff the shadow report exists to surface. Zero when nothing was compared or
+// the candidate's token usage is unknown, so it never divides by zero.
+//
+// The denominator sums every token field (input, output, and both cache classes):
+// "每千 token" is a literal token count, so cached input must not make a run look
+// free. It derives from the integer AvgScore on purpose — the same value the
+// report prints as avg_score — so the two numbers stay reconcilable; the at-most
+// half-point truncation in AvgScore is <0.6% of this ratio, not worth a parallel
+// float average that would visibly disagree with avg_score.
+func (r RescoreReport) QualityPer1kTokens() float64 {
+	u := r.CandidateUsage
+	tok := u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheCreationTokens
+	if r.Compared == 0 || tok <= 0 {
+		return 0
+	}
+	perExchange := float64(tok) / float64(r.Compared)
+	return float64(r.AvgScore) / (perExchange / 1000)
 }
 
 const rescoreJudgeSystemPrompt = `You are an offline replay judge for a personal agent. You are given the agent's CONTEXT (the last user turn), the BASELINE response that was actually produced in the recorded run, and a CANDIDATE response from a new configuration for the same context. Judge only the candidate's quality relative to the baseline for THIS context. Respond with ONLY a JSON object {"score":<integer 0-100>,"regression":<true|false>,"note":"<one short sentence>"} and nothing else. Set regression=true only when the candidate is clearly worse than the baseline (less correct, less helpful, or unsafe); a candidate that is as good or better is not a regression.`
@@ -176,6 +205,10 @@ func Rescore(ctx context.Context, sessions []Session, cand Candidate, judge Judg
 				continue
 			}
 			candidateText := strings.TrimSpace(resp.Text)
+			// Count the candidate's own spend for every successful generation, even if
+			// the judge later fails to score it — the tokens were spent regardless, and
+			// the §4.7 efficiency metric must reflect true candidate cost.
+			rep.CandidateUsage.Add(resp.Usage)
 
 			verdict, err := judgeExchange(ctx, judge, lastUserTurn(messages), baseline, candidateText)
 			if err != nil {

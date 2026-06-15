@@ -17,6 +17,7 @@ import (
 type stubCandidate struct {
 	text     string
 	err      error
+	usage    mind.Usage
 	requests []mind.CompletionRequest
 }
 
@@ -25,7 +26,7 @@ func (s *stubCandidate) Complete(_ context.Context, req mind.CompletionRequest) 
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &mind.CompletionResponse{Text: s.text, StopReason: mind.StopEndTurn}, nil
+	return &mind.CompletionResponse{Text: s.text, StopReason: mind.StopEndTurn, Usage: s.usage}, nil
 }
 
 // stubJudge returns a fixed reply (or error) and records the user message it saw.
@@ -244,6 +245,69 @@ func TestRescoreRequiresDeps(t *testing.T) {
 	}
 	if _, err := Rescore(context.Background(), nil, &stubCandidate{}, nil, RescoreOptions{}, fixedClock()); err == nil {
 		t.Fatal("nil judge must error")
+	}
+}
+
+func TestRescoreCandidateUsageAndEfficiency(t *testing.T) {
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "ping?"}}
+	// Two scorable exchanges so the per-exchange normalization is exercised.
+	sessions := []Session{sessionWith(
+		agent.ProviderExchange{SessionID: "s1", Iteration: 0, ResponseText: "pong.", MessagesJSON: msgsJSON(t, msgs), DurationMs: 10},
+		agent.ProviderExchange{SessionID: "s1", Iteration: 1, ResponseText: "pong.", MessagesJSON: msgsJSON(t, msgs), DurationMs: 10},
+	)}
+	// Cache tokens are real tokens and must count toward the per-1k denominator.
+	cand := &stubCandidate{text: "pong!", usage: mind.Usage{InputTokens: 300, OutputTokens: 100, CacheReadTokens: 100}}
+	judge := &stubJudge{reply: `{"score":80,"regression":false,"note":"ok"}`}
+
+	rep, err := Rescore(context.Background(), sessions, cand, judge, RescoreOptions{Model: "m"}, fixedClock())
+	if err != nil {
+		t.Fatalf("Rescore: %v", err)
+	}
+	// Candidate-only usage accumulates per successful re-run (2 calls × 500 tokens).
+	if rep.CandidateUsage.InputTokens != 600 || rep.CandidateUsage.OutputTokens != 200 || rep.CandidateUsage.CacheReadTokens != 200 {
+		t.Fatalf("candidate usage = %+v, want in=600 out=200 cacheRead=200", rep.CandidateUsage)
+	}
+	// avg_score=80 over 2 exchanges, 1000 total candidate tokens (incl. cache) →
+	// 500 tok/exchange → 80 / (500/1000) = 160.0 quality points per 1k tokens.
+	if got := rep.QualityPer1kTokens(); got != 160.0 {
+		t.Fatalf("QualityPer1kTokens = %v, want 160.0", got)
+	}
+}
+
+func TestRescoreCountsCandidateUsageWhenJudgeFails(t *testing.T) {
+	// The candidate's tokens are spent the moment it generates, before the judge
+	// runs — so a judge failure must still bill the candidate's usage even though
+	// the exchange is uncompared. (Guards the placement of CandidateUsage.Add.)
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "ping?"}}
+	sessions := []Session{sessionWith(
+		agent.ProviderExchange{SessionID: "s1", Iteration: 0, ResponseText: "pong.", MessagesJSON: msgsJSON(t, msgs), DurationMs: 10},
+	)}
+	cand := &stubCandidate{text: "pong!", usage: mind.Usage{InputTokens: 300, OutputTokens: 50}}
+	judge := &stubJudge{err: errors.New("judge offline")}
+
+	rep, err := Rescore(context.Background(), sessions, cand, judge, RescoreOptions{Model: "m"}, fixedClock())
+	if err != nil {
+		t.Fatalf("Rescore: %v", err)
+	}
+	if rep.Compared != 0 || rep.Errors != 1 {
+		t.Fatalf("counts = compared=%d errors=%d, want compared=0 errors=1", rep.Compared, rep.Errors)
+	}
+	if rep.CandidateUsage.InputTokens != 300 || rep.CandidateUsage.OutputTokens != 50 {
+		t.Fatalf("candidate usage = %+v, want in=300 out=50 despite judge error", rep.CandidateUsage)
+	}
+	// No compared exchanges → efficiency is zero (and must not divide by zero).
+	if got := rep.QualityPer1kTokens(); got != 0 {
+		t.Fatalf("QualityPer1kTokens = %v, want 0 with nothing compared", got)
+	}
+}
+
+func TestQualityPer1kTokensZeroWhenNoTokens(t *testing.T) {
+	// No compared exchanges, or unknown token usage, must not divide by zero.
+	if got := (RescoreReport{Compared: 0, AvgScore: 90}).QualityPer1kTokens(); got != 0 {
+		t.Fatalf("zero-compared efficiency = %v, want 0", got)
+	}
+	if got := (RescoreReport{Compared: 3, AvgScore: 90}).QualityPer1kTokens(); got != 0 {
+		t.Fatalf("zero-token efficiency = %v, want 0", got)
 	}
 }
 
