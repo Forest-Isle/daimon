@@ -368,8 +368,9 @@ func (r *Runner) failEpisode(ctx context.Context, req agent.CognitiveRequest, ep
 	summary = truncateRunes(strings.TrimSpace(summary), 500)
 	if r.world != nil {
 		// A framework-failed episode is already excluded downstream by its summary
-		// marker (isFailedOutcome); leave meta empty rather than ascribe tool
-		// failures, since it failed for a framework reason (stream/panic/world write).
+		// marker (world.ClassifyOutcome → OutcomeFailed); leave meta empty rather than
+		// ascribe tool failures, since it failed for a framework reason
+		// (stream/panic/world write).
 		if err := r.world.ApplyOutcome(ctx, episodeID, nil, summary, world.OutcomeMeta{}); err != nil {
 			slog.Error("episode: record blocked outcome failed", "episode", episodeID, "err", err)
 		}

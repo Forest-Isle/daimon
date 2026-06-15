@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"strconv"
 	"strings"
 	"unicode"
 
@@ -71,29 +70,15 @@ func (j *DistillJob) Run(ctx context.Context) (string, error) {
 		if e.Kind != "outcome" {
 			continue
 		}
-		// Exclude framework-salvaged outcomes, framework-recorded failures
-		// (failEpisode summaries), episodes that had any failing tool call
-		// ("tool_failures=N"), and episodes whose governed actions were not all
-		// verified ("unverified_actions=N"). Together these are the conservative
-		// proxy for the blueprint's "all verified": a pattern is only
-		// distillation-worthy if the episode reached it with no tool error AND every
-		// governed action it took earned objective trust. The judge prompt further
-		// requires genuine success before grouping.
-		detail := oneLine(e.Detail)
-		if detail == "salvaged=true" || isFailedOutcome(e.Summary) {
-			continue
-		}
-		// Parse the count rather than prefix-match so "<key>=0" (or any non-numeric
-		// value) is not treated as a failure — only N>0 excludes.
-		excludeByCount := func(prefix string) bool {
-			if rest, ok := strings.CutPrefix(detail, prefix); ok {
-				if n, convErr := strconv.Atoi(rest); convErr == nil && n > 0 {
-					return true
-				}
-			}
-			return false
-		}
-		if excludeByCount("tool_failures=") || excludeByCount("unverified_actions=") {
+		// A pattern is only distillation-worthy if the episode reached a clean,
+		// fully-verified outcome: it closed through episode_close (not framework
+		// salvage / failure), made no failing tool call, and every governed action it
+		// took earned objective trust. world.ClassifyOutcome is the single source of
+		// truth for that judgment — it owns the outcome detail encoding (salvaged /
+		// tool_failures=N / unverified_actions=N) and the failEpisode summary markers —
+		// so anything but OutcomeClean is excluded here. The conservative judge prompt
+		// then further requires genuine success before grouping.
+		if world.ClassifyOutcome(oneLine(e.Detail), e.Summary) != world.OutcomeClean {
 			continue
 		}
 		cleanOutcomes = append(cleanOutcomes, e)
@@ -203,17 +188,6 @@ func distillCandidateID(name string) string {
 	h := fnv.New64a() // 64-bit: collision across a personal agent's candidate set is negligible
 	_, _ = h.Write([]byte(norm))
 	return fmt.Sprintf("distill_candidate_%s_%016x", slug, h.Sum64())
-}
-
-// isFailedOutcome reports whether an outcome summary is a framework-recorded
-// failure (a failEpisode summary), so the distiller never mines a crashed or
-// world-write-failed episode as a successful pattern. Model-declared "blocked"
-// outcomes carry no marker and are left to the conservative judge prompt.
-func isFailedOutcome(summary string) bool {
-	s := strings.ToLower(summary)
-	return strings.Contains(s, "episode stream error") ||
-		strings.Contains(s, "episode panic") ||
-		strings.Contains(s, "world write failed")
 }
 
 // distillDetail renders the candidate's skill description plus the episodes it
