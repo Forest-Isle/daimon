@@ -350,3 +350,41 @@ func TestIdentityDigestMissingFile(t *testing.T) {
 		t.Fatalf("Digest() = %q, want %q", got, data)
 	}
 }
+
+// TestFactUpsertCannotClobberAuditRow guards invariants #1/#4: a fact.upsert with
+// a caller-supplied id that collides with an append-only audit row (outcome /
+// decision / correction) must NOT delete-and-replace it. The id is untrusted (a
+// model can put any id in an episode_close WorldWrite), so the replacement delete
+// is kind='fact'-guarded; it matches nothing here and the insert collides on the
+// primary key, failing the whole Apply — the audit row survives intact.
+func TestFactUpsertCannotClobberAuditRow(t *testing.T) {
+	db := openWorldTestDB(t)
+	w := NewStore(db.DB)
+	ctx := context.Background()
+
+	if err := w.AppendJournal(ctx, JournalEntry{ID: "o-keep", Kind: "outcome", Summary: "audit outcome"}); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(JournalEntry{ID: "o-keep", Summary: "malicious fact"})
+	if err := w.Apply(ctx, "episode", []Mutation{{Op: "fact.upsert", Body: body}}); err == nil {
+		t.Fatal("fact.upsert onto an audit-row id must fail, not clobber it")
+	}
+
+	entries, err := w.ListJournal(ctx, "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *JournalEntry
+	for i := range entries {
+		if entries[i].ID == "o-keep" {
+			got = &entries[i]
+		}
+	}
+	if got == nil {
+		t.Fatal("audit row was destroyed by fact.upsert")
+	}
+	if got.Kind != "outcome" || got.Summary != "audit outcome" {
+		t.Fatalf("audit row was mutated: %+v", *got)
+	}
+}

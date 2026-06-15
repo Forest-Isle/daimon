@@ -550,7 +550,14 @@ func upsertFact(ctx context.Context, exec sqlExecer, entry JournalEntry) error {
 		return fmt.Errorf("fact.upsert requires a summary")
 	}
 	if entry.ID != "" {
-		if _, err := exec.ExecContext(ctx, `DELETE FROM journal WHERE id = ?`, entry.ID); err != nil {
+		// Guard the replacement delete with kind='fact', symmetric with deleteFact:
+		// fact.upsert must only ever replace a fact, never an append-only audit row
+		// (outcome/decision/correction). A caller-supplied id is untrusted — a model
+		// can put any id in an episode_close fact.upsert WorldWrite. If that id points
+		// at a non-fact row, this delete matches nothing and the insert below collides
+		// on the primary key, failing the whole transaction. Fail-closed: the audit
+		// row is never destroyed (invariants #1/#4).
+		if _, err := exec.ExecContext(ctx, `DELETE FROM journal WHERE id = ? AND kind = 'fact'`, entry.ID); err != nil {
 			return fmt.Errorf("upsert fact (delete prior): %w", err)
 		}
 	}

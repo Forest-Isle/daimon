@@ -79,7 +79,7 @@ func (r *Runner) SetPlanter(p FollowUpPlanter) { r.planter = p }
 func (r *Runner) SetValues(v valueDigester) { r.values = v }
 
 // Execute implements agent.CognitiveKernel.
-func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (agent.CognitiveOutcome, error) {
+func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (result agent.CognitiveOutcome, err error) {
 	if r == nil || r.provider == nil {
 		return agent.CognitiveOutcome{Status: "failed", Summary: "episode provider unavailable"}, errors.New("episode provider unavailable")
 	}
@@ -99,6 +99,19 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (agent
 			return agent.CognitiveOutcome{Status: "done", Summary: "already handled (idempotent replay skip)"}, nil
 		}
 	}
+
+	// Invariant #3 (交账强制): a panic anywhere below — most plausibly a tool
+	// dispatch (req.Invoke) that panics or is nil — must still leave a durable
+	// journal trace and surface as an error, never let the episode vanish. Installed
+	// after the idempotent-skip return so a recovered run always has a real
+	// episodeID to account under.
+	defer func() {
+		if rec := recover(); rec != nil {
+			result = r.failEpisode(ctx, req, episodeID, fmt.Sprintf("episode panic: %v", rec))
+			err = fmt.Errorf("episode panic: %v", rec)
+		}
+	}()
+
 	system := composeSystem(ctx, req, r.world, r.identity, r.values)
 	messages := append([]agent.CompletionMessage(nil), req.Transcript...)
 	if len(messages) == 0 {
@@ -321,6 +334,13 @@ func parseOutcome(raw string) (Outcome, error) {
 		out.Status = status
 	default:
 		return Outcome{}, fmt.Errorf("status %q must be one of done, blocked, handed_off", out.Status)
+	}
+	// Summary is a required schema field (it is what lands in the journal); a blank
+	// one is rejected so the model retries with a real account rather than recording
+	// an empty Outcome. The salvage path constructs its Outcome directly and does not
+	// pass through here, so this cannot wedge a salvaged episode.
+	if strings.TrimSpace(out.Summary) == "" {
+		return Outcome{}, fmt.Errorf("summary must not be empty")
 	}
 	if utf8.RuneCountInString(out.Summary) > 500 {
 		return Outcome{}, fmt.Errorf("summary is %d chars, max 500", utf8.RuneCountInString(out.Summary))

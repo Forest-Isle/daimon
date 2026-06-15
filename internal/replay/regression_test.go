@@ -2,6 +2,7 @@ package replay
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
@@ -214,5 +215,102 @@ func TestCanaryPropagatesDepError(t *testing.T) {
 	// Rescore rejects nil deps; Canary must surface that error, not a false verdict.
 	if _, err := Canary(context.Background(), nil, nil, &stubJudge{}, CanaryOptions{}, fixedClock()); err == nil {
 		t.Fatal("nil candidate must error through Canary")
+	}
+}
+
+func TestCanaryFailsOnUnverifiedActionTurn(t *testing.T) {
+	// A session with one action turn (baseline made tool calls → skipped, unverified)
+	// plus one clean text turn. The clean text turn alone must NOT certify the change:
+	// its tool behavior went unchecked, so the gate fails closed by default.
+	msgs := []agent.CompletionMessage{{Role: "user", Content: "do it"}}
+	toolCalls, _ := json.Marshal([]agent.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
+	sessions := []Session{{SessionID: "a", Exchanges: []agent.ProviderExchange{
+		{SessionID: "a", Iteration: 0, ResponseText: "running it", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
+		{SessionID: "a", Iteration: 1, ResponseText: "answer", MessagesJSON: msgsJSON(t, msgs)},
+	}}}
+	cand := &stubCandidate{text: "answer2"}
+	judge := &stubJudge{reply: `{"score":90,"regression":false}`}
+
+	cr, err := Canary(context.Background(), sessions, cand, judge, CanaryOptions{}, fixedClock())
+	if err != nil {
+		t.Fatalf("Canary: %v", err)
+	}
+	if cr.SkippedAction != 1 {
+		t.Fatalf("SkippedAction=%d, want 1", cr.SkippedAction)
+	}
+	if cr.Passed {
+		t.Fatal("an unverified action turn must fail the canary by default")
+	}
+
+	// A text-only change may opt in to accept text-only certification.
+	cr, err = Canary(context.Background(), sessions, cand, judge, CanaryOptions{AllowSkippedActions: true}, fixedClock())
+	if err != nil {
+		t.Fatalf("Canary: %v", err)
+	}
+	if !cr.Passed {
+		t.Fatalf("AllowSkippedActions must let a clean text comparison pass: %+v", cr)
+	}
+}
+
+func TestCanaryCountsEmptyResponseActionTurn(t *testing.T) {
+	// An action turn with NO prose (model called a tool and said nothing) hits the
+	// empty-baseline skip — but it is still an unverified action turn and must count
+	// toward SkippedAction so the clean text turn alone cannot certify the change.
+	msgs := []agent.CompletionMessage{{Role: "user", Content: "do it"}}
+	toolCalls, _ := json.Marshal([]agent.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
+	sessions := []Session{{SessionID: "a", Exchanges: []agent.ProviderExchange{
+		{SessionID: "a", Iteration: 0, ResponseText: "", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
+		{SessionID: "a", Iteration: 1, ResponseText: "answer", MessagesJSON: msgsJSON(t, msgs)},
+	}}}
+	cand := &stubCandidate{text: "answer2"}
+	judge := &stubJudge{reply: `{"score":90,"regression":false}`}
+
+	cr, err := Canary(context.Background(), sessions, cand, judge, CanaryOptions{}, fixedClock())
+	if err != nil {
+		t.Fatalf("Canary: %v", err)
+	}
+	if cr.SkippedAction != 1 {
+		t.Fatalf("SkippedAction=%d, want 1 (empty-prose action turn must count)", cr.SkippedAction)
+	}
+	if cr.Passed {
+		t.Fatal("an empty-prose action turn must fail the canary by default")
+	}
+}
+
+func TestCanaryFailsOnSchemaIncompleteVerdict(t *testing.T) {
+	// Judge returns a score but omits the required regression field: schema-incomplete,
+	// treated as indeterminate (not a silent non-regression), must not pass.
+	sessions := []Session{scorableSession(t, "a")}
+	cand := &stubCandidate{text: "candidate"}
+	judge := &stubJudge{reply: `{"score":80}`}
+
+	cr, err := Canary(context.Background(), sessions, cand, judge, CanaryOptions{}, fixedClock())
+	if err != nil {
+		t.Fatalf("Canary: %v", err)
+	}
+	if cr.Indeterminate != 1 {
+		t.Fatalf("Indeterminate=%d, want 1", cr.Indeterminate)
+	}
+	if cr.Passed {
+		t.Fatal("a verdict missing the regression field must fail the canary")
+	}
+}
+
+func TestCanaryFailsOnIndeterminateJudge(t *testing.T) {
+	// The judge reply is unparseable: Rescore degrades it to a neutral, non-regression
+	// score for diagnostics, but the canary must not read that as a clean pass.
+	sessions := []Session{scorableSession(t, "a")}
+	cand := &stubCandidate{text: "candidate"}
+	judge := &stubJudge{reply: "I cannot produce JSON."}
+
+	cr, err := Canary(context.Background(), sessions, cand, judge, CanaryOptions{}, fixedClock())
+	if err != nil {
+		t.Fatalf("Canary: %v", err)
+	}
+	if cr.Compared != 1 || cr.Indeterminate != 1 {
+		t.Fatalf("want compared=1 indeterminate=1, got %+v", cr)
+	}
+	if cr.Passed {
+		t.Fatal("an indeterminate judge verdict must fail the canary")
 	}
 }

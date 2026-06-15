@@ -80,6 +80,14 @@ func Recent(sessions []Session, n int) []Session {
 type CanaryOptions struct {
 	Rescore   RescoreOptions
 	MaxErrors int
+	// AllowSkippedActions permits a pass when the run skipped action turns (turns
+	// whose baseline made tool calls) without scoring them. Default false: faithful
+	// action re-scoring does not exist yet, so a canary over sessions that contain
+	// action turns cannot certify the candidate's tool/action behavior and fails
+	// closed. A caller making a purely textual change (e.g. a prompt-wording edit)
+	// may opt in to accept text-only certification; a distilled-skill promotion —
+	// which changes tool behavior — must leave this false.
+	AllowSkippedActions bool
 }
 
 // CanaryReport is the verdict of replaying a candidate over a session set. It
@@ -104,16 +112,22 @@ type CanaryReport struct {
 //   - Compared > 0      — at least one exchange was actually re-scored (an empty
 //     session set, or a set with only tool-call/empty turns, is no evidence).
 //   - Regressions == 0  — the judge flagged no candidate response as clearly worse.
+//   - Indeterminate == 0 — every comparison produced a parseable verdict; a judge
+//     reply we could not read is missing evidence, not a clean pass.
 //   - Errors <= MaxErrors — unscored exchanges (candidate/judge failures) stay
 //     within tolerance; an exchange we could not score we cannot certify.
 //   - !Capped           — coverage was complete; a run that hit MaxExchanges with
 //     scorable exchanges left over certifies only part of the window, so it does
 //     not pass. Size RescoreOptions.MaxExchanges to cover the window (or 0 for no
 //     cap) when you intend a passing verdict to mean full coverage.
+//   - SkippedAction == 0 (unless AllowSkippedActions) — no action turn went
+//     unverified. Until faithful action re-scoring exists, a change that could
+//     alter tool behavior cannot be certified over sessions whose action turns
+//     were skipped.
 //
-// Skipped exchanges (pure tool-call or empty-baseline turns) do not block a pass:
-// they are deliberately out of scope for text re-scoring, not evidence against
-// the change.
+// Empty-baseline skips (pure tool-call turns with no prose) do not block a pass:
+// there is genuinely nothing to compare. Action-turn skips DO block by default —
+// see AllowSkippedActions.
 func Canary(ctx context.Context, sessions []Session, cand Candidate, judge Judge, opts CanaryOptions, now func() time.Time) (CanaryReport, error) {
 	rep, err := Rescore(ctx, sessions, cand, judge, opts.Rescore, now)
 	if err != nil {
@@ -122,7 +136,9 @@ func Canary(ctx context.Context, sessions []Session, cand Candidate, judge Judge
 	cr := CanaryReport{RescoreReport: rep, Sessions: len(sessions)}
 	cr.Passed = rep.Compared > 0 &&
 		rep.Regressions == 0 &&
+		rep.Indeterminate == 0 &&
 		rep.Errors <= opts.MaxErrors &&
-		!rep.Capped
+		!rep.Capped &&
+		(opts.AllowSkippedActions || rep.SkippedAction == 0)
 	return cr, nil
 }

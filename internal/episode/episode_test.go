@@ -329,6 +329,58 @@ func TestExecuteToolDispatchBeforeClose(t *testing.T) {
 	}
 }
 
+// TestExecutePanicInToolDispatchStillRecordsTrace verifies invariant #3 (交账强制):
+// a tool dispatch that panics must not let the episode vanish without a journal
+// trace — the runner recovers, records a failed outcome, and surfaces the panic.
+func TestExecutePanicInToolDispatchStillRecordsTrace(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{{
+		text:      "using a tool",
+		toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "boom", Input: `{}`}},
+	}}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("Use a tool", "use tool")
+	req.EpisodeID = "evt-panic-1"
+	req.Invoke = func(_ context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+		panic("tool exploded")
+	}
+
+	out, err := runner.Execute(context.Background(), req)
+	if err == nil {
+		t.Fatal("a panicking tool dispatch must surface as an error")
+	}
+	if out.Status != "failed" {
+		t.Fatalf("status = %q, want failed", out.Status)
+	}
+
+	journal, jerr := ws.ListJournal(context.Background(), "", 10)
+	if jerr != nil {
+		t.Fatalf("ListJournal: %v", jerr)
+	}
+	found := false
+	for _, e := range journal {
+		if e.ID == "journal_outcome_evt-panic-1" && e.Kind == "outcome" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("panicked episode left no outcome journal: %#v", journal)
+	}
+}
+
+func TestParseOutcomeRejectsBlankSummary(t *testing.T) {
+	for _, summary := range []string{"", " ", "\t\n"} {
+		raw := `{"status":"done","summary":"` + summary + `"}`
+		if _, err := parseOutcome(raw); err == nil {
+			t.Fatalf("parseOutcome accepted blank summary %q", summary)
+		}
+	}
+	// A real summary still parses.
+	if _, err := parseOutcome(`{"status":"done","summary":"did the thing"}`); err != nil {
+		t.Fatalf("parseOutcome rejected a valid outcome: %v", err)
+	}
+}
+
 func TestComposeSystemContent(t *testing.T) {
 	db := openEpisodeWorldTestDB(t)
 	ws := world.NewStore(db.DB)

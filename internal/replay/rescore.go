@@ -31,6 +31,11 @@ type Verdict struct {
 	Score      int    `json:"score"`      // 0-100 candidate quality
 	Regression bool   `json:"regression"` // candidate clearly worse than baseline
 	Note       string `json:"note"`
+	// Indeterminate is set by the harness (not the judge) when the judge's reply
+	// could not be parsed into a verdict. The report still counts the exchange with
+	// a neutral score for --against diagnostics, but the canary gate must treat an
+	// indeterminate comparison as missing evidence, never as a clean pass.
+	Indeterminate bool `json:"-"`
 }
 
 // RescoreOptions parameterizes a re-scoring run. MaxExchanges caps the total
@@ -66,7 +71,18 @@ type RescoreReport struct {
 	Regressions int
 	Errors      int
 	Skipped     int
-	AvgScore    int
+	// SkippedAction is the subset of Skipped that were action turns (the baseline
+	// made tool calls). They are skipped because faithful action re-scoring does
+	// not exist yet — so the candidate's tool/action behavior went UNverified. The
+	// canary gate uses this to refuse certifying a change over sessions whose action
+	// behavior it could not check.
+	SkippedAction int
+	// Indeterminate is how many compared exchanges had an unparseable judge reply
+	// (counted in Compared with a neutral score for diagnostics). The canary gate
+	// fails when this is non-zero: a comparison the judge could not render is not
+	// evidence the change is safe.
+	Indeterminate int
+	AvgScore      int
 	// Capped is true when the run stopped at MaxExchanges with more scorable
 	// exchanges left unscored — so the report is not mistaken for full coverage.
 	Capped  bool
@@ -102,11 +118,19 @@ func Rescore(ctx context.Context, sessions []Session, cand Candidate, judge Judg
 		for _, ex := range s.Exchanges {
 			baseline := strings.TrimSpace(ex.ResponseText)
 			if baseline == "" {
-				rep.Skipped++ // pure tool-call turn: no prose to compare
+				rep.Skipped++ // no prose to compare
+				// An empty-prose turn that still made tool calls IS an action turn
+				// (the model called a tool and said nothing) — its action behavior
+				// went unverified, so it must count toward SkippedAction too, not just
+				// the benign empty-baseline case.
+				if recordedToolCalls(ex.ToolCallsJSON) {
+					rep.SkippedAction++
+				}
 				continue
 			}
 			if recordedToolCalls(ex.ToolCallsJSON) {
-				rep.Skipped++ // action turn: text judging would misrepresent it
+				rep.Skipped++       // action turn: text judging would misrepresent it
+				rep.SkippedAction++ // ...and its action behavior went unverified
 				continue
 			}
 			// Cap candidate calls (a real cost), not skipped/decode-error rows, so
@@ -169,6 +193,9 @@ func Rescore(ctx context.Context, sessions []Session, cand Candidate, judge Judg
 			if verdict.Regression {
 				rep.Regressions++
 			}
+			if verdict.Indeterminate {
+				rep.Indeterminate++
+			}
 			rep.Results = append(rep.Results, ExchangeResult{
 				SessionID: ex.SessionID, Iteration: ex.Iteration, Baseline: baseline,
 				Candidate: candidateText, Verdict: verdict, BaselineMs: ex.DurationMs, CandidateMs: candidateMs,
@@ -203,8 +230,9 @@ func judgeExchange(ctx context.Context, judge Judge, contextTurn, baseline, cand
 	}
 	v, ok := parseVerdict(raw)
 	if !ok {
-		// Unparseable judgment: neutral score, not a regression.
-		return Verdict{Score: 50, Note: "unparseable judge reply"}, nil
+		// Unparseable judgment: neutral score, not a regression for diagnostics, but
+		// flagged Indeterminate so the canary gate does not read it as a clean pass.
+		return Verdict{Score: 50, Note: "unparseable judge reply", Indeterminate: true}, nil
 	}
 	if v.Score < 0 {
 		v.Score = 0
@@ -215,17 +243,25 @@ func judgeExchange(ctx context.Context, judge Judge, contextTurn, baseline, cand
 	return v, nil
 }
 
-// parseVerdict extracts the {"score":...} object from the judge reply, tolerating
-// code fences and surrounding prose by scanning balanced, string-aware top-level
-// objects and taking the first that carries a "score" key.
+// parseVerdict extracts the verdict object from the judge reply, tolerating code
+// fences and surrounding prose by scanning balanced, string-aware top-level
+// objects. A verdict is accepted only when BOTH required fields are present —
+// score and regression. Pointer probes distinguish an absent regression key from
+// an explicit false: a reply like {"score":90} (no regression) is schema-
+// incomplete and must NOT be read as "not a regression", so it is rejected here
+// and the caller records it as indeterminate rather than a clean pass.
 func parseVerdict(raw string) (Verdict, bool) {
 	for _, candidate := range jsonObjectSpans(raw) {
 		if !strings.Contains(candidate, `"score"`) {
 			continue
 		}
-		var v Verdict
-		if json.Unmarshal([]byte(candidate), &v) == nil {
-			return v, true
+		var probe struct {
+			Score      *int   `json:"score"`
+			Regression *bool  `json:"regression"`
+			Note       string `json:"note"`
+		}
+		if json.Unmarshal([]byte(candidate), &probe) == nil && probe.Score != nil && probe.Regression != nil {
+			return Verdict{Score: *probe.Score, Regression: *probe.Regression, Note: probe.Note}, true
 		}
 	}
 	return Verdict{}, false
