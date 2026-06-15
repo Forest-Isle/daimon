@@ -224,6 +224,57 @@ func (s *Store) ByModelSince(ctx context.Context, since int64) ([]ModelTotals, e
 	return out, nil
 }
 
+// EpisodeClassCost is one episode's class and token cost, for joining cost to the
+// episode's outcome quality (the ROI-by-class report, blueprint §4.11). Episodes
+// (Totals.Episodes) is always 1 — the field is reused only so callers can sum
+// rows into a per-class Totals with the same accumulation code as the other reports.
+type EpisodeClassCost struct {
+	EpisodeID string
+	Class     string
+	Totals
+}
+
+// EpisodeClassCostSince returns one row per episode (the cost ledger is idempotent
+// per episode) at or after the epoch-second cutoff (since <= 0 ⇒ all rows),
+// carrying each episode's activity class and tokens. It is the cost side of the
+// ROI-by-class join; the value side (outcome quality) is looked up by episode id
+// from the world journal. Ordered by episode id for deterministic output.
+func (s *Store) EpisodeClassCostSince(ctx context.Context, since int64) ([]EpisodeClassCost, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT episode_id,
+		       activity_class,
+		       input_tokens,
+		       output_tokens,
+		       cache_read_tokens,
+		       cache_creation_tokens
+		FROM costs
+		WHERE (? <= 0 OR occurred_at >= ?)
+		ORDER BY episode_id ASC`, since, since)
+	if err != nil {
+		return nil, fmt.Errorf("economy: episode class cost: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []EpisodeClassCost
+	for rows.Next() {
+		var e EpisodeClassCost
+		e.Episodes = 1
+		var in, outp, cr, cc int64
+		if err := rows.Scan(&e.EpisodeID, &e.Class, &in, &outp, &cr, &cc); err != nil {
+			return nil, fmt.Errorf("economy: episode class cost scan: %w", err)
+		}
+		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheCreationTokens = in, outp, cr, cc
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("economy: episode class cost rows: %w", err)
+	}
+	return out, nil
+}
+
 // ByClassModelSince aggregates cost rows per (activity class, model) at or after
 // the epoch-second cutoff (since <= 0 ⇒ all rows). The CLI folds these per class
 // — pricing each model sub-row at its own rate — to report cost by kind of work

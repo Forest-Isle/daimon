@@ -11,6 +11,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/economy"
 	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/world"
 	"github.com/spf13/cobra"
 )
 
@@ -135,6 +136,56 @@ func newCostsCmd() *cobra.Command {
 				fmt.Println("\nNote: a class with any unpriced model shows cost as — (incomplete);" +
 					" price every model in economy.prices for a full per-class figure.")
 			}
+
+			// ROI by activity class — what the spend bought (blueprint §4.11). The
+			// value proxy is the clean-outcome rate: episodes that closed cleanly with
+			// no tool failure and every governed action verified (the J11+J12 signals).
+			// A class burning tokens but mostly degrading is poor value; CLEAN/$ ranks
+			// classes by clean outcomes delivered per dollar. Read-only: it joins the
+			// cost ledger to each episode's outcome quality in the world journal.
+			episodeCosts, err := st.EpisodeClassCostSince(ctx, cutoff)
+			if err != nil {
+				return fmt.Errorf("episode costs for ROI: %w", err)
+			}
+			if len(episodeCosts) > 0 {
+				ids := make([]string, 0, len(episodeCosts))
+				for _, e := range episodeCosts {
+					if e.EpisodeID != "" {
+						ids = append(ids, e.EpisodeID)
+					}
+				}
+				quality, err := world.NewStore(db.DB).OutcomeQualityForEpisodes(ctx, ids)
+				if err != nil {
+					return fmt.Errorf("outcome quality for ROI: %w", err)
+				}
+				roi := foldROI(folded, episodeCosts, quality)
+				fmt.Printf("\nROI by activity class — %s\n\n", periodLabel)
+				rw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
+				_, _ = fmt.Fprintln(rw, "CLASS\tEPISODES\tCLEAN\tCLEAN%\tCOST\tCLEAN/$\t")
+				for _, r := range roi {
+					class := r.class
+					if class == "" {
+						class = "(unclassified)"
+					}
+					cleanPct := "—"
+					if r.episodes > 0 {
+						cleanPct = fmt.Sprintf("%.0f%%", 100*float64(r.clean)/float64(r.episodes))
+					}
+					costCol, perDollar := "—", "—"
+					if r.priced {
+						costCol = fmt.Sprintf("$%.4f", r.usd)
+						if r.usd > 0 {
+							perDollar = fmt.Sprintf("%.2f", float64(r.clean)/r.usd)
+						}
+					}
+					_, _ = fmt.Fprintf(rw, "%s\t%d\t%d\t%s\t%s\t%s\t\n",
+						class, r.episodes, r.clean, cleanPct, costCol, perDollar)
+				}
+				_ = rw.Flush()
+				fmt.Println("\nNote: value proxy = clean-outcome rate (no tool failure, all governed" +
+					" actions verified). CLEAN/$ = clean episodes per dollar; — when the class" +
+					" has an unpriced model or zero cost.")
+			}
 			return nil
 		},
 	}
@@ -189,6 +240,45 @@ func foldClassCosts(rows []economy.ClassModelTotals, prices economy.Prices) []cl
 		}
 		return out[i].class < out[j].class
 	})
+	return out
+}
+
+// roiClassRow is one activity class's ROI line: how many of its episodes closed
+// cleanly, against the dollar cost of the class. priced is false when the class has
+// any unpriced model (its cost — and so CLEAN/$ — is incomplete).
+type roiClassRow struct {
+	class    string
+	episodes int
+	clean    int
+	usd      float64
+	priced   bool
+}
+
+// foldROI overlays per-episode outcome quality onto the already-folded per-class
+// cost rows. The folded rows are the spine: they carry the authoritative per-class
+// episode count and dollar cost (and order — output desc, class asc), so foldROI
+// keeps that order and only adds the clean-outcome count, derived by bucketing each
+// episode's class against its quality. An episode with no recorded quality (no
+// outcome row) counts toward episodes but not clean. Pure: no I/O.
+func foldROI(folded []classCostRow, episodeCosts []economy.EpisodeClassCost, quality map[string]world.OutcomeQuality) []roiClassRow {
+	cleanByClass := map[string]int{}
+	for _, e := range episodeCosts {
+		// Presence matters: OutcomeClean is the zero value, so an episode with no
+		// recorded quality (absent from the map) must NOT be counted as clean.
+		if q, ok := quality[e.EpisodeID]; ok && q == world.OutcomeClean {
+			cleanByClass[e.Class]++
+		}
+	}
+	out := make([]roiClassRow, 0, len(folded))
+	for _, c := range folded {
+		out = append(out, roiClassRow{
+			class:    c.class,
+			episodes: c.totals.Episodes,
+			clean:    cleanByClass[c.class],
+			usd:      c.usd,
+			priced:   !c.anyUnpriced,
+		})
+	}
 	return out
 }
 

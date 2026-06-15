@@ -188,6 +188,44 @@ func TestByClassModelSince(t *testing.T) {
 	}
 }
 
+func TestEpisodeClassCostSince(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	must := func(e Entry) {
+		if err := s.Record(ctx, e); err != nil {
+			t.Fatalf("Record: %v", err)
+		}
+	}
+	must(Entry{EpisodeID: "c1", ActivityClass: "chat", Model: "opus", InputTokens: 30, OutputTokens: 100, OccurredAt: 2000})
+	must(Entry{EpisodeID: "c2", ActivityClass: "chat", Model: "haiku", OutputTokens: 50, OccurredAt: 2500})
+	must(Entry{EpisodeID: "h1", ActivityClass: "internal.heartbeat", Model: "opus", OutputTokens: 200, OccurredAt: 2500})
+	must(Entry{EpisodeID: "old", ActivityClass: "chat", Model: "opus", OutputTokens: 999, OccurredAt: 1000}) // before cutoff
+
+	rows, err := s.EpisodeClassCostSince(ctx, 1500)
+	if err != nil {
+		t.Fatalf("EpisodeClassCostSince: %v", err)
+	}
+	// One row per episode (cost ledger is idempotent per episode), ordered by id;
+	// "old" excluded by cutoff. Each row's Episodes is 1.
+	want := []EpisodeClassCost{
+		{EpisodeID: "c1", Class: "chat", Totals: Totals{Episodes: 1, InputTokens: 30, OutputTokens: 100}},
+		{EpisodeID: "c2", Class: "chat", Totals: Totals{Episodes: 1, OutputTokens: 50}},
+		{EpisodeID: "h1", Class: "internal.heartbeat", Totals: Totals{Episodes: 1, OutputTokens: 200}},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("want %d rows, got %d: %+v", len(want), len(rows), rows)
+	}
+	for i, w := range want {
+		if rows[i] != w {
+			t.Fatalf("row %d = %+v, want %+v", i, rows[i], w)
+		}
+	}
+
+	if _, err := (*Store)(nil).EpisodeClassCostSince(ctx, 0); err == nil {
+		t.Fatal("nil store EpisodeClassCostSince must error")
+	}
+}
+
 func TestPricesCostUSD(t *testing.T) {
 	prices := Prices{
 		"claude-opus": {InputPerMTok: 15, OutputPerMTok: 75, CacheReadPerMTok: 1.5, CacheCreationPerMTok: 18.75},
