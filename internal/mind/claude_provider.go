@@ -1,4 +1,4 @@
-package agent
+package mind
 
 import (
 	"context"
@@ -12,6 +12,11 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 )
+
+// DynamicContextMarker delimits the static (cacheable) prefix of a system prompt from
+// its dynamic suffix. The prompt-framing layer inserts it; this provider splits on it to
+// place the Anthropic cache_control boundary. It is the shared cache-split protocol token.
+const DynamicContextMarker = "<!-- DYNAMIC_CONTEXT -->"
 
 // APIPromptCacheStats tracks Anthropic API-level prompt caching metrics across calls.
 type APIPromptCacheStats struct {
@@ -224,9 +229,9 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 
 	if req.System != "" {
 		if c.supportsCaching() {
-			if idx := strings.Index(req.System, dynamicContextMarker); idx >= 0 {
+			if idx := strings.Index(req.System, DynamicContextMarker); idx >= 0 {
 				staticPart := req.System[:idx]
-				dynamicPart := req.System[idx+len(dynamicContextMarker):]
+				dynamicPart := req.System[idx+len(DynamicContextMarker):]
 				staticBlock := anthropic.TextBlockParam{
 					Text:         staticPart,
 					CacheControl: anthropic.NewCacheControlEphemeralParam(),

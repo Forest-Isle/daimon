@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	dynamicContextMarker = "<!-- DYNAMIC_CONTEXT -->"
-	cacheBoundaryMarker  = "<!-- CACHE_BOUNDARY -->"
-	compactionThreshold  = 40 // Trigger compaction when history exceeds this
+	cacheBoundaryMarker = "<!-- CACHE_BOUNDARY -->"
+	compactionThreshold = 40 // Trigger compaction when history exceeds this
 )
 
 // ContextManager abstracts context compression and utilization tracking.
