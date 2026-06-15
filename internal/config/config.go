@@ -36,7 +36,19 @@ type Config struct {
 // dollars. A model with no configured price is reported in tokens only — no rates
 // are hard-coded, since they vary by provider/endpoint and change over time.
 type EconomyConfig struct {
-	Prices map[string]ModelPrice `yaml:"prices"`
+	Prices   map[string]ModelPrice `yaml:"prices"`
+	Throttle ThrottleConfig        `yaml:"throttle"`
+}
+
+// ThrottleConfig sets soft thresholds for the cost/ROI throttle advisor
+// (DAIMON_BLUEPRINT.md §4.11). The advisor only FLAGS activity classes that exceed
+// their budget or deliver poor value — the `daimon costs` report surfaces the
+// recommendations. It does NOT act on them: auto-enforcement (down-routing or
+// reduced cadence) is a separate, gated step. A zero threshold disables that check.
+type ThrottleConfig struct {
+	PerClassBudgetUSD float64 `yaml:"per_class_budget_usd"` // flag a class spending more than this over the report window (0 = off)
+	MinCleanRate      float64 `yaml:"min_clean_rate"`       // flag a class whose clean-outcome rate is below this, 0..1 (0 = off)
+	MinEpisodes       int     `yaml:"min_episodes"`         // don't flag low value on fewer than this many episodes (0 = no minimum)
 }
 
 // ModelPrice is a model's USD rate per million tokens for each token class.

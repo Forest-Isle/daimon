@@ -89,5 +89,19 @@ func validate(cfg *Config) error {
 		}
 	}
 
+	// Throttle thresholds bound the cost/ROI advisor; out-of-range values would
+	// produce misleading recommendations (e.g. a clean-rate above 1 flags every
+	// class). A zero/unset threshold is valid — it disables that check.
+	t := cfg.Economy.Throttle
+	if t.PerClassBudgetUSD < 0 {
+		return fmt.Errorf("economy.throttle.per_class_budget_usd must be >= 0 (got %v)", t.PerClassBudgetUSD)
+	}
+	if t.MinCleanRate < 0 || t.MinCleanRate > 1 {
+		return fmt.Errorf("economy.throttle.min_clean_rate must be between 0 and 1 (got %v)", t.MinCleanRate)
+	}
+	if t.MinEpisodes < 0 {
+		return fmt.Errorf("economy.throttle.min_episodes must be >= 0 (got %d)", t.MinEpisodes)
+	}
+
 	return nil
 }

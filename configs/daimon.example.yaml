@@ -276,3 +276,14 @@ log:
 #       output_per_mtok: 15.0
 #       cache_read_per_mtok: 0.3
 #       cache_creation_per_mtok: 3.75
+#
+# Throttle thresholds (blueprint §4.11): `daimon costs` flags activity classes that
+# exceed their budget or deliver poor value (the clean-outcome rate from the ROI
+# report). This is ADVISORY ONLY — nothing is auto-throttled; the recommendations
+# surface what a later, gated enforcement step could act on. A zero/unset threshold
+# disables that check, so an absent `throttle` block flags nothing.
+#
+#   throttle:
+#     per_class_budget_usd: 5.0   # flag a class spending more than this over the window
+#     min_clean_rate: 0.5         # flag a class whose clean-outcome rate is below this (0..1)
+#     min_episodes: 5             # but only once it has at least this many episodes

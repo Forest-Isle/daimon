@@ -185,6 +185,45 @@ func newCostsCmd() *cobra.Command {
 				fmt.Println("\nNote: value proxy = clean-outcome rate (no tool failure, all governed" +
 					" actions verified). CLEAN/$ = clean episodes per dollar; — when the class" +
 					" has an unpriced model or zero cost.")
+
+				// Throttle recommendations (blueprint §4.11): flag classes over budget
+				// or delivering poor value, against the operator's configured thresholds.
+				// Advisory ONLY — nothing is auto-throttled here; this surfaces what a
+				// later (gated) enforcement step could act on.
+				policy := throttlePolicyFromConfig(cfg.Economy)
+				if policy.Configured() {
+					values := make([]economy.ClassValue, 0, len(roi))
+					for _, r := range roi {
+						values = append(values, economy.ClassValue{
+							Class: r.class, Episodes: r.episodes, Clean: r.clean, USD: r.usd, Priced: r.priced,
+						})
+					}
+					advice := policy.Evaluate(values)
+					fmt.Printf("\nThrottle recommendations — %s\n\n", periodLabel)
+					if len(advice) == 0 {
+						fmt.Println("All classes within budget and value thresholds.")
+					} else {
+						aw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
+						_, _ = fmt.Fprintln(aw, "CLASS\tREASON\tCOST\tCLEAN%\tEPISODES\t")
+						for _, a := range advice {
+							class := a.Class
+							if class == "" {
+								class = "(unclassified)"
+							}
+							// Match the ROI table: an unpriced class has an incomplete cost,
+							// shown as "—" rather than a misleading dollar figure.
+							costCol := "—"
+							if a.Priced {
+								costCol = fmt.Sprintf("$%.4f", a.USD)
+							}
+							_, _ = fmt.Fprintf(aw, "%s\t%s\t%s\t%.0f%%\t%d\t\n",
+								class, throttleReason(a), costCol, 100*a.CleanRate, a.Episodes)
+						}
+						_ = aw.Flush()
+						fmt.Println("\nNote: advisory only — no class is auto-throttled. Enforcement" +
+							" (down-routing or reduced cadence) is a separate, gated step.")
+					}
+				}
 			}
 			return nil
 		},
@@ -280,6 +319,28 @@ func foldROI(folded []classCostRow, episodeCosts []economy.EpisodeClassCost, qua
 		})
 	}
 	return out
+}
+
+// throttlePolicyFromConfig converts the operator's configured throttle thresholds
+// into the economy advisor's policy.
+func throttlePolicyFromConfig(cfg config.EconomyConfig) economy.ThrottlePolicy {
+	return economy.ThrottlePolicy{
+		PerClassBudgetUSD: cfg.Throttle.PerClassBudgetUSD,
+		MinCleanRate:      cfg.Throttle.MinCleanRate,
+		MinEpisodes:       cfg.Throttle.MinEpisodes,
+	}
+}
+
+// throttleReason renders why a class was flagged, for the recommendations table.
+func throttleReason(a economy.ThrottleAdvice) string {
+	switch {
+	case a.OverBudget && a.LowValue:
+		return "over budget + low value"
+	case a.OverBudget:
+		return "over budget"
+	default:
+		return "low value"
+	}
 }
 
 // pricesFromConfig converts the operator's configured model prices into the

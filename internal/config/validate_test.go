@@ -6,6 +6,39 @@ import (
 	"testing"
 )
 
+func TestValidateThrottleBounds(t *testing.T) {
+	base := func() *Config {
+		c := &Config{}
+		c.LLM.Provider = "claude"
+		c.LLM.APIKey = "test"
+		return c
+	}
+	cases := []struct {
+		name    string
+		t       ThrottleConfig
+		wantErr bool
+	}{
+		{"empty ok", ThrottleConfig{}, false},
+		{"valid", ThrottleConfig{PerClassBudgetUSD: 5, MinCleanRate: 0.5, MinEpisodes: 3}, false},
+		{"clean rate 0 ok", ThrottleConfig{MinCleanRate: 0}, false},
+		{"clean rate 1 ok", ThrottleConfig{MinCleanRate: 1}, false},
+		{"negative budget", ThrottleConfig{PerClassBudgetUSD: -1}, true},
+		{"clean rate above 1", ThrottleConfig{MinCleanRate: 2}, true},
+		{"negative clean rate", ThrottleConfig{MinCleanRate: -0.1}, true},
+		{"negative min episodes", ThrottleConfig{MinEpisodes: -1}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base()
+			cfg.Economy.Throttle = tc.t
+			err := validate(cfg)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validate() error = %v, wantErr = %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestCheckUnknownKeys_NoWarnings(t *testing.T) {
 	// Known keys should not trigger warnings.
 	yaml := []byte(`
