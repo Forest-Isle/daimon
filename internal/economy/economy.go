@@ -48,11 +48,13 @@ type ModelTotals struct {
 	Totals
 }
 
-// ClassTotals is one activity class's aggregate, for the by-class ROI report
-// (blueprint §4.11). An empty Class is the unclassified bucket (rows recorded
-// before activity-class threading, or episodes with no class).
-type ClassTotals struct {
+// ClassModelTotals is one (activity class, model) aggregate, for the by-class
+// cost report (blueprint §4.11). The CLI folds these per class so a class that
+// spans models is priced with each model's own rate. An empty Class is the
+// unclassified bucket (rows recorded before activity-class threading).
+type ClassModelTotals struct {
 	Class string
+	Model string
 	Totals
 }
 
@@ -222,16 +224,18 @@ func (s *Store) ByModelSince(ctx context.Context, since int64) ([]ModelTotals, e
 	return out, nil
 }
 
-// ByClassSince aggregates cost rows per activity class at or after the
-// epoch-second cutoff (since <= 0 ⇒ all rows), ordered by output tokens
-// descending. It is the basis of the by-class ROI view: which kinds of work
-// (chat vs each autonomous trigger) the agent spends its tokens on.
-func (s *Store) ByClassSince(ctx context.Context, since int64) ([]ClassTotals, error) {
+// ByClassModelSince aggregates cost rows per (activity class, model) at or after
+// the epoch-second cutoff (since <= 0 ⇒ all rows). The CLI folds these per class
+// — pricing each model sub-row at its own rate — to report cost by kind of work
+// (chat vs each autonomous trigger). Ordered by class then model for determinism;
+// the final per-class ordering is computed by the caller after folding.
+func (s *Store) ByClassModelSince(ctx context.Context, since int64) ([]ClassModelTotals, error) {
 	if err := s.ensure(); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT activity_class,
+		       model,
 		       COUNT(1),
 		       COALESCE(SUM(input_tokens), 0),
 		       COALESCE(SUM(output_tokens), 0),
@@ -239,23 +243,23 @@ func (s *Store) ByClassSince(ctx context.Context, since int64) ([]ClassTotals, e
 		       COALESCE(SUM(cache_creation_tokens), 0)
 		FROM costs
 		WHERE (? <= 0 OR occurred_at >= ?)
-		GROUP BY activity_class
-		ORDER BY SUM(output_tokens) DESC, activity_class ASC`, since, since)
+		GROUP BY activity_class, model
+		ORDER BY activity_class ASC, model ASC`, since, since)
 	if err != nil {
-		return nil, fmt.Errorf("economy: by class: %w", err)
+		return nil, fmt.Errorf("economy: by class+model: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var out []ClassTotals
+	var out []ClassModelTotals
 	for rows.Next() {
-		var c ClassTotals
-		if err := rows.Scan(&c.Class, &c.Episodes, &c.InputTokens, &c.OutputTokens, &c.CacheReadTokens, &c.CacheCreationTokens); err != nil {
-			return nil, fmt.Errorf("economy: by class scan: %w", err)
+		var c ClassModelTotals
+		if err := rows.Scan(&c.Class, &c.Model, &c.Episodes, &c.InputTokens, &c.OutputTokens, &c.CacheReadTokens, &c.CacheCreationTokens); err != nil {
+			return nil, fmt.Errorf("economy: by class+model scan: %w", err)
 		}
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("economy: by class rows: %w", err)
+		return nil, fmt.Errorf("economy: by class+model rows: %w", err)
 	}
 	return out, nil
 }

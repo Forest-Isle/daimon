@@ -146,7 +146,7 @@ func TestByModelSince(t *testing.T) {
 	}
 }
 
-func TestByClassSince(t *testing.T) {
+func TestByClassModelSince(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	must := func(e Entry) {
@@ -154,35 +154,37 @@ func TestByClassSince(t *testing.T) {
 			t.Fatalf("Record: %v", err)
 		}
 	}
-	// Two chat episodes, one heartbeat, one unclassified; one chat predates cutoff.
-	must(Entry{EpisodeID: "c1", ActivityClass: "chat", OutputTokens: 100, OccurredAt: 2000})
-	must(Entry{EpisodeID: "c2", ActivityClass: "chat", OutputTokens: 50, OccurredAt: 2500})
-	must(Entry{EpisodeID: "h1", ActivityClass: "internal.heartbeat", OutputTokens: 200, OccurredAt: 2500})
-	must(Entry{EpisodeID: "u1", ActivityClass: "", OutputTokens: 10, OccurredAt: 2500})
-	must(Entry{EpisodeID: "old", ActivityClass: "chat", OutputTokens: 999, OccurredAt: 1000})
+	// chat spans two models (opus + haiku); one heartbeat; one unclassified (empty
+	// class); one chat predates cutoff.
+	must(Entry{EpisodeID: "c1", ActivityClass: "chat", Model: "opus", OutputTokens: 100, OccurredAt: 2000})
+	must(Entry{EpisodeID: "c2", ActivityClass: "chat", Model: "haiku", OutputTokens: 50, OccurredAt: 2500})
+	must(Entry{EpisodeID: "h1", ActivityClass: "internal.heartbeat", Model: "opus", OutputTokens: 200, OccurredAt: 2500})
+	must(Entry{EpisodeID: "u1", ActivityClass: "", Model: "opus", OutputTokens: 5, OccurredAt: 2500})
+	must(Entry{EpisodeID: "old", ActivityClass: "chat", Model: "opus", OutputTokens: 999, OccurredAt: 1000})
 
-	rows, err := s.ByClassSince(ctx, 1500)
+	rows, err := s.ByClassModelSince(ctx, 1500)
 	if err != nil {
-		t.Fatalf("ByClassSince: %v", err)
+		t.Fatalf("ByClassModelSince: %v", err)
 	}
-	if len(rows) != 3 {
-		t.Fatalf("want 3 class groups, got %d: %+v", len(rows), rows)
+	// (class,model) groups, ordered class ASC then model ASC; empty class sorts
+	// first; old chat/opus excluded by cutoff so chat/opus = 1 episode / 100 output.
+	want := []ClassModelTotals{
+		{Class: "", Model: "opus", Totals: Totals{Episodes: 1, OutputTokens: 5}},
+		{Class: "chat", Model: "haiku", Totals: Totals{Episodes: 1, OutputTokens: 50}},
+		{Class: "chat", Model: "opus", Totals: Totals{Episodes: 1, OutputTokens: 100}},
+		{Class: "internal.heartbeat", Model: "opus", Totals: Totals{Episodes: 1, OutputTokens: 200}},
 	}
-	// Ordered by output desc: heartbeat(200) > chat(150) > unclassified(10). Cutoff
-	// excludes the old chat row (occurred_at=1000), so chat shows the 2 in-window
-	// episodes / 150 output, not 3 / 1149.
-	if rows[0].Class != "internal.heartbeat" || rows[0].OutputTokens != 200 {
-		t.Fatalf("row0 = %+v", rows[0])
+	if len(rows) != len(want) {
+		t.Fatalf("want %d rows, got %d: %+v", len(want), len(rows), rows)
 	}
-	if rows[1].Class != "chat" || rows[1].Episodes != 2 || rows[1].OutputTokens != 150 {
-		t.Fatalf("row1 = %+v", rows[1])
-	}
-	if rows[2].Class != "" || rows[2].OutputTokens != 10 {
-		t.Fatalf("row2 (unclassified) = %+v", rows[2])
+	for i, w := range want {
+		if rows[i].Class != w.Class || rows[i].Model != w.Model || rows[i].Episodes != w.Episodes || rows[i].OutputTokens != w.OutputTokens {
+			t.Fatalf("row %d = %+v, want %+v", i, rows[i], w)
+		}
 	}
 
-	if _, err := (*Store)(nil).ByClassSince(ctx, 0); err == nil {
-		t.Fatal("nil store ByClassSince must error")
+	if _, err := (*Store)(nil).ByClassModelSince(ctx, 0); err == nil {
+		t.Fatal("nil store ByClassModelSince must error")
 	}
 }
 

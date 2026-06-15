@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"text/tabwriter"
 	"time"
 
@@ -104,34 +105,91 @@ func newCostsCmd() *cobra.Command {
 					" the TOTAL cost covers priced models only. Set economy.prices in config to price them.")
 			}
 
-			// By activity class — where the tokens go (chat vs each autonomous
-			// trigger). Tokens only: a class can span models, so per-class dollars
-			// need per-(class,model) attribution (a later ROI increment); the dollar
-			// totals live in the by-model table above.
-			classes, err := st.ByClassSince(ctx, cutoff)
+			// By activity class — where the spend goes (chat vs each autonomous
+			// trigger). Each model sub-row is priced at its own rate then folded per
+			// class, so a class that spans models still gets a correct dollar figure.
+			classRows, err := st.ByClassModelSince(ctx, cutoff)
 			if err != nil {
 				return fmt.Errorf("aggregate costs by class: %w", err)
 			}
-			fmt.Printf("\nBy activity class — %s\n", periodLabel)
-			fmt.Println("(tokens only — dollars are in the by-model table above, until per-class pricing lands)")
-			fmt.Println()
+			folded := foldClassCosts(classRows, prices)
+			fmt.Printf("\nBy activity class — %s\n\n", periodLabel)
 			cw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
-			_, _ = fmt.Fprintln(cw, "CLASS\tEPISODES\tINPUT\tOUTPUT\tCACHE_R\tCACHE_W\t")
-			for _, c := range classes {
-				class := c.Class
+			_, _ = fmt.Fprintln(cw, "CLASS\tEPISODES\tINPUT\tOUTPUT\tCACHE_R\tCACHE_W\tCOST\t")
+			classUnpriced := false
+			for _, c := range folded {
+				class := c.class
 				if class == "" {
 					class = "(unclassified)"
 				}
-				_, _ = fmt.Fprintf(cw, "%s\t%d\t%d\t%d\t%d\t%d\t\n",
-					class, c.Episodes, c.InputTokens, c.OutputTokens, c.CacheReadTokens, c.CacheCreationTokens)
+				costCol := fmt.Sprintf("$%.4f", c.usd)
+				if c.anyUnpriced {
+					costCol = "—"
+					classUnpriced = true
+				}
+				_, _ = fmt.Fprintf(cw, "%s\t%d\t%d\t%d\t%d\t%d\t%s\t\n",
+					class, c.totals.Episodes, c.totals.InputTokens, c.totals.OutputTokens, c.totals.CacheReadTokens, c.totals.CacheCreationTokens, costCol)
 			}
 			_ = cw.Flush()
+			if classUnpriced {
+				fmt.Println("\nNote: a class with any unpriced model shows cost as — (incomplete);" +
+					" price every model in economy.prices for a full per-class figure.")
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/daimon.yaml", "config file")
 	cmd.Flags().DurationVar(&since, "since", 30*24*time.Hour, "report window (e.g. 720h, 168h); 0 = all time")
 	return cmd
+}
+
+// classCostRow is one activity class's folded aggregate for the by-class table:
+// summed tokens plus the dollar cost of all its model sub-rows. anyUnpriced is
+// set when at least one of the class's models has no configured price, so its
+// dollar figure would be incomplete (reported as "—" rather than understated).
+type classCostRow struct {
+	class       string
+	totals      economy.Totals
+	usd         float64
+	anyUnpriced bool
+}
+
+// foldClassCosts groups per-(class,model) rows by class, summing tokens and
+// pricing each model sub-row at its own rate. The result is ordered by output
+// tokens descending, then class ascending — deterministic regardless of the map
+// iteration order.
+func foldClassCosts(rows []economy.ClassModelTotals, prices economy.Prices) []classCostRow {
+	byClass := map[string]*classCostRow{}
+	order := []string{}
+	for _, r := range rows {
+		c, ok := byClass[r.Class]
+		if !ok {
+			c = &classCostRow{class: r.Class}
+			byClass[r.Class] = c
+			order = append(order, r.Class)
+		}
+		c.totals.Episodes += r.Episodes
+		c.totals.InputTokens += r.InputTokens
+		c.totals.OutputTokens += r.OutputTokens
+		c.totals.CacheReadTokens += r.CacheReadTokens
+		c.totals.CacheCreationTokens += r.CacheCreationTokens
+		if usd, priced := prices.CostUSD(r.Model, r.Totals); priced {
+			c.usd += usd
+		} else {
+			c.anyUnpriced = true
+		}
+	}
+	out := make([]classCostRow, 0, len(order))
+	for _, cls := range order {
+		out = append(out, *byClass[cls])
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].totals.OutputTokens != out[j].totals.OutputTokens {
+			return out[i].totals.OutputTokens > out[j].totals.OutputTokens
+		}
+		return out[i].class < out[j].class
+	})
+	return out
 }
 
 // pricesFromConfig converts the operator's configured model prices into the
