@@ -62,6 +62,25 @@ type Runner struct {
 	bus      agent.EventBus
 	planter  FollowUpPlanter
 	values   valueDigester
+	cost     CostRecorder
+}
+
+// CostRecorder persists one episode's token consumption to the economy ledger
+// (blueprint §4.11). Optional: a nil recorder (the default) disables cost
+// accounting, leaving the binary behaviorally unchanged.
+type CostRecorder interface {
+	RecordEpisodeCost(ctx context.Context, c EpisodeCost) error
+}
+
+// EpisodeCost is the token consumption of one episode, summed across all of its
+// provider calls. Usage may under-count for a streamed OpenAI backend (which does
+// not report per-call streaming usage); the active Anthropic provider and the
+// non-streamed Complete path report it fully.
+type EpisodeCost struct {
+	EpisodeID string
+	Model     string
+	Provider  string
+	Usage     agent.Usage
 }
 
 // NewRunner builds a cognitive kernel. bus may be nil (events are then skipped).
@@ -77,6 +96,40 @@ func (r *Runner) SetPlanter(p FollowUpPlanter) { r.planter = p }
 // SetValues wires the value digester whose high-confidence entries are injected
 // into the episode system prompt. Optional: a nil digester omits the section.
 func (r *Runner) SetValues(v valueDigester) { r.values = v }
+
+// SetCostRecorder wires the economy cost ledger. Optional: a nil recorder (the
+// default) disables per-episode cost accounting with no behavior change.
+func (r *Runner) SetCostRecorder(c CostRecorder) { r.cost = c }
+
+// recordCost reports the tokens this episode consumed to the economy ledger. It
+// is strictly observational and must never affect the episode: a nil recorder,
+// an episode that consumed nothing, a recorder error, or even a recorder panic
+// all leave the outcome untouched. The recorder is expected to return promptly
+// (the production adapter persists asynchronously) so this deferred call does not
+// delay Execute's return; the panic guard is defense-in-depth in case a recorder
+// misbehaves synchronously — it runs before the episode's recover defer, so an
+// uncontained panic here could otherwise corrupt the outcome.
+func (r *Runner) recordCost(ctx context.Context, req agent.CognitiveRequest, episodeID string, used *agent.Usage) {
+	// Skip when no positive tokens were counted: a zero (or, defensively, a
+	// nonpositive) total means "unknown / nothing consumed", not a real $0 episode.
+	if r.cost == nil || used == nil ||
+		used.InputTokens+used.OutputTokens+used.CacheReadTokens+used.CacheCreationTokens <= 0 {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Warn("episode: cost recorder panicked (ignored)", "episode", episodeID, "panic", rec)
+		}
+	}()
+	if err := r.cost.RecordEpisodeCost(ctx, EpisodeCost{
+		EpisodeID: episodeID,
+		Model:     req.Model,
+		Provider:  req.Provider,
+		Usage:     *used,
+	}); err != nil {
+		slog.Warn("episode: record cost failed", "episode", episodeID, "err", err)
+	}
+}
 
 // Execute implements agent.CognitiveKernel.
 func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (result agent.CognitiveOutcome, err error) {
@@ -112,6 +165,14 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 		}
 	}()
 
+	// Accumulate the tokens consumed across every provider call in this episode and
+	// record one cost row on whichever path the episode exits (normal close, salvage,
+	// stream error, or panic) — the §4.11 economy ledger. Installed after the
+	// idempotent-skip return so a skipped re-delivery (which makes no provider call)
+	// records nothing; recording is best-effort and never affects the outcome.
+	var used agent.Usage
+	defer r.recordCost(ctx, req, episodeID, &used)
+
 	system := composeSystem(ctx, req, r.world, r.identity, r.values)
 	messages := append([]agent.CompletionMessage(nil), req.Transcript...)
 	if len(messages) == 0 {
@@ -131,7 +192,8 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 			Tools:    toolDefs,
 		}
 		start := time.Now()
-		fullText, toolCalls, stopReason, streamErr := streamCompletion(ctx, r.provider, creq)
+		fullText, toolCalls, stopReason, callUsage, streamErr := streamCompletion(ctx, r.provider, creq)
+		used.Add(callUsage)
 		r.publishExchange(req, iteration, system, messages, fullText, toolCalls, stopReason, time.Since(start).Milliseconds())
 		if streamErr != nil {
 			// Invariant #3 (交账强制): an episode that started must leave a durable
@@ -180,7 +242,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 		}
 	}
 
-	out := r.salvage(ctx, req, system, messages, transcript)
+	out := r.salvage(ctx, req, system, messages, transcript, &used)
 	return r.close(ctx, req, episodeID, out, lastReply), nil
 }
 
@@ -291,10 +353,10 @@ func (r *Runner) failEpisode(ctx context.Context, req agent.CognitiveRequest, ep
 	return agent.CognitiveOutcome{Status: "failed", Summary: summary}
 }
 
-func streamCompletion(ctx context.Context, p agent.Provider, req agent.CompletionRequest) (string, []agent.ToolUseBlock, string, error) {
+func streamCompletion(ctx context.Context, p agent.Provider, req agent.CompletionRequest) (string, []agent.ToolUseBlock, string, agent.Usage, error) {
 	stream, err := p.Stream(ctx, req)
 	if err != nil {
-		return "", nil, "", err
+		return "", nil, "", agent.Usage{}, err
 	}
 	defer stream.Close()
 
@@ -304,7 +366,7 @@ func streamCompletion(ctx context.Context, p agent.Provider, req agent.Completio
 	for {
 		delta, err := stream.Next()
 		if err != nil {
-			return fullText.String(), toolCalls, stopReason, err
+			return fullText.String(), toolCalls, stopReason, agent.Usage{}, err
 		}
 		if delta.Text != "" {
 			fullText.WriteString(delta.Text)
@@ -317,7 +379,9 @@ func streamCompletion(ctx context.Context, p agent.Provider, req agent.Completio
 				toolCalls = delta.ToolCalls
 			}
 			stopReason = string(delta.StopReason)
-			return fullText.String(), toolCalls, stopReason, nil
+			// Usage is set only on the final delta; zero when the provider did not
+			// report it (e.g. streamed OpenAI, which finalizes without draining).
+			return fullText.String(), toolCalls, stopReason, delta.Usage, nil
 		}
 	}
 }
@@ -359,7 +423,7 @@ type transcriptTurn struct {
 // salvage recovers an Outcome when the model never called episode_close: it
 // first asks the provider for a JSON-only extraction, then falls back to a
 // transcript heuristic.
-func (r *Runner) salvage(ctx context.Context, req agent.CognitiveRequest, system string, messages []agent.CompletionMessage, transcript []transcriptTurn) Outcome {
+func (r *Runner) salvage(ctx context.Context, req agent.CognitiveRequest, system string, messages []agent.CompletionMessage, transcript []transcriptTurn, used *agent.Usage) Outcome {
 	prompt := "Extract a compact JSON episode Outcome from the transcript. Return only JSON with fields: status, summary, world_writes, receipts, follow_ups, open_question. Status must be one of done, blocked, handed_off. Summary must be <=500 chars."
 	salvageMessages := append(append([]agent.CompletionMessage(nil), messages...), agent.CompletionMessage{Role: "user", Content: prompt})
 	resp, err := r.provider.Complete(ctx, agent.CompletionRequest{
@@ -370,6 +434,9 @@ func (r *Runner) salvage(ctx context.Context, req agent.CognitiveRequest, system
 		ToolChoice:     "none",
 		ResponseFormat: &agent.ResponseFormat{Type: "json_object"},
 	})
+	if resp != nil && used != nil {
+		used.Add(resp.Usage)
+	}
 	if err == nil && resp != nil {
 		if out, perr := parseOutcome(resp.Text); perr == nil {
 			out.Salvaged = true

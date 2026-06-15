@@ -12,6 +12,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/appdir"
 	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/economy"
 	"github.com/Forest-Isle/daimon/internal/episode"
 	"github.com/Forest-Isle/daimon/internal/feature"
 	"github.com/Forest-Isle/daimon/internal/heart"
@@ -110,6 +111,12 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	agentSub := InitAgentRuntime(builder, cfg)
 	gw.EpisodeRunner = episode.NewRunner(agentSub.Provider, gw.toolSub.WorldStore, &gw.toolSub.WorldIdentity, eventBus)
 	gw.EpisodeRunner.SetValues(gw.toolSub.ValuesStore)
+	// Economy: record per-episode token consumption to the costs ledger (§4.11).
+	// Best-effort and observational — a cost-write failure never affects an episode.
+	gw.EpisodeRunner.SetCostRecorder(costRecorderAdapter{
+		store: economy.NewStore(gw.db.DB),
+		now:   func() int64 { return time.Now().Unix() },
+	})
 	gw.EpisodeEnabled = cfg.Agent.EpisodeEnabled
 
 	// Sleep: consolidation jobs over the world model. The digest job regenerates
@@ -406,6 +413,47 @@ func (gw *Gateway) handleApproval(ctx context.Context, ch channel.Channel, targe
 		return sender.SendApprovalRequest(ctx, target, toolName, input)
 	}
 	return true, nil
+}
+
+// costRecorderAdapter bridges the episode kernel's CostRecorder to the economy
+// store, stamping each row with the current time at this boundary so the store
+// stays clock-free. Token counts flow straight through from the per-call Usage
+// the episode accumulated.
+type costRecorderAdapter struct {
+	store *economy.Store
+	now   func() int64
+}
+
+func (a costRecorderAdapter) RecordEpisodeCost(_ context.Context, c episode.EpisodeCost) error {
+	entry := economy.Entry{
+		EpisodeID:           c.EpisodeID,
+		Model:               c.Model,
+		Provider:            c.Provider,
+		InputTokens:         c.Usage.InputTokens,
+		OutputTokens:        c.Usage.OutputTokens,
+		CacheReadTokens:     c.Usage.CacheReadTokens,
+		CacheCreationTokens: c.Usage.CacheCreationTokens,
+		OccurredAt:          a.now(),
+	}
+	// Persist off the episode's return path: cost recording is observational, so a
+	// slow or write-locked DB must never delay (or, via panic, disturb) the episode.
+	// A fresh bounded context detaches the write from the episode's lifecycle so a
+	// cancelled episode still records the cost it incurred; a crash before the write
+	// lands just drops that row (best-effort ledger). Record is idempotent per
+	// episode, so a retried episode does not double-count.
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Warn("economy: cost record panicked (ignored)", "episode", entry.EpisodeID, "panic", r)
+			}
+		}()
+		wctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := a.store.Record(wctx, entry); err != nil {
+			slog.Warn("economy: record cost failed", "episode", entry.EpisodeID, "err", err)
+		}
+	}()
+	return nil
 }
 
 type completerAdapter struct {

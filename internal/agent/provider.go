@@ -107,6 +107,15 @@ type Usage struct {
 	CacheCreationTokens int
 }
 
+// Add accumulates another call's usage into u, so a caller can sum the per-call
+// usage of every provider call in a multi-step episode into one total.
+func (u *Usage) Add(other Usage) {
+	u.InputTokens += other.InputTokens
+	u.OutputTokens += other.OutputTokens
+	u.CacheReadTokens += other.CacheReadTokens
+	u.CacheCreationTokens += other.CacheCreationTokens
+}
+
 // CompletionResponse is the full response from the LLM.
 type CompletionResponse struct {
 	Text       string

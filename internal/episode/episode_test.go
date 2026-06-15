@@ -17,6 +17,7 @@ import (
 type providerResponse struct {
 	text      string
 	toolCalls []agent.ToolUseBlock
+	usage     agent.Usage
 	err       error
 }
 
@@ -31,7 +32,7 @@ func (p *episodeTestProvider) Complete(_ context.Context, req agent.CompletionRe
 	if p.complete.err != nil {
 		return nil, p.complete.err
 	}
-	return &agent.CompletionResponse{Text: p.complete.text, ToolCalls: p.complete.toolCalls}, nil
+	return &agent.CompletionResponse{Text: p.complete.text, ToolCalls: p.complete.toolCalls, Usage: p.complete.usage}, nil
 }
 
 func (p *episodeTestProvider) Stream(_ context.Context, req agent.CompletionRequest) (agent.StreamIterator, error) {
@@ -65,6 +66,7 @@ func (s *episodeTestStream) Next() (agent.StreamDelta, error) {
 		ToolCalls:  s.response.toolCalls,
 		Done:       true,
 		StopReason: agent.StopToolUse,
+		Usage:      s.response.usage,
 	}, nil
 }
 
@@ -326,6 +328,111 @@ func TestExecuteToolDispatchBeforeClose(t *testing.T) {
 	}
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("tool invocations = %d, want 1", got)
+	}
+}
+
+type captureRecorder struct {
+	costs []EpisodeCost
+}
+
+func (c *captureRecorder) RecordEpisodeCost(_ context.Context, e EpisodeCost) error {
+	c.costs = append(c.costs, e)
+	return nil
+}
+
+// TestExecuteRecordsCost verifies the §4.11 economy hook: a completed episode
+// records one cost row carrying the tokens it consumed plus model/provider/id.
+func TestExecuteRecordsCost(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{{
+		text:      "answer",
+		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled."}`)},
+		usage:     agent.Usage{InputTokens: 100, OutputTokens: 40, CacheReadTokens: 25},
+	}}}
+	runner, _ := testRunner(t, provider)
+	rec := &captureRecorder{}
+	runner.SetCostRecorder(rec)
+
+	req := chatRequest("Handle request", "hello")
+	req.Model = "claude-x"
+	req.Provider = "claude"
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(rec.costs) != 1 {
+		t.Fatalf("want 1 cost row, got %d", len(rec.costs))
+	}
+	c := rec.costs[0]
+	if want := (agent.Usage{InputTokens: 100, OutputTokens: 40, CacheReadTokens: 25}); c.Usage != want {
+		t.Fatalf("usage = %+v, want %+v", c.Usage, want)
+	}
+	if c.Model != "claude-x" || c.Provider != "claude" || c.EpisodeID == "" {
+		t.Fatalf("cost meta = %+v", c)
+	}
+}
+
+// TestExecuteAccumulatesCostAcrossCalls verifies the per-episode total sums the
+// usage of every provider call (a tool-dispatch turn plus the closing turn).
+func TestExecuteAccumulatesCostAcrossCalls(t *testing.T) {
+	var calls atomic.Int32
+	provider := &episodeTestProvider{streams: []providerResponse{
+		{text: "using a tool", toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "count_tool", Input: `{}`}}, usage: agent.Usage{InputTokens: 50, OutputTokens: 10}},
+		{text: "closing", toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Tool dispatched."}`)}, usage: agent.Usage{InputTokens: 30, OutputTokens: 5}},
+	}}
+	runner, _ := testRunner(t, provider)
+	rec := &captureRecorder{}
+	runner.SetCostRecorder(rec)
+
+	req := chatRequest("Use a tool", "use tool")
+	req.Invoke = countingInvoke(&calls)
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(rec.costs) != 1 {
+		t.Fatalf("want 1 cost row, got %d", len(rec.costs))
+	}
+	if want := (agent.Usage{InputTokens: 80, OutputTokens: 15}); rec.costs[0].Usage != want {
+		t.Fatalf("accumulated usage = %+v, want %+v", rec.costs[0].Usage, want)
+	}
+}
+
+// TestExecuteSkipsCostWhenZeroUsage verifies the guard: an episode whose provider
+// reported no usage records no cost row (zero is "unknown", not a real $0 episode).
+func TestExecuteSkipsCostWhenZeroUsage(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{{
+		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled."}`)},
+	}}}
+	runner, _ := testRunner(t, provider)
+	rec := &captureRecorder{}
+	runner.SetCostRecorder(rec)
+	if _, err := runner.Execute(context.Background(), chatRequest("g", "hi")); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(rec.costs) != 0 {
+		t.Fatalf("zero-usage episode must record no cost, got %d", len(rec.costs))
+	}
+}
+
+// TestExecuteSkipsCostOnIdempotentReplay verifies an at-least-once re-delivery
+// (which skips before any provider call) does not double-charge the ledger.
+func TestExecuteSkipsCostOnIdempotentReplay(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{{
+		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"did it"}`)},
+		usage:     agent.Usage{InputTokens: 10, OutputTokens: 2},
+	}}}
+	runner, _ := testRunner(t, provider)
+	rec := &captureRecorder{}
+	runner.SetCostRecorder(rec)
+
+	req := chatRequest("Handle", "trigger")
+	req.EpisodeID = "evt-cost-dedup"
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if len(rec.costs) != 1 {
+		t.Fatalf("replay must not record a second cost row, got %d", len(rec.costs))
 	}
 }
 
