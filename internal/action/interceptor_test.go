@@ -267,3 +267,99 @@ func TestInterceptorNilStoreStillReportsToCollector(t *testing.T) {
 		t.Fatalf("collector = (governed=%d, verified=%d), want (1, 0) even with nil store", gov, ver)
 	}
 }
+
+// TestInterceptorDryRunSkipsGovernedExecution: under a dry run, a governed action
+// must NOT execute, must return a synthetic receipt, and must leave trust ledger
+// and the episode collector untouched — the shadow brain reasons without acting.
+func TestInterceptorDryRunSkipsGovernedExecution(t *testing.T) {
+	store := openActionTestStore(t)
+	ic := NewInterceptor(store, nil)
+	coll := &tool.ActionVerification{}
+	ctx := tool.WithDryRun(tool.WithActionCollector(context.Background(), coll))
+
+	called := false
+	call := &tool.ToolCall{ToolName: "world_edit"} // governed, reversible
+	final := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		called = true
+		return &tool.ToolResult{Output: "REAL EXECUTION"}, nil
+	}
+	res, err := ic.Intercept(ctx, call, final)
+	if err != nil {
+		t.Fatalf("Intercept() error = %v", err)
+	}
+	if called {
+		t.Fatal("dry-run must NOT execute the governed tool")
+	}
+	if res.Metadata["dry_run"] != "true" {
+		t.Fatalf("dry_run metadata = %q, want true", res.Metadata["dry_run"])
+	}
+	if res.Metadata["action_class"] != "reversible" {
+		t.Fatalf("action_class = %q, want reversible", res.Metadata["action_class"])
+	}
+	if res.Output == "REAL EXECUTION" {
+		t.Fatal("dry-run result must be synthetic, not the tool's real output")
+	}
+	var count int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM trust_ledger`).Scan(&count); err != nil {
+		t.Fatalf("count error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("trust_ledger rows = %d, want 0 (dry-run records no trust)", count)
+	}
+	if gov, ver := coll.Snapshot(); gov != 0 || ver != 0 {
+		t.Fatalf("collector = (%d,%d), want (0,0) (dry-run executes nothing)", gov, ver)
+	}
+}
+
+// TestInterceptorDryRunPassesReadOnly: a dry run must still execute read-only
+// tools — the shadow brain has to observe the world it reasons over.
+func TestInterceptorDryRunPassesReadOnly(t *testing.T) {
+	ic := NewInterceptor(openActionTestStore(t), nil)
+	ctx := tool.WithDryRun(context.Background())
+
+	called := false
+	call := &tool.ToolCall{ToolName: "world_read", Capabilities: tool.ToolCapabilities{IsReadOnly: true}}
+	final := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		called = true
+		return &tool.ToolResult{Output: "world data"}, nil
+	}
+	res, err := ic.Intercept(ctx, call, final)
+	if err != nil {
+		t.Fatalf("Intercept() error = %v", err)
+	}
+	if !called {
+		t.Fatal("dry-run must still execute read-only tools (shadow needs to observe)")
+	}
+	if res.Output != "world data" {
+		t.Fatalf("read-only output = %q, want real data through (not synthetic)", res.Output)
+	}
+}
+
+// TestInterceptorDryRunDisabledExecutesForReal is the production guard: with NO
+// dry-run flag, a governed action MUST execute and be recorded. The dry-run path
+// must never leak into a normal request context.
+func TestInterceptorDryRunDisabledExecutesForReal(t *testing.T) {
+	store := openActionTestStore(t)
+	ic := NewInterceptor(store, nil)
+	ctx := context.Background() // plain — not a dry run
+
+	called := false
+	call := &tool.ToolCall{ToolName: "world_edit"}
+	final := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		called = true
+		return &tool.ToolResult{Output: "done"}, nil
+	}
+	if _, err := ic.Intercept(ctx, call, final); err != nil {
+		t.Fatalf("Intercept() error = %v", err)
+	}
+	if !called {
+		t.Fatal("production (no dry-run) MUST execute the governed tool")
+	}
+	var count int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM trust_ledger`).Scan(&count); err != nil {
+		t.Fatalf("count error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("trust_ledger rows = %d, want 1 (production records the attempt)", count)
+	}
+}

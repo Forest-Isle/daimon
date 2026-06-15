@@ -38,8 +38,32 @@ func NewInterceptorWithGate(store *Store, classifier Classifier, gate ValueGate)
 
 func (i *Interceptor) Name() string { return "action" }
 
+// dryRunResult is the synthetic receipt returned for a governed call under a dry
+// run: no tool ran, so it carries no real output — only metadata describing the
+// would-be action so the shadow's transcript records what it intended.
+func dryRunResult(toolName string, class Class) *tool.ToolResult {
+	return &tool.ToolResult{
+		Output: "[dry-run] " + toolName + " not executed (shadow record-only)",
+		Metadata: map[string]string{
+			"dry_run":      "true",
+			"action_class": class.String(),
+		},
+	}
+}
+
 func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next tool.InterceptorFunc) (*tool.ToolResult, error) {
 	class, governed := i.classifier.Classify(call)
+
+	// Shadow dry-run: governed (side-effecting) actions are short-circuited to
+	// record-only — the tool does not run and no trust/undo/hold state changes,
+	// so the shadow brain can reason without touching the world. Read-only calls
+	// fall through and execute normally (the shadow still needs to observe). This
+	// is fail-closed: only a caller that opts in via tool.WithDryRun carries the
+	// flag, so production request contexts always execute for real.
+	if governed && tool.IsDryRun(ctx) {
+		return dryRunResult(call.ToolName, class), nil
+	}
+
 	contextKey := i.classifier.ContextKey(call)
 
 	// Values segment (pipeline head): a governed, non-low-risk action needs an
