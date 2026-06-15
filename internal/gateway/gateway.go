@@ -16,6 +16,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/episode"
 	"github.com/Forest-Isle/daimon/internal/feature"
 	"github.com/Forest-Isle/daimon/internal/heart"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/proposals"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/sleep"
@@ -458,7 +459,7 @@ func (a costRecorderAdapter) RecordEpisodeCost(_ context.Context, c episode.Epis
 }
 
 type completerAdapter struct {
-	provider agent.Provider
+	provider mind.Provider
 	model    string
 	// maxTokens caps the response; 0 falls back to completerDefaultMaxTokens so
 	// existing callers keep their prior behavior.
@@ -472,16 +473,16 @@ func (a *completerAdapter) Complete(ctx context.Context, systemPrompt, userMessa
 	if maxTokens <= 0 {
 		maxTokens = completerDefaultMaxTokens
 	}
-	req := agent.CompletionRequest{
+	req := mind.CompletionRequest{
 		Model: a.model, System: systemPrompt,
-		Messages:  []agent.CompletionMessage{{Role: "user", Content: userMessage}},
+		Messages:  []mind.CompletionMessage{{Role: "user", Content: userMessage}},
 		MaxTokens: maxTokens,
 	}
 	resp, err := a.provider.Complete(ctx, req)
 	if err != nil {
 		return "", err
 	}
-	if resp.StopReason == agent.StopMaxToken {
+	if resp.StopReason == mind.StopMaxToken {
 		slog.Warn("completerAdapter: response truncated at max_tokens",
 			"model", a.model, "max_tokens", maxTokens)
 	}

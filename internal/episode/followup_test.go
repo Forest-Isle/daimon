@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/mind"
 )
 
 // fakePlanter records timer follow-ups handed to it.
@@ -54,7 +55,7 @@ func TestCloseTimerFollowUpPlanted(t *testing.T) {
 	planter := &fakePlanter{}
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text: "scheduling",
-		toolCalls: []agent.ToolUseBlock{closeCall(
+		toolCalls: []mind.ToolUseBlock{closeCall(
 			`{"status":"handed_off","summary":"Will resume later.","follow_ups":[{"kind":"timer","detail":"30m","goal":"Resume the deploy"}]}`)},
 	}}}
 	runner, _ := testRunner(t, provider)
@@ -77,7 +78,7 @@ func TestCloseWatchFollowUpBecomesCommitment(t *testing.T) {
 	planter := &fakePlanter{}
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text: "watching",
-		toolCalls: []agent.ToolUseBlock{closeCall(
+		toolCalls: []mind.ToolUseBlock{closeCall(
 			`{"status":"done","summary":"Set a watch.","follow_ups":[{"kind":"watch","detail":"PR #42 merged","goal":"Notify when PR merges"}]}`)},
 	}}}
 	runner, ws := testRunner(t, provider)
@@ -103,7 +104,7 @@ func TestCloseWatchFollowUpBecomesCommitment(t *testing.T) {
 func TestTimerFollowUpDroppedWithoutPlanter(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text: "no planter",
-		toolCalls: []agent.ToolUseBlock{closeCall(
+		toolCalls: []mind.ToolUseBlock{closeCall(
 			`{"status":"handed_off","summary":"queued","follow_ups":[{"kind":"timer","detail":"1h","goal":"later"}]}`)},
 	}}}
 	runner, _ := testRunner(t, provider) // planter left nil
@@ -154,7 +155,7 @@ func TestSalvageMarksOutcomeAndJournal(t *testing.T) {
 func TestHappyPathNotSalvaged(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text:      "answer",
-		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"ok"}`)},
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"ok"}`)},
 	}}}
 	bus := &syncBus{}
 	runner, ws := testRunner(t, provider)

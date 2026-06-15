@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/heart"
+	"github.com/Forest-Isle/daimon/internal/mind"
 )
 
 // LLMModelRouter is the small-model triage tier. It asks a cheap model to
@@ -15,14 +15,14 @@ import (
 // error or unparseable response, so the chain falls through to Cognize rather
 // than risk dropping an event on a model hiccup.
 type LLMModelRouter struct {
-	provider agent.Provider
+	provider mind.Provider
 	model    string
 	// context returns a short digest of current commitments/state to ground the
 	// triage. Optional; nil yields an empty digest.
 	context func(ctx context.Context) string
 }
 
-func NewLLMModelRouter(provider agent.Provider, model string, contextFn func(ctx context.Context) string) *LLMModelRouter {
+func NewLLMModelRouter(provider mind.Provider, model string, contextFn func(ctx context.Context) string) *LLMModelRouter {
 	return &LLMModelRouter{provider: provider, model: model, context: contextFn}
 }
 
@@ -48,12 +48,12 @@ func (m *LLMModelRouter) Route(ctx context.Context, ev heart.Event) (Verdict, bo
 		fmt.Fprintf(&b, "\n\nCurrent commitments:\n%s", digest)
 	}
 
-	resp, err := m.provider.Complete(ctx, agent.CompletionRequest{
+	resp, err := m.provider.Complete(ctx, mind.CompletionRequest{
 		Model:          m.model,
 		System:         modelRouterSystem,
-		Messages:       []agent.CompletionMessage{{Role: "user", Content: b.String()}},
+		Messages:       []mind.CompletionMessage{{Role: "user", Content: b.String()}},
 		MaxTokens:      256,
-		ResponseFormat: &agent.ResponseFormat{Type: "json_object"},
+		ResponseFormat: &mind.ResponseFormat{Type: "json_object"},
 	})
 	if err != nil || resp == nil {
 		return Verdict{}, false

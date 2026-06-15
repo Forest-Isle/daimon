@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/telemetry"
 )
 
@@ -167,9 +168,9 @@ func TestAnalyzeMetrics(t *testing.T) {
 		{
 			SessionID: "s1",
 			Exchanges: []agent.ProviderExchange{
-				{StopReason: string(agent.StopEndTurn)},
-				{StopReason: string(agent.StopAbnormal)},
-				{StopReason: string(agent.StopMaxToken)},
+				{StopReason: string(mind.StopEndTurn)},
+				{StopReason: string(mind.StopAbnormal)},
+				{StopReason: string(mind.StopMaxToken)},
 			},
 			Tools: []agent.ToolRoundTrip{
 				{Succeeded: true},
@@ -178,7 +179,7 @@ func TestAnalyzeMetrics(t *testing.T) {
 		},
 		{
 			SessionID: "s2",
-			Exchanges: []agent.ProviderExchange{{StopReason: string(agent.StopEndTurn)}},
+			Exchanges: []agent.ProviderExchange{{StopReason: string(mind.StopEndTurn)}},
 			Salvaged:  true,
 		},
 	}

@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/mind"
 )
 
 // Candidate is the minimal provider slice the re-scorer drives: it re-runs a
-// recorded request against a candidate configuration. agent.Provider satisfies
+// recorded request against a candidate configuration. mind.Provider satisfies
 // it, so `daimon replay --against <config>` passes the candidate's real provider;
 // tests pass a stub.
 type Candidate interface {
-	Complete(ctx context.Context, req agent.CompletionRequest) (*agent.CompletionResponse, error)
+	Complete(ctx context.Context, req mind.CompletionRequest) (*mind.CompletionResponse, error)
 }
 
 // Judge scores a candidate response against the recorded baseline for the same
@@ -157,7 +157,7 @@ func Rescore(ctx context.Context, sessions []Session, cand Candidate, judge Judg
 
 			attempts++
 			start := now()
-			resp, err := cand.Complete(ctx, agent.CompletionRequest{
+			resp, err := cand.Complete(ctx, mind.CompletionRequest{
 				Model:          opts.Model,
 				System:         ex.SystemPrompt,
 				Messages:       messages,
@@ -308,22 +308,22 @@ func jsonObjectSpans(s string) []string {
 	return out
 }
 
-func decodeMessages(raw json.RawMessage) ([]agent.CompletionMessage, error) {
+func decodeMessages(raw json.RawMessage) ([]mind.CompletionMessage, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	var messages []agent.CompletionMessage
+	var messages []mind.CompletionMessage
 	if err := json.Unmarshal(raw, &messages); err != nil {
 		return nil, err
 	}
 	return messages, nil
 }
 
-func decodeTools(raw json.RawMessage) ([]agent.ToolDefinition, error) {
+func decodeTools(raw json.RawMessage) ([]mind.ToolDefinition, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	var tools []agent.ToolDefinition
+	var tools []mind.ToolDefinition
 	if err := json.Unmarshal(raw, &tools); err != nil {
 		return nil, err
 	}
@@ -337,7 +337,7 @@ func recordedToolCalls(raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return false
 	}
-	var calls []agent.ToolUseBlock
+	var calls []mind.ToolUseBlock
 	if json.Unmarshal(raw, &calls) != nil {
 		return false
 	}
@@ -346,7 +346,7 @@ func recordedToolCalls(raw json.RawMessage) bool {
 
 // lastUserTurn returns the content of the last user message, the immediate prompt
 // the judge needs as context. Empty when there is no user message with content.
-func lastUserTurn(messages []agent.CompletionMessage) string {
+func lastUserTurn(messages []mind.CompletionMessage) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" && strings.TrimSpace(messages[i].Content) != "" {
 			return messages[i].Content

@@ -11,6 +11,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/appdir"
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
@@ -33,7 +34,7 @@ func (ms *MemorySubsystem) LifecycleManager() *memory.LifecycleManager { return 
 func (ms *MemorySubsystem) Cortex() *memory.UnifiedRetriever           { return ms.cortex }
 func (ms *MemorySubsystem) MemoryDir() string                          { return ms.memoryDir }
 
-func InitMemorySystem(features *FeatureSubsystem, cfg *config.Config, builder *agent.DepsBuilder, provider agent.Provider, db *store.DB, toolsReg *tool.Registry) *MemorySubsystem {
+func InitMemorySystem(features *FeatureSubsystem, cfg *config.Config, builder *agent.DepsBuilder, provider mind.Provider, db *store.DB, toolsReg *tool.Registry) *MemorySubsystem {
 	if !features.IsEnabled("memory") {
 		return &MemorySubsystem{}
 	}

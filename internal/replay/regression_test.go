@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/mind"
 )
 
 // scorableSession builds a session with one pure-text exchange (so Rescore will
 // actually score it) under the given id.
 func scorableSession(t *testing.T, id string) Session {
 	t.Helper()
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "q for " + id}}
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "q for " + id}}
 	return Session{
 		SessionID: id,
 		Exchanges: []agent.ProviderExchange{
@@ -153,7 +154,7 @@ func TestCanaryFailsOnEmptyEvidence(t *testing.T) {
 func TestCanaryFailsWhenAllSkipped(t *testing.T) {
 	// A session with only a pure tool-call (empty baseline) turn: scorable=0, so the
 	// run compares nothing and must not pass even with zero regressions.
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "q"}}
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "q"}}
 	sessions := []Session{{SessionID: "a", Exchanges: []agent.ProviderExchange{
 		{SessionID: "a", ResponseText: "", MessagesJSON: msgsJSON(t, msgs)},
 	}}}
@@ -172,7 +173,7 @@ func TestCanaryFailsWhenAllSkipped(t *testing.T) {
 func TestCanaryFailsWhenCapped(t *testing.T) {
 	// Two scorable exchanges but cap=1: coverage incomplete → fail closed even
 	// though the one scored exchange had no regression.
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "q"}}
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "q"}}
 	sessions := []Session{{SessionID: "a", Exchanges: []agent.ProviderExchange{
 		{SessionID: "a", Iteration: 0, ResponseText: "b0", MessagesJSON: msgsJSON(t, msgs)},
 		{SessionID: "a", Iteration: 1, ResponseText: "b1", MessagesJSON: msgsJSON(t, msgs)},
@@ -222,8 +223,8 @@ func TestCanaryFailsOnUnverifiedActionTurn(t *testing.T) {
 	// A session with one action turn (baseline made tool calls → skipped, unverified)
 	// plus one clean text turn. The clean text turn alone must NOT certify the change:
 	// its tool behavior went unchecked, so the gate fails closed by default.
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "do it"}}
-	toolCalls, _ := json.Marshal([]agent.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
+	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
 	sessions := []Session{{SessionID: "a", Exchanges: []agent.ProviderExchange{
 		{SessionID: "a", Iteration: 0, ResponseText: "running it", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
 		{SessionID: "a", Iteration: 1, ResponseText: "answer", MessagesJSON: msgsJSON(t, msgs)},
@@ -256,8 +257,8 @@ func TestCanaryCountsEmptyResponseActionTurn(t *testing.T) {
 	// An action turn with NO prose (model called a tool and said nothing) hits the
 	// empty-baseline skip — but it is still an unverified action turn and must count
 	// toward SkippedAction so the clean text turn alone cannot certify the change.
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "do it"}}
-	toolCalls, _ := json.Marshal([]agent.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
+	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
 	sessions := []Session{{SessionID: "a", Exchanges: []agent.ProviderExchange{
 		{SessionID: "a", Iteration: 0, ResponseText: "", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
 		{SessionID: "a", Iteration: 1, ResponseText: "answer", MessagesJSON: msgsJSON(t, msgs)},

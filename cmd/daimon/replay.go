@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/appdir"
 	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/replay"
 	"github.com/spf13/cobra"
 )
@@ -70,19 +70,19 @@ func newReplayCmd() *cobra.Command {
 	return cmd
 }
 
-// judgeProvider adapts an agent.Provider to replay.Judge: a single-user-message
+// judgeProvider adapts an mind.Provider to replay.Judge: a single-user-message
 // completion at the judge model. The judge is kept stable and cheap (a small
 // model) so the verdict reflects the candidate's quality, not the judge's.
 type judgeProvider struct {
-	provider agent.Provider
+	provider mind.Provider
 	model    string
 }
 
 func (j judgeProvider) Complete(ctx context.Context, system, user string) (string, error) {
-	resp, err := j.provider.Complete(ctx, agent.CompletionRequest{
+	resp, err := j.provider.Complete(ctx, mind.CompletionRequest{
 		Model:     j.model,
 		System:    system,
-		Messages:  []agent.CompletionMessage{{Role: "user", Content: user}},
+		Messages:  []mind.CompletionMessage{{Role: "user", Content: user}},
 		MaxTokens: 512,
 	})
 	if err != nil {
@@ -99,7 +99,7 @@ func runReplayAgainst(ctx context.Context, dir, configPath, judgeModel string, m
 	if err != nil {
 		return fmt.Errorf("load candidate config: %w", err)
 	}
-	provider := agent.NewProviderFromConfig(cfg.LLM)
+	provider := mind.NewProviderFromConfig(cfg.LLM)
 	if judgeModel == "" {
 		judgeModel = cfg.LLM.Model
 	}
@@ -113,7 +113,7 @@ func runReplayAgainst(ctx context.Context, dir, configPath, judgeModel string, m
 	return nil
 }
 
-func printRescoreReport(dir, configPath, model string, rep replay.RescoreReport, provider agent.Provider) {
+func printRescoreReport(dir, configPath, model string, rep replay.RescoreReport, provider mind.Provider) {
 	fmt.Printf("Replay re-score — recorded=%s against=%s model=%s\n", dir, configPath, model)
 	fmt.Printf("compared=%d avg_score=%d regressions=%d errors=%d skipped=%d capped=%t\n",
 		rep.Compared, rep.AvgScore, rep.Regressions, rep.Errors, rep.Skipped, rep.Capped)

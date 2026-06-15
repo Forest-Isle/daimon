@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/tool"
 	"github.com/Forest-Isle/daimon/internal/world"
 )
@@ -57,7 +58,7 @@ type FollowUpPlanter interface {
 // execution and replay recording are delegated to the agent runtime via the
 // CognitiveRequest, so episodes share the same governance as the legacy path.
 type Runner struct {
-	provider agent.Provider
+	provider mind.Provider
 	world    *world.Store
 	identity *world.Identity
 	bus      agent.EventBus
@@ -82,11 +83,11 @@ type EpisodeCost struct {
 	Model         string
 	Provider      string
 	ActivityClass string
-	Usage         agent.Usage
+	Usage         mind.Usage
 }
 
 // NewRunner builds a cognitive kernel. bus may be nil (events are then skipped).
-func NewRunner(p agent.Provider, ws *world.Store, id *world.Identity, bus agent.EventBus) *Runner {
+func NewRunner(p mind.Provider, ws *world.Store, id *world.Identity, bus agent.EventBus) *Runner {
 	return &Runner{provider: p, world: ws, identity: id, bus: bus}
 }
 
@@ -111,7 +112,7 @@ func (r *Runner) SetCostRecorder(c CostRecorder) { r.cost = c }
 // delay Execute's return; the panic guard is defense-in-depth in case a recorder
 // misbehaves synchronously — it runs before the episode's recover defer, so an
 // uncontained panic here could otherwise corrupt the outcome.
-func (r *Runner) recordCost(ctx context.Context, req agent.CognitiveRequest, episodeID string, used *agent.Usage) {
+func (r *Runner) recordCost(ctx context.Context, req agent.CognitiveRequest, episodeID string, used *mind.Usage) {
 	// Skip when no positive tokens were counted: a zero (or, defensively, a
 	// nonpositive) total means "unknown / nothing consumed", not a real $0 episode.
 	if r.cost == nil || used == nil ||
@@ -173,7 +174,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 	// stream error, or panic) — the §4.11 economy ledger. Installed after the
 	// idempotent-skip return so a skipped re-delivery (which makes no provider call)
 	// records nothing; recording is best-effort and never affects the outcome.
-	var used agent.Usage
+	var used mind.Usage
 	defer r.recordCost(ctx, req, episodeID, &used)
 
 	// Install a per-episode action-verification collector in the context so the
@@ -184,11 +185,11 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 	ctx = tool.WithActionCollector(ctx, actions)
 
 	system := composeSystem(ctx, req, r.world, r.identity, r.values)
-	messages := append([]agent.CompletionMessage(nil), req.Transcript...)
+	messages := append([]mind.CompletionMessage(nil), req.Transcript...)
 	if len(messages) == 0 {
-		messages = []agent.CompletionMessage{{Role: "user", Content: req.Trigger}}
+		messages = []mind.CompletionMessage{{Role: "user", Content: req.Trigger}}
 	}
-	toolDefs := append(append([]agent.ToolDefinition(nil), req.ToolDefs...), episodeCloseToolDefinition())
+	toolDefs := append(append([]mind.ToolDefinition(nil), req.ToolDefs...), episodeCloseToolDefinition())
 
 	var transcript []transcriptTurn
 	var lastReply string
@@ -196,7 +197,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 	closeReminderSent := false
 
 	for iteration := 0; iteration < defaultMaxIterations; iteration++ {
-		creq := agent.CompletionRequest{
+		creq := mind.CompletionRequest{
 			Model:    req.Model,
 			System:   system,
 			Messages: messages,
@@ -217,7 +218,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 			lastReply = fullText
 		}
 		if fullText != "" || len(toolCalls) > 0 {
-			messages = append(messages, agent.CompletionMessage{Role: "assistant", Content: fullText, ToolBlocks: toolCalls})
+			messages = append(messages, mind.CompletionMessage{Role: "assistant", Content: fullText, ToolBlocks: toolCalls})
 			transcript = append(transcript, transcriptTurn{Role: "assistant", Content: fullText})
 		}
 
@@ -226,7 +227,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 				break
 			}
 			reminder := "You must call `episode_close` with a complete Outcome before finishing. Until you call it, the system will treat your work as incomplete."
-			messages = append(messages, agent.CompletionMessage{Role: "user", Content: reminder})
+			messages = append(messages, mind.CompletionMessage{Role: "user", Content: reminder})
 			closeReminderSent = true
 			continue
 		}
@@ -236,7 +237,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 				out, perr := parseOutcome(tc.Input)
 				if perr != nil {
 					rejection := "episode_close rejected: " + perr.Error()
-					messages = append(messages, agent.CompletionMessage{Role: "user", Content: rejection, ToolUseID: tc.ID})
+					messages = append(messages, mind.CompletionMessage{Role: "user", Content: rejection, ToolUseID: tc.ID})
 					transcript = append(transcript, transcriptTurn{Role: "tool", Content: rejection})
 					continue
 				}
@@ -247,7 +248,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 			if isErr {
 				toolFailures++
 			}
-			messages = append(messages, agent.CompletionMessage{Role: "user", Content: output, ToolUseID: tc.ID})
+			messages = append(messages, mind.CompletionMessage{Role: "user", Content: output, ToolUseID: tc.ID})
 			transcript = append(transcript, transcriptTurn{Role: "tool", Content: output})
 		}
 
@@ -379,20 +380,20 @@ func (r *Runner) failEpisode(ctx context.Context, req agent.CognitiveRequest, ep
 	return agent.CognitiveOutcome{Status: "failed", Summary: summary}
 }
 
-func streamCompletion(ctx context.Context, p agent.Provider, req agent.CompletionRequest) (string, []agent.ToolUseBlock, string, agent.Usage, error) {
+func streamCompletion(ctx context.Context, p mind.Provider, req mind.CompletionRequest) (string, []mind.ToolUseBlock, string, mind.Usage, error) {
 	stream, err := p.Stream(ctx, req)
 	if err != nil {
-		return "", nil, "", agent.Usage{}, err
+		return "", nil, "", mind.Usage{}, err
 	}
 	defer stream.Close()
 
 	var fullText strings.Builder
-	var toolCalls []agent.ToolUseBlock
+	var toolCalls []mind.ToolUseBlock
 	stopReason := ""
 	for {
 		delta, err := stream.Next()
 		if err != nil {
-			return fullText.String(), toolCalls, stopReason, agent.Usage{}, err
+			return fullText.String(), toolCalls, stopReason, mind.Usage{}, err
 		}
 		if delta.Text != "" {
 			fullText.WriteString(delta.Text)
@@ -449,16 +450,16 @@ type transcriptTurn struct {
 // salvage recovers an Outcome when the model never called episode_close: it
 // first asks the provider for a JSON-only extraction, then falls back to a
 // transcript heuristic.
-func (r *Runner) salvage(ctx context.Context, req agent.CognitiveRequest, system string, messages []agent.CompletionMessage, transcript []transcriptTurn, used *agent.Usage) Outcome {
+func (r *Runner) salvage(ctx context.Context, req agent.CognitiveRequest, system string, messages []mind.CompletionMessage, transcript []transcriptTurn, used *mind.Usage) Outcome {
 	prompt := "Extract a compact JSON episode Outcome from the transcript. Return only JSON with fields: status, summary, world_writes, receipts, follow_ups, open_question. Status must be one of done, blocked, handed_off. Summary must be <=500 chars."
-	salvageMessages := append(append([]agent.CompletionMessage(nil), messages...), agent.CompletionMessage{Role: "user", Content: prompt})
-	resp, err := r.provider.Complete(ctx, agent.CompletionRequest{
+	salvageMessages := append(append([]mind.CompletionMessage(nil), messages...), mind.CompletionMessage{Role: "user", Content: prompt})
+	resp, err := r.provider.Complete(ctx, mind.CompletionRequest{
 		Model:          req.Model,
 		System:         system,
 		Messages:       salvageMessages,
 		MaxTokens:      1024,
 		ToolChoice:     "none",
-		ResponseFormat: &agent.ResponseFormat{Type: "json_object"},
+		ResponseFormat: &mind.ResponseFormat{Type: "json_object"},
 	})
 	if resp != nil && used != nil {
 		used.Add(resp.Usage)
@@ -516,7 +517,7 @@ func compactWhitespace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-func (r *Runner) publishExchange(req agent.CognitiveRequest, iteration int, system string, messages []agent.CompletionMessage, responseText string, toolCalls []agent.ToolUseBlock, stopReason string, durationMs int64) {
+func (r *Runner) publishExchange(req agent.CognitiveRequest, iteration int, system string, messages []mind.CompletionMessage, responseText string, toolCalls []mind.ToolUseBlock, stopReason string, durationMs int64) {
 	if r.bus == nil {
 		return
 	}
@@ -564,8 +565,8 @@ func newEpisodeID() string {
 	return fmt.Sprintf("ep_%012x%x", ms&0xffffffffffff, binary.BigEndian.Uint64(b[:8]))
 }
 
-func episodeCloseToolDefinition() agent.ToolDefinition {
-	return agent.ToolDefinition{
+func episodeCloseToolDefinition() mind.ToolDefinition {
+	return mind.ToolDefinition{
 		Name:        episodeCloseToolName,
 		Description: "Close the current episode with the complete structured Outcome. This is mandatory before finishing.",
 		InputSchema: map[string]any{

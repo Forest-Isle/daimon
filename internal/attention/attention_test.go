@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/heart"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/store"
 )
 
@@ -144,13 +144,13 @@ type stubProvider struct {
 	err  error
 }
 
-func (s *stubProvider) Complete(_ context.Context, _ agent.CompletionRequest) (*agent.CompletionResponse, error) {
+func (s *stubProvider) Complete(_ context.Context, _ mind.CompletionRequest) (*mind.CompletionResponse, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &agent.CompletionResponse{Text: s.text}, nil
+	return &mind.CompletionResponse{Text: s.text}, nil
 }
 
-func (s *stubProvider) Stream(_ context.Context, _ agent.CompletionRequest) (agent.StreamIterator, error) {
+func (s *stubProvider) Stream(_ context.Context, _ mind.CompletionRequest) (mind.StreamIterator, error) {
 	return nil, errors.New("not implemented")
 }

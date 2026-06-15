@@ -20,6 +20,7 @@ import (
 	"sort"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/telemetry"
 )
 
@@ -215,9 +216,9 @@ func Analyze(sessions []Session, skipped int) Report {
 		for _, ex := range s.Exchanges {
 			m.Exchanges++
 			switch ex.StopReason {
-			case string(agent.StopAbnormal):
+			case string(mind.StopAbnormal):
 				m.AbnormalStops++
-			case string(agent.StopMaxToken):
+			case string(mind.StopMaxToken):
 				m.MaxTokenStops++
 			}
 		}

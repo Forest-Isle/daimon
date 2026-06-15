@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/mind"
 )
 
 // stubCandidate returns a fixed response (or error) and records the requests it
@@ -16,15 +17,15 @@ import (
 type stubCandidate struct {
 	text     string
 	err      error
-	requests []agent.CompletionRequest
+	requests []mind.CompletionRequest
 }
 
-func (s *stubCandidate) Complete(_ context.Context, req agent.CompletionRequest) (*agent.CompletionResponse, error) {
+func (s *stubCandidate) Complete(_ context.Context, req mind.CompletionRequest) (*mind.CompletionResponse, error) {
 	s.requests = append(s.requests, req)
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &agent.CompletionResponse{Text: s.text, StopReason: agent.StopEndTurn}, nil
+	return &mind.CompletionResponse{Text: s.text, StopReason: mind.StopEndTurn}, nil
 }
 
 // stubJudge returns a fixed reply (or error) and records the user message it saw.
@@ -42,7 +43,7 @@ func (s *stubJudge) Complete(_ context.Context, _, userMessage string) (string, 
 	return s.reply, nil
 }
 
-func msgsJSON(t *testing.T, msgs []agent.CompletionMessage) json.RawMessage {
+func msgsJSON(t *testing.T, msgs []mind.CompletionMessage) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(msgs)
 	if err != nil {
@@ -56,7 +57,7 @@ func sessionWith(exchanges ...agent.ProviderExchange) Session {
 }
 
 func TestRescoreScoresAndAggregates(t *testing.T) {
-	msgs := []agent.CompletionMessage{
+	msgs := []mind.CompletionMessage{
 		{Role: "user", Content: "what is the capital of France?"},
 	}
 	sessions := []Session{sessionWith(
@@ -90,7 +91,7 @@ func TestRescoreScoresAndAggregates(t *testing.T) {
 }
 
 func TestRescoreCountsRegression(t *testing.T) {
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "help"}}
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "help"}}
 	sessions := []Session{sessionWith(
 		agent.ProviderExchange{SessionID: "s1", ResponseText: "good baseline", MessagesJSON: msgsJSON(t, msgs)},
 	)}
@@ -107,7 +108,7 @@ func TestRescoreCountsRegression(t *testing.T) {
 }
 
 func TestRescoreCandidateErrorRecorded(t *testing.T) {
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "help"}}
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "help"}}
 	sessions := []Session{sessionWith(
 		agent.ProviderExchange{SessionID: "s1", ResponseText: "baseline", MessagesJSON: msgsJSON(t, msgs)},
 	)}
@@ -127,7 +128,7 @@ func TestRescoreCandidateErrorRecorded(t *testing.T) {
 }
 
 func TestRescoreUnparseableJudgeIsNeutral(t *testing.T) {
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "help"}}
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "help"}}
 	sessions := []Session{sessionWith(
 		agent.ProviderExchange{SessionID: "s1", ResponseText: "baseline", MessagesJSON: msgsJSON(t, msgs)},
 	)}
@@ -145,7 +146,7 @@ func TestRescoreUnparseableJudgeIsNeutral(t *testing.T) {
 }
 
 func TestRescoreMaxExchangesCap(t *testing.T) {
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "help"}}
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "help"}}
 	var exchanges []agent.ProviderExchange
 	for i := 0; i < 5; i++ {
 		exchanges = append(exchanges, agent.ProviderExchange{SessionID: "s1", Iteration: i, ResponseText: "baseline", MessagesJSON: msgsJSON(t, msgs)})
@@ -167,8 +168,8 @@ func TestRescoreMaxExchangesCap(t *testing.T) {
 }
 
 func TestRescoreSkipsBaselineToolCallTurns(t *testing.T) {
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "do it"}}
-	toolCalls, _ := json.Marshal([]agent.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
+	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
 	sessions := []Session{sessionWith(
 		// text + recorded tool call → action turn, skipped (text judging would misrepresent).
 		agent.ProviderExchange{SessionID: "s1", ResponseText: "running it", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
@@ -188,8 +189,8 @@ func TestRescoreSkipsBaselineToolCallTurns(t *testing.T) {
 }
 
 func TestRescoreToolsReconstructed(t *testing.T) {
-	msgs := []agent.CompletionMessage{{Role: "user", Content: "q"}}
-	tools, _ := json.Marshal([]agent.ToolDefinition{{Name: "bash", Description: "run", InputSchema: map[string]any{"type": "object"}}})
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "q"}}
+	tools, _ := json.Marshal([]mind.ToolDefinition{{Name: "bash", Description: "run", InputSchema: map[string]any{"type": "object"}}})
 	sessions := []Session{sessionWith(
 		agent.ProviderExchange{SessionID: "s1", ResponseText: "a", MessagesJSON: msgsJSON(t, msgs), ToolsJSON: tools, ToolChoice: "auto", ThinkingBudget: 256},
 	)}
@@ -215,7 +216,7 @@ func TestRescoreCapExcludesDecodeErrors(t *testing.T) {
 	// Two garbage-message rows then two good rows; cap=2 must still make 2 candidate
 	// calls (the decode errors do not consume the budget).
 	bad := json.RawMessage(`{not json`)
-	good := msgsJSON(t, []agent.CompletionMessage{{Role: "user", Content: "q"}})
+	good := msgsJSON(t, []mind.CompletionMessage{{Role: "user", Content: "q"}})
 	sessions := []Session{sessionWith(
 		agent.ProviderExchange{SessionID: "s1", Iteration: 0, ResponseText: "a", MessagesJSON: bad},
 		agent.ProviderExchange{SessionID: "s1", Iteration: 1, ResponseText: "a", MessagesJSON: bad},

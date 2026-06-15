@@ -7,6 +7,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/tool"
@@ -25,7 +26,7 @@ func (ma *MultiAgentSubsystem) Start(_ context.Context) error { return nil }
 func (ma *MultiAgentSubsystem) Stop(_ context.Context) error  { return nil }
 
 func InitMultiAgent(features *FeatureSubsystem, cfg *config.Config, builder *agent.DepsBuilder,
-	provider agent.Provider, sessions *session.Manager, db *store.DB, memStore memory.Store,
+	provider mind.Provider, sessions *session.Manager, db *store.DB, memStore memory.Store,
 	toolsReg *tool.Registry, resultStore *tool.ResultStore) *MultiAgentSubsystem {
 
 	ma := &MultiAgentSubsystem{}
@@ -57,7 +58,7 @@ func InitMultiAgent(features *FeatureSubsystem, cfg *config.Config, builder *age
 		slog.Info("multi-agent system initialized", "agents", len(agentMgr.All()))
 	}
 
-	contextWindow := agent.ModelContextWindow(cfg.LLM.Model)
+	contextWindow := mind.ModelContextWindow(cfg.LLM.Model)
 	if cfg.Agent.Compression.Strategy == "layered" {
 		_ = agent.NewCompressionPipeline(provider, cfg.LLM.Model, cfg.Agent.Compression, resultStore, contextWindow)
 		slog.Info("layered compression pipeline enabled")

@@ -4,10 +4,11 @@ import (
 	"context"
 	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/mind"
 )
 
 type AgentSubsystem struct {
-	Provider agent.Provider
+	Provider mind.Provider
 }
 
 func (as *AgentSubsystem) Name() string                  { return "agent" }
@@ -15,7 +16,7 @@ func (as *AgentSubsystem) Start(_ context.Context) error { return nil }
 func (as *AgentSubsystem) Stop(_ context.Context) error  { return nil }
 
 func InitAgentRuntime(builder *agent.DepsBuilder, cfg *config.Config) *AgentSubsystem {
-	p := agent.NewProviderFromConfig(cfg.LLM)
+	p := mind.NewProviderFromConfig(cfg.LLM)
 	builder.Core.Provider = p
 	builder.Core.Cfg = cfg.Agent
 	builder.Core.LLMCfg = cfg.LLM

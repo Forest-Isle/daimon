@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/tool"
 	"github.com/Forest-Isle/daimon/internal/world"
@@ -17,26 +18,26 @@ import (
 
 type providerResponse struct {
 	text      string
-	toolCalls []agent.ToolUseBlock
-	usage     agent.Usage
+	toolCalls []mind.ToolUseBlock
+	usage     mind.Usage
 	err       error
 }
 
 type episodeTestProvider struct {
 	streams  []providerResponse
 	complete providerResponse
-	requests []agent.CompletionRequest
+	requests []mind.CompletionRequest
 }
 
-func (p *episodeTestProvider) Complete(_ context.Context, req agent.CompletionRequest) (*agent.CompletionResponse, error) {
+func (p *episodeTestProvider) Complete(_ context.Context, req mind.CompletionRequest) (*mind.CompletionResponse, error) {
 	p.requests = append(p.requests, req)
 	if p.complete.err != nil {
 		return nil, p.complete.err
 	}
-	return &agent.CompletionResponse{Text: p.complete.text, ToolCalls: p.complete.toolCalls, Usage: p.complete.usage}, nil
+	return &mind.CompletionResponse{Text: p.complete.text, ToolCalls: p.complete.toolCalls, Usage: p.complete.usage}, nil
 }
 
-func (p *episodeTestProvider) Stream(_ context.Context, req agent.CompletionRequest) (agent.StreamIterator, error) {
+func (p *episodeTestProvider) Stream(_ context.Context, req mind.CompletionRequest) (mind.StreamIterator, error) {
 	p.requests = append(p.requests, req)
 	if len(p.streams) == 0 {
 		return &episodeTestStream{response: providerResponse{text: "done"}}, nil
@@ -54,19 +55,19 @@ type episodeTestStream struct {
 	done     bool
 }
 
-func (s *episodeTestStream) Next() (agent.StreamDelta, error) {
+func (s *episodeTestStream) Next() (mind.StreamDelta, error) {
 	if s.done {
-		return agent.StreamDelta{Done: true}, nil
+		return mind.StreamDelta{Done: true}, nil
 	}
 	s.done = true
 	if s.response.err != nil {
-		return agent.StreamDelta{}, s.response.err
+		return mind.StreamDelta{}, s.response.err
 	}
-	return agent.StreamDelta{
+	return mind.StreamDelta{
 		Text:       s.response.text,
 		ToolCalls:  s.response.toolCalls,
 		Done:       true,
-		StopReason: agent.StopToolUse,
+		StopReason: mind.StopToolUse,
 		Usage:      s.response.usage,
 	}, nil
 }
@@ -83,7 +84,7 @@ func openEpisodeWorldTestDB(t *testing.T) *store.DB {
 	return db
 }
 
-func testRunner(t *testing.T, p agent.Provider) (*Runner, *world.Store) {
+func testRunner(t *testing.T, p mind.Provider) (*Runner, *world.Store) {
 	t.Helper()
 	db := openEpisodeWorldTestDB(t)
 	ws := world.NewStore(db.DB)
@@ -93,14 +94,14 @@ func testRunner(t *testing.T, p agent.Provider) (*Runner, *world.Store) {
 
 // countingInvoke records tool invocations and returns a fixed output.
 func countingInvoke(counter *atomic.Int32) agent.ToolInvokeFunc {
-	return func(_ context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+	return func(_ context.Context, _ int, _ mind.ToolUseBlock) (string, bool) {
 		counter.Add(1)
 		return "counted", false
 	}
 }
 
-func closeCall(input string) agent.ToolUseBlock {
-	return agent.ToolUseBlock{ID: "close_1", Name: episodeCloseToolName, Input: input}
+func closeCall(input string) mind.ToolUseBlock {
+	return mind.ToolUseBlock{ID: "close_1", Name: episodeCloseToolName, Input: input}
 }
 
 func chatRequest(goal, text string) agent.CognitiveRequest {
@@ -108,14 +109,14 @@ func chatRequest(goal, text string) agent.CognitiveRequest {
 		SessionID:  "sess_test",
 		Goal:       goal,
 		Trigger:    text,
-		Transcript: []agent.CompletionMessage{{Role: "user", Content: text}},
+		Transcript: []mind.CompletionMessage{{Role: "user", Content: text}},
 	}
 }
 
 func TestExecuteBasicHappyPath(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text:      "Here is your answer.",
-		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled request."}`)},
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled request."}`)},
 	}}}
 	runner, ws := testRunner(t, provider)
 
@@ -144,7 +145,7 @@ func TestExecuteBasicHappyPath(t *testing.T) {
 func TestExecuteIdempotentReplaySkip(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text:      "done work",
-		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"did the thing"}`)},
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"did the thing"}`)},
 	}}}
 	runner, ws := testRunner(t, provider)
 
@@ -272,7 +273,7 @@ func TestExecuteWorldWriteFailureStillRecordsTrace(t *testing.T) {
 	bad := `{"status":"done","summary":"did work","world_writes":[{"op":"bogus.op","target":"x","body":{}}]}`
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text:      "working",
-		toolCalls: []agent.ToolUseBlock{closeCall(bad)},
+		toolCalls: []mind.ToolUseBlock{closeCall(bad)},
 	}}}
 	runner, ws := testRunner(t, provider)
 
@@ -309,11 +310,11 @@ func TestExecuteToolDispatchBeforeClose(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{
 		{
 			text:      "using a tool",
-			toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "count_tool", Input: `{}`}},
+			toolCalls: []mind.ToolUseBlock{{ID: "call_1", Name: "count_tool", Input: `{}`}},
 		},
 		{
 			text:      "closing",
-			toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Tool dispatched."}`)},
+			toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Tool dispatched."}`)},
 		},
 	}}
 	runner, _ := testRunner(t, provider)
@@ -346,8 +347,8 @@ func (c *captureRecorder) RecordEpisodeCost(_ context.Context, e EpisodeCost) er
 func TestExecuteRecordsCost(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text:      "answer",
-		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled."}`)},
-		usage:     agent.Usage{InputTokens: 100, OutputTokens: 40, CacheReadTokens: 25},
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled."}`)},
+		usage:     mind.Usage{InputTokens: 100, OutputTokens: 40, CacheReadTokens: 25},
 	}}}
 	runner, _ := testRunner(t, provider)
 	rec := &captureRecorder{}
@@ -364,7 +365,7 @@ func TestExecuteRecordsCost(t *testing.T) {
 		t.Fatalf("want 1 cost row, got %d", len(rec.costs))
 	}
 	c := rec.costs[0]
-	if want := (agent.Usage{InputTokens: 100, OutputTokens: 40, CacheReadTokens: 25}); c.Usage != want {
+	if want := (mind.Usage{InputTokens: 100, OutputTokens: 40, CacheReadTokens: 25}); c.Usage != want {
 		t.Fatalf("usage = %+v, want %+v", c.Usage, want)
 	}
 	if c.Model != "claude-x" || c.Provider != "claude" || c.EpisodeID == "" {
@@ -380,8 +381,8 @@ func TestExecuteRecordsCost(t *testing.T) {
 func TestExecuteAccumulatesCostAcrossCalls(t *testing.T) {
 	var calls atomic.Int32
 	provider := &episodeTestProvider{streams: []providerResponse{
-		{text: "using a tool", toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "count_tool", Input: `{}`}}, usage: agent.Usage{InputTokens: 50, OutputTokens: 10}},
-		{text: "closing", toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Tool dispatched."}`)}, usage: agent.Usage{InputTokens: 30, OutputTokens: 5}},
+		{text: "using a tool", toolCalls: []mind.ToolUseBlock{{ID: "call_1", Name: "count_tool", Input: `{}`}}, usage: mind.Usage{InputTokens: 50, OutputTokens: 10}},
+		{text: "closing", toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Tool dispatched."}`)}, usage: mind.Usage{InputTokens: 30, OutputTokens: 5}},
 	}}
 	runner, _ := testRunner(t, provider)
 	rec := &captureRecorder{}
@@ -395,7 +396,7 @@ func TestExecuteAccumulatesCostAcrossCalls(t *testing.T) {
 	if len(rec.costs) != 1 {
 		t.Fatalf("want 1 cost row, got %d", len(rec.costs))
 	}
-	if want := (agent.Usage{InputTokens: 80, OutputTokens: 15}); rec.costs[0].Usage != want {
+	if want := (mind.Usage{InputTokens: 80, OutputTokens: 15}); rec.costs[0].Usage != want {
 		t.Fatalf("accumulated usage = %+v, want %+v", rec.costs[0].Usage, want)
 	}
 }
@@ -404,7 +405,7 @@ func TestExecuteAccumulatesCostAcrossCalls(t *testing.T) {
 // reported no usage records no cost row (zero is "unknown", not a real $0 episode).
 func TestExecuteSkipsCostWhenZeroUsage(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
-		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled."}`)},
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled."}`)},
 	}}}
 	runner, _ := testRunner(t, provider)
 	rec := &captureRecorder{}
@@ -421,8 +422,8 @@ func TestExecuteSkipsCostWhenZeroUsage(t *testing.T) {
 // (which skips before any provider call) does not double-charge the ledger.
 func TestExecuteSkipsCostOnIdempotentReplay(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
-		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"did it"}`)},
-		usage:     agent.Usage{InputTokens: 10, OutputTokens: 2},
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"did it"}`)},
+		usage:     mind.Usage{InputTokens: 10, OutputTokens: 2},
 	}}}
 	runner, _ := testRunner(t, provider)
 	rec := &captureRecorder{}
@@ -447,13 +448,13 @@ func TestExecuteSkipsCostOnIdempotentReplay(t *testing.T) {
 func TestExecutePanicInToolDispatchStillRecordsTrace(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text:      "using a tool",
-		toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "boom", Input: `{}`}},
+		toolCalls: []mind.ToolUseBlock{{ID: "call_1", Name: "boom", Input: `{}`}},
 	}}}
 	runner, ws := testRunner(t, provider)
 
 	req := chatRequest("Use a tool", "use tool")
 	req.EpisodeID = "evt-panic-1"
-	req.Invoke = func(_ context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+	req.Invoke = func(_ context.Context, _ int, _ mind.ToolUseBlock) (string, bool) {
 		panic("tool exploded")
 	}
 
@@ -485,14 +486,14 @@ func TestExecutePanicInToolDispatchStillRecordsTrace(t *testing.T) {
 // the outcome journal detail (the conservative distill-candidacy proxy).
 func TestExecuteRecordsToolFailuresInOutcomeDetail(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{
-		{text: "trying a tool", toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "flaky_tool", Input: `{}`}}},
-		{text: "closing", toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Recovered after a tool error."}`)}},
+		{text: "trying a tool", toolCalls: []mind.ToolUseBlock{{ID: "call_1", Name: "flaky_tool", Input: `{}`}}},
+		{text: "closing", toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Recovered after a tool error."}`)}},
 	}}
 	runner, ws := testRunner(t, provider)
 
 	req := chatRequest("Use a flaky tool", "go")
 	req.EpisodeID = "evt-toolfail-1"
-	req.Invoke = func(_ context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+	req.Invoke = func(_ context.Context, _ int, _ mind.ToolUseBlock) (string, bool) {
 		return "tool error: connection refused", true // isError
 	}
 
@@ -521,14 +522,14 @@ func TestExecuteRecordsToolFailuresInOutcomeDetail(t *testing.T) {
 // by recording an unverified governed action through the same context channel.
 func TestExecuteRecordsUnverifiedActionsInOutcomeDetail(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{
-		{text: "taking an action", toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "world_edit", Input: `{}`}}},
-		{text: "closing", toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Did a governed action."}`)}},
+		{text: "taking an action", toolCalls: []mind.ToolUseBlock{{ID: "call_1", Name: "world_edit", Input: `{}`}}},
+		{text: "closing", toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Did a governed action."}`)}},
 	}}
 	runner, ws := testRunner(t, provider)
 
 	req := chatRequest("Take a governed action", "go")
 	req.EpisodeID = "evt-unverified-1"
-	req.Invoke = func(ctx context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+	req.Invoke = func(ctx context.Context, _ int, _ mind.ToolUseBlock) (string, bool) {
 		// Stand in for the action interceptor: a governed action that did not earn
 		// objective trust on this run (compensable/irreversible, or a failed reversible).
 		tool.ActionCollectorFromContext(ctx).Record(false)
@@ -559,14 +560,14 @@ func TestExecuteRecordsUnverifiedActionsInOutcomeDetail(t *testing.T) {
 // ones are.
 func TestExecuteAllVerifiedActionsHasEmptyDetail(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{
-		{text: "taking an action", toolCalls: []agent.ToolUseBlock{{ID: "call_1", Name: "world_edit", Input: `{}`}}},
-		{text: "closing", toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"Did a verified action."}`)}},
+		{text: "taking an action", toolCalls: []mind.ToolUseBlock{{ID: "call_1", Name: "world_edit", Input: `{}`}}},
+		{text: "closing", toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Did a verified action."}`)}},
 	}}
 	runner, ws := testRunner(t, provider)
 
 	req := chatRequest("Take a verified action", "go")
 	req.EpisodeID = "evt-verified-1"
-	req.Invoke = func(ctx context.Context, _ int, _ agent.ToolUseBlock) (string, bool) {
+	req.Invoke = func(ctx context.Context, _ int, _ mind.ToolUseBlock) (string, bool) {
 		tool.ActionCollectorFromContext(ctx).Record(true) // verified governed action
 		return "action taken", false
 	}
@@ -598,7 +599,7 @@ func TestExecuteAllVerifiedActionsHasEmptyDetail(t *testing.T) {
 func TestExecuteCleanEpisodeHasEmptyDetail(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text:      "answer",
-		toolCalls: []agent.ToolUseBlock{closeCall(`{"status":"done","summary":"All good."}`)},
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"All good."}`)},
 	}}}
 	runner, ws := testRunner(t, provider)
 

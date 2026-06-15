@@ -8,12 +8,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/appdir"
 	"github.com/Forest-Isle/daimon/internal/attention"
 	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/heart"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/world"
 )
@@ -75,7 +75,7 @@ func (hs *HeartSubsystem) Stop(_ context.Context) error { return nil }
 // InitHeart builds the heart subsystem's routing pieces (store, attention chain,
 // feedback store). The heart itself — with its dispatch handler — and any event
 // sources are attached by the gateway once the agent exists.
-func InitHeart(cfg *config.Config, db *store.DB, provider agent.Provider, worldStore *world.Store) *HeartSubsystem {
+func InitHeart(cfg *config.Config, db *store.DB, provider mind.Provider, worldStore *world.Store) *HeartSubsystem {
 	hs := &HeartSubsystem{
 		enabled:          cfg.Agent.HeartEnabled,
 		chatThroughHeart: cfg.Agent.Heart.ChatThroughHeart,

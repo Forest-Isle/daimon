@@ -13,6 +13,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/channel/scheduler"
 	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/taskruntime"
@@ -215,11 +216,11 @@ type evalProvider struct {
 	response string
 }
 
-func (p *evalProvider) Complete(context.Context, agent.CompletionRequest) (*agent.CompletionResponse, error) {
-	return &agent.CompletionResponse{Text: p.response}, nil
+func (p *evalProvider) Complete(context.Context, mind.CompletionRequest) (*mind.CompletionResponse, error) {
+	return &mind.CompletionResponse{Text: p.response}, nil
 }
 
-func (p *evalProvider) Stream(context.Context, agent.CompletionRequest) (agent.StreamIterator, error) {
+func (p *evalProvider) Stream(context.Context, mind.CompletionRequest) (mind.StreamIterator, error) {
 	return &evalStream{text: p.response}, nil
 }
 
@@ -228,12 +229,12 @@ type evalStream struct {
 	done bool
 }
 
-func (s *evalStream) Next() (agent.StreamDelta, error) {
+func (s *evalStream) Next() (mind.StreamDelta, error) {
 	if s.done {
-		return agent.StreamDelta{Done: true, StopReason: agent.StopEndTurn}, nil
+		return mind.StreamDelta{Done: true, StopReason: mind.StopEndTurn}, nil
 	}
 	s.done = true
-	return agent.StreamDelta{Text: s.text, Done: true, StopReason: agent.StopEndTurn}, nil
+	return mind.StreamDelta{Text: s.text, Done: true, StopReason: mind.StopEndTurn}, nil
 }
 
 func (s *evalStream) Close() {}
