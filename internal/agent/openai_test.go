@@ -260,6 +260,177 @@ func TestOpenAIProvider_Stream_TextOnly(t *testing.T) {
 	}
 }
 
+// TestOpenAIProvider_Complete_Usage locks in the per-call Usage mapping (slice
+// C1) on the non-streamed path: OpenAI's prompt_tokens INCLUDES cached tokens,
+// so the neutral Usage must split them — InputTokens = prompt − cached.
+func TestOpenAIProvider_Complete_Usage(t *testing.T) {
+	p := newOpenAITestProvider(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := oaiResponse{
+			Choices: []oaiChoice{{
+				Message:      oaiMessage{Role: "assistant", Content: "Hi"},
+				FinishReason: "stop",
+			}},
+			Usage: &oaiUsage{
+				PromptTokens:        100,
+				CompletionTokens:    40,
+				PromptTokensDetails: &oaiPromptTokensDetails{CachedTokens: 30},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+
+	resp, err := p.Complete(context.Background(), CompletionRequest{
+		Messages: []CompletionMessage{{Role: "user", Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete error: %v", err)
+	}
+	want := Usage{InputTokens: 70, OutputTokens: 40, CacheReadTokens: 30}
+	if resp.Usage != want {
+		t.Errorf("usage = %+v, want %+v", resp.Usage, want)
+	}
+}
+
+// TestOpenAIProvider_Stream_UsageBeforeFinishCaptured exercises the best-effort
+// streamed-usage path (slice C1): when a usage chunk arrives BEFORE the terminal
+// finish_reason, the iterator stashes it and surfaces it on the Done delta. (The
+// iterator finalizes at finish_reason without draining, so a usage chunk that
+// TRAILS finish_reason is intentionally not captured — see the next test.)
+func TestOpenAIProvider_Stream_UsageBeforeFinishCaptured(t *testing.T) {
+	p := newOpenAITestProvider(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		chunks := []string{
+			`{"choices":[{"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":40,"prompt_tokens_details":{"cached_tokens":30}}}`,
+			`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+		}
+		for _, c := range chunks {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", c)
+			flusher.Flush()
+		}
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+
+	iter, err := p.Stream(context.Background(), CompletionRequest{
+		Messages: []CompletionMessage{{Role: "user", Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer iter.Close()
+
+	var final StreamDelta
+	for {
+		d, err := iter.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Done {
+			final = d
+			break
+		}
+	}
+	want := Usage{InputTokens: 70, OutputTokens: 40, CacheReadTokens: 30}
+	if final.Usage != want {
+		t.Errorf("final delta usage = %+v, want %+v", final.Usage, want)
+	}
+}
+
+// TestOpenAIProvider_Stream_TrailingUsageNotCaptured locks the no-drain contract:
+// the iterator finalizes at finish_reason WITHOUT waiting for the trailing
+// usage chunk (so a server that stalls after finish_reason cannot delay Done).
+// Streamed OpenAI usage is therefore best-effort and zero in the normal case; the
+// non-streamed Complete path and the Anthropic provider report usage fully.
+func TestOpenAIProvider_Stream_TrailingUsageNotCaptured(t *testing.T) {
+	p := newOpenAITestProvider(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		chunks := []string{
+			`{"choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}`,
+			`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":12}}`,
+		}
+		for _, c := range chunks {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", c)
+			flusher.Flush()
+		}
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+
+	iter, err := p.Stream(context.Background(), CompletionRequest{
+		Messages: []CompletionMessage{{Role: "user", Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer iter.Close()
+
+	var final StreamDelta
+	for {
+		d, err := iter.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Done {
+			final = d
+			break
+		}
+	}
+	if final.Usage != (Usage{}) {
+		t.Errorf("trailing usage should not be captured (no drain), got %+v", final.Usage)
+	}
+	if final.StopReason != StopEndTurn {
+		t.Errorf("stop_reason = %q, want end_turn", final.StopReason)
+	}
+}
+
+// TestOpenAIProvider_Stream_FinishReasonWithContent locks the same-chunk fix: a
+// server that packs finish_reason into the same chunk as content must not lose
+// the stop reason (it was previously skipped by the early text return, defaulting
+// to end_turn).
+func TestOpenAIProvider_Stream_FinishReasonWithContent(t *testing.T) {
+	p := newOpenAITestProvider(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		// content AND finish_reason "length" in one chunk, then [DONE].
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"content":"truncated"},"finish_reason":"length"}]}`)
+		flusher.Flush()
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+
+	iter, err := p.Stream(context.Background(), CompletionRequest{
+		Messages: []CompletionMessage{{Role: "user", Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer iter.Close()
+
+	var text string
+	var final StreamDelta
+	for {
+		d, err := iter.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		text += d.Text
+		if d.Done {
+			final = d
+			break
+		}
+	}
+	if text != "truncated" {
+		t.Errorf("text = %q, want %q", text, "truncated")
+	}
+	if final.StopReason != StopMaxToken {
+		t.Errorf("stop_reason = %q, want max_tokens (lost when packed with content)", final.StopReason)
+	}
+}
+
 func TestOpenAIProvider_Stream_ToolCalls(t *testing.T) {
 	p := newOpenAITestProvider(t, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

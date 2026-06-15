@@ -94,6 +94,19 @@ const (
 	StopAbnormal StopReason = "abnormal"
 )
 
+// Usage reports per-call token consumption from a single provider response. A
+// zero value means the provider did not report usage (an older backend, or a
+// streamed response whose usage chunk was absent) — callers treat zero as
+// "unknown", never as "free". It is populated best-effort and additively; it
+// never influences control flow, so an inaccurate or missing value cannot change
+// what the agent does, only what the cost ledger records.
+type Usage struct {
+	InputTokens         int
+	OutputTokens        int
+	CacheReadTokens     int
+	CacheCreationTokens int
+}
+
 // CompletionResponse is the full response from the LLM.
 type CompletionResponse struct {
 	Text       string
@@ -103,6 +116,8 @@ type CompletionResponse struct {
 	// must be retained and replayed verbatim on the next request.
 	Thinking  string
 	Signature string
+	// Usage reports the tokens this call consumed (best-effort; see Usage).
+	Usage Usage
 }
 
 // StreamDelta is a chunk of a streaming response.
@@ -114,6 +129,9 @@ type StreamDelta struct {
 	ToolCalls  []ToolUseBlock // all tool_use blocks from the final message
 	Done       bool
 	StopReason StopReason
+	// Usage is set only on the final delta (Done) and reports the tokens this
+	// streamed call consumed (best-effort; see Usage). Zero on non-final deltas.
+	Usage Usage
 }
 
 // StreamIterator yields streaming deltas.

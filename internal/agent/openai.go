@@ -163,7 +163,9 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*
 	}
 
 	p.trackUsage(&resp)
-	return p.parseChoice(resp.Choices[0]), nil
+	out := p.parseChoice(resp.Choices[0])
+	out.Usage = usageFromOpenAI(resp.Usage)
+	return out, nil
 }
 
 func (p *OpenAIProvider) Stream(ctx context.Context, req CompletionRequest) (StreamIterator, error) {
@@ -386,6 +388,17 @@ type openaiStreamIterator struct {
 	stopReason StopReason
 	provider   *OpenAIProvider // back-reference for tracking cache usage
 	finalized  bool
+	// usage holds per-call token counts if a usage chunk (stream_options.include_usage)
+	// is seen. OpenAI emits that chunk AFTER finish_reason, and the iterator finalizes
+	// at finish_reason without draining further (so a stalled server cannot delay the
+	// Done signal) — so streamed OpenAI usage is best-effort and typically zero here.
+	// The non-streamed Complete path and the active Anthropic provider both report
+	// usage fully; the cost ledger treats a zero Usage as "unknown", never as free.
+	usage Usage
+	// pendingDone defers the Done delta by one Next() call when finish_reason arrived
+	// in the same chunk as content: the text is returned first, then the final delta
+	// (carrying the recorded stop reason) on the next call.
+	pendingDone bool
 }
 
 func (it *openaiStreamIterator) Next() (StreamDelta, error) {
@@ -394,6 +407,14 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 
 	if it.done {
 		return StreamDelta{Done: true, StopReason: it.stopReason}, io.EOF
+	}
+	// A finish_reason shared a chunk with content: emit the deferred Done delta now.
+	if it.pendingDone {
+		it.pendingDone = false
+		it.done = true
+		delta := it.buildFinalDelta()
+		it.finish(nil)
+		return delta, nil
 	}
 
 	for {
@@ -430,8 +451,12 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 			continue
 		}
 		if len(chunk.Choices) == 0 {
-			// Usage-only chunk (final streaming chunk with stream_options.include_usage)
+			// Usage-only chunk (stream_options.include_usage). OpenAI emits it AFTER
+			// finish_reason, and the iterator finalizes at finish_reason without
+			// draining, so this is reached only if a server sends usage before its
+			// terminal chunk — best-effort capture, harmless when absent.
 			if chunk.Usage != nil {
+				it.usage = usageFromOpenAI(chunk.Usage)
 				if it.provider != nil {
 					it.provider.trackUsage(&chunk)
 				}
@@ -442,10 +467,26 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 		choice := chunk.Choices[0]
 		delta := choice.Delta
 
+		// Record a terminal finish_reason FIRST, before any early return, so it is
+		// never lost when a server packs finish_reason into the same chunk as content
+		// or a tool-call fragment. The Done delta is emitted as soon as this chunk is
+		// fully processed (below) — the iterator does NOT wait for the trailing
+		// usage chunk, so a server that stalls after finish_reason cannot delay the
+		// Done signal.
+		finishing := choice.FinishReason != ""
+		if finishing {
+			it.stopReason = finishReasonToStop(choice.FinishReason)
+		}
+
 		// Accumulate text
 		text := contentString(delta.Content)
 		if text != "" {
 			it.textBuf.WriteString(text)
+			if finishing {
+				// Emit the text now; the Done delta (carrying the stop reason) is
+				// returned on the next call via the pendingDone fast-path.
+				it.pendingDone = true
+			}
 			return StreamDelta{Text: text}, nil
 		}
 
@@ -485,25 +526,31 @@ func (it *openaiStreamIterator) Next() (StreamDelta, error) {
 			existing.Function.Arguments += tc.Function.Arguments
 		}
 
-		if choice.FinishReason != "" {
-			switch choice.FinishReason {
-			case "tool_calls", "function_call":
-				it.stopReason = StopToolUse
-			case "length":
-				it.stopReason = StopMaxToken
-			case "stop", "":
-				it.stopReason = StopEndTurn
-			case "content_filter":
-				it.stopReason = StopAbnormal
-			default:
-				slog.Warn("openai stream: unrecognized finish_reason", "finish_reason", choice.FinishReason)
-				it.stopReason = StopAbnormal
-			}
+		// A finish_reason chunk with no text (the common case: tool_calls finish, or
+		// a separate empty stop chunk) finalizes here without draining further.
+		if finishing {
 			it.done = true
-			delta := it.buildFinalDelta()
+			fd := it.buildFinalDelta()
 			it.finish(nil)
-			return delta, nil
+			return fd, nil
 		}
+	}
+}
+
+// finishReasonToStop maps an OpenAI finish_reason onto the neutral StopReason.
+func finishReasonToStop(reason string) StopReason {
+	switch reason {
+	case "tool_calls", "function_call":
+		return StopToolUse
+	case "length":
+		return StopMaxToken
+	case "stop", "":
+		return StopEndTurn
+	case "content_filter":
+		return StopAbnormal
+	default:
+		slog.Warn("openai stream: unrecognized finish_reason", "finish_reason", reason)
+		return StopAbnormal
 	}
 }
 
@@ -511,6 +558,7 @@ func (it *openaiStreamIterator) buildFinalDelta() StreamDelta {
 	d := StreamDelta{
 		Done:       true,
 		StopReason: it.stopReason,
+		Usage:      it.usage,
 	}
 
 	var calls []ToolUseBlock
@@ -548,20 +596,62 @@ func (it *openaiStreamIterator) finish(_ error) {
 	it.finalized = true
 }
 
+// usageFromOpenAI maps OpenAI per-response usage onto the provider-neutral Usage.
+// OpenAI's prompt_tokens INCLUDES cached tokens, whereas Usage.InputTokens means
+// fresh, full-rate input exclusive of cache reads (matching the Anthropic
+// mapping). So cached tokens are split out: InputTokens = prompt − cached,
+// CacheReadTokens = cached. OpenAI reports no separate cache-creation count.
+// The cumulative trackUsage path below records the same exclusive split, so
+// per-call and cumulative input accounting agree with each other and with the
+// Anthropic provider (whose input_tokens already excludes cache reads).
+func usageFromOpenAI(u *oaiUsage) Usage {
+	if u == nil {
+		return Usage{}
+	}
+	// Clamp against malformed OpenAI-compatible servers: prompt first (so a
+	// negative prompt can't drag cached negative), then cached into [0, prompt]
+	// so InputTokens (= prompt − cached) is never negative and cached never
+	// exceeds total input; output must be nonnegative.
+	prompt := u.PromptTokens
+	if prompt < 0 {
+		prompt = 0
+	}
+	cached := 0
+	if u.PromptTokensDetails != nil {
+		cached = u.PromptTokensDetails.CachedTokens
+	}
+	if cached < 0 {
+		cached = 0
+	}
+	if cached > prompt {
+		cached = prompt
+	}
+	output := u.CompletionTokens
+	if output < 0 {
+		output = 0
+	}
+	return Usage{
+		InputTokens:     prompt - cached,
+		OutputTokens:    output,
+		CacheReadTokens: cached,
+	}
+}
+
 // trackUsage records token and cache metrics from an OpenAI API response.
 func (p *OpenAIProvider) trackUsage(resp *oaiResponse) {
 	if resp.Usage == nil || p.cacheMetrics == nil {
 		return
 	}
-	u := resp.Usage
-	var cachedTokens int64
-	if u.PromptTokensDetails != nil {
-		cachedTokens = int64(u.PromptTokensDetails.CachedTokens)
-	}
+	// Record fresh (uncached) input separately from cache reads, matching
+	// CacheMetrics' contract (TotalInputTokens + TotalCacheReadTokens = total
+	// input) and the Anthropic provider. OpenAI's prompt_tokens includes cached
+	// tokens, so reuse the same exclusive split as the per-call mapping rather
+	// than double-counting cache reads into input.
+	usage := usageFromOpenAI(resp.Usage)
 	p.cacheMetrics.Record(
-		int64(u.PromptTokens),
-		int64(u.CompletionTokens),
-		cachedTokens,
+		int64(usage.InputTokens),
+		int64(usage.OutputTokens),
+		int64(usage.CacheReadTokens),
 		0, // OpenAI doesn't report cache creation separately
 	)
 }

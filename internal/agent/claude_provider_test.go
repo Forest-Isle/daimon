@@ -4,7 +4,36 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/anthropics/anthropic-sdk-go"
 )
+
+// TestClaudeProvider_ParseUsage locks in the per-call Usage mapping (slice C1):
+// both the streamed (parseStreamedMessage) and non-streamed (parseResponse)
+// paths must surface Anthropic's per-response token counts onto the neutral
+// Usage, keeping cache-read and cache-creation distinct from fresh input.
+func TestClaudeProvider_ParseUsage(t *testing.T) {
+	msg := anthropic.Message{
+		Usage: anthropic.Usage{
+			InputTokens:              100,
+			OutputTokens:             40,
+			CacheReadInputTokens:     25,
+			CacheCreationInputTokens: 10,
+		},
+	}
+	want := Usage{InputTokens: 100, OutputTokens: 40, CacheReadTokens: 25, CacheCreationTokens: 10}
+
+	if got := parseStreamedMessage(&msg).Usage; got != want {
+		t.Errorf("parseStreamedMessage usage = %+v, want %+v", got, want)
+	}
+	p := NewClaudeProvider("", "claude-sonnet-4-6", "")
+	if got := p.parseResponse(&msg).Usage; got != want {
+		t.Errorf("parseResponse usage = %+v, want %+v", got, want)
+	}
+	if got := usageFromAnthropic(anthropic.Usage{}); got != (Usage{}) {
+		t.Errorf("zero usage = %+v, want zero", got)
+	}
+}
 
 // TestClaudeProvider_BuildParams_ToolResultShape locks in the Claude side of the
 // internal tool-result contract: BuildMessages emits a tool result as

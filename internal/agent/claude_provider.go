@@ -265,6 +265,7 @@ func (c *ClaudeProvider) buildParams(req CompletionRequest) anthropic.MessageNew
 func (c *ClaudeProvider) parseResponse(resp *anthropic.Message) *CompletionResponse {
 	result := &CompletionResponse{
 		StopReason: StopReason(resp.StopReason),
+		Usage:      usageFromAnthropic(resp.Usage),
 	}
 
 	for _, block := range resp.Content {
@@ -333,6 +334,7 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 				Done:       true,
 				StopReason: resp.StopReason,
 				ToolCalls:  resp.ToolCalls,
+				Usage:      resp.Usage,
 			}
 			// Keep backward compat: set ToolCall to first if present
 			if len(resp.ToolCalls) > 0 {
@@ -355,7 +357,7 @@ func (it *claudeStreamIterator) Next() (StreamDelta, error) {
 		it.provider.trackCacheUsage(it.accum.Usage)
 	}
 	resp := parseStreamedMessage(&it.accum)
-	delta := StreamDelta{Done: true, StopReason: resp.StopReason, ToolCalls: resp.ToolCalls}
+	delta := StreamDelta{Done: true, StopReason: resp.StopReason, ToolCalls: resp.ToolCalls, Usage: resp.Usage}
 	if len(resp.ToolCalls) > 0 {
 		delta.ToolCall = &resp.ToolCalls[0]
 	}
@@ -380,6 +382,7 @@ func (it *claudeStreamIterator) finish(_ error) {
 func parseStreamedMessage(msg *anthropic.Message) *CompletionResponse {
 	result := &CompletionResponse{
 		StopReason: StopReason(msg.StopReason),
+		Usage:      usageFromAnthropic(msg.Usage),
 	}
 	for _, block := range msg.Content {
 		switch v := block.AsAny().(type) {
@@ -404,6 +407,19 @@ func parseStreamedMessage(msg *anthropic.Message) *CompletionResponse {
 		}
 	}
 	return result
+}
+
+// usageFromAnthropic maps the Anthropic per-response usage onto the provider-
+// neutral Usage. Anthropic reports cache-read and cache-creation as separate
+// counts from input_tokens (cached reads are billed at a discount and are not
+// included in input_tokens), so all three are carried through distinctly.
+func usageFromAnthropic(u anthropic.Usage) Usage {
+	return Usage{
+		InputTokens:         int(u.InputTokens),
+		OutputTokens:        int(u.OutputTokens),
+		CacheReadTokens:     int(u.CacheReadInputTokens),
+		CacheCreationTokens: int(u.CacheCreationInputTokens),
+	}
 }
 
 // trackCacheUsage accumulates prompt cache and token usage metrics from an API response.
