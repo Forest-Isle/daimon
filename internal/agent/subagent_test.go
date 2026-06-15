@@ -38,6 +38,8 @@ func (m *mockSubagentProvider) Complete(_ context.Context, _ mind.CompletionRequ
 	return &mind.CompletionResponse{Text: m.response}, nil
 }
 
+func (m *mockSubagentProvider) Capabilities() mind.Caps { return mind.Caps{} }
+
 func (m *mockSubagentProvider) Stream(_ context.Context, _ mind.CompletionRequest) (mind.StreamIterator, error) {
 	return &fixedStreamIterator{text: m.response}, nil
 }
@@ -55,6 +57,8 @@ func (p *capturingSubagentProvider) Complete(_ context.Context, req mind.Complet
 	}
 	return &mind.CompletionResponse{Text: p.response}, nil
 }
+
+func (p *capturingSubagentProvider) Capabilities() mind.Caps { return mind.Caps{} }
 
 func (p *capturingSubagentProvider) Stream(_ context.Context, req mind.CompletionRequest) (mind.StreamIterator, error) {
 	if p.onStream != nil {

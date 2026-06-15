@@ -142,6 +142,10 @@ type oaiError struct {
 
 // ── Provider interface implementation ──
 
+// Capabilities reports the negotiated capabilities. OpenAI-compatible backends
+// cache prompts automatically and expose no caller-placed cache breakpoints.
+func (p *OpenAIProvider) Capabilities() Caps { return Caps{} }
+
 func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	oaiReq := p.buildRequest(req, false)
 

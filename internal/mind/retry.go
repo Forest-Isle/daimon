@@ -51,6 +51,10 @@ func (r *RetryProvider) GetTokenStats() (input, output int64) {
 	return 0, 0
 }
 
+// Capabilities forwards the wrapped provider's capabilities — retry/circuit-breaking
+// does not change what the underlying model supports.
+func (r *RetryProvider) Capabilities() Caps { return r.inner.Capabilities() }
+
 // Complete calls the inner provider's Complete, retrying on transient errors.
 func (r *RetryProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	if !r.cb.Allow() {

@@ -44,6 +44,21 @@ type ClaudeProvider struct {
 }
 
 // supportsCaching returns true if the current model supports Anthropic prompt caching.
+// Capabilities reports the negotiated capabilities. A cache breakpoint is offered
+// only when the construction-time model supports prompt caching; otherwise the
+// composer must not place a boundary marker (the non-caching path sends System
+// verbatim). This keys off the same c.model as the actual cache_control branch in
+// buildParams, so the composer and provider always agree on whether to place a
+// boundary. (A `/model` runtime override changes req.Model but not c.model, so
+// caching follows the construction model — a pre-existing limitation; the fix is
+// to rebuild the provider on model change, tracked separately.)
+func (c *ClaudeProvider) Capabilities() Caps {
+	if c.supportsCaching() {
+		return Caps{CacheBreakpoints: 1}
+	}
+	return Caps{}
+}
+
 func (c *ClaudeProvider) supportsCaching() bool {
 	// All Claude 3+ models on the Anthropic API support prompt caching.
 	cachePrefixes := []string{

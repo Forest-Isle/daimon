@@ -17,6 +17,8 @@ func (s *stubProvider) Complete(_ context.Context, _ mind.CompletionRequest) (*m
 	return &mind.CompletionResponse{Text: "summary of conversation"}, nil
 }
 
+func (s *stubProvider) Capabilities() mind.Caps { return mind.Caps{} }
+
 func (s *stubProvider) Stream(_ context.Context, _ mind.CompletionRequest) (mind.StreamIterator, error) {
 	return nil, fmt.Errorf("stream not implemented")
 }

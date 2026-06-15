@@ -37,6 +37,8 @@ func (p *episodeTestProvider) Complete(_ context.Context, req mind.CompletionReq
 	return &mind.CompletionResponse{Text: p.complete.text, ToolCalls: p.complete.toolCalls, Usage: p.complete.usage}, nil
 }
 
+func (p *episodeTestProvider) Capabilities() mind.Caps { return mind.Caps{} }
+
 func (p *episodeTestProvider) Stream(_ context.Context, req mind.CompletionRequest) (mind.StreamIterator, error) {
 	p.requests = append(p.requests, req)
 	if len(p.streams) == 0 {

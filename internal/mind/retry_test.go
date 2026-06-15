@@ -25,7 +25,11 @@ type mockProvider struct {
 
 	streamResponses []func() (StreamIterator, error)
 	streamCallCount int
+
+	caps Caps
 }
+
+func (m *mockProvider) Capabilities() Caps { return m.caps }
 
 func (m *mockProvider) Complete(_ context.Context, _ CompletionRequest) (*CompletionResponse, error) {
 	if m.completeCallCount < len(m.completeResponses) {

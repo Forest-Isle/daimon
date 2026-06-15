@@ -149,8 +149,24 @@ type StreamIterator interface {
 	Close()
 }
 
+// Caps describes the negotiated capabilities of a Provider. The prompt assembly
+// (and, later, the model router and shadow) consult it so that provider-specific
+// behaviour is declared by the provider rather than hard-coded at the call site —
+// "swap the brain" without touching mind-external code.
+type Caps struct {
+	// CacheBreakpoints is the number of caller-placed prompt-cache boundaries the
+	// provider honors (e.g. Anthropic ephemeral cache_control blocks). 0 means the
+	// provider does no caller-placed prompt caching — caching is automatic or
+	// absent — so the composer must NOT insert a cache-boundary marker, which would
+	// otherwise leak into the prompt as literal text.
+	CacheBreakpoints int
+}
+
 // Provider is the LLM backend interface.
 type Provider interface {
 	Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)
 	Stream(ctx context.Context, req CompletionRequest) (StreamIterator, error)
+	// Capabilities reports what the provider supports so callers negotiate rather
+	// than assume. Cheap and pure — safe to call per request.
+	Capabilities() Caps
 }

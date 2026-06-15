@@ -40,6 +40,8 @@ func (m *testProvider) Complete(_ context.Context, _ mind.CompletionRequest) (*m
 	return &mind.CompletionResponse{Text: m.text, ToolCalls: m.toolCalls}, nil
 }
 
+func (m *testProvider) Capabilities() mind.Caps { return mind.Caps{} }
+
 func (m *testProvider) Stream(_ context.Context, _ mind.CompletionRequest) (mind.StreamIterator, error) {
 	m.callCount++
 	if m.callCount > 1 {

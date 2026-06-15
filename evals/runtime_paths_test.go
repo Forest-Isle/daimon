@@ -220,6 +220,8 @@ func (p *evalProvider) Complete(context.Context, mind.CompletionRequest) (*mind.
 	return &mind.CompletionResponse{Text: p.response}, nil
 }
 
+func (p *evalProvider) Capabilities() mind.Caps { return mind.Caps{} }
+
 func (p *evalProvider) Stream(context.Context, mind.CompletionRequest) (mind.StreamIterator, error) {
 	return &evalStream{text: p.response}, nil
 }

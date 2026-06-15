@@ -19,6 +19,10 @@ type capturePromptProvider struct {
 	system string
 }
 
+// Capabilities declares a cache breakpoint so the prompt assembly inserts the
+// dynamic-boundary marker (these tests assert on its placement).
+func (p *capturePromptProvider) Capabilities() mind.Caps { return mind.Caps{CacheBreakpoints: 1} }
+
 func (p *capturePromptProvider) Complete(_ context.Context, req mind.CompletionRequest) (*mind.CompletionResponse, error) {
 	p.system = req.System
 	return &mind.CompletionResponse{Text: "ok", StopReason: mind.StopEndTurn}, nil
@@ -70,6 +74,8 @@ func TestHandleMessage_PromptFrameKeepsHookContext(t *testing.T) {
 func TestPromptFrameLayerOrdering(t *testing.T) {
 	deps := AgentDeps{
 		Core: CoreDeps{
+			// Caching provider (CacheBreakpoints=1) so the dynamic-boundary layer is placed.
+			Provider: &capturePromptProvider{},
 			Cfg: config.AgentConfig{
 				Personality:     "steady",
 				SystemPrompt:    "You are IronClaw.",
@@ -112,6 +118,32 @@ func TestPromptFrameLayerOrdering(t *testing.T) {
 	}
 	if strings.Index(rendered, mind.DynamicContextMarker) < strings.Index(rendered, "Never bypass policy.") {
 		t.Fatalf("dynamic boundary should render after persistent rules: %s", rendered)
+	}
+}
+
+func TestPromptFrameOmitsBoundaryWhenProviderHasNoCacheBreakpoint(t *testing.T) {
+	deps := AgentDeps{
+		Core: CoreDeps{
+			// testProvider reports CacheBreakpoints=0 (no caller-placed caching),
+			// so the cache marker must not be placed — it would leak as literal text.
+			Provider: &testProvider{},
+			Cfg: config.AgentConfig{
+				SystemPrompt:    "You are IronClaw.",
+				PersistentRules: "Never bypass policy.",
+			},
+			Tools: tool.NewRegistry(),
+		},
+	}.WithDefaults()
+	a := NewAgent(&deps, &LinearLoop{}, NewEventBus())
+
+	frame := a.buildPromptFrame(context.Background(), "hello")
+	for _, layer := range frame.Layers {
+		if layer.Key == "static.dynamic_boundary" {
+			t.Fatal("dynamic-boundary layer must be omitted for a non-caching provider")
+		}
+	}
+	if strings.Contains(renderPromptLayers(frame.Layers), mind.DynamicContextMarker) {
+		t.Fatal("cache marker leaked into prompt for a non-caching provider")
 	}
 }
 

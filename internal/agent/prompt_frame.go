@@ -96,12 +96,18 @@ func (a *Agent) buildPromptFrame(ctx context.Context, userText string) *PromptFr
 		})
 	}
 
-	frame.AddLayer(PromptLayer{
-		Key:      "static.dynamic_boundary",
-		Scope:    PromptScopeStatic,
-		Priority: promptPriorityBoundary,
-		Content:  mind.DynamicContextMarker,
-	})
+	// Place the static/dynamic cache boundary only when the active provider
+	// declares it honors a cache breakpoint. Providers that do no caller-placed
+	// caching (e.g. OpenAI, or a Claude model without prompt caching) report 0,
+	// and the marker would otherwise leak into their prompt as literal text.
+	if p := a.deps.Core.Provider; p != nil && p.Capabilities().CacheBreakpoints > 0 {
+		frame.AddLayer(PromptLayer{
+			Key:      "static.dynamic_boundary",
+			Scope:    PromptScopeStatic,
+			Priority: promptPriorityBoundary,
+			Content:  mind.DynamicContextMarker,
+		})
+	}
 
 	if section := a.buildMemoryPromptSection(ctx, userText); section != "" {
 		frame.AddLayer(PromptLayer{
