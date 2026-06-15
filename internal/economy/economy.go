@@ -11,6 +11,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -39,6 +40,67 @@ type Totals struct {
 	OutputTokens        int64
 	CacheReadTokens     int64
 	CacheCreationTokens int64
+}
+
+// ModelTotals is one model's aggregate, for the by-model cost report.
+type ModelTotals struct {
+	Model string
+	Totals
+}
+
+// Price is per-million-token USD rates for a model. Rates are supplied by the
+// operator (config) — none are hard-coded, since they vary by provider and
+// endpoint and change over time; an unpriced model is reported in tokens only.
+type Price struct {
+	InputPerMTok         float64
+	OutputPerMTok        float64
+	CacheReadPerMTok     float64
+	CacheCreationPerMTok float64
+}
+
+// Prices maps a model id to its rates. Lookup is exact first, then a longest
+// substring match, so "claude-opus-4-8" can be priced by a "claude-opus" key.
+type Prices map[string]Price
+
+// CostUSD computes the dollar cost of t under the model's price, returning
+// priced=false when no rate is configured for the model (caller shows tokens only,
+// never a misleading $0).
+func (p Prices) CostUSD(model string, t Totals) (usd float64, priced bool) {
+	pr, ok := p.lookup(model)
+	if !ok {
+		return 0, false
+	}
+	usd = (float64(t.InputTokens)*pr.InputPerMTok +
+		float64(t.OutputTokens)*pr.OutputPerMTok +
+		float64(t.CacheReadTokens)*pr.CacheReadPerMTok +
+		float64(t.CacheCreationTokens)*pr.CacheCreationPerMTok) / 1e6
+	return usd, true
+}
+
+func (p Prices) lookup(model string) (Price, bool) {
+	// An empty model id is never priced — otherwise an empty config key would
+	// silently price the "(unknown)" rows the report shows for blank models.
+	if model == "" {
+		return Price{}, false
+	}
+	if pr, ok := p[model]; ok {
+		return pr, true
+	}
+	bestLen := 0
+	bestKey := ""
+	var best Price
+	found := false
+	for key, pr := range p {
+		if key == "" || !strings.Contains(model, key) {
+			continue
+		}
+		// Longest containing key wins; on a length tie the lexicographically
+		// smaller key wins so the result never depends on Go's random map order.
+		if len(key) > bestLen || (len(key) == bestLen && key < bestKey) {
+			best, bestLen, bestKey, found = pr, len(key), key, true
+		}
+	}
+	return best, found
 }
 
 type Store struct {
@@ -107,10 +169,47 @@ func (s *Store) TotalSince(ctx context.Context, since int64) (Totals, error) {
 		       COALESCE(SUM(cache_read_tokens), 0),
 		       COALESCE(SUM(cache_creation_tokens), 0)
 		FROM costs
-		WHERE occurred_at >= ?`, since)
+		WHERE (? <= 0 OR occurred_at >= ?)`, since, since)
 	var t Totals
 	if err := row.Scan(&t.Episodes, &t.InputTokens, &t.OutputTokens, &t.CacheReadTokens, &t.CacheCreationTokens); err != nil {
 		return Totals{}, fmt.Errorf("economy: total since: %w", err)
 	}
 	return t, nil
+}
+
+// ByModelSince aggregates cost rows per model at or after the epoch-second cutoff
+// (since <= 0 ⇒ all rows), ordered by output tokens descending (the heaviest
+// spenders first). It is the basis of the `daimon costs` report.
+func (s *Store) ByModelSince(ctx context.Context, since int64) ([]ModelTotals, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT model,
+		       COUNT(1),
+		       COALESCE(SUM(input_tokens), 0),
+		       COALESCE(SUM(output_tokens), 0),
+		       COALESCE(SUM(cache_read_tokens), 0),
+		       COALESCE(SUM(cache_creation_tokens), 0)
+		FROM costs
+		WHERE (? <= 0 OR occurred_at >= ?)
+		GROUP BY model
+		ORDER BY SUM(output_tokens) DESC, model ASC`, since, since)
+	if err != nil {
+		return nil, fmt.Errorf("economy: by model: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []ModelTotals
+	for rows.Next() {
+		var m ModelTotals
+		if err := rows.Scan(&m.Model, &m.Episodes, &m.InputTokens, &m.OutputTokens, &m.CacheReadTokens, &m.CacheCreationTokens); err != nil {
+			return nil, fmt.Errorf("economy: by model scan: %w", err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("economy: by model rows: %w", err)
+	}
+	return out, nil
 }

@@ -111,4 +111,115 @@ func TestNilStore(t *testing.T) {
 	if _, err := s.TotalSince(context.Background(), 0); err == nil {
 		t.Fatal("nil store TotalSince must error")
 	}
+	if _, err := s.ByModelSince(context.Background(), 0); err == nil {
+		t.Fatal("nil store ByModelSince must error")
+	}
+}
+
+func TestByModelSince(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	// Two models, opus the heavier output spender; one row predates the cutoff.
+	must := func(e Entry) {
+		if err := s.Record(ctx, e); err != nil {
+			t.Fatalf("Record: %v", err)
+		}
+	}
+	must(Entry{EpisodeID: "a", Model: "opus", InputTokens: 100, OutputTokens: 200, OccurredAt: 2000})
+	must(Entry{EpisodeID: "b", Model: "opus", InputTokens: 10, OutputTokens: 20, OccurredAt: 2500})
+	must(Entry{EpisodeID: "c", Model: "haiku", InputTokens: 5, OutputTokens: 5, OccurredAt: 2500})
+	must(Entry{EpisodeID: "old", Model: "opus", InputTokens: 999, OutputTokens: 999, OccurredAt: 1000})
+
+	rows, err := s.ByModelSince(ctx, 1500)
+	if err != nil {
+		t.Fatalf("ByModelSince: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("want 2 model groups, got %d: %+v", len(rows), rows)
+	}
+	// Ordered by output desc: opus (220) before haiku (5). Cutoff excludes the old row.
+	if rows[0].Model != "opus" || rows[0].Episodes != 2 || rows[0].InputTokens != 110 || rows[0].OutputTokens != 220 {
+		t.Fatalf("opus group wrong: %+v", rows[0])
+	}
+	if rows[1].Model != "haiku" || rows[1].Episodes != 1 || rows[1].OutputTokens != 5 {
+		t.Fatalf("haiku group wrong: %+v", rows[1])
+	}
+}
+
+func TestPricesCostUSD(t *testing.T) {
+	prices := Prices{
+		"claude-opus": {InputPerMTok: 15, OutputPerMTok: 75, CacheReadPerMTok: 1.5, CacheCreationPerMTok: 18.75},
+	}
+	// 1M input @15 + 1M output @75 + 1M cache-read @1.5 + 1M cache-create @18.75 = 110.25.
+	t1 := Totals{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000, CacheCreationTokens: 1_000_000}
+	// Longest-substring match: "claude-opus" key prices the full "claude-opus-4-8" model id.
+	usd, priced := prices.CostUSD("claude-opus-4-8", t1)
+	if !priced {
+		t.Fatal("expected priced=true via substring match")
+	}
+	if usd < 110.24 || usd > 110.26 {
+		t.Fatalf("want ~110.25, got %v", usd)
+	}
+	// Unknown model: tokens only, never a misleading $0.
+	if _, priced := prices.CostUSD("gpt-4", t1); priced {
+		t.Fatal("unknown model must report priced=false")
+	}
+}
+
+func TestPricesLookupPrefersExactThenLongest(t *testing.T) {
+	prices := Prices{
+		"claude":          {OutputPerMTok: 1},
+		"claude-opus":     {OutputPerMTok: 2},
+		"claude-opus-4-8": {OutputPerMTok: 3},
+	}
+	out := Totals{OutputTokens: 1_000_000}
+	// Exact key wins.
+	if usd, _ := prices.CostUSD("claude-opus-4-8", out); usd != 3 {
+		t.Fatalf("exact match want 3, got %v", usd)
+	}
+	// No exact key ⇒ longest containing substring ("claude-opus" beats "claude").
+	if usd, _ := prices.CostUSD("claude-opus-4-9", out); usd != 2 {
+		t.Fatalf("longest-substring want 2, got %v", usd)
+	}
+	// Empty-string key must never match (substring path)…
+	if _, priced := (Prices{"": {OutputPerMTok: 9}}).CostUSD("anything", out); priced {
+		t.Fatal("empty key must not match")
+	}
+	// …nor exact-match an empty model id (the report's "(unknown)" rows).
+	if _, priced := (Prices{"": {OutputPerMTok: 9}}).CostUSD("", out); priced {
+		t.Fatal("empty model must not be priced by an empty key")
+	}
+}
+
+func TestPricesTieBreakIsDeterministic(t *testing.T) {
+	// Two equal-length keys both contained in the model id. The lexicographically
+	// smaller key ("aa") must win every time, independent of map iteration order.
+	prices := Prices{
+		"aa": {OutputPerMTok: 1},
+		"bb": {OutputPerMTok: 2},
+	}
+	out := Totals{OutputTokens: 1_000_000}
+	for i := 0; i < 50; i++ {
+		usd, priced := prices.CostUSD("xaabb", out)
+		if !priced || usd != 1 {
+			t.Fatalf("tie-break not deterministic: usd=%v priced=%v", usd, priced)
+		}
+	}
+}
+
+func TestTotalSinceIncludesNonPositiveTimestamps(t *testing.T) {
+	// since<=0 means "all rows" — including rows whose occurred_at is itself <= 0,
+	// which a bare `occurred_at >= since` with since=0 would silently drop.
+	s := openTestStore(t)
+	ctx := context.Background()
+	if err := s.Record(ctx, Entry{EpisodeID: "z", InputTokens: 7, OccurredAt: 0}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	total, err := s.TotalSince(ctx, 0)
+	if err != nil {
+		t.Fatalf("TotalSince: %v", err)
+	}
+	if total.Episodes != 1 || total.InputTokens != 7 {
+		t.Fatalf("since<=0 must include occurred_at=0 row, got %+v", total)
+	}
 }

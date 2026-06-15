@@ -27,6 +27,24 @@ type Config struct {
 	Agents      AgentsConfig      `yaml:"agents"`
 	Permissions PermissionsConfig `yaml:"permissions"`
 	Hooks       HooksConfig       `yaml:"hooks"`
+	Economy     EconomyConfig     `yaml:"economy"`
+}
+
+// EconomyConfig configures the cost ledger report (DAIMON_BLUEPRINT.md §4.11).
+// Prices maps a model id (or a substring of one) to its USD per-million-token
+// rates; the `daimon costs` report uses them to convert recorded token usage into
+// dollars. A model with no configured price is reported in tokens only — no rates
+// are hard-coded, since they vary by provider/endpoint and change over time.
+type EconomyConfig struct {
+	Prices map[string]ModelPrice `yaml:"prices"`
+}
+
+// ModelPrice is a model's USD rate per million tokens for each token class.
+type ModelPrice struct {
+	InputPerMTok         float64 `yaml:"input_per_mtok"`
+	OutputPerMTok        float64 `yaml:"output_per_mtok"`
+	CacheReadPerMTok     float64 `yaml:"cache_read_per_mtok"`
+	CacheCreationPerMTok float64 `yaml:"cache_creation_per_mtok"`
 }
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)

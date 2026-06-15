@@ -254,3 +254,25 @@ log:
 # multi_agent:
 #   agents:
 #     researcher:
+
+# Cost ledger pricing (DAIMON_BLUEPRINT.md §4.11).
+#
+# The agent records every episode's token usage to the costs table automatically;
+# `daimon costs` reports those tokens always, and converts them to dollars only for
+# models you price here. No rates are hard-coded — they vary by provider/endpoint
+# and change over time. A model id is matched exactly first, then by longest
+# substring, so a "claude-opus" key prices every "claude-opus-4-…" variant.
+# Rates are USD per million tokens.
+#
+# economy:
+#   prices:
+#     claude-opus:
+#       input_per_mtok: 15.0
+#       output_per_mtok: 75.0
+#       cache_read_per_mtok: 1.5
+#       cache_creation_per_mtok: 18.75
+#     claude-sonnet:
+#       input_per_mtok: 3.0
+#       output_per_mtok: 15.0
+#       cache_read_per_mtok: 0.3
+#       cache_creation_per_mtok: 3.75
