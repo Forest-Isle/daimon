@@ -8,6 +8,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/hook"
 	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 )
 
@@ -99,7 +100,7 @@ func (a *Agent) buildPromptFrame(ctx context.Context, userText string) *PromptFr
 		Key:      "static.dynamic_boundary",
 		Scope:    PromptScopeStatic,
 		Priority: promptPriorityBoundary,
-		Content:  dynamicContextMarker,
+		Content:  mind.DynamicContextMarker,
 	})
 
 	if section := a.buildMemoryPromptSection(ctx, userText); section != "" {

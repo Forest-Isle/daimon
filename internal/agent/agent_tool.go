@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
@@ -22,7 +23,7 @@ type agentToolInput struct {
 type AgentTool struct {
 	spec    *AgentSpec
 	manager *SubAgentManager
-	breaker *CircuitBreaker
+	breaker *mind.CircuitBreaker
 }
 
 // NewAgentTool creates a new AgentTool for the given spec.
@@ -30,7 +31,7 @@ func NewAgentTool(spec *AgentSpec, manager *SubAgentManager) *AgentTool {
 	return &AgentTool{
 		spec:    spec,
 		manager: manager,
-		breaker: NewCircuitBreaker(3, 15*time.Second),
+		breaker: mind.NewCircuitBreaker(3, 15*time.Second),
 	}
 }
 

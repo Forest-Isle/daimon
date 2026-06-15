@@ -7,16 +7,17 @@ import (
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 )
 
 type stubProvider struct{}
 
-func (s *stubProvider) Complete(_ context.Context, _ CompletionRequest) (*CompletionResponse, error) {
-	return &CompletionResponse{Text: "summary of conversation"}, nil
+func (s *stubProvider) Complete(_ context.Context, _ mind.CompletionRequest) (*mind.CompletionResponse, error) {
+	return &mind.CompletionResponse{Text: "summary of conversation"}, nil
 }
 
-func (s *stubProvider) Stream(_ context.Context, _ CompletionRequest) (StreamIterator, error) {
+func (s *stubProvider) Stream(_ context.Context, _ mind.CompletionRequest) (mind.StreamIterator, error) {
 	return nil, fmt.Errorf("stream not implemented")
 }
 

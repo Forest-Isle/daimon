@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Forest-Isle/daimon/internal/mind"
 )
 
 type SubAgentStatus string
@@ -158,7 +160,7 @@ func extractXMLResult(cleaned string) *SubAgentResult {
 	return result
 }
 
-func summarizeWithLLM(ctx context.Context, provider Provider, model string, agentName string, rawOutput string) *SubAgentResult {
+func summarizeWithLLM(ctx context.Context, provider mind.Provider, model string, agentName string, rawOutput string) *SubAgentResult {
 	truncated := rawOutput
 	if len(truncated) > 4000 {
 		truncated = truncated[:4000] + "\n...(truncated)"
@@ -168,10 +170,10 @@ func summarizeWithLLM(ctx context.Context, provider Provider, model string, agen
 		"Summarize this agent output into JSON with fields: status (\"success\" or \"error\"), summary (1 paragraph), artifacts (array of file paths or URLs, empty array if none).\n\nAgent: %s\nOutput:\n%s",
 		agentName, truncated)
 
-	req := CompletionRequest{
+	req := mind.CompletionRequest{
 		Model:     model,
 		System:    "You extract structured summaries from agent outputs. Respond with JSON only.",
-		Messages:  []CompletionMessage{{Role: "user", Content: prompt}},
+		Messages:  []mind.CompletionMessage{{Role: "user", Content: prompt}},
 		MaxTokens: 256,
 	}
 

@@ -13,6 +13,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/hook"
 	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
@@ -169,9 +170,9 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 // tool pipeline, memory retrieval, and session. It returns handled=false when
 // the kernel errors or reports a failed outcome, so HandleMessage falls back to
 // the legacy loop.
-func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session.Session, msg channel.InboundMessage, priorTranscript []CompletionMessage) (bool, error) {
+func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session.Session, msg channel.InboundMessage, priorTranscript []mind.CompletionMessage) (bool, error) {
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
-	transcript := append(priorTranscript, CompletionMessage{Role: "user", Content: msg.Text})
+	transcript := append(priorTranscript, mind.CompletionMessage{Role: "user", Content: msg.Text})
 
 	req := CognitiveRequest{
 		SessionID:     sess.ID,
@@ -185,7 +186,7 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 		ActivityClass: "chat",
 		Transcript:    transcript,
 		ToolDefs:      a.buildToolDefs(),
-		Invoke: func(ctx context.Context, iteration int, call ToolUseBlock) (string, bool) {
+		Invoke: func(ctx context.Context, iteration int, call mind.ToolUseBlock) (string, bool) {
 			return a.invokeTool(ctx, ch, sess, target, iteration, call, "", false)
 		},
 	}
@@ -261,9 +262,9 @@ func (a *Agent) RunInternalEpisode(ctx context.Context, idempotencyKey, goal, tr
 		Model:         a.deps.Core.LLMCfg.Model,
 		Provider:      a.deps.Core.LLMCfg.Provider,
 		ActivityClass: activityClass,
-		Transcript:    []CompletionMessage{{Role: "user", Content: trigger}},
+		Transcript:    []mind.CompletionMessage{{Role: "user", Content: trigger}},
 		ToolDefs:      a.buildToolDefs(),
-		Invoke: func(ctx context.Context, iteration int, call ToolUseBlock) (string, bool) {
+		Invoke: func(ctx context.Context, iteration int, call mind.ToolUseBlock) (string, bool) {
 			// nil channel ⇒ approval-required tools are denied (see handleApproval).
 			return a.invokeTool(ctx, nil, sess, target, iteration, call, "", false)
 		},
@@ -291,11 +292,11 @@ func (a *Agent) buildSystemPrompt(ctx context.Context, sess *session.Session, us
 }
 
 // buildToolDefs returns tool definitions for the LLM request.
-func (a *Agent) buildToolDefs() []ToolDefinition {
+func (a *Agent) buildToolDefs() []mind.ToolDefinition {
 	tools := a.deps.Core.Tools.All()
-	defs := make([]ToolDefinition, 0, len(tools))
+	defs := make([]mind.ToolDefinition, 0, len(tools))
 	for _, t := range tools {
-		defs = append(defs, ToolDefinition{
+		defs = append(defs, mind.ToolDefinition{
 			Name:        t.Name(),
 			Description: t.Description(),
 			InputSchema: t.InputSchema(),
@@ -306,7 +307,7 @@ func (a *Agent) buildToolDefs() []ToolDefinition {
 
 // executeToolCall runs a single tool through the interceptor chain, records the
 // tool_result in the session, and emits ToolExecuted.
-func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, tc ToolUseBlock, budgetWarning string) {
+func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, tc mind.ToolUseBlock, budgetWarning string) {
 	a.invokeTool(ctx, ch, sess, target, iteration, tc, budgetWarning, true)
 }
 
@@ -319,7 +320,7 @@ func (a *Agent) executeToolCall(ctx context.Context, ch channel.Channel, sess *s
 // from session history (so it needs it), while the kernel keeps its own message
 // list and persists only the user/assistant exchange (so it does not, avoiding
 // orphan tool_results in the session).
-func (a *Agent) invokeTool(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, tc ToolUseBlock, budgetWarning string, recordToSession bool) (string, bool) {
+func (a *Agent) invokeTool(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, tc mind.ToolUseBlock, budgetWarning string, recordToSession bool) (string, bool) {
 	call := &tool.ToolCall{
 		ToolName: tc.Name, Input: tc.Input, SessionID: sess.ID,
 	}
@@ -437,7 +438,7 @@ func agentToolContext(ctx context.Context, sessionID string) context.Context {
 
 // dispatchToolsParallel executes multiple independent tool calls concurrently.
 // Each call goes through the full executeToolCall pipeline.
-func (a *Agent) dispatchToolsParallel(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, calls []ToolUseBlock, budgetWarning string) {
+func (a *Agent) dispatchToolsParallel(ctx context.Context, ch channel.Channel, sess *session.Session, target channel.MessageTarget, iteration int, calls []mind.ToolUseBlock, budgetWarning string) {
 	if len(calls) == 0 {
 		return
 	}
@@ -449,7 +450,7 @@ func (a *Agent) dispatchToolsParallel(ctx context.Context, ch channel.Channel, s
 		var wg sync.WaitGroup
 		for i := range batch {
 			wg.Add(1)
-			go func(tc ToolUseBlock) {
+			go func(tc mind.ToolUseBlock) {
 				defer wg.Done()
 				defer func() {
 					if r := recover(); r != nil {

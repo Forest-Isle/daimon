@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 )
 
@@ -49,26 +50,26 @@ func safeTrimHistory(history []session.Message, maxLen int) []session.Message {
 // BuildMessages converts session history into CompletionMessages for the LLM.
 // It merges tool_use messages into the preceding assistant message and
 // tool_result messages into user messages, matching the Anthropic API format.
-func BuildMessages(sess *session.Session) []CompletionMessage {
+func BuildMessages(sess *session.Session) []mind.CompletionMessage {
 	history := sess.History()
 
 	// Trim to fit context window, respecting tool_use/tool_result pairing
 	history = safeTrimHistory(history, maxContextMessages)
 
-	var msgs []CompletionMessage
+	var msgs []mind.CompletionMessage
 
 	for i := 0; i < len(history); i++ {
 		m := history[i]
 
 		switch m.Role {
 		case "user":
-			msgs = append(msgs, CompletionMessage{
+			msgs = append(msgs, mind.CompletionMessage{
 				Role:    "user",
 				Content: m.Content,
 			})
 
 		case "assistant":
-			cm := CompletionMessage{
+			cm := mind.CompletionMessage{
 				Role:      "assistant",
 				Content:   m.Content,
 				Thinking:  m.Thinking,
@@ -78,7 +79,7 @@ func BuildMessages(sess *session.Session) []CompletionMessage {
 			for i+1 < len(history) && history[i+1].Role == "tool_use" {
 				i++
 				tu := history[i]
-				cm.ToolBlocks = append(cm.ToolBlocks, ToolUseBlock{
+				cm.ToolBlocks = append(cm.ToolBlocks, mind.ToolUseBlock{
 					ID:    tu.ID,
 					Name:  tu.ToolName,
 					Input: tu.ToolInput,
@@ -88,9 +89,9 @@ func BuildMessages(sess *session.Session) []CompletionMessage {
 
 		case "tool_use":
 			// Standalone tool_use (no preceding assistant message) — wrap in assistant
-			cm := CompletionMessage{
+			cm := mind.CompletionMessage{
 				Role: "assistant",
-				ToolBlocks: []ToolUseBlock{{
+				ToolBlocks: []mind.ToolUseBlock{{
 					ID:    m.ID,
 					Name:  m.ToolName,
 					Input: m.ToolInput,
@@ -100,7 +101,7 @@ func BuildMessages(sess *session.Session) []CompletionMessage {
 			for i+1 < len(history) && history[i+1].Role == "tool_use" {
 				i++
 				tu := history[i]
-				cm.ToolBlocks = append(cm.ToolBlocks, ToolUseBlock{
+				cm.ToolBlocks = append(cm.ToolBlocks, mind.ToolUseBlock{
 					ID:    tu.ID,
 					Name:  tu.ToolName,
 					Input: tu.ToolInput,
@@ -110,7 +111,7 @@ func BuildMessages(sess *session.Session) []CompletionMessage {
 
 		case "tool_result":
 			// ToolName stores the tool_use ID for tool_result messages
-			msgs = append(msgs, CompletionMessage{
+			msgs = append(msgs, mind.CompletionMessage{
 				Role:      "user",
 				Content:   m.Content,
 				ToolUseID: m.ToolName,

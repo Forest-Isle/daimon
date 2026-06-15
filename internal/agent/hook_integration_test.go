@@ -12,6 +12,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/hook"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/tool"
@@ -102,7 +103,7 @@ func TestPreToolUseDenyPreventsExecution(t *testing.T) {
 	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
-	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
+	tc := mind.ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
 
 	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
@@ -152,7 +153,7 @@ func TestPreToolUseAllowSkipsApproval(t *testing.T) {
 	rt.SetApprovalFunc(denyApproval)
 
 	sess := concurrentTestSession()
-	tc := ToolUseBlock{ID: "tc_1", Name: "approval_tool", Input: "{}"}
+	tc := mind.ToolUseBlock{ID: "tc_1", Name: "approval_tool", Input: "{}"}
 
 	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
@@ -202,7 +203,7 @@ func TestPostToolUseAuditHandlerCalled(t *testing.T) {
 	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
-	tc := ToolUseBlock{ID: "tc_1", Name: "audited_tool", Input: `{"cmd":"test"}`}
+	tc := mind.ToolUseBlock{ID: "tc_1", Name: "audited_tool", Input: `{"cmd":"test"}`}
 
 	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
@@ -307,7 +308,7 @@ func TestPermissionEngineDenyPreventsExecution(t *testing.T) {
 	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
-	tc := ToolUseBlock{ID: "tc_1", Name: "bash", Input: `{"command":"rm -rf /tmp/test"}`}
+	tc := mind.ToolUseBlock{ID: "tc_1", Name: "bash", Input: `{"command":"rm -rf /tmp/test"}`}
 
 	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
@@ -356,7 +357,7 @@ func TestHookAndPermissionEngineIntegration(t *testing.T) {
 	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
-	tc := ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
+	tc := mind.ToolUseBlock{ID: "tc_1", Name: "test_tool", Input: "{}"}
 
 	rt.executeToolCall(context.Background(), nil, sess, channel.MessageTarget{}, 0, tc, "")
 
@@ -403,7 +404,7 @@ func TestConcurrentExecutionWithHooks(t *testing.T) {
 	rt := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
 	sess := concurrentTestSession()
-	toolCalls := []ToolUseBlock{
+	toolCalls := []mind.ToolUseBlock{
 		{ID: "tc_0", Name: "tool_0", Input: "{}"},
 		{ID: "tc_1", Name: "tool_1", Input: "{}"},
 		{ID: "tc_2", Name: "tool_2", Input: "{}"},

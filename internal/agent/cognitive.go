@@ -1,6 +1,10 @@
 package agent
 
-import "context"
+import (
+	"context"
+
+	"github.com/Forest-Isle/daimon/internal/mind"
+)
 
 // CognitiveKernel is a pluggable cognitive execution strategy invoked by
 // HandleMessage in place of the legacy LinearLoop. The episode kernel
@@ -15,7 +19,7 @@ type CognitiveKernel interface {
 // output and whether it failed. The kernel uses this instead of touching the
 // tool registry directly, so episode tool calls get the same governance as the
 // legacy path.
-type ToolInvokeFunc func(ctx context.Context, iteration int, call ToolUseBlock) (output string, isError bool)
+type ToolInvokeFunc func(ctx context.Context, iteration int, call mind.ToolUseBlock) (output string, isError bool)
 
 // CognitiveRequest carries everything the kernel needs for one turn. The
 // runtime-owned context (persona, rules, retrieved memories, transcript) is
@@ -41,8 +45,8 @@ type CognitiveRequest struct {
 	// episode. Empty ⇒ the cost row is recorded unclassified; it never affects
 	// execution.
 	ActivityClass string
-	Transcript    []CompletionMessage
-	ToolDefs      []ToolDefinition
+	Transcript    []mind.CompletionMessage
+	ToolDefs      []mind.ToolDefinition
 	Invoke        ToolInvokeFunc
 }
 

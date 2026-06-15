@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
@@ -54,7 +55,7 @@ func TestScheduleToolBatchesRespectsCapabilities(t *testing.T) {
 	}
 	a := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
-	calls := []ToolUseBlock{
+	calls := []mind.ToolUseBlock{
 		{ID: "1", Name: "read_a", Input: `{}`},
 		{ID: "2", Name: "read_b", Input: `{}`},
 		{ID: "3", Name: "write", Input: `{"path":"a.go"}`},
@@ -78,7 +79,7 @@ func TestScheduleToolBatchesRespectsCapabilities(t *testing.T) {
 	}
 }
 
-func batchIDs(batches [][]ToolUseBlock) [][]string {
+func batchIDs(batches [][]mind.ToolUseBlock) [][]string {
 	out := make([][]string, 0, len(batches))
 	for _, batch := range batches {
 		var ids []string

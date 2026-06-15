@@ -4,6 +4,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/hook"
 	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/skill"
 	"github.com/Forest-Isle/daimon/internal/store"
@@ -14,7 +15,7 @@ import (
 
 // CoreDeps holds the required dependencies to run an agent. Every field is mandatory.
 type CoreDeps struct {
-	Provider Provider
+	Provider mind.Provider
 	Tools    *tool.Registry
 	Sessions *session.Manager
 	DB       *store.DB

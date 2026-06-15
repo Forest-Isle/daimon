@@ -3,6 +3,8 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	"github.com/Forest-Isle/daimon/internal/mind"
 )
 
 // TestAppendStopNotice verifies that responses cut off by the max-token limit
@@ -13,37 +15,37 @@ func TestAppendStopNotice(t *testing.T) {
 	tests := []struct {
 		name       string
 		text       string
-		stopReason StopReason
+		stopReason mind.StopReason
 		wantSuffix string // "" means text must be unchanged
 	}{
 		{
 			name:       "truncated response gets a notice",
 			text:       "here is a partial ans",
-			stopReason: StopMaxToken,
+			stopReason: mind.StopMaxToken,
 			wantSuffix: noticeMaxTokens,
 		},
 		{
 			name:       "abnormal stop gets a notice",
 			text:       "partial",
-			stopReason: StopAbnormal,
+			stopReason: mind.StopAbnormal,
 			wantSuffix: noticeAbnormal,
 		},
 		{
 			name:       "normal completion is unchanged",
 			text:       "here is the full answer",
-			stopReason: StopEndTurn,
+			stopReason: mind.StopEndTurn,
 			wantSuffix: "",
 		},
 		{
 			name:       "tool-use stop is unchanged",
 			text:       "calling tools",
-			stopReason: StopToolUse,
+			stopReason: mind.StopToolUse,
 			wantSuffix: "",
 		},
 		{
 			name:       "empty truncated text still surfaces the notice",
 			text:       "",
-			stopReason: StopMaxToken,
+			stopReason: mind.StopMaxToken,
 			wantSuffix: noticeMaxTokens,
 		},
 	}
@@ -67,7 +69,7 @@ func TestAppendStopNotice(t *testing.T) {
 func TestFormatToolCallStatus(t *testing.T) {
 	tests := []struct {
 		name  string
-		calls []ToolUseBlock
+		calls []mind.ToolUseBlock
 		want  []string
 		nope  []string
 	}{
@@ -78,23 +80,23 @@ func TestFormatToolCallStatus(t *testing.T) {
 		},
 		{
 			name:  "single bash call",
-			calls: []ToolUseBlock{{ID: "x", Name: "bash", Input: `{"command":"go test"}`}},
+			calls: []mind.ToolUseBlock{{ID: "x", Name: "bash", Input: `{"command":"go test"}`}},
 			want:  []string{"⚙ bash: go test"},
 			nope:  []string{"Calling tools"},
 		},
 		{
 			name:  "file_read call",
-			calls: []ToolUseBlock{{ID: "x", Name: "file_read", Input: `{"file_path":"/etc/hosts"}`}},
+			calls: []mind.ToolUseBlock{{ID: "x", Name: "file_read", Input: `{"file_path":"/etc/hosts"}`}},
 			want:  []string{"⚙ file_read: /etc/hosts"},
 		},
 		{
 			name:  "unknown input field",
-			calls: []ToolUseBlock{{ID: "x", Name: "foo", Input: `{"bar":"baz"}`}},
+			calls: []mind.ToolUseBlock{{ID: "x", Name: "foo", Input: `{"bar":"baz"}`}},
 			want:  []string{"⚙ foo"},
 		},
 		{
 			name: "two calls separated",
-			calls: []ToolUseBlock{
+			calls: []mind.ToolUseBlock{
 				{ID: "a", Name: "bash", Input: `{"command":"a"}`},
 				{ID: "b", Name: "file_read", Input: `{"file_path":"/p"}`},
 			},

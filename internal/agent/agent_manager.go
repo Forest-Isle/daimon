@@ -10,6 +10,7 @@ import (
 
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/tool"
@@ -20,7 +21,7 @@ import (
 type AgentManager struct {
 	mu          sync.RWMutex
 	specs       []*AgentSpec
-	provider    Provider
+	provider    mind.Provider
 	sessions    *session.Manager
 	db          *store.DB
 	memStore    memory.Store
@@ -34,7 +35,7 @@ type AgentManager struct {
 
 // NewAgentManager creates a new AgentManager.
 func NewAgentManager(
-	provider Provider,
+	provider mind.Provider,
 	sessions *session.Manager,
 	db *store.DB,
 	memStore memory.Store,

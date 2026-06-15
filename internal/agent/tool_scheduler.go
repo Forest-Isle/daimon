@@ -1,30 +1,31 @@
 package agent
 
 import (
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
 type scheduledToolCall struct {
-	call   ToolUseBlock
+	call   mind.ToolUseBlock
 	safety tool.ParallelSafety
 	paths  []string
 }
 
-func (a *Agent) scheduleToolBatches(calls []ToolUseBlock) [][]ToolUseBlock {
+func (a *Agent) scheduleToolBatches(calls []mind.ToolUseBlock) [][]mind.ToolUseBlock {
 	if len(calls) == 0 {
 		return nil
 	}
 
 	maxParallel := a.maxParallelTools()
 	if maxParallel <= 1 {
-		batches := make([][]ToolUseBlock, 0, len(calls))
+		batches := make([][]mind.ToolUseBlock, 0, len(calls))
 		for _, call := range calls {
-			batches = append(batches, []ToolUseBlock{call})
+			batches = append(batches, []mind.ToolUseBlock{call})
 		}
 		return batches
 	}
 
-	var batches [][]ToolUseBlock
+	var batches [][]mind.ToolUseBlock
 	var current []scheduledToolCall
 	currentPaths := make(map[string]bool)
 
@@ -32,7 +33,7 @@ func (a *Agent) scheduleToolBatches(calls []ToolUseBlock) [][]ToolUseBlock {
 		if len(current) == 0 {
 			return
 		}
-		batch := make([]ToolUseBlock, 0, len(current))
+		batch := make([]mind.ToolUseBlock, 0, len(current))
 		for _, sc := range current {
 			batch = append(batch, sc.call)
 		}
@@ -45,7 +46,7 @@ func (a *Agent) scheduleToolBatches(calls []ToolUseBlock) [][]ToolUseBlock {
 		sc := a.classifyToolCall(call)
 		if sc.safety == tool.ParallelNever {
 			flush()
-			batches = append(batches, []ToolUseBlock{call})
+			batches = append(batches, []mind.ToolUseBlock{call})
 			continue
 		}
 
@@ -76,7 +77,7 @@ func (a *Agent) maxParallelTools() int {
 	return max
 }
 
-func (a *Agent) classifyToolCall(call ToolUseBlock) scheduledToolCall {
+func (a *Agent) classifyToolCall(call mind.ToolUseBlock) scheduledToolCall {
 	sc := scheduledToolCall{call: call, safety: tool.ParallelNever}
 	t, err := a.deps.Core.Tools.Get(call.Name)
 	if err != nil {

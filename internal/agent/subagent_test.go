@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/Forest-Isle/daimon/internal/tool"
@@ -18,12 +19,12 @@ type fixedStreamIterator struct {
 	yielded bool
 }
 
-func (it *fixedStreamIterator) Next() (StreamDelta, error) {
+func (it *fixedStreamIterator) Next() (mind.StreamDelta, error) {
 	if !it.yielded {
 		it.yielded = true
-		return StreamDelta{Text: it.text}, nil
+		return mind.StreamDelta{Text: it.text}, nil
 	}
-	return StreamDelta{Done: true, StopReason: StopEndTurn}, nil
+	return mind.StreamDelta{Done: true, StopReason: mind.StopEndTurn}, nil
 }
 
 func (it *fixedStreamIterator) Close() {}
@@ -33,29 +34,29 @@ type mockSubagentProvider struct {
 	response string
 }
 
-func (m *mockSubagentProvider) Complete(_ context.Context, _ CompletionRequest) (*CompletionResponse, error) {
-	return &CompletionResponse{Text: m.response}, nil
+func (m *mockSubagentProvider) Complete(_ context.Context, _ mind.CompletionRequest) (*mind.CompletionResponse, error) {
+	return &mind.CompletionResponse{Text: m.response}, nil
 }
 
-func (m *mockSubagentProvider) Stream(_ context.Context, _ CompletionRequest) (StreamIterator, error) {
+func (m *mockSubagentProvider) Stream(_ context.Context, _ mind.CompletionRequest) (mind.StreamIterator, error) {
 	return &fixedStreamIterator{text: m.response}, nil
 }
 
 // capturingSubagentProvider records the model from the CompletionRequest.
 type capturingSubagentProvider struct {
 	response   string
-	onComplete func(CompletionRequest)
-	onStream   func(CompletionRequest)
+	onComplete func(mind.CompletionRequest)
+	onStream   func(mind.CompletionRequest)
 }
 
-func (p *capturingSubagentProvider) Complete(_ context.Context, req CompletionRequest) (*CompletionResponse, error) {
+func (p *capturingSubagentProvider) Complete(_ context.Context, req mind.CompletionRequest) (*mind.CompletionResponse, error) {
 	if p.onComplete != nil {
 		p.onComplete(req)
 	}
-	return &CompletionResponse{Text: p.response}, nil
+	return &mind.CompletionResponse{Text: p.response}, nil
 }
 
-func (p *capturingSubagentProvider) Stream(_ context.Context, req CompletionRequest) (StreamIterator, error) {
+func (p *capturingSubagentProvider) Stream(_ context.Context, req mind.CompletionRequest) (mind.StreamIterator, error) {
 	if p.onStream != nil {
 		p.onStream(req)
 	}
@@ -115,7 +116,7 @@ func TestSubAgentManager_Spawn_ModelOverride(t *testing.T) {
 	var capturedModel string
 	provider := &capturingSubagentProvider{
 		response: "plain output",
-		onStream: func(req CompletionRequest) {
+		onStream: func(req mind.CompletionRequest) {
 			capturedModel = req.Model
 		},
 	}

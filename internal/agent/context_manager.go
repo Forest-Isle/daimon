@@ -8,6 +8,7 @@ import (
 
 	"github.com/Forest-Isle/daimon/internal/config"
 	ierrors "github.com/Forest-Isle/daimon/internal/errors"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/tool"
 	"github.com/Forest-Isle/daimon/internal/util"
@@ -31,7 +32,7 @@ type ContextManager interface {
 // the legacy CompactHistory path.
 type PipelineContextManager struct {
 	pipeline        *CompressionPipeline
-	provider        Provider
+	provider        mind.Provider
 	model           string
 	contextWindow   int
 	ratio           float64
@@ -43,7 +44,7 @@ type PipelineContextManager struct {
 // and has a "layered" strategy, a CompressionPipeline is built internally.
 // Otherwise the manager falls back to CompactHistory.
 func NewPipelineContextManager(
-	provider Provider,
+	provider mind.Provider,
 	model string,
 	cfg *config.CompressionConfig,
 	contextWindow int,
@@ -154,8 +155,8 @@ func (cm *PipelineContextManager) SplitSystemPrompt(full string) (static, dynami
 	if idx := strings.Index(full, cacheBoundaryMarker); idx >= 0 {
 		return full[:idx], full[idx+len(cacheBoundaryMarker):]
 	}
-	if idx := strings.Index(full, dynamicContextMarker); idx >= 0 {
-		return full[:idx], full[idx+len(dynamicContextMarker):]
+	if idx := strings.Index(full, mind.DynamicContextMarker); idx >= 0 {
+		return full[:idx], full[idx+len(mind.DynamicContextMarker):]
 	}
 	return full, ""
 }
@@ -217,7 +218,7 @@ func (cm *PipelineContextManager) aboveMinThreshold(utilization float64) bool {
 }
 
 // CompactHistory summarizes old messages to keep context manageable.
-func CompactHistory(ctx context.Context, provider Provider, sess *session.Session, model string) error {
+func CompactHistory(ctx context.Context, provider mind.Provider, sess *session.Session, model string) error {
 	history := sess.History()
 	if len(history) <= compactionThreshold {
 		return nil
@@ -260,10 +261,10 @@ func CompactHistory(ctx context.Context, provider Provider, sess *session.Sessio
 		_, _ = fmt.Fprintf(&sb, "[%s]: %s\n", m.Role, util.TruncateStr(m.Content, 500))
 	}
 
-	req := CompletionRequest{
+	req := mind.CompletionRequest{
 		Model:  model,
 		System: "Summarize the following conversation history concisely, preserving key facts, decisions, and context needed for continuing the conversation. If a previous summary is provided, update it incrementally rather than rewriting from scratch.",
-		Messages: []CompletionMessage{
+		Messages: []mind.CompletionMessage{
 			{Role: "user", Content: sb.String()},
 		},
 		MaxTokens: 1024,

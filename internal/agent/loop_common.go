@@ -10,6 +10,7 @@ import (
 
 	"github.com/Forest-Isle/daimon/internal/channel"
 	ierrors "github.com/Forest-Isle/daimon/internal/errors"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 )
 
@@ -25,16 +26,16 @@ func loopIteration(
 	systemPrompt string,
 	iteration int,
 	maxIter int,
-) (channel.StreamUpdater, []ToolUseBlock, error) {
+) (channel.StreamUpdater, []mind.ToolUseBlock, error) {
 	// Push metrics
 	util := a.deps.Memory.ContextMgr.Utilization(sess, systemPrompt)
 	inTok, outTok := int64(0), int64(0)
 	cacheCreate, cacheRead := int64(0), int64(0)
 	switch p := a.deps.Core.Provider.(type) {
-	case *ClaudeProvider:
+	case *mind.ClaudeProvider:
 		cacheCreate, cacheRead = p.GetCacheStats()
 		inTok, outTok = p.GetTokenStats()
-	case *OpenAIProvider:
+	case *mind.OpenAIProvider:
 		cacheCreate, cacheRead = p.GetCacheStats()
 		inTok, outTok = p.GetTokenStats()
 	}
@@ -50,7 +51,7 @@ func loopIteration(
 		return nil, nil, fmt.Errorf("send streaming: %w", streamErr)
 	}
 
-	req := CompletionRequest{
+	req := mind.CompletionRequest{
 		Model:          a.deps.Core.LLMCfg.Model,
 		System:         systemPrompt,
 		Messages:       BuildMessages(sess),
@@ -102,8 +103,8 @@ func loopIteration(
 	var fullText string
 	var thinking string
 	var signature string
-	var toolCalls []ToolUseBlock
-	var stopReason StopReason
+	var toolCalls []mind.ToolUseBlock
+	var stopReason mind.StopReason
 
 	for {
 		delta, deltaErr := stream.Next()
@@ -163,7 +164,7 @@ func loopIteration(
 	publishProviderExchange(a, sess.ID, iteration, req, fullText, toolCalls, stopReason, durationMs)
 
 	// Fallback: tool_use without tool calls -> re-request non-streaming
-	if stopReason == StopToolUse && len(toolCalls) == 0 {
+	if stopReason == mind.StopToolUse && len(toolCalls) == 0 {
 		fallbackStart := time.Now()
 		a.eventBus.Publish(ModelCallStarted{
 			SessionID:    sess.ID,
@@ -258,7 +259,7 @@ func loopIteration(
 
 // formatToolCallStatus renders a compact, human-readable summary of the tools
 // the agent is about to invoke, one per line, e.g. "⚙ bash: go test ./...".
-func formatToolCallStatus(calls []ToolUseBlock) string {
+func formatToolCallStatus(calls []mind.ToolUseBlock) string {
 	if len(calls) == 0 {
 		return "Calling tools…"
 	}
@@ -307,8 +308,8 @@ func loopIterationNonStreaming(
 	systemPrompt string,
 	iteration int,
 	maxIter int,
-) ([]ToolUseBlock, error) {
-	req := CompletionRequest{
+) ([]mind.ToolUseBlock, error) {
+	req := mind.CompletionRequest{
 		Model:          a.deps.Core.LLMCfg.Model,
 		System:         systemPrompt,
 		Messages:       BuildMessages(sess),
@@ -403,12 +404,12 @@ const (
 // appendStopNotice flags responses that ended on a non-success stop reason
 // (max tokens, content filtering, or an unrecognized finish reason). For a
 // clean end_turn or tool_use stop the text is returned unchanged.
-func appendStopNotice(text string, stopReason StopReason) string {
+func appendStopNotice(text string, stopReason mind.StopReason) string {
 	var notice string
 	switch stopReason {
-	case StopMaxToken:
+	case mind.StopMaxToken:
 		notice = noticeMaxTokens
-	case StopAbnormal:
+	case mind.StopAbnormal:
 		notice = noticeAbnormal
 	default:
 		return text
@@ -456,10 +457,10 @@ func publishProviderExchange(
 	a *Agent,
 	sessionID string,
 	iteration int,
-	req CompletionRequest,
+	req mind.CompletionRequest,
 	responseText string,
-	toolCalls []ToolUseBlock,
-	stopReason StopReason,
+	toolCalls []mind.ToolUseBlock,
+	stopReason mind.StopReason,
 	durationMs int64,
 ) {
 	if a == nil || a.eventBus == nil {
@@ -484,23 +485,23 @@ func publishProviderExchange(
 
 // replayToolsJSON marshals the tool affordances offered in the request so a
 // re-run can present the same tools. Nil/empty tools omit the field entirely.
-func replayToolsJSON(tools []ToolDefinition) json.RawMessage {
+func replayToolsJSON(tools []mind.ToolDefinition) json.RawMessage {
 	if len(tools) == 0 {
 		return nil
 	}
 	return replayMarshalJSON(tools)
 }
 
-func replayMessagesJSON(messages []CompletionMessage) json.RawMessage {
+func replayMessagesJSON(messages []mind.CompletionMessage) json.RawMessage {
 	if messages == nil {
-		messages = []CompletionMessage{}
+		messages = []mind.CompletionMessage{}
 	}
 	return replayMarshalJSON(messages)
 }
 
-func replayToolCallsJSON(toolCalls []ToolUseBlock) json.RawMessage {
+func replayToolCallsJSON(toolCalls []mind.ToolUseBlock) json.RawMessage {
 	if toolCalls == nil {
-		toolCalls = []ToolUseBlock{}
+		toolCalls = []mind.ToolUseBlock{}
 	}
 	return replayMarshalJSON(toolCalls)
 }

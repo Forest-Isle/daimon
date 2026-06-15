@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Forest-Isle/daimon/internal/channel"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
@@ -27,19 +28,19 @@ func (m *testUpdater) Finish(text string) error { return nil }
 
 type testProvider struct {
 	text      string
-	toolCalls []ToolUseBlock
+	toolCalls []mind.ToolUseBlock
 	callCount int
 }
 
-func (m *testProvider) Complete(_ context.Context, _ CompletionRequest) (*CompletionResponse, error) {
+func (m *testProvider) Complete(_ context.Context, _ mind.CompletionRequest) (*mind.CompletionResponse, error) {
 	m.callCount++
 	if m.callCount > 1 {
-		return &CompletionResponse{Text: m.text}, nil
+		return &mind.CompletionResponse{Text: m.text}, nil
 	}
-	return &CompletionResponse{Text: m.text, ToolCalls: m.toolCalls}, nil
+	return &mind.CompletionResponse{Text: m.text, ToolCalls: m.toolCalls}, nil
 }
 
-func (m *testProvider) Stream(_ context.Context, _ CompletionRequest) (StreamIterator, error) {
+func (m *testProvider) Stream(_ context.Context, _ mind.CompletionRequest) (mind.StreamIterator, error) {
 	m.callCount++
 	if m.callCount > 1 {
 		return &testStream{text: m.text}, nil
@@ -49,16 +50,16 @@ func (m *testProvider) Stream(_ context.Context, _ CompletionRequest) (StreamIte
 
 type testStream struct {
 	text      string
-	toolCalls []ToolUseBlock
+	toolCalls []mind.ToolUseBlock
 	done      bool
 }
 
-func (m *testStream) Next() (StreamDelta, error) {
+func (m *testStream) Next() (mind.StreamDelta, error) {
 	if !m.done {
 		m.done = true
-		return StreamDelta{Text: m.text, ToolCalls: m.toolCalls, Done: true, StopReason: "end_turn"}, nil
+		return mind.StreamDelta{Text: m.text, ToolCalls: m.toolCalls, Done: true, StopReason: "end_turn"}, nil
 	}
-	return StreamDelta{}, nil
+	return mind.StreamDelta{}, nil
 }
 
 func (m *testStream) Close() {}
@@ -100,7 +101,7 @@ func TestLinearLoop_SingleToolCall(t *testing.T) {
 	deps.Core.Cfg.MaxIterations = 3
 	deps.Core.Provider = &testProvider{
 		text:      "Let me read that.",
-		toolCalls: []ToolUseBlock{{ID: "call_1", Name: "read", Input: `{"path":"/tmp/test"}`}},
+		toolCalls: []mind.ToolUseBlock{{ID: "call_1", Name: "read", Input: `{"path":"/tmp/test"}`}},
 	}
 
 	a := NewAgent(&deps, &LinearLoop{}, NewEventBus())
@@ -157,7 +158,7 @@ func TestLinearLoop_ParallelDispatch(t *testing.T) {
 	deps.Core.Cfg.MaxIterations = 3
 	deps.Core.Provider = &testProvider{
 		text: "Reading two files.",
-		toolCalls: []ToolUseBlock{
+		toolCalls: []mind.ToolUseBlock{
 			{ID: "call_1", Name: "read", Input: `{"path":"/tmp/a"}`},
 			{ID: "call_2", Name: "write", Input: `{"path":"/tmp/b","content":"x"}`},
 		},

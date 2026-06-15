@@ -10,6 +10,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/hook"
 	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
@@ -18,12 +19,12 @@ type capturePromptProvider struct {
 	system string
 }
 
-func (p *capturePromptProvider) Complete(_ context.Context, req CompletionRequest) (*CompletionResponse, error) {
+func (p *capturePromptProvider) Complete(_ context.Context, req mind.CompletionRequest) (*mind.CompletionResponse, error) {
 	p.system = req.System
-	return &CompletionResponse{Text: "ok", StopReason: StopEndTurn}, nil
+	return &mind.CompletionResponse{Text: "ok", StopReason: mind.StopEndTurn}, nil
 }
 
-func (p *capturePromptProvider) Stream(_ context.Context, req CompletionRequest) (StreamIterator, error) {
+func (p *capturePromptProvider) Stream(_ context.Context, req mind.CompletionRequest) (mind.StreamIterator, error) {
 	p.system = req.System
 	return &testStream{text: "ok"}, nil
 }
@@ -109,7 +110,7 @@ func TestPromptFrameLayerOrdering(t *testing.T) {
 	if strings.Index(rendered, "## Personality") > strings.Index(rendered, "You are IronClaw.") {
 		t.Fatalf("personality should render before system prompt: %s", rendered)
 	}
-	if strings.Index(rendered, dynamicContextMarker) < strings.Index(rendered, "Never bypass policy.") {
+	if strings.Index(rendered, mind.DynamicContextMarker) < strings.Index(rendered, "Never bypass policy.") {
 		t.Fatalf("dynamic boundary should render after persistent rules: %s", rendered)
 	}
 }

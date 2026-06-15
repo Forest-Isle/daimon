@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
@@ -21,7 +22,7 @@ type CompressionLayer interface {
 // CompressionPipeline runs compression layers progressively based on context utilization.
 type CompressionPipeline struct {
 	layers        []layerEntry
-	provider      Provider
+	provider      mind.Provider
 	model         string
 	cfg           config.CompressionConfig
 	contextWindow int // model's context window in tokens
@@ -35,7 +36,7 @@ type layerEntry struct {
 
 // NewCompressionPipeline creates a pipeline with the standard 3 layers.
 func NewCompressionPipeline(
-	provider Provider,
+	provider mind.Provider,
 	model string,
 	cfg config.CompressionConfig,
 	resultStore *tool.ResultStore,
@@ -212,7 +213,7 @@ func (r *ToolOutputReducer) Compress(_ context.Context, sess *session.Session, _
 
 // TurnSummarizationLayer summarizes old conversation turns using an LLM call.
 type TurnSummarizationLayer struct {
-	provider Provider
+	provider mind.Provider
 	model    string
 }
 
@@ -261,10 +262,10 @@ func (l *TurnSummarizationLayer) Compress(ctx context.Context, sess *session.Ses
 		_, _ = fmt.Fprintf(&sb, "[%s]: %s\n", m.Role, content)
 	}
 
-	req := CompletionRequest{
+	req := mind.CompletionRequest{
 		Model:  l.model,
 		System: "Summarize the following conversation history concisely, preserving key facts, decisions, and context needed for continuing the conversation. If a previous summary is provided, update it incrementally rather than rewriting from scratch.",
-		Messages: []CompletionMessage{
+		Messages: []mind.CompletionMessage{
 			{Role: "user", Content: sb.String()},
 		},
 		MaxTokens: 1024,
