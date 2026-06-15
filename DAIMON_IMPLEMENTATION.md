@@ -11,10 +11,10 @@
 | 阶段 | 状态 | 关键缺口 |
 |---|---|---|
 | Phase 0 改名+录制 | ✅ 符合 | — |
-| Phase 1 episode+world | 🟡 主体完成 | world 无检索门面；FollowUps 不种入；salvaged 不计；Budget/Receipt 未接 |
-| Phase 2 heart+attention+action | 🟠 地基+骨架 | action 只观测不强制；feedback/holds 死表；仅 timer 源；无 AST/seatbelt |
-| Phase 3 sleep+proposals+shadow | 🟡 sleep 推进 (P3-J1..J7) | sleep 包+digest+drift+synthesize-rules+rollup + replay 读侧+重打分(--against) + proposals 引擎核心 已落；回归集/金丝雀/distill/reconcile/proposals 投递 UX/shadow 未开工 |
-| Phase 4 economy+selfops+sensors | 🟡 economy 推进 (C1/C2a/C2b) | per-episode token 归因+成本记录基底+月报CLI已落；activity-class/ROI/throttle(C2c)、selfops、sensors 未开工 |
+| Phase 1 episode+world | ✅ 主体完成 | world 检索门面(P2-F)✅；FollowUps 种入(P0-A)✅；salvaged 计(P0-A)✅；Receipt(P0-B1 undo)✅；余 Budget 未接 |
+| Phase 2 heart+attention+action | 🟡 器官成型 | value_gate ask-once 强制(P2-G/CF5)✅；AST+seatbelt(P1-C)✅；feedback 回流(P1-E)✅；chat 经 heart(P2-H1)✅；余 holds 执行环(P1-D)死表、mail/cal/fs 源未接 |
+| Phase 3 sleep+proposals+shadow | 🟡 sleep 近完 (J1..J11) | digest/drift/synthesize/rollup/reconcile/proposals引擎/distill检测半 + replay 读侧/--against/回归集+金丝雀门 已落；余 distill-promotion 半、proposals 投递 UX、shadow(mind 拆出后)未开工 |
+| Phase 4 economy+selfops+sensors | 🟡 economy 成本报表完 (C1..C2d+J11) | token 归因+记录基底(迁移034)+月报CLI+配置定价+activity-class+by-class$ 已落；余 C2e(ROI 分母+throttle)、selfops、sensors 未开工 |
 | §4.5 values | ✅ 完成 (P2-G + P3-J2) | ask-once 门控+条目+digest+漂移检测(sleep DriftJob)全落 |
 | §4.7 mind | ❌ 未拆出 | 仍在 agent/ |
 
