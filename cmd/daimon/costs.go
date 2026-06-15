@@ -53,7 +53,8 @@ func newCostsCmd() *cobra.Command {
 				periodLabel = "last " + since.String()
 			}
 
-			rows, err := economy.NewStore(db.DB).ByModelSince(ctx, cutoff)
+			st := economy.NewStore(db.DB)
+			rows, err := st.ByModelSince(ctx, cutoff)
 			if err != nil {
 				return fmt.Errorf("aggregate costs: %w", err)
 			}
@@ -102,6 +103,29 @@ func newCostsCmd() *cobra.Command {
 				fmt.Println("\nNote: some models have no configured price (cost shown as —);" +
 					" the TOTAL cost covers priced models only. Set economy.prices in config to price them.")
 			}
+
+			// By activity class — where the tokens go (chat vs each autonomous
+			// trigger). Tokens only: a class can span models, so per-class dollars
+			// need per-(class,model) attribution (a later ROI increment); the dollar
+			// totals live in the by-model table above.
+			classes, err := st.ByClassSince(ctx, cutoff)
+			if err != nil {
+				return fmt.Errorf("aggregate costs by class: %w", err)
+			}
+			fmt.Printf("\nBy activity class — %s\n", periodLabel)
+			fmt.Println("(tokens only — dollars are in the by-model table above, until per-class pricing lands)")
+			fmt.Println()
+			cw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
+			_, _ = fmt.Fprintln(cw, "CLASS\tEPISODES\tINPUT\tOUTPUT\tCACHE_R\tCACHE_W\t")
+			for _, c := range classes {
+				class := c.Class
+				if class == "" {
+					class = "(unclassified)"
+				}
+				_, _ = fmt.Fprintf(cw, "%s\t%d\t%d\t%d\t%d\t%d\t\n",
+					class, c.Episodes, c.InputTokens, c.OutputTokens, c.CacheReadTokens, c.CacheCreationTokens)
+			}
+			_ = cw.Flush()
 			return nil
 		},
 	}

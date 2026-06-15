@@ -429,6 +429,7 @@ func (a costRecorderAdapter) RecordEpisodeCost(_ context.Context, c episode.Epis
 		EpisodeID:           c.EpisodeID,
 		Model:               c.Model,
 		Provider:            c.Provider,
+		ActivityClass:       c.ActivityClass,
 		InputTokens:         c.Usage.InputTokens,
 		OutputTokens:        c.Usage.OutputTokens,
 		CacheReadTokens:     c.Usage.CacheReadTokens,

@@ -63,7 +63,9 @@ func (gw *Gateway) newEventDispatcher() *eventDispatcher {
 			// Pass the event id as the idempotency key: heart's at-least-once replay
 			// (after a crash before the event was marked routed) re-delivers the same
 			// event id, and the kernel skips an already-completed episode.
-			if _, err := gw.agent.RunInternalEpisode(ctx, ev.ID, goalForEvent(ev), ev.Payload); err != nil {
+			// The event kind is the activity class for cost accounting (§4.11):
+			// autonomous episodes group by what triggered them (heartbeat, followup, …).
+			if _, err := gw.agent.RunInternalEpisode(ctx, ev.ID, goalForEvent(ev), ev.Payload, ev.Kind); err != nil {
 				slog.Error("heart: internal episode failed", "kind", ev.Kind, "err", err)
 			}
 		},

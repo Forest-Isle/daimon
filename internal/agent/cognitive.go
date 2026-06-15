@@ -27,17 +27,23 @@ type CognitiveRequest struct {
 	// and skips execution if an outcome already exists for it, so a re-delivered
 	// trigger does not run the episode twice. Empty ⇒ the kernel generates a
 	// fresh id (chat turns and ad-hoc episodes).
-	EpisodeID  string
-	Goal       string
-	Trigger    string
-	Persona    string
-	Rules      string
-	Memories   string
-	Model      string
-	Provider   string
-	Transcript []CompletionMessage
-	ToolDefs   []ToolDefinition
-	Invoke     ToolInvokeFunc
+	EpisodeID string
+	Goal      string
+	Trigger   string
+	Persona   string
+	Rules     string
+	Memories  string
+	Model     string
+	Provider  string
+	// ActivityClass labels the kind of work this episode does, for cost
+	// accounting by class (blueprint §4.11 ROI-by-class): "chat" for a user turn,
+	// the triggering event kind (e.g. internal.heartbeat) for an autonomous
+	// episode. Empty ⇒ the cost row is recorded unclassified; it never affects
+	// execution.
+	ActivityClass string
+	Transcript    []CompletionMessage
+	ToolDefs      []ToolDefinition
+	Invoke        ToolInvokeFunc
 }
 
 // CognitiveOutcome is what the kernel returns. Reply is the user-facing text;

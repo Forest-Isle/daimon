@@ -146,6 +146,46 @@ func TestByModelSince(t *testing.T) {
 	}
 }
 
+func TestByClassSince(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	must := func(e Entry) {
+		if err := s.Record(ctx, e); err != nil {
+			t.Fatalf("Record: %v", err)
+		}
+	}
+	// Two chat episodes, one heartbeat, one unclassified; one chat predates cutoff.
+	must(Entry{EpisodeID: "c1", ActivityClass: "chat", OutputTokens: 100, OccurredAt: 2000})
+	must(Entry{EpisodeID: "c2", ActivityClass: "chat", OutputTokens: 50, OccurredAt: 2500})
+	must(Entry{EpisodeID: "h1", ActivityClass: "internal.heartbeat", OutputTokens: 200, OccurredAt: 2500})
+	must(Entry{EpisodeID: "u1", ActivityClass: "", OutputTokens: 10, OccurredAt: 2500})
+	must(Entry{EpisodeID: "old", ActivityClass: "chat", OutputTokens: 999, OccurredAt: 1000})
+
+	rows, err := s.ByClassSince(ctx, 1500)
+	if err != nil {
+		t.Fatalf("ByClassSince: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("want 3 class groups, got %d: %+v", len(rows), rows)
+	}
+	// Ordered by output desc: heartbeat(200) > chat(150) > unclassified(10). Cutoff
+	// excludes the old chat row (occurred_at=1000), so chat shows the 2 in-window
+	// episodes / 150 output, not 3 / 1149.
+	if rows[0].Class != "internal.heartbeat" || rows[0].OutputTokens != 200 {
+		t.Fatalf("row0 = %+v", rows[0])
+	}
+	if rows[1].Class != "chat" || rows[1].Episodes != 2 || rows[1].OutputTokens != 150 {
+		t.Fatalf("row1 = %+v", rows[1])
+	}
+	if rows[2].Class != "" || rows[2].OutputTokens != 10 {
+		t.Fatalf("row2 (unclassified) = %+v", rows[2])
+	}
+
+	if _, err := (*Store)(nil).ByClassSince(ctx, 0); err == nil {
+		t.Fatal("nil store ByClassSince must error")
+	}
+}
+
 func TestPricesCostUSD(t *testing.T) {
 	prices := Prices{
 		"claude-opus": {InputPerMTok: 15, OutputPerMTok: 75, CacheReadPerMTok: 1.5, CacheCreationPerMTok: 18.75},

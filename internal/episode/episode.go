@@ -77,10 +77,11 @@ type CostRecorder interface {
 // not report per-call streaming usage); the active Anthropic provider and the
 // non-streamed Complete path report it fully.
 type EpisodeCost struct {
-	EpisodeID string
-	Model     string
-	Provider  string
-	Usage     agent.Usage
+	EpisodeID     string
+	Model         string
+	Provider      string
+	ActivityClass string
+	Usage         agent.Usage
 }
 
 // NewRunner builds a cognitive kernel. bus may be nil (events are then skipped).
@@ -122,10 +123,11 @@ func (r *Runner) recordCost(ctx context.Context, req agent.CognitiveRequest, epi
 		}
 	}()
 	if err := r.cost.RecordEpisodeCost(ctx, EpisodeCost{
-		EpisodeID: episodeID,
-		Model:     req.Model,
-		Provider:  req.Provider,
-		Usage:     *used,
+		EpisodeID:     episodeID,
+		Model:         req.Model,
+		Provider:      req.Provider,
+		ActivityClass: req.ActivityClass,
+		Usage:         *used,
 	}); err != nil {
 		slog.Warn("episode: record cost failed", "episode", episodeID, "err", err)
 	}

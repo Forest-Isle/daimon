@@ -48,6 +48,14 @@ type ModelTotals struct {
 	Totals
 }
 
+// ClassTotals is one activity class's aggregate, for the by-class ROI report
+// (blueprint §4.11). An empty Class is the unclassified bucket (rows recorded
+// before activity-class threading, or episodes with no class).
+type ClassTotals struct {
+	Class string
+	Totals
+}
+
 // Price is per-million-token USD rates for a model. Rates are supplied by the
 // operator (config) — none are hard-coded, since they vary by provider and
 // endpoint and change over time; an unpriced model is reported in tokens only.
@@ -210,6 +218,44 @@ func (s *Store) ByModelSince(ctx context.Context, since int64) ([]ModelTotals, e
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("economy: by model rows: %w", err)
+	}
+	return out, nil
+}
+
+// ByClassSince aggregates cost rows per activity class at or after the
+// epoch-second cutoff (since <= 0 ⇒ all rows), ordered by output tokens
+// descending. It is the basis of the by-class ROI view: which kinds of work
+// (chat vs each autonomous trigger) the agent spends its tokens on.
+func (s *Store) ByClassSince(ctx context.Context, since int64) ([]ClassTotals, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT activity_class,
+		       COUNT(1),
+		       COALESCE(SUM(input_tokens), 0),
+		       COALESCE(SUM(output_tokens), 0),
+		       COALESCE(SUM(cache_read_tokens), 0),
+		       COALESCE(SUM(cache_creation_tokens), 0)
+		FROM costs
+		WHERE (? <= 0 OR occurred_at >= ?)
+		GROUP BY activity_class
+		ORDER BY SUM(output_tokens) DESC, activity_class ASC`, since, since)
+	if err != nil {
+		return nil, fmt.Errorf("economy: by class: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []ClassTotals
+	for rows.Next() {
+		var c ClassTotals
+		if err := rows.Scan(&c.Class, &c.Episodes, &c.InputTokens, &c.OutputTokens, &c.CacheReadTokens, &c.CacheCreationTokens); err != nil {
+			return nil, fmt.Errorf("economy: by class scan: %w", err)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("economy: by class rows: %w", err)
 	}
 	return out, nil
 }

@@ -30,7 +30,7 @@ func TestRunInternalEpisode_KernelDisabled(t *testing.T) {
 	deps := AgentDeps{Core: CoreDeps{AgentID: "t"}}.WithDefaults()
 	a := NewAgent(&deps, &LinearLoop{}, NewEventBus())
 
-	if _, err := a.RunInternalEpisode(context.Background(), "", "goal", "trigger"); err == nil {
+	if _, err := a.RunInternalEpisode(context.Background(), "", "goal", "trigger", "internal.heartbeat"); err == nil {
 		t.Fatal("expected error when kernel is unavailable")
 	}
 }
@@ -55,7 +55,7 @@ func TestRunInternalEpisode_HappyPath(t *testing.T) {
 	fake := &fakeKernel{outcome: CognitiveOutcome{Status: "done", Summary: "reviewed commitments"}}
 	a.SetKernel(fake, true)
 
-	out, err := a.RunInternalEpisode(context.Background(), "evt-123", "Review commitments", "heartbeat")
+	out, err := a.RunInternalEpisode(context.Background(), "evt-123", "Review commitments", "heartbeat", "internal.heartbeat")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -81,6 +81,9 @@ func TestRunInternalEpisode_HappyPath(t *testing.T) {
 	}
 	if r.Model != "test-model" || r.Provider != "claude" {
 		t.Errorf("model/provider not passed: model=%q provider=%q", r.Model, r.Provider)
+	}
+	if r.ActivityClass != "internal.heartbeat" {
+		t.Errorf("activity class not threaded to kernel: got %q", r.ActivityClass)
 	}
 	if r.Persona != "steady" || r.Rules != "be careful" {
 		t.Errorf("persona/rules not passed: persona=%q rules=%q", r.Persona, r.Rules)

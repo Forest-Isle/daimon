@@ -355,6 +355,7 @@ func TestExecuteRecordsCost(t *testing.T) {
 	req := chatRequest("Handle request", "hello")
 	req.Model = "claude-x"
 	req.Provider = "claude"
+	req.ActivityClass = "chat"
 	if _, err := runner.Execute(context.Background(), req); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -367,6 +368,9 @@ func TestExecuteRecordsCost(t *testing.T) {
 	}
 	if c.Model != "claude-x" || c.Provider != "claude" || c.EpisodeID == "" {
 		t.Fatalf("cost meta = %+v", c)
+	}
+	if c.ActivityClass != "chat" {
+		t.Fatalf("activity class not recorded: got %q", c.ActivityClass)
 	}
 }
 

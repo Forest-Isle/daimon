@@ -174,16 +174,17 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 	transcript := append(priorTranscript, CompletionMessage{Role: "user", Content: msg.Text})
 
 	req := CognitiveRequest{
-		SessionID:  sess.ID,
-		Goal:       "Respond to the user's message",
-		Trigger:    msg.Text,
-		Persona:    a.deps.Core.Cfg.Personality,
-		Rules:      a.deps.Core.Cfg.PersistentRules,
-		Memories:   a.buildMemoryPromptSection(ctx, msg.Text),
-		Model:      a.deps.Core.LLMCfg.Model,
-		Provider:   a.deps.Core.LLMCfg.Provider,
-		Transcript: transcript,
-		ToolDefs:   a.buildToolDefs(),
+		SessionID:     sess.ID,
+		Goal:          "Respond to the user's message",
+		Trigger:       msg.Text,
+		Persona:       a.deps.Core.Cfg.Personality,
+		Rules:         a.deps.Core.Cfg.PersistentRules,
+		Memories:      a.buildMemoryPromptSection(ctx, msg.Text),
+		Model:         a.deps.Core.LLMCfg.Model,
+		Provider:      a.deps.Core.LLMCfg.Provider,
+		ActivityClass: "chat",
+		Transcript:    transcript,
+		ToolDefs:      a.buildToolDefs(),
 		Invoke: func(ctx context.Context, iteration int, call ToolUseBlock) (string, bool) {
 			return a.invokeTool(ctx, ch, sess, target, iteration, call, "", false)
 		},
@@ -224,7 +225,9 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 // auto-approved / read-only tools run autonomously. Each call gets its own
 // "internal" session so the tool transcript is captured for replay without
 // colliding with chat sessions.
-func (a *Agent) RunInternalEpisode(ctx context.Context, idempotencyKey, goal, trigger string) (CognitiveOutcome, error) {
+// activityClass labels the episode for cost accounting (blueprint §4.11); the
+// caller passes the triggering event kind. Empty records the cost unclassified.
+func (a *Agent) RunInternalEpisode(ctx context.Context, idempotencyKey, goal, trigger, activityClass string) (CognitiveOutcome, error) {
 	if a.kernel == nil || !a.kernelEnabled {
 		return CognitiveOutcome{}, fmt.Errorf("cognitive kernel unavailable")
 	}
@@ -248,17 +251,18 @@ func (a *Agent) RunInternalEpisode(ctx context.Context, idempotencyKey, goal, tr
 	a.eventBus.Publish(SessionStarted{SessionID: sess.ID, Channel: "internal"})
 
 	req := CognitiveRequest{
-		SessionID:  sess.ID,
-		EpisodeID:  idempotencyKey,
-		Goal:       goal,
-		Trigger:    trigger,
-		Persona:    a.deps.Core.Cfg.Personality,
-		Rules:      a.deps.Core.Cfg.PersistentRules,
-		Memories:   a.buildMemoryPromptSection(ctx, trigger),
-		Model:      a.deps.Core.LLMCfg.Model,
-		Provider:   a.deps.Core.LLMCfg.Provider,
-		Transcript: []CompletionMessage{{Role: "user", Content: trigger}},
-		ToolDefs:   a.buildToolDefs(),
+		SessionID:     sess.ID,
+		EpisodeID:     idempotencyKey,
+		Goal:          goal,
+		Trigger:       trigger,
+		Persona:       a.deps.Core.Cfg.Personality,
+		Rules:         a.deps.Core.Cfg.PersistentRules,
+		Memories:      a.buildMemoryPromptSection(ctx, trigger),
+		Model:         a.deps.Core.LLMCfg.Model,
+		Provider:      a.deps.Core.LLMCfg.Provider,
+		ActivityClass: activityClass,
+		Transcript:    []CompletionMessage{{Role: "user", Content: trigger}},
+		ToolDefs:      a.buildToolDefs(),
 		Invoke: func(ctx context.Context, iteration int, call ToolUseBlock) (string, bool) {
 			// nil channel ⇒ approval-required tools are denied (see handleApproval).
 			return a.invokeTool(ctx, nil, sess, target, iteration, call, "", false)
