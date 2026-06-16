@@ -62,7 +62,7 @@ func main() {
 
 // skillsDir returns the path to ~/.daimon/skills/.
 func skillsDir() (string, error) {
-	dir := filepath.Join(appdir.BaseDir(), "skills")
+	dir := appdir.SkillsDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create skills dir: %w", err)
 	}
@@ -90,6 +90,9 @@ func newSkillCmd() *cobra.Command {
 		newSkillInstallCmd(),
 		newSkillUpdateCmd(),
 		newSkillRemoveCmd(),
+		newSkillDraftsCmd(),
+		newSkillPromoteCmd(),
+		newSkillDemoteCmd(),
 	)
 	return cmd
 }

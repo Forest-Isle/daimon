@@ -55,7 +55,7 @@ func (s *fileDraftSink) WriteDraft(_ context.Context, slug string, content []byt
 }
 
 func defaultDistillStagingDir() string {
-	return filepath.Join(appdir.BaseDir(), "skills-staging")
+	return appdir.SkillsStagingDir()
 }
 
 // sameResolvedDir reports whether two directory paths point at the same location

@@ -28,7 +28,10 @@ type Skill struct {
 
 // SkillMeta holds optional openclaw-specific metadata.
 type SkillMeta struct {
-	OpenClaw OpenClawMeta `yaml:"openclaw"`
+	OpenClaw        OpenClawMeta `yaml:"openclaw"`
+	Distilled       bool         `yaml:"distilled"`
+	SourceCandidate string       `yaml:"source_candidate"`
+	SourceEpisodes  []string     `yaml:"source_episodes"`
 }
 
 // OpenClawMeta holds the openclaw integration metadata.
