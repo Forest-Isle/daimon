@@ -18,6 +18,43 @@ func openTestStore(t *testing.T) *Store {
 	return NewStore(db.DB)
 }
 
+func TestRecentlyDismissedTitles(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	for _, p := range []Proposal{
+		{ID: "old", Title: "old idea", CreatedAt: 1},
+		{ID: "boundary", Title: "boundary idea", CreatedAt: 1},
+		{ID: "recent", Title: "recent idea", CreatedAt: 1},
+		{ID: "accepted", Title: "accepted idea", CreatedAt: 1},
+	} {
+		if err := s.Create(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Decide(ctx, "old", StateDismissed, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Decide(ctx, "boundary", StateDismissed, 300); err != nil { // decided_at == since
+		t.Fatal(err)
+	}
+	if err := s.Decide(ctx, "recent", StateDismissed, 500); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Decide(ctx, "accepted", StateAccepted, 500); err != nil {
+		t.Fatal(err)
+	}
+
+	// since=300: includes the boundary (>= is inclusive) and recent dismissals;
+	// excludes the older dismissal (decided_at 100) and the accepted one.
+	got, err := s.RecentlyDismissedTitles(ctx, 300)
+	if err != nil {
+		t.Fatalf("RecentlyDismissedTitles: %v", err)
+	}
+	if len(got) != 2 || !got["recent idea"] || !got["boundary idea"] {
+		t.Fatalf("want {recent idea, boundary idea} (inclusive boundary), got %v", got)
+	}
+}
+
 func TestCreateAndListPending(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

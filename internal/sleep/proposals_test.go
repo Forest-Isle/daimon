@@ -20,8 +20,10 @@ func (s *stubCommitments) DueCommitments(_ context.Context, withinUnix int64) ([
 
 // stubProposals is a fixed proposalWriter capturing what the job queued.
 type stubProposals struct {
-	pending map[string]bool
-	added   []ProposedItem
+	pending   map[string]bool
+	dismissed map[string]bool
+	gotCooldn int64 // the `since` the job asked dismissed titles for
+	added     []ProposedItem
 }
 
 func (s *stubProposals) PendingTitles(_ context.Context, _ int64) (map[string]bool, error) {
@@ -29,6 +31,14 @@ func (s *stubProposals) PendingTitles(_ context.Context, _ int64) (map[string]bo
 		return map[string]bool{}, nil
 	}
 	return s.pending, nil
+}
+
+func (s *stubProposals) RecentlyDismissedTitles(_ context.Context, since int64) (map[string]bool, error) {
+	s.gotCooldn = since
+	if s.dismissed == nil {
+		return map[string]bool{}, nil
+	}
+	return s.dismissed, nil
 }
 
 func (s *stubProposals) Add(_ context.Context, items []ProposedItem) error {
@@ -105,6 +115,37 @@ func TestProposalsJobQueuesWithCapAndDedup(t *testing.T) {
 	// The commitment must have reached the summarizer input.
 	if !strings.Contains(sum.gotInput, "Submit report") {
 		t.Fatalf("commitment not fed to summarizer:\n%s", sum.gotInput)
+	}
+}
+
+func TestProposalsJobSuppressesRecentlyDismissed(t *testing.T) {
+	c := &stubCommitments{due: []CommitmentBrief{
+		{ID: "commit_1", Kind: "deadline", Title: "Submit report", DueAt: 5000},
+	}}
+	// "Book review slot" was dismissed inside the cooldown → must not be re-queued;
+	// "Gather sources" is fresh → kept.
+	w := &stubProposals{dismissed: map[string]bool{"Book review slot": true}}
+	sum := &stubSummarizer{out: `[
+	  {"title":"Book review slot","body":"b","action_plan":"calendar","urgency":1},
+	  {"title":"Gather sources","body":"b","action_plan":"collect refs","urgency":3}
+	]`}
+	now := int64(1_000_000)
+	job := NewProposalsJob(c, w, sum, fixedClock(now))
+
+	msg, err := job.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "queued 1 proposal(s)" {
+		t.Fatalf("msg = %q, want queued 1 proposal(s)", msg)
+	}
+	if len(w.added) != 1 || w.added[0].Title != "Gather sources" {
+		t.Fatalf("dismissed title leaked or fresh dropped: %#v", w.added)
+	}
+	// The job must have asked for dismissals within the cooldown window.
+	wantSince := now - int64(proposalsDismissCooldownDays)*86400
+	if w.gotCooldn != wantSince {
+		t.Fatalf("dismissed cooldown since = %d, want %d", w.gotCooldn, wantSince)
 	}
 }
 

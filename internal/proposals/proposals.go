@@ -195,6 +195,37 @@ func (s *Store) PendingTitles(ctx context.Context, now int64) (map[string]bool, 
 	return out, nil
 }
 
+// RecentlyDismissedTitles is the set of titles the user dismissed at or after
+// `since`. The anticipation job subtracts these from new proposals so a dismissed
+// idea is not re-queued during its cooldown window — a dismissal lowers the
+// proposal's recurrence rather than being a one-off no (§4.9 "被 dismiss 的同类
+// 提案频次自动下降"). After the window the title may resurface if still relevant.
+func (s *Store) RecentlyDismissedTitles(ctx context.Context, since int64) (map[string]bool, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT title FROM proposals WHERE state = ? AND decided_at >= ?`,
+		StateDismissed, since)
+	if err != nil {
+		return nil, fmt.Errorf("list dismissed titles: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]bool{}
+	for rows.Next() {
+		var title string
+		if err := rows.Scan(&title); err != nil {
+			return nil, fmt.Errorf("scan dismissed title: %w", err)
+		}
+		out[title] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate dismissed titles: %w", err)
+	}
+	return out, nil
+}
+
 // Decide transitions a pending proposal to a terminal state (accepted, dismissed,
 // or expired) and stamps decidedAt. It updates only a row still pending, so a
 // second decision (a double-tap, a race) affects nothing and returns an error —

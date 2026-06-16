@@ -18,6 +18,12 @@ const proposalsHorizonHours = 72
 // cycle once the user has acted on some.
 const proposalsDailyCap = 5
 
+// proposalsDismissCooldownDays bounds how long a dismissed title is suppressed
+// from re-proposal. A dismissal lowers a proposal's recurrence (§4.9) without
+// silencing it forever — after the window the idea may resurface if still
+// grounded in a due commitment.
+const proposalsDismissCooldownDays = 14
+
 const proposalsSystemPrompt = `You are the anticipation phase of a personal agent's sleep cycle. You are given the user's UPCOMING COMMITMENTS (things due soon). Propose only concrete next actions the user will plausibly need in order to meet these commitments — preparation, follow-ups, reminders grounded in the commitments listed. Invent nothing that is not grounded in a listed commitment; when nothing useful is anticipatable, return an empty array. Respond with ONLY a JSON array of objects {"title":"<short imperative>","body":"<one or two sentences of context>","action_plan":"<the goal to pursue if accepted>","urgency":<integer 0-3>} and nothing else. Return [] when there is nothing worth proposing.`
 
 // CommitmentBrief is one upcoming commitment, flattened to just what the
@@ -52,6 +58,7 @@ type commitmentLister interface {
 // store and the clock for created_at.
 type proposalWriter interface {
 	PendingTitles(ctx context.Context, now int64) (map[string]bool, error)
+	RecentlyDismissedTitles(ctx context.Context, since int64) (map[string]bool, error)
 	Add(ctx context.Context, items []ProposedItem) error
 }
 
@@ -118,10 +125,23 @@ func (j *ProposalsJob) Run(ctx context.Context) (string, error) {
 		return "no new proposals (queue full)", nil
 	}
 
+	// Suppress titles dismissed within the cooldown so a "no" lowers an idea's
+	// recurrence instead of being a one-off (§4.9). Outside the window the title
+	// may resurface if still grounded in a due commitment. Read after the budget
+	// gate so a full queue never fails the cycle on this optional fetch; when the
+	// fetch is actually needed it fails closed (suppression is deterministic — a
+	// silent empty set would re-surface dismissed proposals).
+	cooldownStart := now - int64(proposalsDismissCooldownDays)*86400
+	dismissed, err := j.proposals.RecentlyDismissedTitles(ctx, cooldownStart)
+	if err != nil {
+		return "", fmt.Errorf("proposals: read dismissed titles: %w", err)
+	}
+
 	// Stamp the expiry to the horizon and best-effort attribute each proposal to a
 	// source commitment (the first one — the model is not asked to map per-item,
-	// and the attribution is advisory). Drop blank titles, ones already pending, and
-	// duplicates within this same batch (the model may repeat a title).
+	// and the attribution is advisory). Drop blank titles, ones already pending,
+	// ones dismissed within the cooldown, and duplicates within this same batch
+	// (the model may repeat a title).
 	source := ""
 	if len(due) > 0 {
 		source = due[0].ID
@@ -130,7 +150,7 @@ func (j *ProposalsJob) Run(ctx context.Context) (string, error) {
 	kept := make([]ProposedItem, 0, budget)
 	for _, it := range items {
 		title := strings.TrimSpace(it.Title)
-		if title == "" || pending[title] || seen[title] {
+		if title == "" || pending[title] || dismissed[title] || seen[title] {
 			continue
 		}
 		seen[title] = true

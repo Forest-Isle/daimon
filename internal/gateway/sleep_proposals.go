@@ -88,6 +88,10 @@ func (s proposalsStoreSink) PendingTitles(ctx context.Context, now int64) (map[s
 	return s.store.PendingTitles(ctx, now)
 }
 
+func (s proposalsStoreSink) RecentlyDismissedTitles(ctx context.Context, since int64) (map[string]bool, error) {
+	return s.store.RecentlyDismissedTitles(ctx, since)
+}
+
 func (s proposalsStoreSink) Add(ctx context.Context, items []sleep.ProposedItem) error {
 	createdAt := s.now()
 	for _, it := range items {
