@@ -146,3 +146,51 @@ func (s *Store) OutcomeQualityForEpisodes(ctx context.Context, ids []string) (ma
 	}
 	return out, nil
 }
+
+// OutcomeValueForEpisodes returns each given episode's self-reported USD value,
+// keyed by episode id. Episodes with no outcome row are absent from the map. It
+// reads the canonical outcome marker row, mirroring OutcomeQualityForEpisodes.
+func (s *Store) OutcomeValueForEpisodes(ctx context.Context, ids []string) (map[string]float64, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	out := make(map[string]float64, len(ids))
+	const chunk = 500
+	for start := 0; start < len(ids); start += chunk {
+		end := start + chunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch := ids[start:end]
+		placeholders := make([]string, len(batch))
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			placeholders[i] = "?"
+			args[i] = "journal_outcome_" + id // canonical outcome marker (primary key)
+		}
+		query := fmt.Sprintf(
+			`SELECT episode_id, value_created_usd FROM journal
+			 WHERE kind = 'outcome' AND id IN (%s)`,
+			strings.Join(placeholders, ","))
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("outcome value lookup: %w", err)
+		}
+		err = func() error {
+			defer func() { _ = rows.Close() }()
+			for rows.Next() {
+				var episodeID string
+				var value float64
+				if err := rows.Scan(&episodeID, &value); err != nil {
+					return fmt.Errorf("outcome value scan: %w", err)
+				}
+				out[episodeID] = value
+			}
+			return rows.Err()
+		}()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}

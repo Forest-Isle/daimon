@@ -31,6 +31,8 @@ type Outcome struct {
 	Receipts     []string         `json:"receipts,omitempty"`
 	FollowUps    []FollowUp       `json:"follow_ups,omitempty"`
 	OpenQuestion *string          `json:"open_question,omitempty"`
+	// ValueCreatedUSD is an optional self-reported USD value created or saved.
+	ValueCreatedUSD float64 `json:"value_created_usd,omitempty"`
 	// Salvaged is set by the framework (not the model) when the Outcome was
 	// recovered because episode_close was never called. It feeds the salvaged-rate
 	// metric and is recorded in the journal detail.
@@ -296,7 +298,7 @@ func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeI
 	}
 
 	if r.world != nil {
-		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, world.OutcomeMeta{Salvaged: out.Salvaged, ToolFailures: toolFailures, UnverifiedActions: unverifiedActions, ParentEpisodeID: req.ParentEpisodeID}); err != nil {
+		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, world.OutcomeMeta{Salvaged: out.Salvaged, ToolFailures: toolFailures, UnverifiedActions: unverifiedActions, ParentEpisodeID: req.ParentEpisodeID, ValueCreatedUSD: out.ValueCreatedUSD}); err != nil {
 			// Invariant #3 (交账强制): a malformed WorldWrite must not roll back the
 			// episode's journal trace along with it. failEpisode re-applies the
 			// outcome with no writes (idempotent), so the summary still lands and the
@@ -443,6 +445,9 @@ func parseOutcome(raw string) (Outcome, error) {
 	}
 	if utf8.RuneCountInString(out.Summary) > 500 {
 		return Outcome{}, fmt.Errorf("summary is %d chars, max 500", utf8.RuneCountInString(out.Summary))
+	}
+	if out.ValueCreatedUSD < 0 {
+		return Outcome{}, fmt.Errorf("value_created_usd must not be negative")
 	}
 	return out, nil
 }
@@ -618,6 +623,10 @@ func episodeCloseToolDefinition() mind.ToolDefinition {
 				"open_question": map[string]any{
 					"type":        "string",
 					"description": "If blocked, the exact question or missing input needed from the user.",
+				},
+				"value_created_usd": map[string]any{
+					"type":        "number",
+					"description": "Optional: estimated USD value or savings this episode created for the user (e.g. money saved, billable time avoided). Omit or 0 if none or unknown. Be conservative and honest.",
 				},
 			},
 			"required": []string{"status", "summary"},

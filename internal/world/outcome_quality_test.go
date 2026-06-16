@@ -106,3 +106,42 @@ func TestOutcomeQualityForEpisodes(t *testing.T) {
 		t.Fatal("nil store must error")
 	}
 }
+
+func TestOutcomeValueForEpisodes(t *testing.T) {
+	ctx := context.Background()
+	db := openWorldTestDB(t)
+	ws := NewStore(db.DB)
+
+	if err := ws.ApplyOutcome(ctx, "ep_value", nil, "created value", OutcomeMeta{ValueCreatedUSD: 12.5}); err != nil {
+		t.Fatalf("ApplyOutcome(ep_value): %v", err)
+	}
+	if err := ws.ApplyOutcome(ctx, "ep_zero", nil, "no value", OutcomeMeta{}); err != nil {
+		t.Fatalf("ApplyOutcome(ep_zero): %v", err)
+	}
+
+	got, err := ws.OutcomeValueForEpisodes(ctx, []string{"ep_value", "ep_zero", "ep_missing"})
+	if err != nil {
+		t.Fatalf("OutcomeValueForEpisodes: %v", err)
+	}
+	if got["ep_value"] != 12.5 {
+		t.Fatalf("value[ep_value] = %v, want 12.5", got["ep_value"])
+	}
+	if got["ep_zero"] != 0 {
+		t.Fatalf("value[ep_zero] = %v, want 0", got["ep_zero"])
+	}
+	if _, ok := got["ep_missing"]; ok {
+		t.Fatal("ep_missing should be absent from the map")
+	}
+
+	empty, err := ws.OutcomeValueForEpisodes(ctx, nil)
+	if err != nil {
+		t.Fatalf("empty lookup: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty lookup = %+v, want empty", empty)
+	}
+
+	if _, err := (*Store)(nil).OutcomeValueForEpisodes(ctx, []string{"x"}); err == nil {
+		t.Fatal("nil store must error")
+	}
+}
