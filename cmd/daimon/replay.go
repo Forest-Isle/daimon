@@ -187,12 +187,14 @@ func printCanaryReport(dir, configPath, model string, rep replay.CanaryReport) {
 	fmt.Printf("Replay canary — recorded=%s against=%s model=%s\n", dir, configPath, model)
 	fmt.Printf("passed=%t sessions=%d compared=%d regressions=%d indeterminate=%d errors=%d capped=%t skipped_action=%d avg_score=%d\n",
 		rep.Passed, rep.Sessions, rep.Compared, rep.Regressions, rep.Indeterminate, rep.Errors, rep.Capped, rep.SkippedAction, rep.AvgScore)
+	fmt.Printf("action_compared=%d\n", rep.ActionCompared)
 }
 
 func printRescoreReport(dir, configPath, model string, rep replay.RescoreReport, provider mind.Provider) {
 	fmt.Printf("Replay re-score — recorded=%s against=%s model=%s\n", dir, configPath, model)
 	fmt.Printf("compared=%d avg_score=%d regressions=%d errors=%d skipped=%d capped=%t\n",
 		rep.Compared, rep.AvgScore, rep.Regressions, rep.Errors, rep.Skipped, rep.Capped)
+	fmt.Printf("action_compared=%d\n", rep.ActionCompared)
 	// §4.7 shadow efficiency: the candidate model's own spend (judge calls
 	// excluded) and the quality it bought per 1k of that spend — the "每千 token
 	// 质量分" that lets a cheaper-but-comparable brain rank above a pricier one.

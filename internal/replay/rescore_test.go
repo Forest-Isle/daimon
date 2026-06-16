@@ -15,10 +15,11 @@ import (
 // stubCandidate returns a fixed response (or error) and records the requests it
 // received, so the harness's request reconstruction can be asserted.
 type stubCandidate struct {
-	text     string
-	err      error
-	usage    mind.Usage
-	requests []mind.CompletionRequest
+	text      string
+	toolCalls []mind.ToolUseBlock
+	err       error
+	usage     mind.Usage
+	requests  []mind.CompletionRequest
 }
 
 func (s *stubCandidate) Complete(_ context.Context, req mind.CompletionRequest) (*mind.CompletionResponse, error) {
@@ -26,7 +27,7 @@ func (s *stubCandidate) Complete(_ context.Context, req mind.CompletionRequest) 
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &mind.CompletionResponse{Text: s.text, StopReason: mind.StopEndTurn, Usage: s.usage}, nil
+	return &mind.CompletionResponse{Text: s.text, ToolCalls: s.toolCalls, StopReason: mind.StopEndTurn, Usage: s.usage}, nil
 }
 
 // stubJudge returns a fixed reply (or error) and records the user message it saw.
@@ -168,24 +169,101 @@ func TestRescoreMaxExchangesCap(t *testing.T) {
 	}
 }
 
-func TestRescoreSkipsBaselineToolCallTurns(t *testing.T) {
+func TestRescoreJudgesActionTurns(t *testing.T) {
 	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
 	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
 	sessions := []Session{sessionWith(
-		// text + recorded tool call → action turn, skipped (text judging would misrepresent).
+		// text + recorded tool call → action turn, judged at the decision layer.
 		agent.ProviderExchange{SessionID: "s1", ResponseText: "running it", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
 		// pure text → scored.
 		agent.ProviderExchange{SessionID: "s1", Iteration: 1, ResponseText: "answer", MessagesJSON: msgsJSON(t, msgs)},
 	)}
-	cand := &stubCandidate{text: "answer2"}
+	cand := &stubCandidate{text: "answer2", toolCalls: []mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}}}
 	judge := &stubJudge{reply: `{"score":80,"regression":false}`}
 
 	rep, err := Rescore(context.Background(), sessions, cand, judge, RescoreOptions{}, fixedClock())
 	if err != nil {
 		t.Fatalf("Rescore: %v", err)
 	}
-	if rep.Compared != 1 || rep.Skipped != 1 {
-		t.Fatalf("rep = %+v, want compared=1 skipped=1", rep)
+	if rep.Compared != 2 || rep.ActionCompared != 1 || rep.Skipped != 0 {
+		t.Fatalf("rep = %+v, want compared=2 actionCompared=1 skipped=0", rep)
+	}
+}
+
+func TestRescoreActionTurnRegression(t *testing.T) {
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
+	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: `{"cmd":"safe"}`}})
+	sessions := []Session{sessionWith(
+		agent.ProviderExchange{SessionID: "s1", ResponseText: "running it", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
+	)}
+	cand := &stubCandidate{text: "done"}
+	judge := &stubJudge{reply: `{"score":15,"regression":true,"note":"missed the required tool"}`}
+
+	rep, err := Rescore(context.Background(), sessions, cand, judge, RescoreOptions{}, fixedClock())
+	if err != nil {
+		t.Fatalf("Rescore: %v", err)
+	}
+	if rep.Regressions != 1 || rep.ActionCompared != 1 || rep.Indeterminate != 1 {
+		t.Fatalf("rep = %+v, want regressions=1 actionCompared=1 indeterminate=1", rep)
+	}
+}
+
+func TestRescoreUndecodableActionPayloadFailsClosed(t *testing.T) {
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
+	sessions := []Session{sessionWith(
+		agent.ProviderExchange{
+			SessionID: "s1", ResponseText: "running it", MessagesJSON: msgsJSON(t, msgs),
+			ToolCallsJSON: json.RawMessage(`{"not":"an array"}`),
+		},
+	)}
+	cand := &stubCandidate{text: "answer"}
+	judge := &stubJudge{reply: `{"score":90,"regression":false}`}
+
+	rep, err := Rescore(context.Background(), sessions, cand, judge, RescoreOptions{}, fixedClock())
+	if err != nil {
+		t.Fatalf("Rescore: %v", err)
+	}
+	if rep.SkippedAction != 1 || rep.Skipped != 1 || rep.Compared != 0 {
+		t.Fatalf("rep = %+v, want skippedAction=1 skipped=1 compared=0", rep)
+	}
+	if len(cand.requests) != 0 {
+		t.Fatalf("candidate must not be called for undecodable action payload: %+v", cand.requests)
+	}
+}
+
+func TestRescoreActionCandidateNoToolCallIndeterminate(t *testing.T) {
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
+	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
+	sessions := []Session{sessionWith(
+		agent.ProviderExchange{SessionID: "s1", ResponseText: "running it", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
+	)}
+	cand := &stubCandidate{text: "I can answer without a tool."}
+	judge := &stubJudge{reply: `{"score":90,"regression":false}`}
+
+	rep, err := Rescore(context.Background(), sessions, cand, judge, RescoreOptions{}, fixedClock())
+	if err != nil {
+		t.Fatalf("Rescore: %v", err)
+	}
+	if rep.Indeterminate != 1 || rep.ActionCompared != 1 || rep.Regressions != 0 {
+		t.Fatalf("rep = %+v, want indeterminate=1 actionCompared=1 regressions=0", rep)
+	}
+}
+
+func TestRescoreEmptyBaselineActionTurnJudged(t *testing.T) {
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
+	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
+	sessions := []Session{sessionWith(
+		agent.ProviderExchange{SessionID: "s1", ResponseText: "", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
+	)}
+	cand := &stubCandidate{toolCalls: []mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}}}
+	judge := &stubJudge{reply: `{"score":90,"regression":false}`}
+
+	rep, err := Rescore(context.Background(), sessions, cand, judge, RescoreOptions{}, fixedClock())
+	if err != nil {
+		t.Fatalf("Rescore: %v", err)
+	}
+	if rep.ActionCompared != 1 || rep.Skipped != 0 || rep.SkippedAction != 0 {
+		t.Fatalf("rep = %+v, want actionCompared=1 skipped=0 skippedAction=0", rep)
 	}
 }
 

@@ -16,8 +16,10 @@ import (
 //     self-modification (a distilled skill, a prompt/rule edit, a model swap) is
 //     allowed to graduate.
 //
-// Everything here is action dry-run: Canary only generates and judges text via
-// the underlying Rescore, it never executes tools or writes the world.
+// Everything here is action dry-run: Canary only generates and judges via the
+// underlying Rescore, it never executes tools or writes the world. Action turns
+// are judged at the decision layer by comparing proposed tool calls to recorded
+// tool calls.
 
 // RegressionCriteria selects which recorded sessions belong in the must-pass
 // regression set (blueprint §4.10 mode 2): "用户纠正过的情节自动入集……改动必须全过".
@@ -80,13 +82,10 @@ func Recent(sessions []Session, n int) []Session {
 type CanaryOptions struct {
 	Rescore   RescoreOptions
 	MaxErrors int
-	// AllowSkippedActions permits a pass when the run skipped action turns (turns
-	// whose baseline made tool calls) without scoring them. Default false: faithful
-	// action re-scoring does not exist yet, so a canary over sessions that contain
-	// action turns cannot certify the candidate's tool/action behavior and fails
-	// closed. A caller making a purely textual change (e.g. a prompt-wording edit)
-	// may opt in to accept text-only certification; a distilled-skill promotion —
-	// which changes tool behavior — must leave this false.
+	// AllowSkippedActions permits a pass when the run hit the defensive
+	// SkippedAction fallback. Default false: action turns are now judged at the
+	// decision layer, so SkippedAction should only mean an action record could not
+	// be decoded and therefore could not be certified.
 	AllowSkippedActions bool
 }
 
@@ -120,14 +119,14 @@ type CanaryReport struct {
 //     scorable exchanges left over certifies only part of the window, so it does
 //     not pass. Size RescoreOptions.MaxExchanges to cover the window (or 0 for no
 //     cap) when you intend a passing verdict to mean full coverage.
-//   - SkippedAction == 0 (unless AllowSkippedActions) — no action turn went
-//     unverified. Until faithful action re-scoring exists, a change that could
-//     alter tool behavior cannot be certified over sessions whose action turns
-//     were skipped.
+//   - SkippedAction == 0 (unless AllowSkippedActions) — no action record hit the
+//     defensive fallback. Action turns normally count in Compared after decision-
+//     layer judging; SkippedAction means an action record could not be decoded and
+//     therefore could not be certified.
 //
-// Empty-baseline skips (pure tool-call turns with no prose) do not block a pass:
-// there is genuinely nothing to compare. Action-turn skips DO block by default —
-// see AllowSkippedActions.
+// Truly empty skips (no prose and no tool calls) do not block a pass: there is
+// genuinely nothing to compare. SkippedAction remains a fail-closed guard by
+// default; see AllowSkippedActions.
 func Canary(ctx context.Context, sessions []Session, cand Candidate, judge Judge, opts CanaryOptions, now func() time.Time) (CanaryReport, error) {
 	rep, err := Rescore(ctx, sessions, cand, judge, opts.Rescore, now)
 	if err != nil {
