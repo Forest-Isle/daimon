@@ -90,6 +90,9 @@ func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next t
 	if governed && i.store != nil && class == Reversible {
 		undo, captureUndo = captureFileUndo(ctx, call.ToolName, call.Input)
 	}
+	if captureUndo {
+		undo.EpisodeID = tool.EpisodeIDFromContext(ctx)
+	}
 
 	result, err := next(ctx, call)
 
