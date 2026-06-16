@@ -11,6 +11,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/replay"
+	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -21,8 +22,11 @@ func newReplayCmd() *cobra.Command {
 	var replaysDir string
 	var sessionID string
 	var against string
+	var configPath string
+	var devMode bool
 	var judgeModel string
 	var maxExchanges int
+	var canary bool
 
 	cmd := &cobra.Command{
 		Use:   "replay",
@@ -36,6 +40,10 @@ func newReplayCmd() *cobra.Command {
 			"makes real provider calls (it costs tokens) but never executes tools or " +
 			"writes the world — it is a dry-run re-scoring.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if canary && against == "" {
+				return fmt.Errorf("--canary requires --against <config>")
+			}
+
 			dir := replaysDir
 			if dir == "" {
 				dir = filepath.Join(appdir.BaseDir(), "replays")
@@ -54,6 +62,9 @@ func newReplayCmd() *cobra.Command {
 			}
 
 			if against != "" {
+				if canary {
+					return runReplayCanary(cmd.Context(), dir, configPath, devMode, against, judgeModel, maxExchanges, sessions)
+				}
 				return runReplayAgainst(cmd.Context(), dir, against, judgeModel, maxExchanges, sessions)
 			}
 
@@ -65,8 +76,11 @@ func newReplayCmd() *cobra.Command {
 	cmd.Flags().StringVar(&replaysDir, "replays", "", "replay journals directory (default: ~/.daimon/replays)")
 	cmd.Flags().StringVar(&sessionID, "session", "", "limit the report to a single session id")
 	cmd.Flags().StringVar(&against, "against", "", "candidate config to re-run recorded exchanges against (offline re-scoring; costs tokens)")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "", "main config file for regression corrections (auto-discovered if empty)")
+	cmd.Flags().BoolVar(&devMode, "dev", false, "use configs/daimon.yaml in dev mode")
 	cmd.Flags().StringVar(&judgeModel, "judge-model", "", "model the judge uses (default: the candidate config's model)")
 	cmd.Flags().IntVar(&maxExchanges, "max-exchanges", 20, "cap the number of exchanges re-scored (0 = no cap)")
+	cmd.Flags().BoolVar(&canary, "canary", false, "gate a candidate config over the must-pass regression set (corrected + salvaged sessions); non-zero exit on fail")
 	return cmd
 }
 
@@ -111,6 +125,68 @@ func runReplayAgainst(ctx context.Context, dir, configPath, judgeModel string, m
 	}
 	printRescoreReport(dir, configPath, cfg.LLM.Model, rep, provider)
 	return nil
+}
+
+func runReplayCanary(ctx context.Context, dir, mainConfigPath string, devMode bool, candidateConfigPath, judgeModel string, maxExchanges int, sessions []replay.Session) error {
+	resolvedPath, err := config.FindConfigPath(mainConfigPath, devMode)
+	if err != nil {
+		return fmt.Errorf("find config: %w", err)
+	}
+	mainCfg, err := config.Load(resolvedPath)
+	if err != nil {
+		return fmt.Errorf("load main config: %w", err)
+	}
+	db, err := store.Open(mainCfg.Store.Path)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	corrections, err := replay.NewCorrectionStore(db.DB).SessionIDSet(ctx)
+	if err != nil {
+		return fmt.Errorf("load corrections: %w", err)
+	}
+	regSet := replay.SelectRegression(sessions, replay.RegressionCriteria{
+		CorrectionSessionIDs: corrections,
+		IncludeSalvaged:      true,
+	})
+	if len(regSet) == 0 {
+		fmt.Println("regression set empty (no corrected or salvaged sessions) — nothing to gate")
+		return nil
+	}
+
+	candCfg, err := config.Load(candidateConfigPath)
+	if err != nil {
+		return fmt.Errorf("load candidate config: %w", err)
+	}
+	provider := mind.NewProviderFromConfig(candCfg.LLM)
+	if judgeModel == "" {
+		judgeModel = candCfg.LLM.Model
+	}
+
+	rep, err := replay.Canary(ctx, regSet, provider, judgeProvider{provider: provider, model: judgeModel}, replay.CanaryOptions{
+		Rescore: replay.RescoreOptions{
+			Model:        candCfg.LLM.Model,
+			MaxTokens:    candCfg.LLM.MaxTokens,
+			MaxExchanges: maxExchanges,
+		},
+		MaxErrors:           0,
+		AllowSkippedActions: false,
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("canary: %w", err)
+	}
+	printCanaryReport(dir, candidateConfigPath, candCfg.LLM.Model, rep)
+	if !rep.Passed {
+		return fmt.Errorf("canary failed")
+	}
+	return nil
+}
+
+func printCanaryReport(dir, configPath, model string, rep replay.CanaryReport) {
+	fmt.Printf("Replay canary — recorded=%s against=%s model=%s\n", dir, configPath, model)
+	fmt.Printf("passed=%t sessions=%d compared=%d regressions=%d indeterminate=%d errors=%d capped=%t skipped_action=%d avg_score=%d\n",
+		rep.Passed, rep.Sessions, rep.Compared, rep.Regressions, rep.Indeterminate, rep.Errors, rep.Capped, rep.SkippedAction, rep.AvgScore)
 }
 
 func printRescoreReport(dir, configPath, model string, rep replay.RescoreReport, provider mind.Provider) {
