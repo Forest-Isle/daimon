@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/Forest-Isle/daimon/internal/vcs"
 	"github.com/Forest-Isle/daimon/internal/world"
 	"github.com/google/uuid"
 )
@@ -351,7 +353,7 @@ type worldEditInput struct {
 	Append  bool   `json:"append"`
 }
 
-func (t *WorldEditTool) Execute(_ context.Context, input []byte) (Result, error) {
+func (t *WorldEditTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	var in worldEditInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return Result{Error: "world_edit: invalid input: " + err.Error()}, nil
@@ -390,6 +392,11 @@ func (t *WorldEditTool) Execute(_ context.Context, input []byte) (Result, error)
 	}
 	if err := f.Close(); err != nil {
 		return Result{Error: "world_edit: " + err.Error()}, nil
+	}
+	if err := vcs.EnsureRepo(ctx, t.identity.Dir); err != nil {
+		slog.Warn("world_edit: ensure identity repo failed", "err", err)
+	} else if _, _, err := vcs.Commit(ctx, t.identity.Dir, "world_edit: "+displayPath, displayPath); err != nil {
+		slog.Warn("world_edit: commit identity change failed", "err", err)
 	}
 	return Result{Output: fmt.Sprintf("world identity file %s: %s", action, displayPath)}, nil
 }
