@@ -219,62 +219,71 @@ func TestCanaryPropagatesDepError(t *testing.T) {
 	}
 }
 
-func TestCanaryFailsOnUnverifiedActionTurn(t *testing.T) {
-	// A session with one action turn (baseline made tool calls → skipped, unverified)
-	// plus one clean text turn. The clean text turn alone must NOT certify the change:
-	// its tool behavior went unchecked, so the gate fails closed by default.
+func TestCanaryPassesOnCleanActionTurn(t *testing.T) {
+	// Action turns are now judged at the decision layer, so a clean action decision
+	// plus clean text evidence can certify without AllowSkippedActions.
 	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
 	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
 	sessions := []Session{{SessionID: "a", Exchanges: []agent.ProviderExchange{
 		{SessionID: "a", Iteration: 0, ResponseText: "running it", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
 		{SessionID: "a", Iteration: 1, ResponseText: "answer", MessagesJSON: msgsJSON(t, msgs)},
 	}}}
-	cand := &stubCandidate{text: "answer2"}
+	cand := &stubCandidate{text: "answer2", toolCalls: []mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}}}
 	judge := &stubJudge{reply: `{"score":90,"regression":false}`}
 
 	cr, err := Canary(context.Background(), sessions, cand, judge, CanaryOptions{}, fixedClock())
 	if err != nil {
 		t.Fatalf("Canary: %v", err)
 	}
-	if cr.SkippedAction != 1 {
-		t.Fatalf("SkippedAction=%d, want 1", cr.SkippedAction)
+	if !cr.Passed {
+		t.Fatalf("clean action evidence must pass: %+v", cr)
 	}
-	if cr.Passed {
-		t.Fatal("an unverified action turn must fail the canary by default")
+	if cr.Compared != 2 || cr.ActionCompared != 1 || cr.SkippedAction != 0 {
+		t.Fatalf("counts = %+v, want compared=2 actionCompared=1 skippedAction=0", cr)
 	}
+}
 
-	// A text-only change may opt in to accept text-only certification.
-	cr, err = Canary(context.Background(), sessions, cand, judge, CanaryOptions{AllowSkippedActions: true}, fixedClock())
+func TestCanaryFailsOnActionDecisionRegression(t *testing.T) {
+	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
+	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: `{"cmd":"safe"}`}})
+	sessions := []Session{{SessionID: "a", Exchanges: []agent.ProviderExchange{
+		{SessionID: "a", Iteration: 0, ResponseText: "running it", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
+	}}}
+	cand := &stubCandidate{text: "I will skip it"}
+	judge := &stubJudge{reply: `{"score":15,"regression":true,"note":"missed the required tool"}`}
+
+	cr, err := Canary(context.Background(), sessions, cand, judge, CanaryOptions{}, fixedClock())
 	if err != nil {
 		t.Fatalf("Canary: %v", err)
 	}
-	if !cr.Passed {
-		t.Fatalf("AllowSkippedActions must let a clean text comparison pass: %+v", cr)
+	if cr.Passed {
+		t.Fatal("an action decision regression must fail the canary")
+	}
+	if cr.Regressions != 1 || cr.ActionCompared != 1 {
+		t.Fatalf("counts = %+v, want regressions=1 actionCompared=1", cr)
 	}
 }
 
 func TestCanaryCountsEmptyResponseActionTurn(t *testing.T) {
-	// An action turn with NO prose (model called a tool and said nothing) hits the
-	// empty-baseline skip — but it is still an unverified action turn and must count
-	// toward SkippedAction so the clean text turn alone cannot certify the change.
+	// An action turn with NO prose is still judged at the decision layer.
 	msgs := []mind.CompletionMessage{{Role: "user", Content: "do it"}}
 	toolCalls, _ := json.Marshal([]mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}})
 	sessions := []Session{{SessionID: "a", Exchanges: []agent.ProviderExchange{
 		{SessionID: "a", Iteration: 0, ResponseText: "", MessagesJSON: msgsJSON(t, msgs), ToolCallsJSON: toolCalls},
 		{SessionID: "a", Iteration: 1, ResponseText: "answer", MessagesJSON: msgsJSON(t, msgs)},
 	}}}
-	cand := &stubCandidate{text: "answer2"}
+	cand := &stubCandidate{text: "answer2", toolCalls: []mind.ToolUseBlock{{ID: "t1", Name: "bash", Input: "{}"}}}
 	judge := &stubJudge{reply: `{"score":90,"regression":false}`}
 
 	cr, err := Canary(context.Background(), sessions, cand, judge, CanaryOptions{}, fixedClock())
 	if err != nil {
 		t.Fatalf("Canary: %v", err)
 	}
-	if cr.SkippedAction != 1 {
-		t.Fatalf("SkippedAction=%d, want 1 (empty-prose action turn must count)", cr.SkippedAction)
+	if !cr.Passed {
+		t.Fatalf("clean empty-prose action evidence must pass: %+v", cr)
 	}
-	if cr.Passed {
-		t.Fatal("an empty-prose action turn must fail the canary by default")
+	if cr.ActionCompared != 1 || cr.Skipped != 0 || cr.SkippedAction != 0 {
+		t.Fatalf("counts = %+v, want actionCompared=1 skipped=0 skippedAction=0", cr)
 	}
 }
 
