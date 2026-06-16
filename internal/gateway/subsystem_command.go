@@ -17,6 +17,7 @@ func InitCommands(gwRef *Gateway) *CommandSubsystem {
 	cs := &CommandSubsystem{}
 	cs.Table = commandTable{
 		"/attention": {gwRef.handleAttention, false},
+		"/brief":     {gwRef.handleBrief, false},
 		"/feature":   {gwRef.handleFeature, false},
 		"/config":    {gwRef.handleConfig, true},
 		"/compact":   {gwRef.handleCompact, true},
