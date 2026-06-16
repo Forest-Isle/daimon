@@ -112,6 +112,56 @@ func (s *Store) ListPending(ctx context.Context, now int64) ([]Proposal, error) 
 	return out, nil
 }
 
+// ListUndelivered returns live pending proposals not yet pushed to the user
+// (delivered_at = 0), in the same urgency-then-age order as ListPending. The
+// delivery driver pushes these and marks each delivered, so a proposal is offered
+// once rather than re-pushed every cycle.
+func (s *Store) ListUndelivered(ctx context.Context, now int64) ([]Proposal, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at
+		FROM proposals
+		WHERE state = ? AND delivered_at = 0 AND (expires_at = 0 OR expires_at > ?)
+		ORDER BY urgency DESC, created_at ASC, id ASC`,
+		StatePending, now)
+	if err != nil {
+		return nil, fmt.Errorf("list undelivered proposals: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Proposal
+	for rows.Next() {
+		p, err := scanProposal(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan proposal: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate proposals: %w", err)
+	}
+	return out, nil
+}
+
+// MarkDelivered stamps delivered_at on a proposal that has not been delivered yet.
+// It is idempotent: a second mark (a re-pushed duplicate, a race) updates nothing
+// and returns nil, so delivery accounting never double-counts. State is not
+// constrained — a proposal decided between the push and the mark stays decided and
+// is simply recorded as delivered.
+func (s *Store) MarkDelivered(ctx context.Context, id string, at int64) error {
+	if err := s.ensure(); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE proposals SET delivered_at = ? WHERE id = ? AND delivered_at = 0`,
+		at, id); err != nil {
+		return fmt.Errorf("mark proposal delivered: %w", err)
+	}
+	return nil
+}
+
 // PendingTitles is the set of titles of proposals still LIVE at now (pending and
 // not past their expiry), used by the sleep job to avoid queuing a duplicate of
 // a proposal the user has not yet acted on. It applies the same live predicate as
