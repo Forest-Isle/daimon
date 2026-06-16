@@ -110,6 +110,44 @@ func TestEventDispatcherDailyBriefBypassesCognition(t *testing.T) {
 	}
 }
 
+// TestEventDispatcherHealthBypassesCognition verifies the deterministic
+// selfops health timer is handled off the routing/cognition path.
+func TestEventDispatcherHealthBypassesCognition(t *testing.T) {
+	routed := false
+	cognized := false
+	briefed := false
+	healthChecked := false
+	d := &eventDispatcher{
+		route: func(_ context.Context, _ heart.Event) (attention.Verdict, error) {
+			routed = true
+			return attention.Verdict{Action: attention.Cognize}, nil
+		},
+		cognize: func(_ context.Context, _ heart.Event) { cognized = true },
+		brief:   func(_ context.Context) { briefed = true },
+		health:  func(_ context.Context) { healthChecked = true },
+	}
+	d.handle(context.Background(), heart.Event{Source: "timer", Kind: "internal.health"})
+	if !healthChecked {
+		t.Fatal("health event must call health closure")
+	}
+	if routed || cognized || briefed {
+		t.Fatalf("health must bypass routing/cognition (routed=%v cognized=%v briefed=%v)", routed, cognized, briefed)
+	}
+
+	routed = false
+	d = &eventDispatcher{
+		route: func(_ context.Context, _ heart.Event) (attention.Verdict, error) {
+			routed = true
+			return attention.Verdict{Action: attention.Cognize}, nil
+		},
+		health: nil,
+	}
+	d.handle(context.Background(), heart.Event{Source: "timer", Kind: "internal.health"})
+	if routed {
+		t.Fatal("health event with nil health closure must not route")
+	}
+}
+
 // TestHandleApprovalDeniesNilChannel pins the autonomous-episode safety rule:
 // with no interactive channel there is no one to sign off, so approval-required
 // tools must be denied (not auto-approved).

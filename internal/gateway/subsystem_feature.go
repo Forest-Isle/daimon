@@ -23,6 +23,7 @@ func InitFeatures(cfg *config.Config) *FeatureSubsystem {
 	r.Register(feature.Feature{Name: "skills", Description: "SKILL.md loading", Default: true})
 	r.Register(feature.Feature{Name: "multi_agent", Description: "Sub-agent spawning", Default: true})
 	r.Register(feature.Feature{Name: "server", Description: "HTTP admin server", Default: false})
+	r.Register(feature.Feature{Name: "selfops", Description: "Self-ops watchdog (health monitoring)", Default: false})
 	for name, srv := range cfg.Tools.MCP.Servers {
 		r.Register(feature.Feature{Name: "mcp_" + name, Description: fmt.Sprintf("MCP: %s", srv.Command), Default: true})
 	}

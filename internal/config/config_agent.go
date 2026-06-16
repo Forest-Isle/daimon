@@ -19,6 +19,7 @@ type AgentConfig struct {
 type HeartConfig struct {
 	HeartbeatIntervalMinutes  int      `yaml:"heartbeat_interval_minutes"`   // 0 = no timer source registered
 	DailyBriefIntervalMinutes int      `yaml:"daily_brief_interval_minutes"` // 0 = no daily-brief timer; >0 fires internal.daily_brief every N minutes
+	HealthIntervalMinutes     int      `yaml:"health_interval_minutes"`      // 0 = no selfops health timer; >0 fires internal.health every N minutes
 	ModelRouter               bool     `yaml:"model_router"`                 // wire the small-model (haiku) triage tier
 	HighRiskKinds             []string `yaml:"high_risk_kinds"`              // extra always-wake event-kind prefixes (added to safe defaults)
 	ChatThroughHeart          bool     `yaml:"chat_through_heart"`           // record inbound chat in the event stream (dedup + audit) before handling

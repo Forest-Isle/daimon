@@ -281,6 +281,18 @@ func (s *Store) DueHolds(ctx context.Context, now string) ([]Hold, error) {
 	return out, nil
 }
 
+// CountPendingHolds returns the number of holds still waiting in the recall queue.
+func (s *Store) CountPendingHolds(ctx context.Context) (int, error) {
+	if err := s.ensure(); err != nil {
+		return 0, err
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM holds WHERE state = 'pending'`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count pending holds: %w", err)
+	}
+	return n, nil
+}
+
 // MarkHoldState transitions a hold to executed or recalled.
 func (s *Store) MarkHoldState(ctx context.Context, id, state string) error {
 	if err := s.ensure(); err != nil {
