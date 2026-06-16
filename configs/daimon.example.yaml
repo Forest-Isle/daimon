@@ -5,7 +5,7 @@
 # 运行时可通过 /feature list 查看所有功能状态，/feature enable|disable 开关功能。
 #
 # 默认开启: memory, skills, multi_agent
-# 默认关闭: server
+# 默认关闭: server, selfops
 
 llm:
   provider: claude                               # "claude" (default) or "openai" / "openai-compatible"
@@ -55,6 +55,7 @@ agent:
   heart:
     heartbeat_interval_minutes: 0  # 0 = no timer source; >0 fires internal.heartbeat every N minutes
     daily_brief_interval_minutes: 0  # 0 = off; >0 sends a deterministic 24h digest (journal + proposals + holds) to the user every N minutes (use 1440 for daily)
+    health_interval_minutes: 0     # 0 = off; >0 runs deterministic selfops health checks when feature selfops is enabled
     model_router: false            # also triage events with the small (haiku) model when rules don't match
     chat_through_heart: false      # record inbound chat in the event stream (audit + dedup on message id) before handling; reply path unchanged
     # Event kinds (exact or prefix) that ALWAYS wake the user, ahead of any rule

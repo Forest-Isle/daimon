@@ -23,6 +23,7 @@ type eventDispatcher struct {
 	reflex  func(ctx context.Context, ev heart.Event, reflexID string)
 	wake    func(ctx context.Context, ev heart.Event, v attention.Verdict)
 	brief   func(ctx context.Context)
+	health  func(ctx context.Context)
 }
 
 // handle is the heart.Handler: route the event, then dispatch on the verdict. A
@@ -44,6 +45,15 @@ func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) {
 	if ev.Kind == "internal.daily_brief" {
 		if d.brief != nil {
 			d.brief(ctx)
+		}
+		return
+	}
+	// The selfops health timer is deterministic and stays off the cognition
+	// path (constitution #5/#7): inspect cheap signals, notify/write proposals,
+	// never route to the model.
+	if ev.Kind == "internal.health" {
+		if d.health != nil {
+			d.health(ctx)
 		}
 		return
 	}
@@ -83,8 +93,9 @@ func (gw *Gateway) newEventDispatcher() *eventDispatcher {
 		reflex: func(_ context.Context, ev heart.Event, reflexID string) {
 			slog.Info("heart: reflex (stub)", "kind", ev.Kind, "reflex_id", reflexID)
 		},
-		wake:  gw.wakeUser,
-		brief: gw.deliverDailyBrief,
+		wake:   gw.wakeUser,
+		brief:  gw.deliverDailyBrief,
+		health: gw.runHealthCheck,
 	}
 }
 

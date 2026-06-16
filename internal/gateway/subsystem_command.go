@@ -31,6 +31,7 @@ func InitCommands(gwRef *Gateway) *CommandSubsystem {
 		"/skills":    {gwRef.handleSkills, false},
 		"/sleep":     {gwRef.handleSleep, false},
 		"/schedule":  {gwRef.handleSchedule, false},
+		"/selfops":   {gwRef.handleSelfops, false},
 		"/tasks":     {gwRef.handleTasks, true},
 		"/team":      {gwRef.handleTeam, false},
 	}
