@@ -56,6 +56,7 @@ type Gateway struct {
 	telemetry  *TelemetrySubsystem
 	heart      *HeartSubsystem // nil unless agent.heart_enabled
 	sleep      *sleep.Runner   // consolidation jobs, triggered by /sleep (and later the heart)
+	throttle   *throttleGate   // economy C2e-3: gated enforcement for autonomous Cognize classes
 
 	// proposals (§4.9): the anticipation loop's decision + delivery wiring.
 	proposals         *proposalCoordinator
@@ -83,7 +84,10 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		return nil, fmt.Errorf("config: agent.heart_enabled requires agent.episode_enabled (the heart drives episodes through the kernel)")
 	}
 
-	gw := &Gateway{stopCh: make(chan struct{})}
+	gw := &Gateway{
+		stopCh:   make(chan struct{}),
+		throttle: &throttleGate{throttled: map[string]bool{}, overrides: map[string]bool{}},
+	}
 	gw.initCtx, gw.initCancel = context.WithTimeout(context.Background(), 30*time.Second)
 	eventBus := agent.NewEventBus()
 
@@ -156,6 +160,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 			sleepSummarizer,
 			unixNow,
 		),
+		throttleEvalJob{refresh: gw.refreshThrottle},
 	)
 
 	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)

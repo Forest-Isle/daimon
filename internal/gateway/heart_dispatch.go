@@ -81,6 +81,13 @@ func (gw *Gateway) newEventDispatcher() *eventDispatcher {
 	return &eventDispatcher{
 		route: gw.heart.chain.Route,
 		cognize: func(ctx context.Context, ev heart.Event) {
+			// Throttle enforcement only gates autonomous Cognize episodes. WakeUser,
+			// Reflex, deterministic branches, and chat are structurally unaffected;
+			// the gate itself is config-gated, reversible on refresh, and user-overridable.
+			if gw.throttle != nil && gw.throttle.ShouldSkip(ev.Kind) {
+				slog.Info("heart: throttled class skipped autonomous episode", "kind", ev.Kind)
+				return
+			}
 			// Pass the event id as the idempotency key: heart's at-least-once replay
 			// (after a crash before the event was marked routed) re-delivers the same
 			// event id, and the kernel skips an already-completed episode.
