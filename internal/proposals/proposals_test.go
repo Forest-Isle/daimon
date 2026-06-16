@@ -83,6 +83,43 @@ func TestCreateAndListPending(t *testing.T) {
 	if pending[0].ID == "" {
 		t.Fatal("Create did not assign an id")
 	}
+	if pending[0].ActionKind != ActionKindEpisode || pending[1].ActionKind != ActionKindEpisode {
+		t.Fatalf("blank ActionKind must default to episode: %#v", pending)
+	}
+}
+
+func TestCreateGetActionKindRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.Create(ctx, Proposal{
+		ID:         "promote",
+		Title:      "Promote distilled skill: Foo",
+		Body:       "body",
+		ActionKind: ActionKindPromoteSkill,
+		ActionRef:  "foo",
+		CreatedAt:  1,
+	}); err != nil {
+		t.Fatalf("Create(promote): %v", err)
+	}
+	got, err := s.Get(ctx, "promote")
+	if err != nil {
+		t.Fatalf("Get(promote): %v", err)
+	}
+	if got.ActionKind != ActionKindPromoteSkill || got.ActionRef != "foo" {
+		t.Fatalf("action fields did not round-trip: %#v", got)
+	}
+
+	if err := s.Create(ctx, Proposal{ID: "default", Title: "Default", CreatedAt: 1}); err != nil {
+		t.Fatalf("Create(default): %v", err)
+	}
+	got, err = s.Get(ctx, "default")
+	if err != nil {
+		t.Fatalf("Get(default): %v", err)
+	}
+	if got.ActionKind != ActionKindEpisode || got.ActionRef != "" {
+		t.Fatalf("blank ActionKind must default to episode with empty ref: %#v", got)
+	}
 }
 
 func TestPendingTitles(t *testing.T) {
@@ -126,6 +163,85 @@ func TestPendingTitles(t *testing.T) {
 	}
 	if !live["gamma"] {
 		t.Fatalf("gamma should be live at now=50: %#v", live)
+	}
+}
+
+func TestPendingPromoteRefs(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	for _, p := range []Proposal{
+		{ID: "live", Title: "Promote distilled skill: Live", ActionKind: ActionKindPromoteSkill, ActionRef: "live", CreatedAt: 1},
+		{ID: "episode", Title: "Episode", ActionKind: ActionKindEpisode, ActionRef: "episode-ref", CreatedAt: 1},
+		{ID: "empty", Title: "Empty", ActionKind: ActionKindPromoteSkill, ActionRef: "", CreatedAt: 1},
+		{ID: "expired", Title: "Expired", ActionKind: ActionKindPromoteSkill, ActionRef: "expired", CreatedAt: 1, ExpiresAt: 100},
+		{ID: "accepted", Title: "Accepted", ActionKind: ActionKindPromoteSkill, ActionRef: "accepted", CreatedAt: 1},
+	} {
+		if err := s.Create(ctx, p); err != nil {
+			t.Fatalf("Create(%s): %v", p.ID, err)
+		}
+	}
+	if err := s.Decide(ctx, "accepted", StateAccepted, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	refs, err := s.PendingPromoteRefs(ctx, 200)
+	if err != nil {
+		t.Fatalf("PendingPromoteRefs: %v", err)
+	}
+	if len(refs) != 1 || !refs["live"] {
+		t.Fatalf("want only live promote ref, got %#v", refs)
+	}
+	live, err := s.PendingPromoteRefs(ctx, 50)
+	if err != nil {
+		t.Fatalf("PendingPromoteRefs(live): %v", err)
+	}
+	if !live["expired"] {
+		t.Fatalf("expired ref should still be live before expiry: %#v", live)
+	}
+}
+
+func TestRecentlyDismissedPromoteRefs(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	for _, p := range []Proposal{
+		{ID: "old", Title: "Old Name", ActionKind: ActionKindPromoteSkill, ActionRef: "old", CreatedAt: 1},
+		{ID: "boundary", Title: "Boundary Name", ActionKind: ActionKindPromoteSkill, ActionRef: "boundary", CreatedAt: 1},
+		{ID: "recent", Title: "Recent Name", ActionKind: ActionKindPromoteSkill, ActionRef: "recent", CreatedAt: 1},
+		{ID: "accepted", Title: "Accepted Name", ActionKind: ActionKindPromoteSkill, ActionRef: "accepted", CreatedAt: 1},
+		{ID: "episode", Title: "Episode", ActionKind: ActionKindEpisode, ActionRef: "episode-ref", CreatedAt: 1},
+		{ID: "empty", Title: "Empty", ActionKind: ActionKindPromoteSkill, ActionRef: "", CreatedAt: 1},
+	} {
+		if err := s.Create(ctx, p); err != nil {
+			t.Fatalf("Create(%s): %v", p.ID, err)
+		}
+	}
+	if err := s.Decide(ctx, "old", StateDismissed, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Decide(ctx, "boundary", StateDismissed, 300); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Decide(ctx, "recent", StateDismissed, 500); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Decide(ctx, "accepted", StateAccepted, 500); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Decide(ctx, "episode", StateDismissed, 500); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Decide(ctx, "empty", StateDismissed, 500); err != nil {
+		t.Fatal(err)
+	}
+
+	refs, err := s.RecentlyDismissedPromoteRefs(ctx, 300)
+	if err != nil {
+		t.Fatalf("RecentlyDismissedPromoteRefs: %v", err)
+	}
+	if len(refs) != 2 || !refs["boundary"] || !refs["recent"] {
+		t.Fatalf("want boundary+recent promote refs only, got %#v", refs)
 	}
 }
 

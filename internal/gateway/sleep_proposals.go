@@ -2,13 +2,21 @@ package gateway
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/Forest-Isle/daimon/internal/appdir"
 	"github.com/Forest-Isle/daimon/internal/proposals"
+	"github.com/Forest-Isle/daimon/internal/skill"
 	"github.com/Forest-Isle/daimon/internal/sleep"
 	"github.com/Forest-Isle/daimon/internal/world"
 )
+
+// Promote proposals expire even though drafts do not: a long-unhandled or
+// undelivered proposal should eventually stop blocking the same slug, allowing
+// distill-screen to re-judge and re-propose the still-staged draft.
+const promoteProposalTTLDays = 30
 
 // worldCommitmentSource adapts the world store to sleep.commitmentLister. The due
 // filter is applied in Go rather than via SQL: due_at is a free-form DATETIME the
@@ -108,4 +116,67 @@ func (s proposalsStoreSink) Add(ctx context.Context, items []sleep.ProposedItem)
 		}
 	}
 	return nil
+}
+
+func (s proposalsStoreSink) PendingPromoteRefs(ctx context.Context, now int64) (map[string]bool, error) {
+	return s.store.PendingPromoteRefs(ctx, now)
+}
+
+func (s proposalsStoreSink) RecentlyDismissedPromoteRefs(ctx context.Context, since int64) (map[string]bool, error) {
+	return s.store.RecentlyDismissedPromoteRefs(ctx, since)
+}
+
+func (s proposalsStoreSink) AddPromote(ctx context.Context, items []sleep.PromoteProposal) error {
+	createdAt := s.now()
+	expiresAt := createdAt + int64(promoteProposalTTLDays)*86400
+	for _, it := range items {
+		if err := s.store.Create(ctx, proposals.Proposal{
+			Title:      it.Title,
+			Body:       it.Body,
+			ActionKind: proposals.ActionKindPromoteSkill,
+			ActionRef:  it.Slug,
+			CreatedAt:  createdAt,
+			ExpiresAt:  expiresAt,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type stagedDraftSource struct {
+	dir string
+}
+
+func defaultStagedDraftSource() stagedDraftSource {
+	return stagedDraftSource{dir: appdir.SkillsStagingDir()}
+}
+
+func (s stagedDraftSource) StagedDrafts(context.Context) ([]sleep.DraftCandidate, error) {
+	infos, err := skill.ListDrafts(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sleep.DraftCandidate, 0, len(infos))
+	for _, info := range infos {
+		if info.Status != "valid" {
+			continue
+		}
+		draft, err := skill.ValidateDraft(filepath.Join(s.dir, info.Slug, "SKILL.md"))
+		if err != nil {
+			continue
+		}
+		body, err := draft.Content()
+		if err != nil {
+			continue
+		}
+		out = append(out, sleep.DraftCandidate{
+			Slug:        info.Slug,
+			Name:        info.Name,
+			Description: info.Description,
+			Episodes:    info.Episodes,
+			Body:        body,
+		})
+	}
+	return out, nil
 }
