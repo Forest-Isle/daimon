@@ -34,6 +34,7 @@ func InitCommands(gwRef *Gateway) *CommandSubsystem {
 		"/selfops":   {gwRef.handleSelfops, false},
 		"/tasks":     {gwRef.handleTasks, true},
 		"/team":      {gwRef.handleTeam, false},
+		"/throttle":  {gwRef.handleThrottle, false},
 	}
 	return cs
 }

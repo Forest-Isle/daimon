@@ -40,12 +40,13 @@ type EconomyConfig struct {
 	Throttle ThrottleConfig        `yaml:"throttle"`
 }
 
-// ThrottleConfig sets soft thresholds for the cost/ROI throttle advisor
-// (DAIMON_BLUEPRINT.md §4.11). The advisor only FLAGS activity classes that exceed
-// their budget or deliver poor value — the `daimon costs` report surfaces the
-// recommendations. It does NOT act on them: auto-enforcement (down-routing or
-// reduced cadence) is a separate, gated step. A zero threshold disables that check.
+// ThrottleConfig sets thresholds for the cost/ROI throttle advisor
+// (DAIMON_BLUEPRINT.md §4.11). The `daimon costs` report surfaces advisory
+// recommendations. Runtime enforcement is gated by Enforce: when false, flagged
+// classes are only observed; when true, flagged autonomous Cognize classes are
+// skipped until the class recovers or the user overrides the throttle.
 type ThrottleConfig struct {
+	Enforce           bool    `yaml:"enforce"`              // when true, flagged classes are automatically throttled (default false)
 	PerClassBudgetUSD float64 `yaml:"per_class_budget_usd"` // flag a class spending more than this over the report window (0 = off)
 	MinCleanRate      float64 `yaml:"min_clean_rate"`       // flag a class whose clean-outcome rate is below this, 0..1 (0 = off)
 	MinEpisodes       int     `yaml:"min_episodes"`         // don't flag low value on fewer than this many episodes (0 = no minimum)
