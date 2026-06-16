@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,6 +90,8 @@ type OutcomeMeta struct {
 	Salvaged          bool
 	ToolFailures      int
 	UnverifiedActions int
+	// ParentEpisodeID is the parent episode id for a subagent episode; empty for top-level episodes.
+	ParentEpisodeID string
 }
 
 // ApplyOutcome applies world writes from an episode outcome, stamps episodeID,
@@ -171,6 +174,25 @@ func (s *Store) OutcomeExists(ctx context.Context, episodeID string) (bool, erro
 		return false, fmt.Errorf("check outcome exists: %w", err)
 	}
 	return n > 0, nil
+}
+
+// OutcomeParentEpisodeID returns the parent episode id recorded on an episode's
+// outcome journal row (§4.3 parent linkage), or "" when the episode has no parent
+// (a top-level episode) or has not yet committed an outcome. Lets a consumer
+// resolve the parent→child episode tree by child episode id.
+func (s *Store) OutcomeParentEpisodeID(ctx context.Context, episodeID string) (string, error) {
+	if err := s.ensure(); err != nil {
+		return "", err
+	}
+	var parentEpisodeID string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT parent_episode_id FROM journal WHERE id = ?`, "journal_outcome_"+episodeID).Scan(&parentEpisodeID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get outcome parent episode id: %w", err)
+	}
+	return parentEpisodeID, nil
 }
 
 // JournalExists reports whether a journal row with the given id exists. It lets
@@ -614,9 +636,9 @@ func claimOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, 
 	}
 	res, err := exec.ExecContext(ctx, `
 		INSERT OR IGNORE INTO journal
-			(id, episode_id, kind, summary, detail)
-		VALUES (?, ?, ?, ?, ?)`,
-		"journal_outcome_"+episodeID, episodeID, "outcome", summary, detail)
+			(id, episode_id, kind, summary, detail, parent_episode_id)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		"journal_outcome_"+episodeID, episodeID, "outcome", summary, detail, meta.ParentEpisodeID)
 	if err != nil {
 		return false, fmt.Errorf("append outcome journal: %w", err)
 	}

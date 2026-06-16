@@ -32,13 +32,18 @@ type CognitiveRequest struct {
 	// trigger does not run the episode twice. Empty ⇒ the kernel generates a
 	// fresh id (chat turns and ad-hoc episodes).
 	EpisodeID string
-	Goal      string
-	Trigger   string
-	Persona   string
-	Rules     string
-	Memories  string
-	Model     string
-	Provider  string
+	// ParentEpisodeID, when set, is the episode id of the episode that spawned
+	// this one (a sub-agent episode's parent). Empty for top-level chat/heart
+	// episodes. The kernel records it on the outcome so the parent→child episode
+	// tree is recoverable from the journal (§4.3). It never affects execution.
+	ParentEpisodeID string
+	Goal            string
+	Trigger         string
+	Persona         string
+	Rules           string
+	Memories        string
+	Model           string
+	Provider        string
 	// ActivityClass labels the kind of work this episode does, for cost
 	// accounting by class (blueprint §4.11 ROI-by-class): "chat" for a user turn,
 	// the triggering event kind (e.g. internal.heartbeat) for an autonomous

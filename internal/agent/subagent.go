@@ -111,11 +111,16 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 
 	execErr := subAgent.HandleMessage(ctx, capture, msg)
 
+	// When the sub-agent ran as an episode, its faithful Outcome.Status is stashed
+	// on the agent; nil for the legacy LinearLoop path (buildResult then keeps its
+	// reply-text parsing unchanged).
+	kernelOutcome := subAgent.LastKernelOutcome()
+
 	if err := m.deps.Core.Sessions.Delete(ctx, "subagent", sessionID); err != nil {
 		slog.Warn("subagent: failed to delete session", "session", sessionID, "err", err)
 	}
 
-	result, err := m.buildResult(ctx, req.Spec.Name, capture, start, execErr)
+	result, err := m.buildResult(ctx, req.Spec.Name, capture, start, execErr, kernelOutcome)
 
 	// Recovery retry: when the sub-agent produced empty output and the context
 	// is still valid, attempt one recovery spawn. MaxRetries >= 0 is the normal
@@ -243,10 +248,35 @@ func (m *SubAgentManager) buildSubConfig(spec *AgentSpec) (config.AgentConfig, c
 	return subCfg, subLLMCfg
 }
 
-func (m *SubAgentManager) buildResult(ctx context.Context, name string, capture *subagentCapture, start time.Time, execErr error) (*SubAgentResult, error) {
+// buildResult shapes a SubAgentResult from the captured reply. kernelOutcome is
+// the episode's forced Outcome when the sub-agent ran as an episode (nil for the
+// legacy LinearLoop path): when present it is the authoritative status, so the
+// faithful Outcome.Status is recorded on EpisodeStatus and projected onto the
+// coarse Status — a blocked/handed_off/failed episode never reads as success.
+func (m *SubAgentManager) buildResult(ctx context.Context, name string, capture *subagentCapture, start time.Time, execErr error, kernelOutcome *CognitiveOutcome) (*SubAgentResult, error) {
 	raw := capture.LastMessage()
 	dur := time.Since(start)
 
+	result := m.deriveResult(ctx, name, raw, dur, execErr)
+
+	if kernelOutcome != nil {
+		result.EpisodeStatus = kernelOutcome.Status
+		result.Status = coarseStatusForEpisode(kernelOutcome.Status)
+		// A failed episode 交账's its reason in Summary, not Error; surface it so the
+		// parent (agent_tool returns result.Error on StatusError) gets a meaningful
+		// message instead of a blank one.
+		if result.Status == StatusError && result.Error == "" {
+			result.Error = "sub-agent episode " + kernelOutcome.Status + ": " + kernelOutcome.Summary
+		}
+	}
+	return result, nil
+}
+
+// deriveResult infers a SubAgentResult from the reply text alone (the legacy
+// path): execution error, then structured-block parse, then LLM summarization,
+// then a truncated-raw fallback. The episode-status override is applied by the
+// caller; this never sees kernelOutcome.
+func (m *SubAgentManager) deriveResult(ctx context.Context, name, raw string, dur time.Duration, execErr error) *SubAgentResult {
 	if execErr != nil {
 		return &SubAgentResult{
 			AgentName: name,
@@ -254,21 +284,21 @@ func (m *SubAgentManager) buildResult(ctx context.Context, name string, capture 
 			Output:    raw,
 			Error:     execErr.Error(),
 			Duration:  dur,
-		}, nil
+		}
 	}
 
 	if result := extractStructuredResult(raw); result != nil {
 		result.AgentName = name
 		result.Duration = dur
 		result.Output = raw
-		return result, nil
+		return result
 	}
 
 	if m.deps.Core.Provider != nil && raw != "" {
 		if result := summarizeWithLLM(ctx, m.deps.Core.Provider, m.deps.Core.LLMCfg.Model, name, raw); result != nil {
 			result.Duration = dur
 			result.Output = raw
-			return result, nil
+			return result
 		}
 	}
 
@@ -282,7 +312,7 @@ func (m *SubAgentManager) buildResult(ctx context.Context, name string, capture 
 		Summary:   summary,
 		Output:    raw,
 		Duration:  dur,
-	}, nil
+	}
 }
 
 // buildScopedRegistryStandalone creates a tool registry scoped to the given whitelist.

@@ -105,3 +105,72 @@ func TestSubAgentSpawnRoutesThroughRealEpisodeKernel(t *testing.T) {
 		t.Errorf("cost usage = %+v, want input=120 output=30", got)
 	}
 }
+
+// TestSubAgentSpawnRecordsParentEpisodeLink is the slice-2 end-to-end proof of
+// §4.3 parent linkage: a parent episode installs its id in ctx (EpisodeIDToCtx),
+// the sub-agent Spawn made under that ctx routes through the episode kernel, and
+// the child episode records the parent id on its outcome journal. This exercises
+// the full read→record chain (ctx → runKernel → req.ParentEpisodeID → episode
+// close → OutcomeMeta → journal) without needing a real parent episode to invoke a
+// spawn tool.
+func TestSubAgentSpawnRecordsParentEpisodeLink(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{{
+		text:      "Child reasoning.",
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Child task complete."}`)},
+	}}}
+	db := openEpisodeWorldTestDB(t)
+	ws := world.NewStore(db.DB)
+	runner := NewRunner(provider, ws, &world.Identity{Dir: t.TempDir()}, nil)
+
+	sdb, err := store.Open(filepath.Join(t.TempDir(), "subagent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sdb.Close() })
+	mgr := agent.NewSubAgentManager(agent.AgentDeps{
+		Core: agent.CoreDeps{
+			Sessions: session.NewManager(sdb),
+			DB:       sdb,
+			Tools:    tool.NewRegistry(),
+			Cfg:      config.AgentConfig{MaxIterations: 1},
+			LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+		},
+	}.WithDefaults())
+	mgr.SetEpisodeKernel(runner, true)
+
+	spec := &agent.AgentSpec{Name: "child-agent", Description: "test"}
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stand in for the spawning parent episode: install its id in ctx, exactly as
+	// episode.Execute does before dispatching a tool that spawns a sub-agent.
+	const parentID = "ep_parent_e2e"
+	ctx := agent.EpisodeIDToCtx(context.Background(), parentID)
+	if _, err := mgr.Spawn(ctx, agent.SpawnRequest{Spec: spec, Task: "do the work"}); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	// Find the child episode's own (generated) id from its outcome journal row, then
+	// assert that row records the parent id installed in ctx.
+	journal, err := ws.ListJournal(context.Background(), "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var childID string
+	for _, e := range journal {
+		if e.Kind == "outcome" {
+			childID = e.EpisodeID
+		}
+	}
+	if childID == "" {
+		t.Fatalf("no child outcome journal row found: %#v", journal)
+	}
+	parent, err := ws.OutcomeParentEpisodeID(context.Background(), childID)
+	if err != nil {
+		t.Fatalf("OutcomeParentEpisodeID: %v", err)
+	}
+	if parent != parentID {
+		t.Fatalf("child episode %q parent = %q, want %q", childID, parent, parentID)
+	}
+}

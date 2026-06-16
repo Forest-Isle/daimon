@@ -628,6 +628,80 @@ func TestExecuteCleanEpisodeHasEmptyDetail(t *testing.T) {
 	}
 }
 
+// TestExecuteExposesEpisodeIDToDispatchedTools verifies the write side of §4.3
+// parent linkage at its real handoff point: episode.Execute installs its id in the
+// ctx it passes to req.Invoke, so a tool it dispatches (in production, the
+// agent-spawn tool) reads the running episode's id via agent.EpisodeIDFromCtx. This
+// covers the Execute→Invoke link that the higher-level Spawn tests stub past.
+func TestExecuteExposesEpisodeIDToDispatchedTools(t *testing.T) {
+	var seen string
+	provider := &episodeTestProvider{streams: []providerResponse{
+		{text: "use a tool", toolCalls: []mind.ToolUseBlock{{ID: "c1", Name: "probe", Input: `{}`}}},
+		{text: "closing", toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Probed."}`)}},
+	}}
+	runner, _ := testRunner(t, provider)
+
+	req := chatRequest("Probe", "go")
+	req.EpisodeID = "ep_probe_1"
+	req.Invoke = func(ctx context.Context, _ int, _ mind.ToolUseBlock) (string, bool) {
+		seen = agent.EpisodeIDFromCtx(ctx)
+		return "ok", false
+	}
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if seen != "ep_probe_1" {
+		t.Fatalf("dispatched tool saw episode id %q, want ep_probe_1", seen)
+	}
+}
+
+// TestExecuteRecordsParentEpisodeID verifies §4.3 parent linkage: an episode
+// whose request carries a ParentEpisodeID stamps it on the outcome journal so the
+// parent→child episode tree is recoverable.
+func TestExecuteRecordsParentEpisodeID(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{{
+		text:      "child work",
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Child episode done."}`)},
+	}}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("Child goal", "go")
+	req.EpisodeID = "ep_child_1"
+	req.ParentEpisodeID = "ep_parent_1"
+	if _, err := runner.Execute(context.Background(), req); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	parent, err := ws.OutcomeParentEpisodeID(context.Background(), "ep_child_1")
+	if err != nil {
+		t.Fatalf("OutcomeParentEpisodeID: %v", err)
+	}
+	if parent != "ep_parent_1" {
+		t.Fatalf("parent episode id = %q, want ep_parent_1", parent)
+	}
+}
+
+// TestExecuteFailedEpisodeRecordsParentEpisodeID verifies the parent link is
+// recorded even when the episode fails mid-run (failEpisode path), so a failed
+// child episode is still attributable to its parent.
+func TestExecuteFailedEpisodeRecordsParentEpisodeID(t *testing.T) {
+	provider := &episodeTestProvider{streams: []providerResponse{{err: errors.New("stream boom")}}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("", "hi")
+	req.EpisodeID = "ep_child_fail"
+	req.ParentEpisodeID = "ep_parent_fail"
+	if _, err := runner.Execute(context.Background(), req); err == nil {
+		t.Fatal("Execute() error = nil, want stream error")
+	}
+	parent, err := ws.OutcomeParentEpisodeID(context.Background(), "ep_child_fail")
+	if err != nil {
+		t.Fatalf("OutcomeParentEpisodeID: %v", err)
+	}
+	if parent != "ep_parent_fail" {
+		t.Fatalf("parent on failed episode = %q, want ep_parent_fail", parent)
+	}
+}
+
 func TestParseOutcomeRejectsBlankSummary(t *testing.T) {
 	for _, summary := range []string{"", " ", "\t\n"} {
 		raw := `{"status":"done","summary":"` + summary + `"}`

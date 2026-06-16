@@ -184,6 +184,11 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 	actions := &tool.ActionVerification{}
 	ctx = tool.WithActionCollector(ctx, actions)
 
+	// Expose this episode's id to the work it dispatches: a sub-agent Spawn made
+	// from a tool call reads it (agent.EpisodeIDFromCtx) to link the child episode
+	// back to this parent (§4.3 parent linkage). Installed after episodeID is final.
+	ctx = agent.EpisodeIDToCtx(ctx, episodeID)
+
 	system := composeSystem(ctx, req, r.world, r.identity, r.values)
 	messages := append([]mind.CompletionMessage(nil), req.Transcript...)
 	if len(messages) == 0 {
@@ -291,7 +296,7 @@ func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeI
 	}
 
 	if r.world != nil {
-		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, world.OutcomeMeta{Salvaged: out.Salvaged, ToolFailures: toolFailures, UnverifiedActions: unverifiedActions}); err != nil {
+		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, world.OutcomeMeta{Salvaged: out.Salvaged, ToolFailures: toolFailures, UnverifiedActions: unverifiedActions, ParentEpisodeID: req.ParentEpisodeID}); err != nil {
 			// Invariant #3 (交账强制): a malformed WorldWrite must not roll back the
 			// episode's journal trace along with it. failEpisode re-applies the
 			// outcome with no writes (idempotent), so the summary still lands and the
@@ -372,7 +377,7 @@ func (r *Runner) failEpisode(ctx context.Context, req agent.CognitiveRequest, ep
 		// marker (world.ClassifyOutcome → OutcomeFailed); leave meta empty rather than
 		// ascribe tool failures, since it failed for a framework reason
 		// (stream/panic/world write).
-		if err := r.world.ApplyOutcome(ctx, episodeID, nil, summary, world.OutcomeMeta{}); err != nil {
+		if err := r.world.ApplyOutcome(ctx, episodeID, nil, summary, world.OutcomeMeta{ParentEpisodeID: req.ParentEpisodeID}); err != nil {
 			slog.Error("episode: record blocked outcome failed", "episode", episodeID, "err", err)
 		}
 	}

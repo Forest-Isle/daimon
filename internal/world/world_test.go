@@ -158,6 +158,44 @@ func TestApplyOutcomeEncodesMetaDetail(t *testing.T) {
 	}
 }
 
+func TestOutcomeParentEpisodeID(t *testing.T) {
+	db := openWorldTestDB(t)
+	world := NewStore(db.DB)
+	ctx := context.Background()
+
+	if err := world.ApplyOutcome(ctx, "ep_child", nil, "child summary", OutcomeMeta{
+		ParentEpisodeID: "ep_parent",
+	}); err != nil {
+		t.Fatalf("ApplyOutcome(child) error = %v", err)
+	}
+	got, err := world.OutcomeParentEpisodeID(ctx, "ep_child")
+	if err != nil {
+		t.Fatalf("OutcomeParentEpisodeID(child) error = %v", err)
+	}
+	if got != "ep_parent" {
+		t.Fatalf("OutcomeParentEpisodeID(child) = %q, want %q", got, "ep_parent")
+	}
+
+	if err := world.ApplyOutcome(ctx, "ep_top", nil, "top summary", OutcomeMeta{}); err != nil {
+		t.Fatalf("ApplyOutcome(top) error = %v", err)
+	}
+	got, err = world.OutcomeParentEpisodeID(ctx, "ep_top")
+	if err != nil {
+		t.Fatalf("OutcomeParentEpisodeID(top) error = %v", err)
+	}
+	if got != "" {
+		t.Fatalf("OutcomeParentEpisodeID(top) = %q, want empty", got)
+	}
+
+	got, err = world.OutcomeParentEpisodeID(ctx, "ep_missing")
+	if err != nil {
+		t.Fatalf("OutcomeParentEpisodeID(missing) error = %v", err)
+	}
+	if got != "" {
+		t.Fatalf("OutcomeParentEpisodeID(missing) = %q, want empty", got)
+	}
+}
+
 func TestApplyOutcomeAppendsIdempotentJournal(t *testing.T) {
 	db := openWorldTestDB(t)
 	world := NewStore(db.DB)

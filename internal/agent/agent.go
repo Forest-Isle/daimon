@@ -51,6 +51,20 @@ type Agent struct {
 	sessionLocks  sync.Map // key: "channel:channel_id" → *sync.Mutex
 	kernel        CognitiveKernel
 	kernelEnabled bool
+	// lastKernelOutcome holds the most recent kernel Outcome from runKernel, so a
+	// caller running this agent as a one-shot sub-agent episode (SubAgentManager.
+	// Spawn) can read the faithful Outcome.Status instead of re-parsing the prose
+	// reply. Single-writer (one HandleMessage at a time per agent); a sub-agent
+	// agent is freshly built per Spawn, so the read after HandleMessage is race-free.
+	lastKernelOutcome *CognitiveOutcome
+}
+
+// LastKernelOutcome returns the Outcome of the most recent kernel run on this
+// agent, or nil if the kernel did not run (legacy LinearLoop path). Used by
+// SubAgentManager.Spawn to propagate the episode's structured Status into the
+// SubAgentResult rather than inferring it from the reply text.
+func (a *Agent) LastKernelOutcome() *CognitiveOutcome {
+	return a.lastKernelOutcome
 }
 
 // NewAgent creates a new Agent with the given dependencies, strategy, and event bus.
@@ -179,23 +193,36 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 	}
 
 	req := CognitiveRequest{
-		SessionID:     sess.ID,
-		Goal:          "Respond to the user's message",
-		Trigger:       msg.Text,
-		Persona:       a.deps.Core.Cfg.Personality,
-		Rules:         a.deps.Core.Cfg.PersistentRules,
-		Memories:      a.buildMemoryPromptSection(ctx, msg.Text),
-		Model:         a.deps.Core.LLMCfg.Model,
-		Provider:      a.deps.Core.LLMCfg.Provider,
-		ActivityClass: activityClass,
-		Transcript:    transcript,
-		ToolDefs:      a.buildToolDefs(),
+		SessionID: sess.ID,
+		// A sub-agent episode runs inside its spawning episode's tool dispatch, which
+		// installed that parent's id in ctx (EpisodeIDToCtx). Recording it links the
+		// child episode to its parent (§4.3); top-level chat/heart episodes read "".
+		ParentEpisodeID: EpisodeIDFromCtx(ctx),
+		Goal:            "Respond to the user's message",
+		Trigger:         msg.Text,
+		Persona:         a.deps.Core.Cfg.Personality,
+		Rules:           a.deps.Core.Cfg.PersistentRules,
+		Memories:        a.buildMemoryPromptSection(ctx, msg.Text),
+		Model:           a.deps.Core.LLMCfg.Model,
+		Provider:        a.deps.Core.LLMCfg.Provider,
+		ActivityClass:   activityClass,
+		Transcript:      transcript,
+		ToolDefs:        a.buildToolDefs(),
 		Invoke: func(ctx context.Context, iteration int, call mind.ToolUseBlock) (string, bool) {
 			return a.invokeTool(ctx, ch, sess, target, iteration, call, "", false)
 		},
 	}
 
 	outcome, kerr := a.kernel.Execute(ctx, req)
+	// Stash the faithful Outcome so a sub-agent caller can read its structured
+	// Status (Spawn → buildResult), not infer it from the reply text. Only on the
+	// sub-agent path: a sub-agent Agent is built fresh per Spawn (a single
+	// HandleMessage), so this write is race-free, whereas the long-lived chat agent
+	// is shared across concurrent per-session turns and must never write this field.
+	if SubagentContextFromCtx(ctx) != nil {
+		oc := outcome
+		a.lastKernelOutcome = &oc
+	}
 	if kerr != nil || outcome.Status == "failed" {
 		// Sub-agent episodes are terminal: the episode already 交账'd (failEpisode
 		// wrote the journal outcome). Falling back to the legacy loop would double-run

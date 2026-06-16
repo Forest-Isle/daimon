@@ -22,14 +22,35 @@ const (
 )
 
 type SubAgentResult struct {
-	AgentName  string         `json:"agent_name"`
-	Status     SubAgentStatus `json:"status"`
-	Summary    string         `json:"summary"`
-	Output     string         `json:"output"`
-	Artifacts  []string       `json:"artifacts,omitempty"`
-	Duration   time.Duration  `json:"duration"`
-	TokensUsed int            `json:"tokens_used"`
-	Error      string         `json:"error,omitempty"`
+	AgentName string         `json:"agent_name"`
+	Status    SubAgentStatus `json:"status"`
+	// EpisodeStatus is the faithful Outcome.Status (done|blocked|handed_off|failed)
+	// when the sub-agent ran as an episode; "" for the legacy LinearLoop path. The
+	// coarse Status above projects it (done→success, else→error) so existing
+	// consumers that key on StatusError are unchanged; EpisodeStatus preserves the
+	// distinction for callers that want it (§4.3).
+	EpisodeStatus string        `json:"episode_status,omitempty"`
+	Summary       string        `json:"summary"`
+	Output        string        `json:"output"`
+	Artifacts     []string      `json:"artifacts,omitempty"`
+	Duration      time.Duration `json:"duration"`
+	TokensUsed    int           `json:"tokens_used"`
+	Error         string        `json:"error,omitempty"`
+}
+
+// coarseStatusForEpisode projects a faithful episode Outcome.Status onto the
+// binary SubAgentResult.Status. Only "failed" is a hard failure (StatusError) —
+// it trips the parent's circuit breaker and returns an error. "done", "blocked",
+// and "handed_off" are non-failures (StatusSuccess): blocked (needs user input)
+// and handed_off (budget hit, continues via a follow-up episode) are legitimate
+// non-completions, surfaced to the parent through EpisodeStatus rather than the
+// error/breaker channel so they do not trip the breaker or return a blank error.
+// (Distinct blocked/handed_off statuses are a deferred follow-up.)
+func coarseStatusForEpisode(episodeStatus string) SubAgentStatus {
+	if episodeStatus == "failed" {
+		return StatusError
+	}
+	return StatusSuccess
 }
 
 const subagentOutputInstruction = `
@@ -209,6 +230,11 @@ func summarizeWithLLM(ctx context.Context, provider mind.Provider, model string,
 func formatResultForParent(r *SubAgentResult) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Agent: %s | Status: %s | Duration: %s\n", r.AgentName, r.Status, r.Duration.Round(time.Millisecond))
+	if r.EpisodeStatus != "" && r.EpisodeStatus != "done" {
+		// Surface a non-done episode status (blocked/handed_off/failed) so the parent
+		// model sees the sub-agent did not fully complete, not just a coarse "error".
+		fmt.Fprintf(&sb, "Episode status: %s\n", r.EpisodeStatus)
+	}
 	fmt.Fprintf(&sb, "Summary: %s\n", r.Summary)
 	if len(r.Artifacts) > 0 {
 		fmt.Fprintf(&sb, "Artifacts: %s\n", strings.Join(r.Artifacts, ", "))

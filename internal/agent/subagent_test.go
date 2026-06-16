@@ -71,10 +71,11 @@ func (p *capturingSubagentProvider) Stream(_ context.Context, req mind.Completio
 }
 
 type stubCognitiveKernel struct {
-	mu            sync.Mutex
-	calls         int
-	activityClass string
-	outcome       CognitiveOutcome
+	mu              sync.Mutex
+	calls           int
+	activityClass   string
+	parentEpisodeID string
+	outcome         CognitiveOutcome
 }
 
 func (s *stubCognitiveKernel) Execute(_ context.Context, req CognitiveRequest) (CognitiveOutcome, error) {
@@ -82,6 +83,7 @@ func (s *stubCognitiveKernel) Execute(_ context.Context, req CognitiveRequest) (
 	defer s.mu.Unlock()
 	s.calls++
 	s.activityClass = req.ActivityClass
+	s.parentEpisodeID = req.ParentEpisodeID
 	return s.outcome, nil
 }
 
@@ -95,6 +97,12 @@ func (s *stubCognitiveKernel) ActivityClass() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.activityClass
+}
+
+func (s *stubCognitiveKernel) ParentEpisodeID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.parentEpisodeID
 }
 
 func TestSubAgentManager_Spawn_IndependentSession(t *testing.T) {
@@ -320,6 +328,65 @@ func TestSubAgentManager_Spawn_EpisodeKernelFailedIsTerminal(t *testing.T) {
 	if !strings.Contains(result.Output, "episode failure summary") {
 		t.Errorf("output = %q, want failed kernel summary", result.Output)
 	}
+	// A failed episode must not read as success to the parent (status propagation),
+	// and must carry a meaningful error (not blank) derived from its summary.
+	if result.Status != StatusError {
+		t.Errorf("status = %q, want error for a failed episode", result.Status)
+	}
+	if result.EpisodeStatus != "failed" {
+		t.Errorf("episode status = %q, want failed", result.EpisodeStatus)
+	}
+	if !strings.Contains(result.Error, "episode failure summary") {
+		t.Errorf("error = %q, want it to surface the failure summary", result.Error)
+	}
+}
+
+func TestSubAgentManager_Spawn_EpisodeStatusPropagation(t *testing.T) {
+	for _, tc := range []struct {
+		episodeStatus string
+		wantCoarse    SubAgentStatus
+	}{
+		{"done", StatusSuccess},
+		{"blocked", StatusSuccess},
+		{"handed_off", StatusSuccess},
+		{"failed", StatusError},
+	} {
+		t.Run(tc.episodeStatus, func(t *testing.T) {
+			db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+
+			mgr := NewSubAgentManager(AgentDeps{
+				Core: CoreDeps{
+					Sessions: session.NewManager(db),
+					DB:       db,
+					Tools:    tool.NewRegistry(),
+					Cfg:      config.AgentConfig{MaxIterations: 1},
+					LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+				},
+			}.WithDefaults())
+			kernel := &stubCognitiveKernel{
+				outcome: CognitiveOutcome{Status: tc.episodeStatus, Summary: "episode " + tc.episodeStatus},
+			}
+			mgr.SetEpisodeKernel(kernel, true)
+
+			spec := &AgentSpec{Name: "status-agent", Description: "test"}
+			_ = spec.Validate()
+
+			result, err := mgr.Spawn(context.Background(), SpawnRequest{Spec: spec, Task: "run"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != tc.wantCoarse {
+				t.Errorf("coarse status = %q, want %q", result.Status, tc.wantCoarse)
+			}
+			if result.EpisodeStatus != tc.episodeStatus {
+				t.Errorf("episode status = %q, want %q", result.EpisodeStatus, tc.episodeStatus)
+			}
+		})
+	}
 }
 
 func TestSubAgentManager_Spawn_EpisodeKernelDisabled(t *testing.T) {
@@ -413,6 +480,60 @@ func TestAgent_HandleMessage_KernelActivityClass(t *testing.T) {
 			}
 			if got := kernel.ActivityClass(); got != tc.want {
 				t.Errorf("activity class = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAgent_HandleMessage_KernelParentEpisodeID verifies runKernel reads the
+// enclosing episode's id from ctx (installed by a parent episode via
+// EpisodeIDToCtx) into CognitiveRequest.ParentEpisodeID, and reads "" when there
+// is no parent — the read side of §4.3 parent linkage.
+func TestAgent_HandleMessage_KernelParentEpisodeID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		want string
+	}{
+		{
+			name: "no parent",
+			ctx:  func(ctx context.Context) context.Context { return ctx },
+			want: "",
+		},
+		{
+			name: "with parent",
+			ctx: func(ctx context.Context) context.Context {
+				return EpisodeIDToCtx(ctx, "ep_parent_abc")
+			},
+			want: "ep_parent_abc",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+
+			deps := AgentDeps{
+				Core: CoreDeps{
+					Sessions: session.NewManager(db),
+					DB:       db,
+					Tools:    tool.NewRegistry(),
+					Cfg:      config.AgentConfig{MaxIterations: 1},
+					LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+				},
+			}.WithDefaults()
+			agent := NewAgent(&deps, &LinearLoop{}, NewEventBus())
+			kernel := &stubCognitiveKernel{outcome: CognitiveOutcome{Status: "done", Summary: "ok"}}
+			agent.SetKernel(kernel, true)
+
+			msg := channel.InboundMessage{Channel: "test", ChannelID: tc.name, UserID: "u", UserName: "u", Text: "hi"}
+			if err := agent.HandleMessage(tc.ctx(context.Background()), newSubagentCapture(), msg); err != nil {
+				t.Fatal(err)
+			}
+			if got := kernel.ParentEpisodeID(); got != tc.want {
+				t.Errorf("parent episode id = %q, want %q", got, tc.want)
 			}
 		})
 	}
