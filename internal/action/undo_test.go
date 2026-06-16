@@ -358,6 +358,189 @@ func TestStoreUndoMarksUndone(t *testing.T) {
 	}
 }
 
+func TestRecordUndoPersistsEpisodeID(t *testing.T) {
+	store := openActionTestStore(t)
+	ctx := context.Background()
+	spec := undoSpecForTest(t, fileUndoSnapshot{Op: "restore", Path: filepath.Join(t.TempDir(), "f.txt"), Existed: false})
+
+	if err := store.RecordUndo(ctx, UndoRecord{ReceiptID: "r1", ToolName: "file_write", UndoSpec: spec, EpisodeID: "ep1"}); err != nil {
+		t.Fatalf("RecordUndo() error = %v", err)
+	}
+	entry, err := store.GetUndo(ctx, "r1")
+	if err != nil {
+		t.Fatalf("GetUndo() error = %v", err)
+	}
+	if entry.EpisodeID != "ep1" {
+		t.Fatalf("EpisodeID = %q, want ep1", entry.EpisodeID)
+	}
+}
+
+func TestListUndoableByEpisodeFilters(t *testing.T) {
+	store := openActionTestStore(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	spec := undoSpecForTest(t, fileUndoSnapshot{Op: "restore", Path: filepath.Join(root, "f.txt"), Existed: false})
+
+	records := []UndoRecord{
+		{ReceiptID: "ep1_old", ToolName: "file_write", UndoSpec: spec, EpisodeID: "ep1"},
+		{ReceiptID: "ep1_done", ToolName: "file_write", UndoSpec: spec, EpisodeID: "ep1"},
+		{ReceiptID: "ep1_new", ToolName: "file_write", UndoSpec: spec, EpisodeID: "ep1"},
+		{ReceiptID: "ep2_one", ToolName: "file_write", UndoSpec: spec, EpisodeID: "ep2"},
+		{ReceiptID: "no_episode", ToolName: "file_write", UndoSpec: spec},
+	}
+	for _, rec := range records {
+		if err := store.RecordUndo(ctx, rec); err != nil {
+			t.Fatalf("RecordUndo(%s) error = %v", rec.ReceiptID, err)
+		}
+	}
+	if err := store.MarkUndone(ctx, "ep1_done"); err != nil {
+		t.Fatalf("MarkUndone() error = %v", err)
+	}
+
+	entries, err := store.ListUndoableByEpisode(ctx, "ep1")
+	if err != nil {
+		t.Fatalf("ListUndoableByEpisode() error = %v", err)
+	}
+	got := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		got = append(got, entry.ReceiptID)
+		if entry.EpisodeID != "ep1" {
+			t.Fatalf("entry EpisodeID = %q, want ep1", entry.EpisodeID)
+		}
+		if entry.UndoneAt != "" {
+			t.Fatalf("entry %s UndoneAt = %q, want empty", entry.ReceiptID, entry.UndoneAt)
+		}
+	}
+	want := map[string]bool{"ep1_old": true, "ep1_new": true}
+	if len(got) != len(want) {
+		t.Fatalf("receipts = %v, want ep1_old and ep1_new", got)
+	}
+	for _, id := range got {
+		if !want[id] {
+			t.Fatalf("receipts = %v, want only ep1_old and ep1_new", got)
+		}
+	}
+
+	empty, err := store.ListUndoableByEpisode(ctx, "")
+	if err != nil {
+		t.Fatalf("ListUndoableByEpisode(empty) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty episode entries = %d, want 0", len(empty))
+	}
+}
+
+func TestUndoEpisodeReversesAllNewestFirst(t *testing.T) {
+	store := openActionTestStore(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, id := range []string{"r1", "r2", "r3"} {
+		path := filepath.Join(root, id+".txt")
+		if err := os.WriteFile(path, []byte("current"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		spec := undoSpecForTest(t, fileUndoSnapshot{Op: "restore", Path: path, Existed: true, Prev: "previous" + id})
+		if err := store.RecordUndo(ctx, UndoRecord{ReceiptID: id, ToolName: "file_write", UndoSpec: spec, EpisodeID: "ep1"}); err != nil {
+			t.Fatalf("RecordUndo(%s) error = %v", id, err)
+		}
+	}
+	entries, err := store.ListUndoableByEpisode(ctx, "ep1")
+	if err != nil {
+		t.Fatalf("ListUndoableByEpisode() error = %v", err)
+	}
+	gotOrder := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		gotOrder = append(gotOrder, entry.ReceiptID)
+	}
+	wantOrder := []string{"r3", "r2", "r1"}
+	if len(gotOrder) != len(wantOrder) {
+		t.Fatalf("order = %v, want %v", gotOrder, wantOrder)
+	}
+	for i := range wantOrder {
+		if gotOrder[i] != wantOrder[i] {
+			t.Fatalf("order = %v, want %v", gotOrder, wantOrder)
+		}
+	}
+
+	reversed, err := store.UndoEpisode(ctx, root, "ep1")
+	if err != nil {
+		t.Fatalf("UndoEpisode() error = %v", err)
+	}
+	if reversed != 3 {
+		t.Fatalf("reversed = %d, want 3", reversed)
+	}
+	for _, id := range []string{"r1", "r2", "r3"} {
+		got, err := os.ReadFile(filepath.Join(root, id+".txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "previous"+id {
+			t.Fatalf("%s content = %q, want previous%s", id, got, id)
+		}
+	}
+	remaining, err := store.ListUndoableByEpisode(ctx, "ep1")
+	if err != nil {
+		t.Fatalf("ListUndoableByEpisode() error = %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("remaining undoable = %d, want 0", len(remaining))
+	}
+}
+
+func TestUndoEpisodePartialFailureReports(t *testing.T) {
+	store := openActionTestStore(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	okPath := filepath.Join(root, "ok.txt")
+	badPath := filepath.Join(root, "bad.txt")
+	if err := os.WriteFile(okPath, []byte("current"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(badPath, []byte("current"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	okSpec := undoSpecForTest(t, fileUndoSnapshot{Op: "restore", Path: okPath, Existed: true, Prev: "previous"})
+	badSpec := undoSpecForTest(t, fileUndoSnapshot{Op: "restore", Path: badPath, Existed: true, Prev: "previous", Truncated: true})
+	if err := store.RecordUndo(ctx, UndoRecord{ReceiptID: "ok", ToolName: "file_write", UndoSpec: okSpec, EpisodeID: "ep1"}); err != nil {
+		t.Fatalf("RecordUndo(ok) error = %v", err)
+	}
+	if err := store.RecordUndo(ctx, UndoRecord{ReceiptID: "bad", ToolName: "file_write", UndoSpec: badSpec, EpisodeID: "ep1"}); err != nil {
+		t.Fatalf("RecordUndo(bad) error = %v", err)
+	}
+
+	reversed, err := store.UndoEpisode(ctx, root, "ep1")
+	if err == nil {
+		t.Fatal("UndoEpisode() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "content not captured") {
+		t.Fatalf("UndoEpisode() error = %v, want content not captured", err)
+	}
+	if reversed != 1 {
+		t.Fatalf("reversed = %d, want 1", reversed)
+	}
+	got, err := os.ReadFile(okPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "previous" {
+		t.Fatalf("ok content = %q, want previous", got)
+	}
+	okEntry, err := store.GetUndo(ctx, "ok")
+	if err != nil {
+		t.Fatalf("GetUndo(ok) error = %v", err)
+	}
+	if okEntry.UndoneAt == "" {
+		t.Fatal("ok entry UndoneAt empty, want mark")
+	}
+	badEntry, err := store.GetUndo(ctx, "bad")
+	if err != nil {
+		t.Fatalf("GetUndo(bad) error = %v", err)
+	}
+	if badEntry.UndoneAt != "" {
+		t.Fatalf("bad entry UndoneAt = %q, want empty", badEntry.UndoneAt)
+	}
+}
+
 func TestGetUndoNotFound(t *testing.T) {
 	store := openActionTestStore(t)
 	if _, err := store.GetUndo(context.Background(), "missing"); !errors.Is(err, ErrUndoNotFound) {

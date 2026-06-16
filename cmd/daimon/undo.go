@@ -25,12 +25,19 @@ type undoSpecSummary struct {
 func newUndoCmd() *cobra.Command {
 	var configPath string
 	var devMode bool
+	var episodeID string
 
 	cmd := &cobra.Command{
 		Use:   "undo [receipt-id|list]",
 		Short: "List or execute recorded reversible action undo entries",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if episodeID != "" {
+				if len(args) > 0 {
+					return errors.New("--episode cannot be used with a receipt id or list argument")
+				}
+				return runUndoEpisode(cmd.Context(), configPath, devMode, episodeID)
+			}
 			if len(args) == 0 || args[0] == "list" {
 				return runUndoList(cmd.Context(), configPath, devMode)
 			}
@@ -39,6 +46,7 @@ func newUndoCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "path to config file (auto-discovered if empty)")
 	cmd.Flags().BoolVar(&devMode, "dev", false, "use configs/daimon.yaml in dev mode")
+	cmd.Flags().StringVar(&episodeID, "episode", "", "undo all reversible actions of an episode")
 	return cmd
 }
 
@@ -118,6 +126,47 @@ func runUndo(ctx context.Context, configPath string, devMode bool, id string) er
 		return fmt.Errorf("undo action: %w", err)
 	}
 	fmt.Println("Undone.")
+	return nil
+}
+
+func runUndoEpisode(ctx context.Context, configPath string, devMode bool, episodeID string) error {
+	st, closeDB, err := openActionStore(configPath, devMode)
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+
+	root, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	entries, err := st.ListUndoableByEpisode(ctx, episodeID)
+	if err != nil {
+		return fmt.Errorf("list episode undoable actions: %w", err)
+	}
+	fmt.Printf("Episode %s: %d undoable action(s)\n", episodeID, len(entries))
+	for _, entry := range entries {
+		fmt.Printf("%s\t%s\n", entry.ReceiptID, decodeUndoSpec(entry.UndoSpec).Path)
+	}
+	if len(entries) == 0 {
+		fmt.Println("No undoable actions for episode.")
+		return nil
+	}
+
+	fmt.Printf("Undo all %d action(s) of this episode? [y/N] ", len(entries))
+	var answer string
+	_, _ = fmt.Scanln(&answer)
+	if strings.ToLower(strings.TrimSpace(answer)) != "y" {
+		fmt.Println("Aborted.")
+		return nil
+	}
+
+	reversed, err := st.UndoEpisode(ctx, root, episodeID)
+	fmt.Printf("Reversed %d of %d action(s).\n", reversed, len(entries))
+	if err != nil {
+		return fmt.Errorf("undo episode: %w", err)
+	}
 	return nil
 }
 

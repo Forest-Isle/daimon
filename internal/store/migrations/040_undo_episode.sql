@@ -1,0 +1,1 @@
+ALTER TABLE undo_journal ADD COLUMN episode_id TEXT NOT NULL DEFAULT '';

@@ -88,6 +88,7 @@ type UndoRecord struct {
 	ReceiptID string
 	ToolName  string
 	UndoSpec  string
+	EpisodeID string
 	ExpiresAt string
 }
 
@@ -95,6 +96,7 @@ type UndoEntry struct {
 	ReceiptID string
 	ToolName  string
 	UndoSpec  string
+	EpisodeID string
 	CreatedAt string
 	UndoneAt  string
 }
@@ -217,8 +219,8 @@ func (s *Store) RecordUndo(ctx context.Context, r UndoRecord) error {
 		receiptID = "receipt_" + uuid.NewString()
 	}
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO undo_journal (receipt_id, tool_name, undo_spec, expires_at) VALUES (?, ?, ?, ?)`,
-		receiptID, r.ToolName, r.UndoSpec, nullable(r.ExpiresAt)); err != nil {
+		`INSERT INTO undo_journal (receipt_id, tool_name, undo_spec, episode_id, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		receiptID, r.ToolName, r.UndoSpec, r.EpisodeID, nullable(r.ExpiresAt)); err != nil {
 		return fmt.Errorf("record undo: %w", err)
 	}
 	return nil
@@ -231,8 +233,8 @@ func (s *Store) GetUndo(ctx context.Context, receiptID string) (UndoEntry, error
 	var entry UndoEntry
 	var undoneAt sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT receipt_id, tool_name, undo_spec, created_at, undone_at FROM undo_journal WHERE receipt_id = ?`,
-		receiptID).Scan(&entry.ReceiptID, &entry.ToolName, &entry.UndoSpec, &entry.CreatedAt, &undoneAt)
+		`SELECT receipt_id, tool_name, undo_spec, episode_id, created_at, undone_at FROM undo_journal WHERE receipt_id = ?`,
+		receiptID).Scan(&entry.ReceiptID, &entry.ToolName, &entry.UndoSpec, &entry.EpisodeID, &entry.CreatedAt, &undoneAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return UndoEntry{}, ErrUndoNotFound
 	}
@@ -253,7 +255,7 @@ func (s *Store) ListUndoable(ctx context.Context, limit int) ([]UndoEntry, error
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT receipt_id, tool_name, undo_spec, created_at, undone_at
+		SELECT receipt_id, tool_name, undo_spec, episode_id, created_at, undone_at
 		FROM undo_journal
 		WHERE undone_at IS NULL
 		ORDER BY created_at DESC, receipt_id DESC
@@ -267,7 +269,7 @@ func (s *Store) ListUndoable(ctx context.Context, limit int) ([]UndoEntry, error
 	for rows.Next() {
 		var entry UndoEntry
 		var undoneAt sql.NullString
-		if err := rows.Scan(&entry.ReceiptID, &entry.ToolName, &entry.UndoSpec, &entry.CreatedAt, &undoneAt); err != nil {
+		if err := rows.Scan(&entry.ReceiptID, &entry.ToolName, &entry.UndoSpec, &entry.EpisodeID, &entry.CreatedAt, &undoneAt); err != nil {
 			return nil, fmt.Errorf("scan undo: %w", err)
 		}
 		if undoneAt.Valid {
@@ -277,6 +279,41 @@ func (s *Store) ListUndoable(ctx context.Context, limit int) ([]UndoEntry, error
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate undoable: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Store) ListUndoableByEpisode(ctx context.Context, episodeID string) ([]UndoEntry, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	if episodeID == "" {
+		return []UndoEntry{}, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT receipt_id, tool_name, undo_spec, episode_id, created_at, undone_at
+		FROM undo_journal
+		WHERE episode_id = ? AND undone_at IS NULL
+		ORDER BY created_at DESC, receipt_id DESC`, episodeID)
+	if err != nil {
+		return nil, fmt.Errorf("list episode undoable: %w", err)
+	}
+	defer rows.Close()
+
+	var out []UndoEntry
+	for rows.Next() {
+		var entry UndoEntry
+		var undoneAt sql.NullString
+		if err := rows.Scan(&entry.ReceiptID, &entry.ToolName, &entry.UndoSpec, &entry.EpisodeID, &entry.CreatedAt, &undoneAt); err != nil {
+			return nil, fmt.Errorf("scan episode undo: %w", err)
+		}
+		if undoneAt.Valid {
+			entry.UndoneAt = undoneAt.String
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate episode undoable: %w", err)
 	}
 	return out, nil
 }
@@ -296,6 +333,26 @@ func (s *Store) Undo(ctx context.Context, root, receiptID string) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Store) UndoEpisode(ctx context.Context, root, episodeID string) (reversed int, err error) {
+	entries, err := s.ListUndoableByEpisode(ctx, episodeID)
+	if err != nil {
+		return 0, err
+	}
+	var errs []error
+	for _, entry := range entries {
+		if execErr := ExecuteUndo(ctx, root, entry); execErr != nil {
+			errs = append(errs, fmt.Errorf("undo receipt %q: %w", entry.ReceiptID, execErr))
+			continue
+		}
+		if markErr := s.MarkUndone(ctx, entry.ReceiptID); markErr != nil {
+			errs = append(errs, fmt.Errorf("mark receipt %q undone: %w", entry.ReceiptID, markErr))
+			continue
+		}
+		reversed++
+	}
+	return reversed, errors.Join(errs...)
 }
 
 // MarkUndone stamps an undo entry as reversed.
