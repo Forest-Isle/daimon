@@ -85,3 +85,6 @@ web/studio/node_modules/
 
 # Web studio build output
 web/studio/dist/
+
+# parallel dev worktrees
+.git-wt/
