@@ -54,7 +54,7 @@ func main() {
 		},
 	}
 
-	root.AddCommand(startCmd, versionCmd, newTUICmd(), newSkillCmd(), newMemoryCmd(), newMCPCmd(), newReplayCmd(), newProposalsCmd(), newCostsCmd(), newCorrectCmd(), newUndoCmd())
+	root.AddCommand(startCmd, versionCmd, newTUICmd(), newSkillCmd(), newMemoryCmd(), newMCPCmd(), newReplayCmd(), newProposalsCmd(), newCostsCmd(), newCorrectCmd(), newUndoCmd(), newWorldCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

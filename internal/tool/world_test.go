@@ -3,11 +3,14 @@ package tool
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/vcs"
 	"github.com/Forest-Isle/daimon/internal/world"
 )
 
@@ -257,6 +260,41 @@ func TestWorldEditToolWriteAppendAndFence(t *testing.T) {
 	if !strings.Contains(missingContent.Error, "content is required") {
 		t.Fatalf("missing content Error = %q, want content is required", missingContent.Error)
 	}
+}
+
+func TestWorldEditToolCommitsIdentityChanges(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	_, _, identity := openToolWorldTestDB(t)
+	ctx := context.Background()
+	tool := NewWorldEditTool(identity)
+
+	for _, content := range []string{"one\n", "two\n"} {
+		got, err := tool.Execute(ctx, []byte(`{"file":"profile.md","content":`+strconvQuote(content)+`}`))
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if got.Error != "" {
+			t.Fatalf("Execute() Error = %q", got.Error)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(identity.Dir, ".git")); err != nil {
+		t.Fatalf(".git stat: %v", err)
+	}
+	commits, err := vcs.Log(ctx, identity.Dir, "profile.md", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) < 2 {
+		t.Fatalf("profile commits len = %d, want at least 2", len(commits))
+	}
+}
+
+func strconvQuote(s string) string {
+	return strconv.Quote(s)
 }
 
 func TestWorldEditToolRejectsSymlinkEscape(t *testing.T) {
