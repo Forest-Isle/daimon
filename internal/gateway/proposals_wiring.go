@@ -6,9 +6,11 @@ import (
 	"log/slog"
 	"strconv"
 
+	"github.com/Forest-Isle/daimon/internal/appdir"
 	"github.com/Forest-Isle/daimon/internal/attention"
 	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/proposals"
+	"github.com/Forest-Isle/daimon/internal/skill"
 )
 
 // wireProposals builds the §4.9 anticipation loop's decision + delivery objects.
@@ -23,6 +25,10 @@ func (gw *Gateway) wireProposals(store *proposals.Store, now func() int64) {
 		store: store,
 		fire: func(ctx context.Context, idem, goal, trigger, class string) error {
 			_, err := gw.agent.RunInternalEpisode(ctx, idem, goal, trigger, class)
+			return err
+		},
+		promote: func(ctx context.Context, slug string) error {
+			_, err := skill.PromoteDraft(appdir.SkillsStagingDir(), appdir.SkillsDir(), slug)
 			return err
 		},
 		feedback: attention.NewFeedbackStore(gw.db.DB).Record,

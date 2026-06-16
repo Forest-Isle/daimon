@@ -160,6 +160,16 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 			sleepSummarizer,
 			unixNow,
 		),
+		// Distill screen: screen staging drafts into promote_skill proposals. This
+		// is a judge over draft quality/safety/structure, not a behavior replay
+		// Canary: skills are lazily read by read_skill rather than injected into the
+		// system prompt, so behavior canaries remain a later increment.
+		sleep.NewDistillScreenJob(
+			defaultStagedDraftSource(),
+			proposalsStoreSink{store: proposalsStore, now: unixNow},
+			sleepSummarizer,
+			unixNow,
+		),
 		throttleEvalJob{refresh: gw.refreshThrottle},
 	)
 

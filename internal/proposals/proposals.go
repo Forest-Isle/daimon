@@ -25,9 +25,19 @@ const (
 	StateExpired   = "expired"
 )
 
+// Proposal action kinds. episode preserves the existing accept behavior: use
+// ActionPlan as an episode goal. promote_skill accepts by deterministically
+// promoting the staged skill draft named in ActionRef.
+const (
+	ActionKindEpisode      = "episode"
+	ActionKindPromoteSkill = "promote_skill"
+)
+
 // Proposal is one anticipatory suggestion. ActionPlan is the episode goal fired
-// if the user accepts; Urgency (0 low .. 3 urgent) orders the queue; CreatedAt,
-// ExpiresAt, DecidedAt are epoch seconds (0 = unset/none).
+// if the user accepts an episode action; ActionKind/ActionRef type non-episode
+// actions (for promote_skill, ActionRef is the staged draft slug); Urgency (0 low
+// .. 3 urgent) orders the queue; CreatedAt, ExpiresAt, DecidedAt are epoch
+// seconds (0 = unset/none).
 type Proposal struct {
 	ID               string
 	Title            string
@@ -39,6 +49,8 @@ type Proposal struct {
 	CreatedAt        int64
 	ExpiresAt        int64
 	DecidedAt        int64
+	ActionKind       string
+	ActionRef        string
 }
 
 type Store struct {
@@ -70,11 +82,14 @@ func (s *Store) Create(ctx context.Context, p Proposal) error {
 	if p.State == "" {
 		p.State = StatePending
 	}
+	if p.ActionKind == "" {
+		p.ActionKind = ActionKindEpisode
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO proposals
-			(id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Title, p.Body, p.ActionPlan, p.Urgency, p.SourceCommitment, p.State, p.CreatedAt, p.ExpiresAt, p.DecidedAt)
+			(id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at, action_kind, action_ref)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Title, p.Body, p.ActionPlan, p.Urgency, p.SourceCommitment, p.State, p.CreatedAt, p.ExpiresAt, p.DecidedAt, p.ActionKind, p.ActionRef)
 	if err != nil {
 		return fmt.Errorf("create proposal: %w", err)
 	}
@@ -88,7 +103,7 @@ func (s *Store) ListPending(ctx context.Context, now int64) ([]Proposal, error) 
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at
+		SELECT id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at, action_kind, action_ref
 		FROM proposals
 		WHERE state = ? AND (expires_at = 0 OR expires_at > ?)
 		ORDER BY urgency DESC, created_at ASC, id ASC`,
@@ -121,7 +136,7 @@ func (s *Store) ListUndelivered(ctx context.Context, now int64) ([]Proposal, err
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at
+		SELECT id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at, action_kind, action_ref
 		FROM proposals
 		WHERE state = ? AND delivered_at = 0 AND (expires_at = 0 OR expires_at > ?)
 		ORDER BY urgency DESC, created_at ASC, id ASC`,
@@ -195,6 +210,37 @@ func (s *Store) PendingTitles(ctx context.Context, now int64) (map[string]bool, 
 	return out, nil
 }
 
+// PendingPromoteRefs is the set of live pending staged skill slugs already under
+// a promote_skill proposal. The distill screen uses this to avoid re-proposing a
+// draft while a human decision is still pending.
+func (s *Store) PendingPromoteRefs(ctx context.Context, now int64) (map[string]bool, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT action_ref
+		FROM proposals
+		WHERE state = ? AND action_kind = ? AND (expires_at = 0 OR expires_at > ?) AND action_ref != ''`,
+		StatePending, ActionKindPromoteSkill, now)
+	if err != nil {
+		return nil, fmt.Errorf("list pending promote refs: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]bool{}
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			return nil, fmt.Errorf("scan pending promote ref: %w", err)
+		}
+		out[ref] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending promote refs: %w", err)
+	}
+	return out, nil
+}
+
 // RecentlyDismissedTitles is the set of titles the user dismissed at or after
 // `since`. The anticipation job subtracts these from new proposals so a dismissed
 // idea is not re-queued during its cooldown window — a dismissal lowers the
@@ -222,6 +268,36 @@ func (s *Store) RecentlyDismissedTitles(ctx context.Context, since int64) (map[s
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate dismissed titles: %w", err)
+	}
+	return out, nil
+}
+
+// RecentlyDismissedPromoteRefs is the set of promote_skill action refs the user
+// dismissed at or after `since`. Distilled skill drafts are stably identified by
+// slug/action_ref rather than by title, because the draft name in the title may
+// change while the staged directory remains the same.
+func (s *Store) RecentlyDismissedPromoteRefs(ctx context.Context, since int64) (map[string]bool, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT action_ref FROM proposals WHERE state = ? AND action_kind = ? AND decided_at >= ? AND action_ref != ''`,
+		StateDismissed, ActionKindPromoteSkill, since)
+	if err != nil {
+		return nil, fmt.Errorf("list dismissed promote refs: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]bool{}
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			return nil, fmt.Errorf("scan dismissed promote ref: %w", err)
+		}
+		out[ref] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate dismissed promote refs: %w", err)
 	}
 	return out, nil
 }
@@ -266,7 +342,7 @@ func (s *Store) Get(ctx context.Context, id string) (Proposal, error) {
 		return Proposal{}, err
 	}
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at
+		SELECT id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at, action_kind, action_ref
 		FROM proposals
 		WHERE id = ?`, id)
 	p, err := scanProposal(row)
@@ -293,6 +369,8 @@ func scanProposal(row rowScanner) (Proposal, error) {
 		&p.CreatedAt,
 		&p.ExpiresAt,
 		&p.DecidedAt,
+		&p.ActionKind,
+		&p.ActionRef,
 	)
 	return p, err
 }

@@ -16,7 +16,7 @@ import (
 // newCoordinatorHarness wires a real proposals store on a temp DB to recorded
 // fire/feedback closures so each branch is observable without a live agent or
 // Telegram. The clock is fixed so decided_at assertions are deterministic.
-func newCoordinatorHarness(t *testing.T) (*proposalCoordinator, *proposals.Store, *[]string, *[]attention.Feedback) {
+func newCoordinatorHarness(t *testing.T) (*proposalCoordinator, *proposals.Store, *[]string, *[]string, *[]attention.Feedback) {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "coord.db"))
 	if err != nil {
@@ -26,11 +26,16 @@ func newCoordinatorHarness(t *testing.T) (*proposalCoordinator, *proposals.Store
 	ps := proposals.NewStore(db.DB)
 
 	var fired []string
+	var promoted []string
 	var recorded []attention.Feedback
 	c := &proposalCoordinator{
 		store: ps,
 		fire: func(_ context.Context, idem, goal, _, class string) error {
 			fired = append(fired, idem+"|"+goal+"|"+class)
+			return nil
+		},
+		promote: func(_ context.Context, slug string) error {
+			promoted = append(promoted, slug)
 			return nil
 		},
 		feedback: func(_ context.Context, fb attention.Feedback) error {
@@ -39,11 +44,11 @@ func newCoordinatorHarness(t *testing.T) (*proposalCoordinator, *proposals.Store
 		},
 		now: func() int64 { return 1000 },
 	}
-	return c, ps, &fired, &recorded
+	return c, ps, &fired, &promoted, &recorded
 }
 
 func TestProposalAcceptFiresActionPlan(t *testing.T) {
-	c, ps, fired, recorded := newCoordinatorHarness(t)
+	c, ps, fired, promoted, recorded := newCoordinatorHarness(t)
 	ctx := context.Background()
 	if err := ps.Create(ctx, proposals.Proposal{ID: "p1", Title: "prep", ActionPlan: "do the thing", Body: "ctx", CreatedAt: 1}); err != nil {
 		t.Fatal(err)
@@ -57,6 +62,9 @@ func TestProposalAcceptFiresActionPlan(t *testing.T) {
 	if len(*fired) != 1 || (*fired)[0] != "p1|do the thing|proposal" {
 		t.Fatalf("expected one episode fired, got %v", *fired)
 	}
+	if len(*promoted) != 0 {
+		t.Fatalf("episode proposal must not promote, got %v", *promoted)
+	}
 	if len(*recorded) != 0 {
 		t.Fatalf("accept must not record feedback, got %v", *recorded)
 	}
@@ -67,7 +75,7 @@ func TestProposalAcceptFiresActionPlan(t *testing.T) {
 }
 
 func TestProposalAcceptIsExactlyOnce(t *testing.T) {
-	c, ps, fired, _ := newCoordinatorHarness(t)
+	c, ps, fired, _, _ := newCoordinatorHarness(t)
 	ctx := context.Background()
 	if err := ps.Create(ctx, proposals.Proposal{ID: "p1", ActionPlan: "go", CreatedAt: 1}); err != nil {
 		t.Fatal(err)
@@ -85,7 +93,7 @@ func TestProposalAcceptIsExactlyOnce(t *testing.T) {
 }
 
 func TestProposalAcceptWithoutPlanFiresNothing(t *testing.T) {
-	c, ps, fired, _ := newCoordinatorHarness(t)
+	c, ps, fired, _, _ := newCoordinatorHarness(t)
 	ctx := context.Background()
 	if err := ps.Create(ctx, proposals.Proposal{ID: "p1", Title: "fyi", ActionPlan: "  ", CreatedAt: 1}); err != nil {
 		t.Fatal(err)
@@ -99,7 +107,7 @@ func TestProposalAcceptWithoutPlanFiresNothing(t *testing.T) {
 }
 
 func TestProposalDismissRecordsFeedback(t *testing.T) {
-	c, ps, fired, recorded := newCoordinatorHarness(t)
+	c, ps, fired, promoted, recorded := newCoordinatorHarness(t)
 	ctx := context.Background()
 	if err := ps.Create(ctx, proposals.Proposal{ID: "p1", Title: "unwanted", ActionPlan: "x", CreatedAt: 1}); err != nil {
 		t.Fatal(err)
@@ -111,6 +119,9 @@ func TestProposalDismissRecordsFeedback(t *testing.T) {
 
 	if len(*fired) != 0 {
 		t.Fatalf("dismiss must not fire an episode, got %v", *fired)
+	}
+	if len(*promoted) != 0 {
+		t.Fatalf("dismiss must not promote, got %v", *promoted)
 	}
 	if len(*recorded) != 1 {
 		t.Fatalf("dismiss must record exactly one feedback, got %v", *recorded)
@@ -125,7 +136,7 @@ func TestProposalDismissRecordsFeedback(t *testing.T) {
 }
 
 func TestProposalDecideUnknownID(t *testing.T) {
-	c, _, _, _ := newCoordinatorHarness(t)
+	c, _, _, _, _ := newCoordinatorHarness(t)
 	ctx := context.Background()
 	if err := c.Accept(ctx, "nope"); err == nil {
 		t.Fatal("accepting an unknown proposal must error")
@@ -223,7 +234,7 @@ func TestProposalAcceptFireFailureLeavesAccepted(t *testing.T) {
 // its expiry must not act, even though nothing has transitioned it to the expired
 // state yet.
 func TestProposalDecideRejectsExpired(t *testing.T) {
-	c, ps, fired, recorded := newCoordinatorHarness(t)
+	c, ps, fired, _, recorded := newCoordinatorHarness(t)
 	ctx := context.Background()
 	// now() is fixed at 1000; expires_at 500 is in the past.
 	if err := ps.Create(ctx, proposals.Proposal{ID: "p1", ActionPlan: "go", CreatedAt: 1, ExpiresAt: 500}); err != nil {
@@ -237,5 +248,132 @@ func TestProposalDecideRejectsExpired(t *testing.T) {
 	}
 	if len(*fired) != 0 || len(*recorded) != 0 {
 		t.Fatalf("an expired proposal must neither fire nor record: fired=%v recorded=%v", *fired, *recorded)
+	}
+}
+
+func TestProposalAcceptPromoteSkill(t *testing.T) {
+	c, ps, fired, promoted, _ := newCoordinatorHarness(t)
+	ctx := context.Background()
+	if err := ps.Create(ctx, proposals.Proposal{
+		ID:         "p1",
+		Title:      "Promote distilled skill: Daily Summary",
+		ActionKind: proposals.ActionKindPromoteSkill,
+		ActionRef:  "daily-summary",
+		ActionPlan: "must not fire",
+		CreatedAt:  1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Accept(ctx, "p1"); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if len(*promoted) != 1 || (*promoted)[0] != "daily-summary" {
+		t.Fatalf("expected deterministic promote, got %v", *promoted)
+	}
+	if len(*fired) != 0 {
+		t.Fatalf("promote proposal must not fire an episode, got %v", *fired)
+	}
+}
+
+func TestProposalAcceptPromoteSkillExactlyOnce(t *testing.T) {
+	c, ps, _, promoted, _ := newCoordinatorHarness(t)
+	ctx := context.Background()
+	if err := ps.Create(ctx, proposals.Proposal{
+		ID:         "p1",
+		ActionKind: proposals.ActionKindPromoteSkill,
+		ActionRef:  "daily-summary",
+		CreatedAt:  1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Accept(ctx, "p1"); err != nil {
+		t.Fatalf("first Accept: %v", err)
+	}
+	if err := c.Accept(ctx, "p1"); err == nil {
+		t.Fatal("second Accept must fail (already decided)")
+	}
+	if len(*promoted) != 1 {
+		t.Fatalf("double-tap must promote exactly once, got %v", *promoted)
+	}
+}
+
+func TestProposalAcceptPromoteSkillEmptyRef(t *testing.T) {
+	c, ps, fired, promoted, _ := newCoordinatorHarness(t)
+	ctx := context.Background()
+	if err := ps.Create(ctx, proposals.Proposal{
+		ID:         "p1",
+		ActionKind: proposals.ActionKindPromoteSkill,
+		ActionRef:  " ",
+		CreatedAt:  1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Accept(ctx, "p1"); err == nil {
+		t.Fatal("empty action_ref must error")
+	}
+	if len(*fired) != 0 || len(*promoted) != 0 {
+		t.Fatalf("empty action_ref must run no action: fired=%v promoted=%v", *fired, *promoted)
+	}
+	got, err := ps.Get(ctx, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != proposals.StatePending {
+		t.Fatalf("bad promote proposal must remain pending, got %q", got.State)
+	}
+}
+
+func TestProposalAcceptPromoteSkillNilHandler(t *testing.T) {
+	c, ps, fired, promoted, _ := newCoordinatorHarness(t)
+	c.promote = nil
+	ctx := context.Background()
+	if err := ps.Create(ctx, proposals.Proposal{
+		ID:         "p1",
+		ActionKind: proposals.ActionKindPromoteSkill,
+		ActionRef:  "daily-summary",
+		CreatedAt:  1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Accept(ctx, "p1"); err == nil {
+		t.Fatal("nil promote handler must error")
+	}
+	if len(*fired) != 0 || len(*promoted) != 0 {
+		t.Fatalf("nil promote handler must run no action: fired=%v promoted=%v", *fired, *promoted)
+	}
+	got, err := ps.Get(ctx, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != proposals.StatePending {
+		t.Fatalf("unwired promote proposal must remain pending, got %q", got.State)
+	}
+}
+
+func TestProposalAcceptUnknownActionKindFailsClosed(t *testing.T) {
+	c, ps, fired, promoted, _ := newCoordinatorHarness(t)
+	ctx := context.Background()
+	if err := ps.Create(ctx, proposals.Proposal{
+		ID:         "p1",
+		ActionKind: "bogus",
+		ActionPlan: "must not fire",
+		ActionRef:  "must-not-promote",
+		CreatedAt:  1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Accept(ctx, "p1"); err == nil {
+		t.Fatal("unknown action_kind must error")
+	}
+	if len(*fired) != 0 || len(*promoted) != 0 {
+		t.Fatalf("unknown action_kind must run no action: fired=%v promoted=%v", *fired, *promoted)
+	}
+	got, err := ps.Get(ctx, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != proposals.StatePending {
+		t.Fatalf("unknown action_kind must remain pending, got %q", got.State)
 	}
 }
