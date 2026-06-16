@@ -92,6 +92,8 @@ type OutcomeMeta struct {
 	UnverifiedActions int
 	// ParentEpisodeID is the parent episode id for a subagent episode; empty for top-level episodes.
 	ParentEpisodeID string
+	// ValueCreatedUSD is the episode's self-reported USD value; 0 means unreported.
+	ValueCreatedUSD float64
 }
 
 // ApplyOutcome applies world writes from an episode outcome, stamps episodeID,
@@ -674,9 +676,9 @@ func claimOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, 
 	}
 	res, err := exec.ExecContext(ctx, `
 		INSERT OR IGNORE INTO journal
-			(id, episode_id, kind, summary, detail, parent_episode_id)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		"journal_outcome_"+episodeID, episodeID, "outcome", summary, detail, meta.ParentEpisodeID)
+			(id, episode_id, kind, summary, detail, parent_episode_id, value_created_usd)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"journal_outcome_"+episodeID, episodeID, "outcome", summary, detail, meta.ParentEpisodeID, meta.ValueCreatedUSD)
 	if err != nil {
 		return false, fmt.Errorf("append outcome journal: %w", err)
 	}

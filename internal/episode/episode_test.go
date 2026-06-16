@@ -118,7 +118,7 @@ func chatRequest(goal, text string) agent.CognitiveRequest {
 func TestExecuteBasicHappyPath(t *testing.T) {
 	provider := &episodeTestProvider{streams: []providerResponse{{
 		text:      "Here is your answer.",
-		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled request."}`)},
+		toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Handled request.","value_created_usd":8.0}`)},
 	}}}
 	runner, ws := testRunner(t, provider)
 
@@ -138,6 +138,13 @@ func TestExecuteBasicHappyPath(t *testing.T) {
 	}
 	if len(journal) != 1 || journal[0].Summary != "Handled request." {
 		t.Fatalf("journal = %#v", journal)
+	}
+	values, err := ws.OutcomeValueForEpisodes(context.Background(), []string{journal[0].EpisodeID})
+	if err != nil {
+		t.Fatalf("OutcomeValueForEpisodes: %v", err)
+	}
+	if values[journal[0].EpisodeID] != 8.0 {
+		t.Fatalf("value_created_usd = %v, want 8.0", values[journal[0].EpisodeID])
 	}
 }
 
@@ -712,6 +719,19 @@ func TestParseOutcomeRejectsBlankSummary(t *testing.T) {
 	// A real summary still parses.
 	if _, err := parseOutcome(`{"status":"done","summary":"did the thing"}`); err != nil {
 		t.Fatalf("parseOutcome rejected a valid outcome: %v", err)
+	}
+}
+
+func TestParseOutcomeValueCreatedUSD(t *testing.T) {
+	out, err := parseOutcome(`{"status":"done","summary":"did the thing","value_created_usd":8.0}`)
+	if err != nil {
+		t.Fatalf("parseOutcome rejected value_created_usd: %v", err)
+	}
+	if out.ValueCreatedUSD != 8.0 {
+		t.Fatalf("ValueCreatedUSD = %v, want 8.0", out.ValueCreatedUSD)
+	}
+	if _, err := parseOutcome(`{"status":"done","summary":"did the thing","value_created_usd":-1}`); err == nil {
+		t.Fatal("parseOutcome accepted negative value_created_usd")
 	}
 }
 

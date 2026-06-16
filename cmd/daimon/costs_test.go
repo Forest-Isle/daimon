@@ -100,8 +100,13 @@ func TestFoldROI(t *testing.T) {
 		"h1": world.OutcomeClean,
 		"h2": world.OutcomeToolFailures,
 	}
+	value := map[string]float64{
+		"c1": 12.5,
+		"c2": 7.5,
+		"h2": 3,
+	}
 
-	out := foldROI(folded, episodeCosts, quality)
+	out := foldROI(folded, episodeCosts, quality, value)
 	if len(out) != 2 {
 		t.Fatalf("want 2 rows, got %d: %+v", len(out), out)
 	}
@@ -110,11 +115,11 @@ func TestFoldROI(t *testing.T) {
 		t.Fatalf("order = %q,%q, want chat,heartbeat", out[0].class, out[1].class)
 	}
 	// chat: 3 episodes, 2 clean (c3 has no outcome → not clean), priced $80.
-	if out[0].episodes != 3 || out[0].clean != 2 || out[0].usd != 80 || !out[0].priced {
-		t.Fatalf("chat row = %+v, want episodes=3 clean=2 usd=80 priced", out[0])
+	if out[0].episodes != 3 || out[0].clean != 2 || out[0].usd != 80 || !out[0].priced || out[0].valueUSD != 20 {
+		t.Fatalf("chat row = %+v, want episodes=3 clean=2 usd=80 priced valueUSD=20", out[0])
 	}
 	// heartbeat: 2 episodes, 1 clean (h2 is a tool-failure), unpriced.
-	if out[1].episodes != 2 || out[1].clean != 1 || out[1].priced {
-		t.Fatalf("heartbeat row = %+v, want episodes=2 clean=1 not-priced", out[1])
+	if out[1].episodes != 2 || out[1].clean != 1 || out[1].priced || out[1].valueUSD != 3 {
+		t.Fatalf("heartbeat row = %+v, want episodes=2 clean=1 not-priced valueUSD=3", out[1])
 	}
 }

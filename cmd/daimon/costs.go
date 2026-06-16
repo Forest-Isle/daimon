@@ -158,10 +158,14 @@ func newCostsCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("outcome quality for ROI: %w", err)
 				}
-				roi := foldROI(folded, episodeCosts, quality)
+				values, err := world.NewStore(db.DB).OutcomeValueForEpisodes(ctx, ids)
+				if err != nil {
+					return fmt.Errorf("outcome value for ROI: %w", err)
+				}
+				roi := foldROI(folded, episodeCosts, quality, values)
 				fmt.Printf("\nROI by activity class — %s\n\n", periodLabel)
 				rw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
-				_, _ = fmt.Fprintln(rw, "CLASS\tEPISODES\tCLEAN\tCLEAN%\tCOST\tCLEAN/$\t")
+				_, _ = fmt.Fprintln(rw, "CLASS\tEPISODES\tCLEAN\tCLEAN%\tCOST\tCLEAN/$\tVALUE$\t")
 				for _, r := range roi {
 					class := r.class
 					if class == "" {
@@ -178,13 +182,13 @@ func newCostsCmd() *cobra.Command {
 							perDollar = fmt.Sprintf("%.2f", float64(r.clean)/r.usd)
 						}
 					}
-					_, _ = fmt.Fprintf(rw, "%s\t%d\t%d\t%s\t%s\t%s\t\n",
-						class, r.episodes, r.clean, cleanPct, costCol, perDollar)
+					_, _ = fmt.Fprintf(rw, "%s\t%d\t%d\t%s\t%s\t%s\t%s\t\n",
+						class, r.episodes, r.clean, cleanPct, costCol, perDollar, fmt.Sprintf("%.2f", r.valueUSD))
 				}
 				_ = rw.Flush()
 				fmt.Println("\nNote: value proxy = clean-outcome rate (no tool failure, all governed" +
 					" actions verified). CLEAN/$ = clean episodes per dollar; — when the class" +
-					" has an unpriced model or zero cost.")
+					" has an unpriced model or zero cost. VALUE$ = 情节自报 value_created 之和(可选软信号).")
 
 				// Throttle recommendations (blueprint §4.11): flag classes over budget
 				// or delivering poor value, against the operator's configured thresholds.
@@ -291,6 +295,7 @@ type roiClassRow struct {
 	clean    int
 	usd      float64
 	priced   bool
+	valueUSD float64
 }
 
 // foldROI overlays per-episode outcome quality onto the already-folded per-class
@@ -299,14 +304,16 @@ type roiClassRow struct {
 // keeps that order and only adds the clean-outcome count, derived by bucketing each
 // episode's class against its quality. An episode with no recorded quality (no
 // outcome row) counts toward episodes but not clean. Pure: no I/O.
-func foldROI(folded []classCostRow, episodeCosts []economy.EpisodeClassCost, quality map[string]world.OutcomeQuality) []roiClassRow {
+func foldROI(folded []classCostRow, episodeCosts []economy.EpisodeClassCost, quality map[string]world.OutcomeQuality, value map[string]float64) []roiClassRow {
 	cleanByClass := map[string]int{}
+	valueByClass := map[string]float64{}
 	for _, e := range episodeCosts {
 		// Presence matters: OutcomeClean is the zero value, so an episode with no
 		// recorded quality (absent from the map) must NOT be counted as clean.
 		if q, ok := quality[e.EpisodeID]; ok && q == world.OutcomeClean {
 			cleanByClass[e.Class]++
 		}
+		valueByClass[e.Class] += value[e.EpisodeID]
 	}
 	out := make([]roiClassRow, 0, len(folded))
 	for _, c := range folded {
@@ -316,6 +323,7 @@ func foldROI(folded []classCostRow, episodeCosts []economy.EpisodeClassCost, qua
 			clean:    cleanByClass[c.class],
 			usd:      c.usd,
 			priced:   !c.anyUnpriced,
+			valueUSD: valueByClass[c.class],
 		})
 	}
 	return out
