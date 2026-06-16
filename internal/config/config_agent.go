@@ -1,15 +1,16 @@
 package config
 
 type AgentConfig struct {
-	MaxIterations   int               `yaml:"max_iterations"`
-	EpisodeEnabled  bool              `yaml:"episode_enabled"`
-	HeartEnabled    bool              `yaml:"heart_enabled"` // route autonomous (non-chat) events through heart→attention→episode
-	Heart           HeartConfig       `yaml:"heart"`
-	SystemPrompt    string            `yaml:"system_prompt"`
-	Personality     string            `yaml:"-"` // Soul.md → persona/style (injected by userdir)
-	PersistentRules string            `yaml:"-"` // Memory.md → long-term rules (injected by userdir)
-	Execution       ExecutionConfig   `yaml:"execution"`
-	Compression     CompressionConfig `yaml:"compression"`
+	MaxIterations          int               `yaml:"max_iterations"`
+	EpisodeEnabled         bool              `yaml:"episode_enabled"`
+	SubagentEpisodeEnabled bool              `yaml:"subagent_episode_enabled"`
+	HeartEnabled           bool              `yaml:"heart_enabled"` // route autonomous (non-chat) events through heart→attention→episode
+	Heart                  HeartConfig       `yaml:"heart"`
+	SystemPrompt           string            `yaml:"system_prompt"`
+	Personality            string            `yaml:"-"` // Soul.md → persona/style (injected by userdir)
+	PersistentRules        string            `yaml:"-"` // Memory.md → long-term rules (injected by userdir)
+	Execution              ExecutionConfig   `yaml:"execution"`
+	Compression            CompressionConfig `yaml:"compression"`
 }
 
 // HeartConfig tunes the event heart. It only takes effect when HeartEnabled is

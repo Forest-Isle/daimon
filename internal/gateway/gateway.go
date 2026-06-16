@@ -165,6 +165,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 
 	gw.multiAgent = InitMultiAgent(featSub, cfg, builder, agentSub.Provider,
 		gw.sessions, gw.db, gw.memory.Store(), gw.toolSub.Registry, gw.toolSub.ResultStore)
+	if gw.multiAgent.SubAgentMgr != nil {
+		gw.multiAgent.SubAgentMgr.SetEpisodeKernel(gw.EpisodeRunner, gw.EpisodeEnabled && cfg.Agent.SubagentEpisodeEnabled)
+	}
 	gw.contextMgr = gw.multiAgent.ContextMgr
 	if gw.multiAgent.AgentMgr != nil && gw.multiAgent.SubAgentMgr != nil {
 		gw.toolSub.Registry.Register(agent.NewWorkflowTool(

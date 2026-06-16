@@ -44,6 +44,7 @@ tui:
 agent:
   max_iterations: 20
   episode_enabled: true  # route inbound chat through the episode kernel; false falls back to legacy agent loop
+  # subagent_episode_enabled: false  # when true, synchronous subagents run as episodes with forced Outcome handoff and governance
   # Heart: the autonomous event path. When enabled, non-chat events (a timer
   # heartbeat today; mail/calendar later) flow through heart → attention router
   # → a channel-less episode. The chat reply path is unaffected. Off by default;

@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
+	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/session"
@@ -65,6 +68,33 @@ func (p *capturingSubagentProvider) Stream(_ context.Context, req mind.Completio
 		p.onStream(req)
 	}
 	return &fixedStreamIterator{text: p.response}, nil
+}
+
+type stubCognitiveKernel struct {
+	mu            sync.Mutex
+	calls         int
+	activityClass string
+	outcome       CognitiveOutcome
+}
+
+func (s *stubCognitiveKernel) Execute(_ context.Context, req CognitiveRequest) (CognitiveOutcome, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	s.activityClass = req.ActivityClass
+	return s.outcome, nil
+}
+
+func (s *stubCognitiveKernel) CallCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
+func (s *stubCognitiveKernel) ActivityClass() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.activityClass
 }
 
 func TestSubAgentManager_Spawn_IndependentSession(t *testing.T) {
@@ -156,6 +186,235 @@ func TestSubAgentManager_Spawn_ModelOverride(t *testing.T) {
 
 	if capturedModel != "haiku-model" {
 		t.Errorf("model = %q, want haiku-model", capturedModel)
+	}
+}
+
+func TestSubAgentManager_Spawn_EpisodeKernelEnabled(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Sessions: session.NewManager(db),
+			DB:       db,
+			Tools:    tool.NewRegistry(),
+			Cfg:      config.AgentConfig{MaxIterations: 1},
+			LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+		},
+	}.WithDefaults())
+	kernel := &stubCognitiveKernel{
+		outcome: CognitiveOutcome{Status: "done", Summary: "episode subagent complete"},
+	}
+	mgr.SetEpisodeKernel(kernel, true)
+
+	spec := &AgentSpec{Name: "episode-agent", Description: "test"}
+	_ = spec.Validate()
+
+	result, err := mgr.Spawn(context.Background(), SpawnRequest{Spec: spec, Task: "run as episode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kernel.CallCount(); got != 1 {
+		t.Fatalf("kernel calls = %d, want 1", got)
+	}
+	if got := kernel.ActivityClass(); got != "subagent" {
+		t.Errorf("activity class = %q, want subagent", got)
+	}
+	if !strings.Contains(result.Output, "episode subagent complete") {
+		t.Errorf("output = %q, want kernel summary", result.Output)
+	}
+}
+
+func TestSubAgentManager_SpawnParallel_EpisodeKernelEnabled(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Sessions: session.NewManager(db),
+			DB:       db,
+			Tools:    tool.NewRegistry(),
+			Cfg:      config.AgentConfig{MaxIterations: 1},
+			LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+		},
+	}.WithDefaults())
+	kernel := &stubCognitiveKernel{
+		outcome: CognitiveOutcome{Status: "done", Summary: "parallel episode subagent complete"},
+	}
+	mgr.SetEpisodeKernel(kernel, true)
+
+	const n = 4
+	reqs := make([]SpawnRequest, n)
+	for i := range n {
+		spec := &AgentSpec{Name: fmt.Sprintf("episode-agent-%d", i), Description: "test"}
+		_ = spec.Validate()
+		reqs[i] = SpawnRequest{Spec: spec, Task: fmt.Sprintf("run episode %d", i)}
+	}
+
+	results, err := mgr.SpawnParallel(context.Background(), reqs, StrategyBestEffort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, result := range results {
+		if result == nil {
+			t.Fatalf("result[%d] is nil", i)
+		}
+		if !strings.Contains(result.Output, "parallel episode subagent complete") {
+			t.Errorf("result[%d].Output = %q, want kernel summary", i, result.Output)
+		}
+	}
+	if got := kernel.CallCount(); got != n {
+		t.Fatalf("kernel calls = %d, want %d", got, n)
+	}
+}
+
+func TestSubAgentManager_Spawn_EpisodeKernelFailedIsTerminal(t *testing.T) {
+	var legacyStreams int
+	provider := &capturingSubagentProvider{
+		response: "legacy fallback should not run",
+		onStream: func(mind.CompletionRequest) {
+			legacyStreams++
+		},
+	}
+
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Provider: provider,
+			Sessions: session.NewManager(db),
+			DB:       db,
+			Tools:    tool.NewRegistry(),
+			Cfg:      config.AgentConfig{MaxIterations: 1},
+			LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+		},
+	}.WithDefaults())
+	kernel := &stubCognitiveKernel{
+		outcome: CognitiveOutcome{Status: "failed", Summary: "episode failure summary"},
+	}
+	mgr.SetEpisodeKernel(kernel, true)
+
+	spec := &AgentSpec{Name: "failed-episode-agent", Description: "test"}
+	_ = spec.Validate()
+
+	result, err := mgr.Spawn(context.Background(), SpawnRequest{Spec: spec, Task: "fail as episode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kernel.CallCount(); got != 1 {
+		t.Fatalf("kernel calls = %d, want 1", got)
+	}
+	if legacyStreams != 0 {
+		t.Fatalf("legacy stream calls = %d, want 0", legacyStreams)
+	}
+	if !strings.Contains(result.Output, "episode failure summary") {
+		t.Errorf("output = %q, want failed kernel summary", result.Output)
+	}
+}
+
+func TestSubAgentManager_Spawn_EpisodeKernelDisabled(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Provider: &mockSubagentProvider{response: "legacy subagent complete"},
+			Sessions: session.NewManager(db),
+			DB:       db,
+			Tools:    tool.NewRegistry(),
+			Cfg:      config.AgentConfig{MaxIterations: 1},
+			LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+		},
+	}.WithDefaults())
+	kernel := &stubCognitiveKernel{
+		outcome: CognitiveOutcome{Status: "done", Summary: "should not run"},
+	}
+	mgr.SetEpisodeKernel(kernel, false)
+
+	spec := &AgentSpec{Name: "legacy-agent", Description: "test"}
+	_ = spec.Validate()
+
+	_, err = mgr.Spawn(context.Background(), SpawnRequest{Spec: spec, Task: "run legacy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kernel.CallCount(); got != 0 {
+		t.Fatalf("kernel calls = %d, want 0", got)
+	}
+}
+
+func TestAgent_HandleMessage_KernelActivityClass(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		want string
+	}{
+		{
+			name: "chat",
+			ctx:  func(ctx context.Context) context.Context { return ctx },
+			want: "chat",
+		},
+		{
+			name: "subagent",
+			ctx: func(ctx context.Context) context.Context {
+				return SubagentContextToCtx(ctx, &SubagentContext{AgentID: "subagent-test"})
+			},
+			want: "subagent",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+
+			deps := AgentDeps{
+				Core: CoreDeps{
+					Sessions: session.NewManager(db),
+					DB:       db,
+					Tools:    tool.NewRegistry(),
+					Cfg:      config.AgentConfig{MaxIterations: 1},
+					LLMCfg:   config.LLMConfig{Model: "test-model", MaxTokens: 100},
+				},
+			}.WithDefaults()
+			agent := NewAgent(&deps, &LinearLoop{}, NewEventBus())
+			kernel := &stubCognitiveKernel{
+				outcome: CognitiveOutcome{Status: "done", Summary: "ok"},
+			}
+			agent.SetKernel(kernel, true)
+
+			capture := newSubagentCapture()
+			msg := channel.InboundMessage{
+				Channel:   "test",
+				ChannelID: tc.name,
+				UserID:    "user",
+				UserName:  "user",
+				Text:      "hello",
+			}
+			if err := agent.HandleMessage(tc.ctx(context.Background()), capture, msg); err != nil {
+				t.Fatal(err)
+			}
+			if got := kernel.CallCount(); got != 1 {
+				t.Fatalf("kernel calls = %d, want 1", got)
+			}
+			if got := kernel.ActivityClass(); got != tc.want {
+				t.Errorf("activity class = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

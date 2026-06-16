@@ -19,12 +19,23 @@ import (
 // It handles spawning sub-agents with isolated sessions, scoped tools,
 // and optional model overrides.
 type SubAgentManager struct {
-	deps AgentDeps
+	deps           AgentDeps
+	kernel         CognitiveKernel
+	episodeEnabled bool
 }
 
 // NewSubAgentManager creates a new SubAgentManager.
 func NewSubAgentManager(deps AgentDeps) *SubAgentManager {
 	return &SubAgentManager{deps: deps}
+}
+
+// SetEpisodeKernel routes synchronous sub-agents through the episode cognitive
+// kernel (forced Outcome 交账 + episode governance) when enabled. Default off:
+// a nil kernel or enabled=false keeps the legacy LinearLoop, leaving behavior
+// unchanged.
+func (m *SubAgentManager) SetEpisodeKernel(kernel CognitiveKernel, enabled bool) {
+	m.kernel = kernel
+	m.episodeEnabled = enabled
 }
 
 // SpawnRequest holds the parameters for spawning a sub-agent.
@@ -62,6 +73,12 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 
 	subDeps = subDeps.WithDefaults()
 	subAgent := NewAgent(&subDeps, &LinearLoop{}, NewEventBus())
+	// Run the sub-agent as an episode (forced Outcome, episode governance) when the
+	// episode kernel is wired and enabled; otherwise the legacy LinearLoop path is
+	// unchanged. Background mode (spawnBackground) is not routed in this slice.
+	if m.episodeEnabled && m.kernel != nil {
+		subAgent.SetKernel(m.kernel, true)
+	}
 
 	chainID := req.ChainID
 	if chainID == "" {

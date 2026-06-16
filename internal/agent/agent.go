@@ -173,6 +173,10 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session.Session, msg channel.InboundMessage, priorTranscript []mind.CompletionMessage) (bool, error) {
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
 	transcript := append(priorTranscript, mind.CompletionMessage{Role: "user", Content: msg.Text})
+	activityClass := "chat"
+	if SubagentContextFromCtx(ctx) != nil {
+		activityClass = "subagent"
+	}
 
 	req := CognitiveRequest{
 		SessionID:     sess.ID,
@@ -183,7 +187,7 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 		Memories:      a.buildMemoryPromptSection(ctx, msg.Text),
 		Model:         a.deps.Core.LLMCfg.Model,
 		Provider:      a.deps.Core.LLMCfg.Provider,
-		ActivityClass: "chat",
+		ActivityClass: activityClass,
 		Transcript:    transcript,
 		ToolDefs:      a.buildToolDefs(),
 		Invoke: func(ctx context.Context, iteration int, call mind.ToolUseBlock) (string, bool) {
@@ -193,9 +197,21 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 
 	outcome, kerr := a.kernel.Execute(ctx, req)
 	if kerr != nil || outcome.Status == "failed" {
-		slog.Warn("agent: cognitive kernel failed; falling back to legacy loop",
-			"session", sess.ID, "err", kerr, "status", outcome.Status)
-		return false, nil
+		// Sub-agent episodes are terminal: the episode already 交账'd (failEpisode
+		// wrote the journal outcome). Falling back to the legacy loop would double-run
+		// the task and bypass episode governance, so surface the outcome to Spawn
+		// instead of retrying. (Propagating Outcome.Status into SubAgentResult.Status
+		// is a follow-up; today a failed sub-agent episode returns its summary text.)
+		if SubagentContextFromCtx(ctx) != nil {
+			if kerr != nil {
+				return true, kerr
+			}
+			// fall through: a 交账'd failed outcome surfaces its summary as the result
+		} else {
+			slog.Warn("agent: cognitive kernel failed; falling back to legacy loop",
+				"session", sess.ID, "err", kerr, "status", outcome.Status)
+			return false, nil
+		}
 	}
 
 	reply := outcome.Reply
