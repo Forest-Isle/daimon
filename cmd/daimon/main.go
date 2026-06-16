@@ -16,6 +16,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/channel/telegram"
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/gateway"
+	"github.com/Forest-Isle/daimon/internal/selfops"
 	"github.com/Forest-Isle/daimon/internal/skill"
 	"github.com/Forest-Isle/daimon/internal/userdir"
 	"github.com/spf13/cobra"
@@ -337,5 +338,6 @@ func setupLogging(level string) {
 	default:
 		lvl = slog.LevelInfo
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})))
+	base := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})
+	slog.SetDefault(slog.New(selfops.NewTeeHandler(base)))
 }

@@ -14,6 +14,7 @@ import (
 	tuichannel "github.com/Forest-Isle/daimon/internal/channel/tui"
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/gateway"
+	"github.com/Forest-Isle/daimon/internal/selfops"
 	"github.com/Forest-Isle/daimon/internal/userdir"
 	"github.com/spf13/cobra"
 )
@@ -140,6 +141,7 @@ func setupTUILogging(path string) error {
 	if err != nil {
 		return err
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	base := slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo})
+	slog.SetDefault(slog.New(selfops.NewTeeHandler(base)))
 	return nil
 }

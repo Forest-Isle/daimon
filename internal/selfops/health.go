@@ -1,6 +1,9 @@
 package selfops
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 type Severity int
 
@@ -26,12 +29,18 @@ type Finding struct {
 	Detail   string
 }
 
+type ErrorCluster struct {
+	Key   string
+	Count int
+}
+
 type Signals struct {
 	OutcomesTotal int
 	Salvaged      int
 	RoutingMisses int
 	HoldsPending  int
 	DiskFreePct   float64
+	ErrorClusters []ErrorCluster
 }
 
 func (s Signals) SalvagedRate() float64 {
@@ -43,10 +52,29 @@ func (s Signals) SalvagedRate() float64 {
 
 // Thresholds holds watchdog thresholds. A zero threshold disables that check.
 type Thresholds struct {
-	MaxSalvagedRate  float64
-	MaxRoutingMisses int
-	MaxHoldsPending  int
-	MinDiskFreePct   float64
+	MaxSalvagedRate     float64
+	MaxRoutingMisses    int
+	MaxHoldsPending     int
+	MinDiskFreePct      float64
+	MaxErrorClusterSize int
+}
+
+func ClusterErrors(msgs []string) []ErrorCluster {
+	counts := make(map[string]int, len(msgs))
+	for _, msg := range msgs {
+		counts[msg]++
+	}
+	out := make([]ErrorCluster, 0, len(counts))
+	for key, count := range counts {
+		out = append(out, ErrorCluster{Key: key, Count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Key < out[j].Key
+	})
+	return out
 }
 
 func Evaluate(sig Signals, th Thresholds) []Finding {
@@ -77,6 +105,18 @@ func Evaluate(sig Signals, th Thresholds) []Finding {
 			Severity: SeverityWarn,
 			Title:    "holds backlog",
 			Detail:   fmt.Sprintf("pending holds %d exceeds %d", sig.HoldsPending, th.MaxHoldsPending),
+		})
+	}
+	if th.MaxErrorClusterSize > 0 && len(sig.ErrorClusters) > 0 && sig.ErrorClusters[0].Count > th.MaxErrorClusterSize {
+		top := sig.ErrorClusters[0]
+		detail := fmt.Sprintf("%q ×%d", top.Key, top.Count)
+		if more := len(sig.ErrorClusters) - 1; more > 0 {
+			detail += fmt.Sprintf("（+%d more clusters）", more)
+		}
+		out = append(out, Finding{
+			Severity: SeverityWarn,
+			Title:    "error cluster",
+			Detail:   detail,
 		})
 	}
 	return out

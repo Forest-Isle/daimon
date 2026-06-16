@@ -22,15 +22,17 @@ const (
 	selfopsDefaultMaxRoutingMisses = 0
 	selfopsDefaultMaxHoldsPending  = 20
 	selfopsDefaultMinDiskFreePct   = 10.0
+	selfopsDefaultMaxErrorCluster  = 5
 )
 
 var selfopsDefaultThresholds = selfops.Thresholds{
 	MaxSalvagedRate: selfopsDefaultMaxSalvagedRate,
 	// Routing-miss zero tolerance stays disabled until the signal is mature enough
 	// to avoid false WakeUser alarms from sparse correction data.
-	MaxRoutingMisses: selfopsDefaultMaxRoutingMisses,
-	MaxHoldsPending:  selfopsDefaultMaxHoldsPending,
-	MinDiskFreePct:   selfopsDefaultMinDiskFreePct,
+	MaxRoutingMisses:    selfopsDefaultMaxRoutingMisses,
+	MaxHoldsPending:     selfopsDefaultMaxHoldsPending,
+	MinDiskFreePct:      selfopsDefaultMinDiskFreePct,
+	MaxErrorClusterSize: selfopsDefaultMaxErrorCluster,
 }
 
 func (gw *Gateway) gatherHealthSignals(ctx context.Context, now time.Time) selfops.Signals {
@@ -74,12 +76,12 @@ func (gw *Gateway) gatherHealthSignals(ctx context.Context, now time.Time) selfo
 		sig.HoldsPending = n
 	}
 
-	// Error-log clustering is deferred until the gateway has a durable log sink.
 	if pct, err := diskFreePct(appdir.BaseDir()); err != nil {
 		slog.Warn("selfops: disk stat failed", "err", err)
 	} else {
 		sig.DiskFreePct = pct
 	}
+	sig.ErrorClusters = selfops.ClusterErrors(selfops.Errors.Snapshot())
 
 	return sig
 }
@@ -169,6 +171,15 @@ func (gw *Gateway) handleSelfops(ctx context.Context, _ channel.Channel, _ chann
 	fmt.Fprintf(&b, "- routing_misses: %d\n", sig.RoutingMisses)
 	fmt.Fprintf(&b, "- holds_pending: %d\n", sig.HoldsPending)
 	fmt.Fprintf(&b, "- disk_free_pct: %.1f\n", sig.DiskFreePct)
+	if len(sig.ErrorClusters) > 0 {
+		b.WriteString("- error_clusters:\n")
+		for i, c := range sig.ErrorClusters {
+			if i >= 5 {
+				break
+			}
+			fmt.Fprintf(&b, "  - %q: %d\n", c.Key, c.Count)
+		}
+	}
 
 	b.WriteString("\n## Findings\n")
 	if len(findings) == 0 {
