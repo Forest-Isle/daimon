@@ -3,8 +3,11 @@ package action
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -35,6 +38,70 @@ type fileUndoSnapshot struct {
 	Existed   bool   `json:"existed"`
 	Prev      string `json:"prev,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
+}
+
+func ExecuteUndo(ctx context.Context, root string, entry UndoEntry) error {
+	var snap fileUndoSnapshot
+	if err := json.Unmarshal([]byte(entry.UndoSpec), &snap); err != nil {
+		return fmt.Errorf("decode undo spec: %w", err)
+	}
+	if snap.Op != "restore" {
+		return fmt.Errorf("unknown undo operation %q", snap.Op)
+	}
+	resolved, err := tool.ResolveWorkPath(tool.WithWorkDir(ctx, root), snap.Path)
+	if err != nil {
+		return fmt.Errorf("resolve undo path: %w", err)
+	}
+	real, err := fencedRealPath(root, resolved)
+	if err != nil {
+		return fmt.Errorf("fence undo path: %w", err)
+	}
+	if snap.Truncated {
+		return fmt.Errorf("undo for %q is not reversible: content not captured", snap.Path)
+	}
+	if !snap.Existed {
+		if err := os.Remove(real); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete created file: %w", err)
+		}
+		return nil
+	}
+
+	info, err := os.Lstat(real)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("stat undo path: %w", err)
+	}
+	if err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refuse to restore through symlink %q", snap.Path)
+	}
+	if err := os.WriteFile(real, []byte(snap.Prev), 0o644); err != nil {
+		return fmt.Errorf("restore previous content: %w", err)
+	}
+	return nil
+}
+
+// fencedRealPath resolves resolved's parent through symlinks and re-verifies it
+// stays within root, defeating an intermediate-symlink escape (a symlink inside
+// the work root pointing outside). It returns the real target path to operate on.
+func fencedRealPath(root, resolved string) (string, error) {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	parent := filepath.Dir(resolved)
+	// Fail closed if the parent directory no longer exists: undo cannot safely
+	// restore into a disappeared directory tree.
+	realParent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(realRoot, realParent)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path %q escapes working directory after symlink resolution", resolved)
+	}
+	return filepath.Join(realParent, filepath.Base(resolved)), nil
 }
 
 // pathFromInput extracts the "path" argument shared by file_write/file_edit/

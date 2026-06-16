@@ -91,6 +91,19 @@ type UndoRecord struct {
 	ExpiresAt string
 }
 
+type UndoEntry struct {
+	ReceiptID string
+	ToolName  string
+	UndoSpec  string
+	CreatedAt string
+	UndoneAt  string
+}
+
+var (
+	ErrUndoNotFound    = errors.New("undo entry not found")
+	ErrUndoAlreadyDone = errors.New("undo entry already undone")
+)
+
 // Hold is a deferred compensable action awaiting its recall window.
 type Hold struct {
 	ID        string
@@ -207,6 +220,80 @@ func (s *Store) RecordUndo(ctx context.Context, r UndoRecord) error {
 		`INSERT INTO undo_journal (receipt_id, tool_name, undo_spec, expires_at) VALUES (?, ?, ?, ?)`,
 		receiptID, r.ToolName, r.UndoSpec, nullable(r.ExpiresAt)); err != nil {
 		return fmt.Errorf("record undo: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetUndo(ctx context.Context, receiptID string) (UndoEntry, error) {
+	if err := s.ensure(); err != nil {
+		return UndoEntry{}, err
+	}
+	var entry UndoEntry
+	var undoneAt sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT receipt_id, tool_name, undo_spec, created_at, undone_at FROM undo_journal WHERE receipt_id = ?`,
+		receiptID).Scan(&entry.ReceiptID, &entry.ToolName, &entry.UndoSpec, &entry.CreatedAt, &undoneAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UndoEntry{}, ErrUndoNotFound
+	}
+	if err != nil {
+		return UndoEntry{}, fmt.Errorf("get undo: %w", err)
+	}
+	if undoneAt.Valid {
+		entry.UndoneAt = undoneAt.String
+	}
+	return entry, nil
+}
+
+func (s *Store) ListUndoable(ctx context.Context, limit int) ([]UndoEntry, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT receipt_id, tool_name, undo_spec, created_at, undone_at
+		FROM undo_journal
+		WHERE undone_at IS NULL
+		ORDER BY created_at DESC, receipt_id DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list undoable: %w", err)
+	}
+	defer rows.Close()
+
+	var out []UndoEntry
+	for rows.Next() {
+		var entry UndoEntry
+		var undoneAt sql.NullString
+		if err := rows.Scan(&entry.ReceiptID, &entry.ToolName, &entry.UndoSpec, &entry.CreatedAt, &undoneAt); err != nil {
+			return nil, fmt.Errorf("scan undo: %w", err)
+		}
+		if undoneAt.Valid {
+			entry.UndoneAt = undoneAt.String
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate undoable: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Store) Undo(ctx context.Context, root, receiptID string) error {
+	entry, err := s.GetUndo(ctx, receiptID)
+	if err != nil {
+		return err
+	}
+	if entry.UndoneAt != "" {
+		return ErrUndoAlreadyDone
+	}
+	if err := ExecuteUndo(ctx, root, entry); err != nil {
+		return err
+	}
+	if err := s.MarkUndone(ctx, receiptID); err != nil {
+		return err
 	}
 	return nil
 }
