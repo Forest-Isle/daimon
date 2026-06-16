@@ -22,6 +22,7 @@ type eventDispatcher struct {
 	cognize func(ctx context.Context, ev heart.Event)
 	reflex  func(ctx context.Context, ev heart.Event, reflexID string)
 	wake    func(ctx context.Context, ev heart.Event, v attention.Verdict)
+	brief   func(ctx context.Context)
 }
 
 // handle is the heart.Handler: route the event, then dispatch on the verdict. A
@@ -34,6 +35,16 @@ func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) {
 	// so it is never re-handled as an autonomous episode.
 	if ev.Kind == "message" {
 		slog.Debug("heart: ignoring chat message event in dispatcher", "id", ev.ID, "source", ev.Source)
+		return
+	}
+	// The daily-brief timer is handled deterministically off the cognition
+	// path (constitution #5/#7): assemble + deliver the digest, never route
+	// to the model. A nil brief closure (heart wired without a deliverer)
+	// is a no-op.
+	if ev.Kind == "internal.daily_brief" {
+		if d.brief != nil {
+			d.brief(ctx)
+		}
 		return
 	}
 	v, err := d.route(ctx, ev)
@@ -72,7 +83,8 @@ func (gw *Gateway) newEventDispatcher() *eventDispatcher {
 		reflex: func(_ context.Context, ev heart.Event, reflexID string) {
 			slog.Info("heart: reflex (stub)", "kind", ev.Kind, "reflex_id", reflexID)
 		},
-		wake: gw.wakeUser,
+		wake:  gw.wakeUser,
+		brief: gw.deliverDailyBrief,
 	}
 }
 

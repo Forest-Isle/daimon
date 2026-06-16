@@ -223,6 +223,13 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 				Interval:   time.Duration(mins) * time.Minute,
 			})
 		}
+		if mins := cfg.Agent.Heart.DailyBriefIntervalMinutes; mins > 0 {
+			gw.heart.heart.Register(&heart.TimerSource{
+				SourceName: "timer",
+				Kind:       "internal.daily_brief",
+				Interval:   time.Duration(mins) * time.Minute,
+			})
+		}
 
 		// Sleep can now learn from routing corrections: the synthesize-rules job
 		// needs the heart's feedback + event stores, which only exist when the heart
