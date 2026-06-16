@@ -31,7 +31,17 @@ type Adapter struct {
 
 	// autoApprove, when true, skips interactive approval for all subsequent requests.
 	autoApprove atomic.Bool
+
+	// proposalHandler (an atomic.Value holding func(ctx, id, accept)) is invoked
+	// asynchronously when the user taps a proposal's accept/dismiss button (§4.9).
+	// Stored atomically because it is written by SetProposalHandler and read from
+	// the update goroutine. Empty until wired; a tap with no handler is dropped
+	// after acknowledgement.
+	proposalHandler atomic.Value
 }
+
+// proposalHandlerFunc is the dynamic type stored in Adapter.proposalHandler.
+type proposalHandlerFunc = func(ctx context.Context, id string, accept bool)
 
 func New(token string, allowedUserIDs []int64, timeoutSecs ...int) (*Adapter, error) {
 	bot, err := tgbotapi.NewBotAPI(token)
@@ -102,7 +112,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 		}
 
 		data := update.CallbackQuery.Data
-		a.handleCallback(data)
+		a.handleCallback(ctx, data)
 
 		// Acknowledge callback
 		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
@@ -136,13 +146,27 @@ func (a *Adapter) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 
 // handleCallback routes inline keyboard callback data to the appropriate
 // pending approval or reflection channel.
-func (a *Adapter) handleCallback(data string) {
+func (a *Adapter) handleCallback(ctx context.Context, data string) {
 	parts := strings.SplitN(data, ":", 2)
 	if len(parts) != 2 {
 		return
 	}
 
 	action, key := parts[0], parts[1]
+
+	// Handle proposal decisions (§4.9). These are fire-and-forget: the handler
+	// fires an episode (accept) or records feedback (dismiss), both potentially
+	// slow, so it runs in a goroutine to keep the update loop responsive. key is
+	// the proposal id.
+	switch action {
+	case "proposal_accept", "proposal_dismiss":
+		if v := a.proposalHandler.Load(); v != nil {
+			h := v.(proposalHandlerFunc)
+			accept := action == "proposal_accept"
+			go h(ctx, key, accept)
+		}
+		return
+	}
 
 	// Handle feedback responses
 	switch action {
@@ -340,6 +364,45 @@ func (a *Adapter) SendNotification(_ context.Context, target channel.MessageTarg
 	msg.DisableNotification = true
 	_, err = a.bot.Send(msg)
 	return err
+}
+
+// ---------- channel.ProposalSender ----------
+
+// SetProposalHandler registers the async callback invoked when the user taps a
+// proposal's accept/dismiss button. Set once at startup, before the update loop
+// begins, so callbacks never race a nil handler.
+func (a *Adapter) SetProposalHandler(h proposalHandlerFunc) {
+	a.proposalHandler.Store(h)
+}
+
+// SendProposal pushes one anticipation proposal with inline [✅ 做 / ❌ 不做]
+// buttons and returns immediately (the decision arrives later via callback). The
+// callback data carries the proposal id; ParseMode is left plain so an
+// LLM-authored title/body cannot trigger a Telegram markdown parse error.
+func (a *Adapter) SendProposal(_ context.Context, target channel.MessageTarget, id, title, body string) error {
+	chatID, err := strconv.ParseInt(target.ChannelID, 10, 64)
+	if err != nil || chatID == 0 {
+		return fmt.Errorf("invalid proposal target chat id %q: %w", target.ChannelID, err)
+	}
+
+	text := "💡 " + title
+	if strings.TrimSpace(body) != "" {
+		text += "\n\n" + body
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ 做", "proposal_accept:"+id),
+			tgbotapi.NewInlineKeyboardButtonData("❌ 不做", "proposal_dismiss:"+id),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ReplyMarkup = keyboard
+	if _, err := a.bot.Send(msg); err != nil {
+		return fmt.Errorf("send proposal: %w", err)
+	}
+	return nil
 }
 
 // ---------- streamUpdater ----------

@@ -57,6 +57,10 @@ type Gateway struct {
 	heart      *HeartSubsystem // nil unless agent.heart_enabled
 	sleep      *sleep.Runner   // consolidation jobs, triggered by /sleep (and later the heart)
 
+	// proposals (§4.9): the anticipation loop's decision + delivery wiring.
+	proposals         *proposalCoordinator
+	proposalDeliverer *proposalDeliverer
+
 	subsystems Subsystems
 }
 
@@ -185,6 +189,10 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.agent.SetApprovalFunc(gw.handleApproval)
 	gw.agent.SetKernel(gw.EpisodeRunner, gw.EpisodeEnabled)
 
+	// Proposals (§4.9): decision coordinator + delivery driver over the same queue
+	// the sleep anticipation job fills. Needs gw.agent (to fire accepted plans).
+	gw.wireProposals(proposalsStore, unixNow)
+
 	gw.health = InitHealth(cfg, gw.db)
 	gw.commands = InitCommands(gw)
 
@@ -289,6 +297,11 @@ func (gw *Gateway) Start(ctx context.Context) error {
 			}
 		}()
 	}
+
+	// Route proposal inline-button taps to the decision coordinator BEFORE the
+	// channels' update loops start, so a tap can never race a not-yet-registered
+	// handler. Channels are already registered (AddChannel runs before Start).
+	gw.registerProposalHandler()
 
 	for name, ch := range gw.channels.Channels() {
 		if err := ch.Start(ctx, gw.handleInbound); err != nil {

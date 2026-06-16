@@ -43,6 +43,18 @@ type FeedbackSender interface {
 	SendFeedbackRequest(ctx context.Context, target MessageTarget) (float64, error)
 }
 
+// ProposalSender is an optional interface for channels that deliver anticipation
+// proposals (DAIMON_BLUEPRINT.md §4.9) with inline accept/dismiss controls.
+// Unlike ApprovalSender it never blocks: SendProposal pushes the proposal and
+// returns, and the user's later tap is routed asynchronously to the handler
+// registered via SetProposalHandler (accept fires the proposal's action plan;
+// dismiss records a training signal). Channels that do not implement this
+// interface simply do not deliver proposals.
+type ProposalSender interface {
+	SendProposal(ctx context.Context, target MessageTarget, id, title, body string) error
+	SetProposalHandler(h func(ctx context.Context, id string, accept bool))
+}
+
 // ToolActivitySender is an optional interface for channels that can display
 // live tool-execution activity (which tool is running right now). Unlike
 // ApprovalSender it never blocks and never affects execution — it is purely
