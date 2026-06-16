@@ -282,11 +282,16 @@ log:
 #
 # Throttle thresholds (blueprint §4.11): `daimon costs` flags activity classes that
 # exceed their budget or deliver poor value (the clean-outcome rate from the ROI
-# report). This is ADVISORY ONLY — nothing is auto-throttled; the recommendations
-# surface what a later, gated enforcement step could act on. A zero/unset threshold
-# disables that check, so an absent `throttle` block flags nothing.
+# report). Flagging is always advisory in the report; runtime enforcement is gated
+# by `enforce` (default false). When enforce is true, a periodic eval auto-throttles
+# flagged classes — their autonomous Cognize episodes are skipped, the user is
+# notified once, and it is reversible (the class un-throttles when its ROI recovers,
+# or the user runs `/throttle off <class>`). WakeUser, reflexes, chat, and high-risk
+# kinds are never throttled. A zero/unset threshold disables that check, so an absent
+# `throttle` block flags nothing.
 #
 #   throttle:
+#     enforce: false              # true = auto-throttle flagged classes (notify + vetoable via /throttle)
 #     per_class_budget_usd: 5.0   # flag a class spending more than this over the window
 #     min_clean_rate: 0.5         # flag a class whose clean-outcome rate is below this (0..1)
 #     min_episodes: 5             # but only once it has at least this many episodes
