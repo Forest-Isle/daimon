@@ -142,6 +142,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		// separate canary-gated step, since an auto-promoted skill executes
 		// autonomously (the blueprint's highest 带病转正 risk, §706).
 		sleep.NewDistillJob(gw.toolSub.WorldStore, sleepSummarizer),
+		sleep.NewPromoteJob(gw.toolSub.WorldStore, sleepSummarizer, newFileDraftSink(defaultDistillStagingDir())),
 		// Anticipation: scan commitments due soon and queue proposals the user will
 		// likely need. Reads the world, writes the proposals queue; delivery/decision
 		// UX is a later increment that reads from that queue.

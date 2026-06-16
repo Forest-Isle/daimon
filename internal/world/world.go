@@ -237,6 +237,50 @@ func (s *Store) ListJournal(ctx context.Context, sinceOccurredAt string, limit i
 	return out, nil
 }
 
+// ListDistillCandidatesWithoutDraft returns up to limit distill-candidate journal
+// entries that do NOT yet have a draft marker, oldest first so the longest-waiting
+// candidate is promoted before newer ones. A candidate is a kind="decision" entry
+// whose summary begins "distill candidate: " (written by the distill sleep job); its
+// draft marker is the entry with id "distill_draft_<candidate id>" (written by the
+// distill-promote job after it stages or skips the candidate). This is
+// window-independent: it filters in SQL over the whole journal, so a candidate is
+// never starved by journal growth pushing it out of a recent-N slice. The
+// "distill candidate: " / "distill_draft_" prefixes are the on-disk contract shared
+// with internal/sleep; a regression there is caught by this method's test.
+func (s *Store) ListDistillCandidatesWithoutDraft(ctx context.Context, limit int) ([]JournalEntry, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.id, c.episode_id, c.kind, c.summary, c.detail, c.occurred_at, c.rollup_id
+		FROM journal c
+		WHERE c.kind = 'decision'
+		  AND c.summary LIKE 'distill candidate: %'
+		  AND NOT EXISTS (SELECT 1 FROM journal m WHERE m.id = 'distill_draft_' || c.id)
+		ORDER BY c.occurred_at ASC, c.id ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list distill candidates: %w", err)
+	}
+	defer rows.Close()
+
+	var out []JournalEntry
+	for rows.Next() {
+		entry, err := scanJournalEntry(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan distill candidate: %w", err)
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate distill candidates: %w", err)
+	}
+	return out, nil
+}
+
 // UnrolledBeyond returns journal entries eligible to be folded into a rollup:
 // regular (non-fact, non-rollup) entries not yet rolled up, EXCEPT the most
 // recent keepRecent of them, which stay raw so the recent window keeps full

@@ -437,3 +437,47 @@ func TestFactUpsertCannotClobberAuditRow(t *testing.T) {
 		t.Fatalf("audit row was mutated: %+v", *got)
 	}
 }
+
+func TestListDistillCandidatesWithoutDraft(t *testing.T) {
+	db := openWorldTestDB(t)
+	w := NewStore(db.DB)
+	ctx := context.Background()
+
+	seed := func(id, kind, summary string) {
+		if err := w.Apply(ctx, "sleep", []Mutation{{Op: "journal.append",
+			Body: mustJSON(t, JournalEntry{ID: id, Kind: kind, Summary: summary})}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Candidate A: no draft marker → must be returned.
+	seed("distill_candidate_a_0000000000000001", "decision", "distill candidate: alpha")
+	// Candidate B: has a draft marker → must be excluded.
+	seed("distill_candidate_b_0000000000000002", "decision", "distill candidate: beta")
+	seed("distill_draft_distill_candidate_b_0000000000000002", "decision", "distilled draft: beta")
+	// Candidate C: has a SKIP marker (also a draft_ id) → must be excluded.
+	seed("distill_candidate_c_0000000000000003", "decision", "distill candidate: gamma")
+	seed("distill_draft_distill_candidate_c_0000000000000003", "decision", "distilled draft skipped (empty body): gamma")
+	// A non-candidate decision (wrong summary prefix) → must be ignored entirely.
+	seed("decision_unrelated", "decision", "some other decision")
+
+	got, err := w.ListDistillCandidatesWithoutDraft(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListDistillCandidatesWithoutDraft: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want only the un-drafted candidate, got %d: %+v", len(got), got)
+	}
+	if got[0].ID != "distill_candidate_a_0000000000000001" {
+		t.Fatalf("returned wrong candidate: %+v", got[0])
+	}
+
+	// Limit is honored.
+	seed("distill_candidate_d_0000000000000004", "decision", "distill candidate: delta")
+	limited, err := w.ListDistillCandidatesWithoutDraft(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited) != 1 {
+		t.Fatalf("limit=1 returned %d rows", len(limited))
+	}
+}
