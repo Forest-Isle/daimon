@@ -1,4 +1,4 @@
-package main
+package skill
 
 import (
 	"os"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func writeSkillFile(t *testing.T, root, slug, name string, distilled bool, body string) string {
+func writePromoteSkillFile(t *testing.T, root, slug, name string, distilled bool, body string) string {
 	t.Helper()
 	dir := filepath.Join(root, slug)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -19,7 +19,7 @@ func writeSkillFile(t *testing.T, root, slug, name string, distilled bool, body 
 		"description: Test description\n" +
 		"version: 0.1.0\n" +
 		"metadata:\n" +
-		"  distilled: " + boolString(distilled) + "\n" +
+		"  distilled: " + promoteBoolString(distilled) + "\n" +
 		"  source_candidate: candidate-1\n" +
 		"  source_episodes: [e1, e2, e3]\n" +
 		"---\n" +
@@ -30,7 +30,7 @@ func writeSkillFile(t *testing.T, root, slug, name string, distilled bool, body 
 	return path
 }
 
-func boolString(v bool) string {
+func promoteBoolString(v bool) string {
 	if v {
 		return "true"
 	}
@@ -52,7 +52,7 @@ func TestValidSlug(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validSlug(tt.slug)
+			err := ValidSlug(tt.slug)
 			if tt.wantErr && err == nil {
 				t.Fatalf("expected error")
 			}
@@ -82,8 +82,8 @@ func TestValidateDraft(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := writeSkillFile(t, dir, tt.slug, tt.skill, tt.distill, tt.body)
-			_, err := validateDraft(path)
+			path := writePromoteSkillFile(t, dir, tt.slug, tt.skill, tt.distill, tt.body)
+			_, err := ValidateDraft(path)
 			if tt.wantErr == "" && err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -101,13 +101,13 @@ func TestValidateDraft(t *testing.T) {
 
 func TestListDrafts(t *testing.T) {
 	staging := t.TempDir()
-	writeSkillFile(t, staging, "z-valid", "Valid Draft", true, "Use this skill.")
-	writeSkillFile(t, staging, "a-invalid", "Invalid Draft", false, "Use this skill.")
+	writePromoteSkillFile(t, staging, "z-valid", "Valid Draft", true, "Use this skill.")
+	writePromoteSkillFile(t, staging, "a-invalid", "Invalid Draft", false, "Use this skill.")
 	if err := os.MkdirAll(filepath.Join(staging, "m-missing"), 0755); err != nil {
 		t.Fatalf("mkdir missing draft: %v", err)
 	}
 
-	drafts, err := listDrafts(staging)
+	drafts, err := ListDrafts(staging)
 	if err != nil {
 		t.Fatalf("list drafts: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestListDrafts(t *testing.T) {
 		t.Fatalf("got %d episodes, want 3", drafts[2].Episodes)
 	}
 
-	empty, err := listDrafts(filepath.Join(staging, "does-not-exist"))
+	empty, err := ListDrafts(filepath.Join(staging, "does-not-exist"))
 	if err != nil {
 		t.Fatalf("list missing staging: %v", err)
 	}
@@ -143,9 +143,9 @@ func TestPromoteDraft(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		staging := t.TempDir()
 		active := t.TempDir()
-		writeSkillFile(t, staging, "draft", "Draft Skill", true, "Use this skill.")
+		writePromoteSkillFile(t, staging, "draft", "Draft Skill", true, "Use this skill.")
 
-		target, err := promoteDraft(staging, active, "draft")
+		target, err := PromoteDraft(staging, active, "draft")
 		if err != nil {
 			t.Fatalf("promote draft: %v", err)
 		}
@@ -161,7 +161,7 @@ func TestPromoteDraft(t *testing.T) {
 	})
 
 	t.Run("invalid slug", func(t *testing.T) {
-		_, err := promoteDraft(t.TempDir(), t.TempDir(), "../escape")
+		_, err := PromoteDraft(t.TempDir(), t.TempDir(), "../escape")
 		if err == nil {
 			t.Fatalf("expected invalid slug error")
 		}
@@ -170,11 +170,11 @@ func TestPromoteDraft(t *testing.T) {
 	t.Run("target exists", func(t *testing.T) {
 		staging := t.TempDir()
 		active := t.TempDir()
-		writeSkillFile(t, staging, "draft", "Draft Skill", true, "Use this skill.")
+		writePromoteSkillFile(t, staging, "draft", "Draft Skill", true, "Use this skill.")
 		if err := os.MkdirAll(filepath.Join(active, "draft"), 0755); err != nil {
 			t.Fatalf("mkdir target: %v", err)
 		}
-		_, err := promoteDraft(staging, active, "draft")
+		_, err := PromoteDraft(staging, active, "draft")
 		if err == nil || !strings.Contains(err.Error(), "already promoted") {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -183,9 +183,9 @@ func TestPromoteDraft(t *testing.T) {
 	t.Run("active name conflict", func(t *testing.T) {
 		staging := t.TempDir()
 		active := t.TempDir()
-		writeSkillFile(t, staging, "draft", "Same Name", true, "Use this skill.")
-		writeSkillFile(t, active, "existing", "Same Name", false, "Already active.")
-		_, err := promoteDraft(staging, active, "draft")
+		writePromoteSkillFile(t, staging, "draft", "Same Name", true, "Use this skill.")
+		writePromoteSkillFile(t, active, "existing", "Same Name", false, "Already active.")
+		_, err := PromoteDraft(staging, active, "draft")
 		if err == nil || !strings.Contains(err.Error(), `a skill named "Same Name" is already active`) {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -195,7 +195,7 @@ func TestPromoteDraft(t *testing.T) {
 		staging := t.TempDir()
 		active := t.TempDir()
 		outside := t.TempDir()
-		outsideSkill := writeSkillFile(t, outside, "outside", "Symlink Skill", true, "Use this skill.")
+		outsideSkill := writePromoteSkillFile(t, outside, "outside", "Symlink Skill", true, "Use this skill.")
 		draftDir := filepath.Join(staging, "draft")
 		if err := os.MkdirAll(draftDir, 0755); err != nil {
 			t.Fatalf("mkdir draft dir: %v", err)
@@ -204,7 +204,7 @@ func TestPromoteDraft(t *testing.T) {
 			t.Fatalf("symlink skill: %v", err)
 		}
 
-		_, err := promoteDraft(staging, active, "draft")
+		_, err := PromoteDraft(staging, active, "draft")
 		if err == nil || !strings.Contains(err.Error(), "is a symlink; refusing") {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -217,12 +217,12 @@ func TestPromoteDraft(t *testing.T) {
 		staging := t.TempDir()
 		active := t.TempDir()
 		outside := t.TempDir()
-		writeSkillFile(t, outside, "outside", "Symlink Dir Skill", true, "Use this skill.")
+		writePromoteSkillFile(t, outside, "outside", "Symlink Dir Skill", true, "Use this skill.")
 		if err := os.Symlink(filepath.Join(outside, "outside"), filepath.Join(staging, "draft")); err != nil {
 			t.Fatalf("symlink draft dir: %v", err)
 		}
 
-		_, err := promoteDraft(staging, active, "draft")
+		_, err := PromoteDraft(staging, active, "draft")
 		if err == nil || !strings.Contains(err.Error(), "is a symlink; refusing") {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -236,8 +236,8 @@ func TestDemoteSkill(t *testing.T) {
 	t.Run("distilled", func(t *testing.T) {
 		active := t.TempDir()
 		staging := t.TempDir()
-		writeSkillFile(t, active, "draft", "Draft Skill", true, "Use this skill.")
-		if err := demoteSkill(active, staging, "draft"); err != nil {
+		writePromoteSkillFile(t, active, "draft", "Draft Skill", true, "Use this skill.")
+		if err := DemoteSkill(active, staging, "draft"); err != nil {
 			t.Fatalf("demote skill: %v", err)
 		}
 		if _, err := os.Stat(filepath.Join(active, "draft")); !os.IsNotExist(err) {
@@ -251,8 +251,8 @@ func TestDemoteSkill(t *testing.T) {
 	t.Run("not distilled", func(t *testing.T) {
 		active := t.TempDir()
 		staging := t.TempDir()
-		writeSkillFile(t, active, "manual", "Manual Skill", false, "Use this skill.")
-		err := demoteSkill(active, staging, "manual")
+		writePromoteSkillFile(t, active, "manual", "Manual Skill", false, "Use this skill.")
+		err := DemoteSkill(active, staging, "manual")
 		if err == nil || !strings.Contains(err.Error(), "not a distilled skill") {
 			t.Fatalf("unexpected error: %v", err)
 		}
