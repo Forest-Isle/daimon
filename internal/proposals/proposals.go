@@ -176,6 +176,25 @@ func (s *Store) Decide(ctx context.Context, id, state string, decidedAt int64) e
 	return nil
 }
 
+// Get loads a single proposal by id regardless of state. The decision UX carries
+// only the proposal id in its callback (Telegram callback data is tightly
+// bounded), so the coordinator reloads the row to recover the action plan it must
+// fire on acceptance. Returns a wrapped sql.ErrNoRows when the id is unknown.
+func (s *Store) Get(ctx context.Context, id string) (Proposal, error) {
+	if err := s.ensure(); err != nil {
+		return Proposal{}, err
+	}
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, title, body, action_plan, urgency, source_commitment, state, created_at, expires_at, decided_at
+		FROM proposals
+		WHERE id = ?`, id)
+	p, err := scanProposal(row)
+	if err != nil {
+		return Proposal{}, fmt.Errorf("get proposal %q: %w", id, err)
+	}
+	return p, nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
