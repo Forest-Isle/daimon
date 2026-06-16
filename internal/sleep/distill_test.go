@@ -2,6 +2,7 @@ package sleep
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -72,6 +73,62 @@ func TestDistillSurfacesCandidate(t *testing.T) {
 	if !strings.Contains(cands[0].Detail, "post the standup summary automatically") ||
 		!strings.Contains(cands[0].Detail, "3 episodes: ep1,ep2,ep3") {
 		t.Fatalf("detail missing skill/episodes: %q", cands[0].Detail)
+	}
+}
+
+// TestDistillWindowIndependentOverOutcomes is the teeth of the source swap: a
+// pattern recurring across 3 clean outcomes must still be mined even when far more
+// than the scan limit of newer non-outcome rows (decisions) have piled up since.
+// On the old ListJournal(200) all-kinds source the 3 outcomes scroll out behind the
+// 250 newer decisions, the judge sees none, and nothing is surfaced. ListOutcomes
+// keeps detection window-independent over outcomes, so the candidate still surfaces.
+func TestDistillWindowIndependentOverOutcomes(t *testing.T) {
+	ctx := context.Background()
+	ws := openWorldStore(t)
+
+	// 3 recurring clean outcomes, timestamped OLD.
+	for _, id := range []string{"ep1", "ep2", "ep3"} {
+		if err := ws.AppendJournal(ctx, world.JournalEntry{
+			ID: "journal_outcome_" + id, EpisodeID: id, Kind: "outcome",
+			Summary: "posted the daily standup summary", OccurredAt: "2030-01-01T00:00:00Z",
+		}); err != nil {
+			t.Fatalf("seed outcome %s: %v", id, err)
+		}
+	}
+
+	// 250 newer decisions bury the outcomes in any all-kinds recent-200 window.
+	for i := 0; i < 250; i++ {
+		if err := ws.AppendJournal(ctx, world.JournalEntry{
+			ID: fmt.Sprintf("journal_decision_%03d", i), Kind: "decision",
+			Summary: "some later decision", OccurredAt: fmt.Sprintf("2030-02-01T00:%02d:00Z", i%60),
+		}); err != nil {
+			t.Fatalf("seed decision %d: %v", i, err)
+		}
+	}
+
+	sum := &stubSummarizer{out: `{"candidates":[{"name":"daily standup","skill":"post the standup summary automatically","episode_ids":["ep1","ep2","ep3"]}]}`}
+
+	msg, err := NewDistillJob(ws, sum).Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "surfaced 1 distill candidate(s)" {
+		t.Fatalf("outcomes buried behind 250 decisions must still be mined: msg = %q", msg)
+	}
+	// Assert the candidate exists window-independently (the distillCandidates helper
+	// reads ListJournal(200), which the 250 future-dated decisions would itself bury).
+	exists, err := ws.JournalExists(ctx, distillCandidateID("daily standup"))
+	if err != nil {
+		t.Fatalf("JournalExists: %v", err)
+	}
+	if !exists {
+		t.Fatal("distill candidate was not recorded")
+	}
+	// The judge must actually have been handed the 3 buried outcomes.
+	for _, id := range []string{"ep1", "ep2", "ep3"} {
+		if !strings.Contains(sum.gotInput, "id="+id) {
+			t.Fatalf("judge input missing buried outcome %s:\n%s", id, sum.gotInput)
+		}
 	}
 }
 

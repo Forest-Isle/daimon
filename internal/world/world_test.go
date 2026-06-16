@@ -309,6 +309,53 @@ func TestJournalAppendAndListOrdering(t *testing.T) {
 	}
 }
 
+func TestListOutcomes(t *testing.T) {
+	db := openWorldTestDB(t)
+	world := NewStore(db.DB)
+	ctx := context.Background()
+
+	// Interleave outcomes with decision/fact rows the distill scan must ignore.
+	entries := []JournalEntry{
+		{ID: "o-1", Kind: "outcome", Summary: "outcome one", OccurredAt: "2030-01-01T00:00:00Z"},
+		{ID: "d-1", Kind: "decision", Summary: "a decision", OccurredAt: "2030-01-02T00:00:00Z"},
+		{ID: "o-2", Kind: "outcome", Summary: "outcome two", OccurredAt: "2030-01-03T00:00:00Z"},
+		{ID: "f-1", Kind: "fact", Summary: "a fact", OccurredAt: "2030-01-04T00:00:00Z"},
+		{ID: "o-3", Kind: "outcome", Summary: "outcome three", OccurredAt: "2030-01-05T00:00:00Z"},
+	}
+	for _, e := range entries {
+		if err := world.AppendJournal(ctx, e); err != nil {
+			t.Fatalf("AppendJournal(%s) error = %v", e.ID, err)
+		}
+	}
+
+	// All outcomes, newest-first; decision/fact rows excluded.
+	got, err := world.ListOutcomes(ctx, 0)
+	if err != nil {
+		t.Fatalf("ListOutcomes() error = %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("ListOutcomes len = %d, want 3 (only outcomes): %#v", len(got), got)
+	}
+	wantOrder := []string{"o-3", "o-2", "o-1"}
+	for i, want := range wantOrder {
+		if got[i].ID != want {
+			t.Fatalf("ListOutcomes order = %#v, want %v", got, wantOrder)
+		}
+		if got[i].Kind != "outcome" {
+			t.Fatalf("ListOutcomes returned non-outcome row: %#v", got[i])
+		}
+	}
+
+	// limit honored, still newest-first.
+	limited, err := world.ListOutcomes(ctx, 2)
+	if err != nil {
+		t.Fatalf("ListOutcomes(2) error = %v", err)
+	}
+	if len(limited) != 2 || limited[0].ID != "o-3" || limited[1].ID != "o-2" {
+		t.Fatalf("ListOutcomes(2) = %#v, want [o-3 o-2]", limited)
+	}
+}
+
 func TestCommitmentsDigestFormattingAndCap(t *testing.T) {
 	db := openWorldTestDB(t)
 	world := NewStore(db.DB)

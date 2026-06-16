@@ -259,6 +259,44 @@ func (s *Store) ListJournal(ctx context.Context, sinceOccurredAt string, limit i
 	return out, nil
 }
 
+// ListOutcomes returns up to limit episode-outcome journal entries (kind="outcome"),
+// newest first. Unlike ListJournal it is window-independent over outcomes: the
+// distill detection job needs to see recurring patterns across many episodes, and a
+// fixed all-kinds slice lets accumulating decision/fact/correction rows crowd
+// outcomes out so a pattern that recurs across time is never co-visible in one scan.
+// Filtering to kind="outcome" in SQL keeps the last N outcomes regardless of other
+// journal growth.
+func (s *Store) ListOutcomes(ctx context.Context, limit int) ([]JournalEntry, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, episode_id, kind, summary, detail, occurred_at, rollup_id
+		FROM journal
+		WHERE kind = 'outcome'
+		ORDER BY occurred_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list outcomes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []JournalEntry
+	for rows.Next() {
+		entry, err := scanJournalEntry(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan outcome entry: %w", err)
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate outcomes: %w", err)
+	}
+	return out, nil
+}
+
 // ListDistillCandidatesWithoutDraft returns up to limit distill-candidate journal
 // entries that do NOT yet have a draft marker, oldest first so the longest-waiting
 // candidate is promoted before newer ones. A candidate is a kind="decision" entry

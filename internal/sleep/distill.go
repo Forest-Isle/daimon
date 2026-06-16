@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	distillJournalLimit = 200
-	distillMinOutcomes  = 3 // need at least this many clean outcomes before judging
-	distillMinPattern   = 3 // a candidate must cite at least this many real episodes
+	distillOutcomeLimit = 200 // scan the last N episode outcomes (window-independent over outcomes)
+	distillMinOutcomes  = 3   // need at least this many clean outcomes before judging
+	distillMinPattern   = 3   // a candidate must cite at least this many real episodes
 	distillCandidate    = "distill candidate: "
 )
 
@@ -54,9 +54,15 @@ func (j *DistillJob) Run(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("distill: world store and summarizer are required")
 	}
 
-	entries, err := j.world.ListJournal(ctx, "", distillJournalLimit)
+	// Source the last N episode OUTCOMES directly (kind-filtered), not the last N
+	// mixed journal entries: as the journal accumulates decision/fact/correction rows
+	// (including the distill candidates this job itself writes), clean outcomes get
+	// crowded out of any all-kinds window, so a pattern that recurs across time is
+	// never co-visible to the judge. ListOutcomes keeps detection window-independent
+	// over outcomes.
+	entries, err := j.world.ListOutcomes(ctx, distillOutcomeLimit)
 	if err != nil {
-		return "", fmt.Errorf("distill: list journal: %w", err)
+		return "", fmt.Errorf("distill: list outcomes: %w", err)
 	}
 
 	// Clean outcomes = episodes that closed cleanly. validIDs is the set a
@@ -67,9 +73,6 @@ func (j *DistillJob) Run(ctx context.Context) (string, error) {
 	var cleanOutcomes []world.JournalEntry
 	validIDs := make(map[string]bool)
 	for _, e := range entries {
-		if e.Kind != "outcome" {
-			continue
-		}
 		// A pattern is only distillation-worthy if the episode reached a clean,
 		// fully-verified outcome: it closed through episode_close (not framework
 		// salvage / failure), made no failing tool call, and every governed action it
