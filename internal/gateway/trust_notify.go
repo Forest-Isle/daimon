@@ -34,7 +34,7 @@ func (n gatewayTrustNotifier) deliver(ctx context.Context, class action.Class, c
 	if gw == nil {
 		return
 	}
-	text := fmt.Sprintf("Trust raised: %s actions for %q now %s (was %s). I'll act with more autonomy here -- reply to correct if unwanted.", class, contextKey, to, from)
+	text := fmt.Sprintf("Trust raised: %s actions for %q now %s (was %s). I'll act with more autonomy here. To revoke, run: daimon trust correct %s %q", class, contextKey, to, from, class, contextKey)
 
 	notifier, target := gw.primaryNotifier()
 	if notifier == nil {
