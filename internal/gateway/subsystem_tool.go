@@ -33,11 +33,23 @@ type ToolSubsystem struct {
 	ActionStore       *action.Store
 	ActionInterceptor *action.Interceptor
 	ValuesStore       *values.Store
+
+	// indexCancel stops the background codebase-indexing goroutine. Indexing runs
+	// on a gateway-lifetime context (not the 30s init budget) so a slow network
+	// embedder cannot block startup; Stop cancels it on shutdown. Query embeds use
+	// the per-call tool context instead, so they honor per-request cancellation.
+	indexCancel context.CancelFunc
 }
 
 func (ts *ToolSubsystem) Name() string                  { return "tool" }
 func (ts *ToolSubsystem) Start(_ context.Context) error { return nil }
-func (ts *ToolSubsystem) Stop(_ context.Context) error  { return nil }
+
+func (ts *ToolSubsystem) Stop(_ context.Context) error {
+	if ts.indexCancel != nil {
+		ts.indexCancel()
+	}
+	return nil
+}
 
 func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsystem, sessions *session.Manager, channels *ChannelSubsystem, db *store.DB, bus agent.EventBus) *ToolSubsystem {
 	ts := &ToolSubsystem{}
@@ -104,15 +116,25 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 
 	ts.CodebaseIndex = newCodebaseIndexFromCfg(cfg)
 	if ts.CodebaseIndex != nil && ts.CodebaseIndex.IsAvailable() {
-		if err := ts.CodebaseIndex.IndexDirectoryContext(ctx, "."); err != nil {
-			slog.Warn("codebase index: initial indexing failed", "err", err)
-		} else {
-			slog.Info("codebase index initialized")
-		}
+		// The initial whole-repo index is hundreds of files, each chunk a network
+		// embedding round-trip, so it cannot finish inside the 30s init budget.
+		// Run it on a long-lived background context in its own goroutine so it
+		// neither aborts on the init deadline nor blocks startup. Per-file embed
+		// failures are already tolerated; only this context's cancellation (on
+		// Stop) halts it.
+		indexCtx, cancel := context.WithCancel(context.Background())
+		ts.indexCancel = cancel
+		go func() {
+			if err := ts.CodebaseIndex.IndexDirectoryContext(indexCtx, "."); err != nil {
+				slog.Warn("codebase index: initial indexing failed", "err", err)
+			} else {
+				slog.Info("codebase index initialized")
+			}
+		}()
 		ts.Registry.Register(tool.NewSemanticSearchTool(
 			ts.CodebaseIndex.IsAvailable,
-			func(query string, topK int) ([]tool.CodeSearchResult, error) {
-				results, err := ts.CodebaseIndex.Search(ctx, query, topK)
+			func(qctx context.Context, query string, topK int) ([]tool.CodeSearchResult, error) {
+				results, err := ts.CodebaseIndex.Search(qctx, query, topK)
 				if err != nil {
 					return nil, err
 				}

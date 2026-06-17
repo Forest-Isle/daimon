@@ -19,13 +19,13 @@ type CodeSearchResult struct {
 // SemanticSearchTool exposes semantic code search over the indexed repository.
 type SemanticSearchTool struct {
 	available func() bool
-	search    func(query string, topK int) ([]CodeSearchResult, error)
+	search    func(ctx context.Context, query string, topK int) ([]CodeSearchResult, error)
 }
 
 // NewSemanticSearchTool creates a semantic search tool bound to a codebase index.
 func NewSemanticSearchTool(
 	available func() bool,
-	search func(query string, topK int) ([]CodeSearchResult, error),
+	search func(ctx context.Context, query string, topK int) ([]CodeSearchResult, error),
 ) *SemanticSearchTool {
 	return &SemanticSearchTool{available: available, search: search}
 }
@@ -53,7 +53,7 @@ func (t *SemanticSearchTool) InputSchema() map[string]any {
 	}
 }
 
-func (t *SemanticSearchTool) Execute(_ context.Context, input []byte) (Result, error) {
+func (t *SemanticSearchTool) Execute(ctx context.Context, input []byte) (Result, error) {
 	if t.available == nil || t.search == nil || !t.available() {
 		return Result{Output: "semantic search unavailable: codebase index is not configured."}, nil
 	}
@@ -69,7 +69,7 @@ func (t *SemanticSearchTool) Execute(_ context.Context, input []byte) (Result, e
 		return Result{Error: "query is required"}, nil
 	}
 
-	results, err := t.search(in.Query, in.TopK)
+	results, err := t.search(ctx, in.Query, in.TopK)
 	if err != nil {
 		return Result{Error: err.Error()}, nil
 	}
