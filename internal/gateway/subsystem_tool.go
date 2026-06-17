@@ -20,18 +20,19 @@ import (
 )
 
 type ToolSubsystem struct {
-	Registry         *tool.Registry
-	DeferredCatalog  *tool.DeferredCatalog
-	InterceptorChain *tool.InterceptorChain
-	HookMgr          *hook.Manager
-	PermEngine       *tool.PermissionEngine
-	UserHookMgr      *hook.UserHookManager
-	ResultStore      *tool.ResultStore
-	CodebaseIndex    *agent.CodebaseIndex
-	WorldStore       *world.Store
-	WorldIdentity    world.Identity
-	ActionStore      *action.Store
-	ValuesStore      *values.Store
+	Registry          *tool.Registry
+	DeferredCatalog   *tool.DeferredCatalog
+	InterceptorChain  *tool.InterceptorChain
+	HookMgr           *hook.Manager
+	PermEngine        *tool.PermissionEngine
+	UserHookMgr       *hook.UserHookManager
+	ResultStore       *tool.ResultStore
+	CodebaseIndex     *agent.CodebaseIndex
+	WorldStore        *world.Store
+	WorldIdentity     world.Identity
+	ActionStore       *action.Store
+	ActionInterceptor *action.Interceptor
+	ValuesStore       *values.Store
 }
 
 func (ts *ToolSubsystem) Name() string                  { return "tool" }
@@ -174,13 +175,14 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	if cfg.Agent.Action.HoldEnabled {
 		classifier = action.NewClassifierWithCompensableHTTP()
 	}
-	interceptors = append(interceptors, action.NewInterceptorWithGateAndHold(
+	ts.ActionInterceptor = action.NewInterceptorWithGateAndHold(
 		ts.ActionStore,
 		classifier,
 		newValueGate(ts.ValuesStore, ts.ActionStore),
 		cfg.Agent.Action.HoldEnabled,
 		time.Duration(cfg.Agent.Action.HoldWindowSeconds)*time.Second,
-	))
+	)
+	interceptors = append(interceptors, ts.ActionInterceptor)
 	// Activity reporter sits innermost so it wraps the real tool execution
 	// tightest — it reports only tools that passed permission and hook gates,
 	// avoiding a flicker for denied/blocked calls.

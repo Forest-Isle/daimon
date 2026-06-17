@@ -61,7 +61,7 @@ func TestListTrust(t *testing.T) {
 	s := openActionTestStore(t)
 	ctx := context.Background()
 	const key = "file.write|repo=daimon"
-	if err := s.RecordAttempt(ctx, Reversible, key, true); err != nil {
+	if _, err := s.RecordAttempt(ctx, Reversible, key, true); err != nil {
 		t.Fatalf("RecordAttempt() error = %v", err)
 	}
 
@@ -83,19 +83,41 @@ func TestPromotionWalksThresholds(t *testing.T) {
 	const key = "file.write|repo=daimon"
 
 	// 1 verified → AskFirst
-	mustAttempt(t, s, Reversible, key, true)
+	change := mustAttempt(t, s, Reversible, key, true)
+	assertPromotion(t, change, AskEvery, AskFirst)
 	assertLevel(t, s, Reversible, key, AskFirst)
 
 	// total 3 verified → HoldThenAuto
-	mustAttempt(t, s, Reversible, key, true)
-	mustAttempt(t, s, Reversible, key, true)
+	change = mustAttempt(t, s, Reversible, key, true)
+	assertNoPromotion(t, change)
+	change = mustAttempt(t, s, Reversible, key, true)
+	assertPromotion(t, change, AskFirst, HoldThenAuto)
 	assertLevel(t, s, Reversible, key, HoldThenAuto)
 
 	// total 10 verified → FullAuto
 	for i := 0; i < 7; i++ {
-		mustAttempt(t, s, Reversible, key, true)
+		change = mustAttempt(t, s, Reversible, key, true)
 	}
+	assertPromotion(t, change, HoldThenAuto, FullAuto)
 	assertLevel(t, s, Reversible, key, FullAuto)
+}
+
+func TestRecordAttemptPromotionChange(t *testing.T) {
+	s := openActionTestStore(t)
+	const key = "file.write|repo=daimon"
+
+	assertPromotion(t, mustAttempt(t, s, Reversible, key, true), AskEvery, AskFirst)
+	assertNoPromotion(t, mustAttempt(t, s, Reversible, key, true))
+	assertNoPromotion(t, mustAttempt(t, s, Reversible, "file.edit|repo=daimon", false))
+
+	const frozen = "mail.send|to=boss"
+	assertPromotion(t, mustAttempt(t, s, Compensable, frozen, true), AskEvery, AskFirst)
+	if err := s.RecordCorrection(context.Background(), Compensable, frozen); err != nil {
+		t.Fatalf("RecordCorrection() error = %v", err)
+	}
+	for i := 0; i < 5; i++ {
+		assertNoPromotion(t, mustAttempt(t, s, Compensable, frozen, true))
+	}
 }
 
 func TestIrreversibleCapsAtHoldThenAuto(t *testing.T) {
@@ -263,10 +285,26 @@ func TestHoldDueAfterWindow(t *testing.T) {
 	}
 }
 
-func mustAttempt(t *testing.T, s *Store, class Class, key string, verified bool) {
+func mustAttempt(t *testing.T, s *Store, class Class, key string, verified bool) TrustChange {
 	t.Helper()
-	if err := s.RecordAttempt(context.Background(), class, key, verified); err != nil {
+	change, err := s.RecordAttempt(context.Background(), class, key, verified)
+	if err != nil {
 		t.Fatalf("RecordAttempt() error = %v", err)
+	}
+	return change
+}
+
+func assertPromotion(t *testing.T, got TrustChange, from, to Level) {
+	t.Helper()
+	if !got.Promoted || got.From != from || got.To != to {
+		t.Fatalf("TrustChange = %#v, want promotion %v -> %v", got, from, to)
+	}
+}
+
+func assertNoPromotion(t *testing.T, got TrustChange) {
+	t.Helper()
+	if got.Promoted {
+		t.Fatalf("TrustChange = %#v, want no promotion", got)
 	}
 }
 

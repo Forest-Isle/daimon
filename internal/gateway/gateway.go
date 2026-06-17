@@ -106,6 +106,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.channels = &ChannelSubsystem{channels: make(map[string]channel.Channel)}
 
 	gw.toolSub = InitTools(gw.initCtx, cfg, featSub, gw.sessions, gw.channels, gw.db, eventBus)
+	if gw.toolSub.ActionInterceptor != nil {
+		gw.toolSub.ActionInterceptor.SetTrustNotifier(newGatewayTrustNotifier(gw))
+	}
 
 	builder := agent.NewDepsBuilder()
 	builder.Core.Tools = gw.toolSub.Registry

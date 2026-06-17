@@ -126,6 +126,12 @@ type TrustEntry struct {
 	Level       int
 }
 
+type TrustChange struct {
+	Promoted bool
+	From     Level
+	To       Level
+}
+
 // Store persists the trust ledger, undo journal, and hold queue.
 type Store struct {
 	db *sql.DB
@@ -183,9 +189,9 @@ func (s *Store) ListTrust(ctx context.Context) ([]TrustEntry, error) {
 
 // RecordAttempt logs one execution and, when the track record is clean,
 // promotes the autonomy level by one step toward the class ceiling.
-func (s *Store) RecordAttempt(ctx context.Context, class Class, contextKey string, verified bool) error {
+func (s *Store) RecordAttempt(ctx context.Context, class Class, contextKey string, verified bool) (TrustChange, error) {
 	if err := s.ensure(); err != nil {
-		return err
+		return TrustChange{}, err
 	}
 	inc := 0
 	if verified {
@@ -199,7 +205,7 @@ func (s *Store) RecordAttempt(ctx context.Context, class Class, contextKey strin
 			verified_ok = verified_ok + ?,
 			updated_at = CURRENT_TIMESTAMP`,
 		class.String(), contextKey, inc, inc); err != nil {
-		return fmt.Errorf("record attempt: %w", err)
+		return TrustChange{}, fmt.Errorf("record attempt: %w", err)
 	}
 
 	var verifiedOK, corrected, level int
@@ -207,23 +213,24 @@ func (s *Store) RecordAttempt(ctx context.Context, class Class, contextKey strin
 		`SELECT verified_ok, corrected, level FROM trust_ledger WHERE action_class = ? AND context_key = ?`,
 		class.String(), contextKey).Scan(&verifiedOK, &corrected, &level)
 	if err != nil {
-		return fmt.Errorf("read trust row: %w", err)
+		return TrustChange{}, fmt.Errorf("read trust row: %w", err)
 	}
 
 	// A single correction freezes promotion: autonomy is earned only by an
 	// unbroken verified record.
 	if corrected != 0 {
-		return nil
+		return TrustChange{}, nil
 	}
 	ceiling := int(classCeiling(class))
 	if level < ceiling && verifiedOK >= promotionThreshold(Level(level)) {
 		if _, err := s.db.ExecContext(ctx,
 			`UPDATE trust_ledger SET level = ?, updated_at = CURRENT_TIMESTAMP WHERE action_class = ? AND context_key = ?`,
 			level+1, class.String(), contextKey); err != nil {
-			return fmt.Errorf("promote trust level: %w", err)
+			return TrustChange{}, fmt.Errorf("promote trust level: %w", err)
 		}
+		return TrustChange{Promoted: true, From: Level(level), To: Level(level + 1)}, nil
 	}
-	return nil
+	return TrustChange{}, nil
 }
 
 // RecordCorrection logs a user correction and demotes the autonomy level by one

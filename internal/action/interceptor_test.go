@@ -10,6 +10,21 @@ import (
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
 
+type trustNotifyCall struct {
+	class      Class
+	contextKey string
+	from       Level
+	to         Level
+}
+
+type stubTrustNotifier struct {
+	calls []trustNotifyCall
+}
+
+func (s *stubTrustNotifier) TrustPromoted(_ context.Context, class Class, contextKey string, from, to Level) {
+	s.calls = append(s.calls, trustNotifyCall{class: class, contextKey: contextKey, from: from, to: to})
+}
+
 func TestClassifyReadOnlyNotGoverned(t *testing.T) {
 	c := NewClassifier()
 	call := &tool.ToolCall{ToolName: "world_read", Capabilities: tool.ToolCapabilities{IsReadOnly: true}}
@@ -104,6 +119,48 @@ func TestInterceptorRecordsReversibleAndStamps(t *testing.T) {
 	}
 	if lvl != AskFirst {
 		t.Fatalf("level = %v, want AskFirst", lvl)
+	}
+}
+
+func TestInterceptorNotifiesOnTrustPromotion(t *testing.T) {
+	store := openActionTestStore(t)
+	ic := NewInterceptor(store, nil)
+	notifier := &stubTrustNotifier{}
+	ic.SetTrustNotifier(notifier)
+	ctx := context.Background()
+	call := &tool.ToolCall{ToolName: "world_edit"}
+	final := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		return &tool.ToolResult{Output: "done"}, nil
+	}
+
+	if _, err := ic.Intercept(ctx, call, final); err != nil {
+		t.Fatalf("Intercept() error = %v", err)
+	}
+	if len(notifier.calls) != 1 {
+		t.Fatalf("TrustPromoted calls = %d, want 1", len(notifier.calls))
+	}
+	want := trustNotifyCall{class: Reversible, contextKey: "world_edit", from: AskEvery, to: AskFirst}
+	if notifier.calls[0] != want {
+		t.Fatalf("TrustPromoted call = %#v, want %#v", notifier.calls[0], want)
+	}
+
+	if _, err := ic.Intercept(ctx, call, final); err != nil {
+		t.Fatalf("Intercept() second error = %v", err)
+	}
+	if len(notifier.calls) != 1 {
+		t.Fatalf("TrustPromoted calls after non-promotion = %d, want 1", len(notifier.calls))
+	}
+}
+
+func TestInterceptorNilTrustNotifierDoesNotPanic(t *testing.T) {
+	store := openActionTestStore(t)
+	ic := NewInterceptor(store, nil)
+	call := &tool.ToolCall{ToolName: "world_edit"}
+	final := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		return &tool.ToolResult{Output: "done"}, nil
+	}
+	if _, err := ic.Intercept(context.Background(), call, final); err != nil {
+		t.Fatalf("Intercept() error = %v", err)
 	}
 }
 

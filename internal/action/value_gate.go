@@ -22,6 +22,16 @@ type ValueGate interface {
 	Permit(ctx context.Context, class Class, contextKey string) (ref string, permitted bool)
 }
 
+// TrustNotifier observes autonomy-level promotions from the action trust ledger.
+// Implementations should be cheap/non-blocking because tool execution does not
+// wait on notification delivery.
+//
+// A nil notifier disables the callback, leaving the interceptor's default
+// observe-only behavior unchanged.
+type TrustNotifier interface {
+	TrustPromoted(ctx context.Context, class Class, contextKey string, from, to Level)
+}
+
 // valueBlockedResult is returned (without executing the tool) when the value
 // gate refuses an action. It is an error result so the model sees it and can
 // close the episode blocked with an open question.

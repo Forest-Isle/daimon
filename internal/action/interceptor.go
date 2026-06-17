@@ -21,6 +21,7 @@ type Interceptor struct {
 	store       *Store
 	classifier  Classifier
 	gate        ValueGate
+	notifier    TrustNotifier
 	holdEnabled bool
 	holdWindow  time.Duration
 }
@@ -51,6 +52,8 @@ func NewInterceptorWithGateAndHold(store *Store, classifier Classifier, gate Val
 }
 
 func (i *Interceptor) Name() string { return "action" }
+
+func (i *Interceptor) SetTrustNotifier(n TrustNotifier) { i.notifier = n }
 
 // dryRunResult is the synthetic receipt returned for a governed call under a dry
 // run: no tool ran, so it carries no real output — only metadata describing the
@@ -167,8 +170,11 @@ func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next t
 		return result, err
 	}
 
-	if recErr := i.store.RecordAttempt(ctx, class, contextKey, verified); recErr != nil {
+	change, recErr := i.store.RecordAttempt(ctx, class, contextKey, verified)
+	if recErr != nil {
 		slog.Warn("action: record trust attempt failed", "tool", call.ToolName, "err", recErr)
+	} else if change.Promoted && i.notifier != nil {
+		i.notifier.TrustPromoted(ctx, class, contextKey, change.From, change.To)
 	}
 
 	if result != nil {
