@@ -36,3 +36,24 @@ func TestHeartConfigDefaultsOff(t *testing.T) {
 	assert.False(t, ac.Heart.ModelRouter)
 	assert.False(t, ac.Heart.ChatThroughHeart)
 }
+
+func TestActionConfigParses(t *testing.T) {
+	const y = `
+action:
+  hold_enabled: true
+  hold_window_seconds: 90
+  hold_drain_interval_seconds: 10
+`
+	var ac AgentConfig
+	require.NoError(t, yaml.Unmarshal([]byte(y), &ac))
+	assert.True(t, ac.Action.HoldEnabled)
+	assert.Equal(t, 90, ac.Action.HoldWindowSeconds)
+	assert.Equal(t, 10, ac.Action.HoldDrainIntervalSeconds)
+}
+
+func TestDefaultConfigActionHoldOff(t *testing.T) {
+	cfg := defaultConfig()
+	assert.False(t, cfg.Agent.Action.HoldEnabled)
+	assert.Equal(t, 120, cfg.Agent.Action.HoldWindowSeconds)
+	assert.Equal(t, 15, cfg.Agent.Action.HoldDrainIntervalSeconds)
+}

@@ -6,11 +6,20 @@ type AgentConfig struct {
 	SubagentEpisodeEnabled bool              `yaml:"subagent_episode_enabled"`
 	HeartEnabled           bool              `yaml:"heart_enabled"` // route autonomous (non-chat) events through heart→attention→episode
 	Heart                  HeartConfig       `yaml:"heart"`
+	Action                 ActionConfig      `yaml:"action"`
 	SystemPrompt           string            `yaml:"system_prompt"`
 	Personality            string            `yaml:"-"` // Soul.md → persona/style (injected by userdir)
 	PersistentRules        string            `yaml:"-"` // Memory.md → long-term rules (injected by userdir)
 	Execution              ExecutionConfig   `yaml:"execution"`
 	Compression            CompressionConfig `yaml:"compression"`
+}
+
+// ActionConfig tunes the governed action layer. HoldEnabled defaults off so the
+// hold queue is inert unless explicitly enabled.
+type ActionConfig struct {
+	HoldEnabled              bool `yaml:"hold_enabled"`
+	HoldWindowSeconds        int  `yaml:"hold_window_seconds"`
+	HoldDrainIntervalSeconds int  `yaml:"hold_drain_interval_seconds"`
 }
 
 // HeartConfig tunes the event heart. It only takes effect when HeartEnabled is

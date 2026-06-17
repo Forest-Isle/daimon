@@ -62,6 +62,14 @@ agent:
     # or model decision. Safe defaults (payment./security./legal./account.delete)
     # are always applied; these only widen the net, never shrink it.
     high_risk_kinds: []
+  # Action holds: the compensable-action recall queue. When enabled, mutating
+  # HTTP calls that already passed permission/value gates are queued, can be
+  # recalled for the window below, then auto-execute. Off by default; when off,
+  # tool execution behavior is unchanged.
+  action:
+    hold_enabled: false
+    hold_window_seconds: 120
+    hold_drain_interval_seconds: 15
   # Routing is governed by ~/.daimon/attention/rules.yaml — a top-level YAML list
   # matched first (after the high-risk whitelist). Unmatched events default to
   # Cognize (prefer to wake over silently dropping). Record routing corrections

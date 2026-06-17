@@ -327,6 +327,31 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		}()
 	}
 
+	if gw.config.Config().Agent.Action.HoldEnabled {
+		// Crash recovery: any hold left 'executing' is orphaned from a prior run
+		// (nothing is in flight at startup), so reset it to 'pending' before the
+		// drain ticker starts. Persisted 'pending' holds then re-drain normally.
+		if gw.toolSub != nil && gw.toolSub.ActionStore != nil {
+			if n, err := gw.toolSub.ActionStore.RecoverStaleHolds(ctx); err != nil {
+				slog.Warn("holds: recover stale failed", "err", err)
+			} else if n > 0 {
+				slog.Info("holds: recovered stale holds", "count", n)
+			}
+		}
+		go func() {
+			ticker := time.NewTicker(holdDrainInterval(gw.config.Config().Agent.Action.HoldDrainIntervalSeconds))
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					gw.drainHolds(ctx)
+				}
+			}
+		}()
+	}
+
 	// Route proposal inline-button taps to the decision coordinator BEFORE the
 	// channels' update loops start, so a tap can never race a not-yet-registered
 	// handler. Channels are already registered (AddChannel runs before Start).

@@ -163,6 +163,10 @@ func defaultConfig() Config {
 		Agent: AgentConfig{
 			MaxIterations:  20,
 			EpisodeEnabled: true,
+			Action: ActionConfig{
+				HoldWindowSeconds:        120,
+				HoldDrainIntervalSeconds: 15,
+			},
 			Execution: ExecutionConfig{
 				MaxParallelTools:       3,
 				ApprovalTimeoutSeconds: 120,

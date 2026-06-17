@@ -425,6 +425,35 @@ func (s *Store) DueHolds(ctx context.Context, now string) ([]Hold, error) {
 	return out, nil
 }
 
+// ListPendingHolds returns all holds still inside the recall queue.
+func (s *Store) ListPendingHolds(ctx context.Context) ([]Hold, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, receipt_id, tool_name, payload, execute_at, state, created_at
+		FROM holds
+		WHERE state = 'pending'
+		ORDER BY execute_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list pending holds: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Hold
+	for rows.Next() {
+		var h Hold
+		if err := rows.Scan(&h.ID, &h.ReceiptID, &h.ToolName, &h.Payload, &h.ExecuteAt, &h.State, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan pending hold: %w", err)
+		}
+		out = append(out, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending holds: %w", err)
+	}
+	return out, nil
+}
+
 // CountPendingHolds returns the number of holds still waiting in the recall queue.
 func (s *Store) CountPendingHolds(ctx context.Context) (int, error) {
 	if err := s.ensure(); err != nil {
@@ -437,12 +466,52 @@ func (s *Store) CountPendingHolds(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// MarkHoldState transitions a hold to executed or recalled.
+// ClaimHold atomically moves a pending hold into execution. It returns false
+// when the hold was already recalled, claimed, executed, or never existed.
+func (s *Store) ClaimHold(ctx context.Context, id string) (bool, error) {
+	if err := s.ensure(); err != nil {
+		return false, err
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE holds SET state = 'executing' WHERE id = ? AND state = 'pending'`, id)
+	if err != nil {
+		return false, fmt.Errorf("claim hold: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("claim hold rows affected: %w", err)
+	}
+	return rows == 1, nil
+}
+
+// RecoverStaleHolds resets any hold left mid-claim ('executing') back to
+// 'pending' so it is re-drained. It is called once at startup before the drain
+// ticker starts: at that point nothing is in flight, so any 'executing' hold is
+// necessarily orphaned by a crash between ClaimHold and MarkHoldState. Returns
+// the number of holds recovered.
+func (s *Store) RecoverStaleHolds(ctx context.Context) (int, error) {
+	if err := s.ensure(); err != nil {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE holds SET state = 'pending' WHERE state = 'executing'`)
+	if err != nil {
+		return 0, fmt.Errorf("recover stale holds: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("recover stale holds rows affected: %w", err)
+	}
+	return int(n), nil
+}
+
+// MarkHoldState transitions a hold to a terminal state: executed (fired
+// successfully), failed (fired but the tool errored), or recalled.
 func (s *Store) MarkHoldState(ctx context.Context, id, state string) error {
 	if err := s.ensure(); err != nil {
 		return err
 	}
-	if state != "executed" && state != "recalled" {
+	if state != "executed" && state != "recalled" && state != "failed" {
 		return fmt.Errorf("invalid hold state %q", state)
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE holds SET state = ? WHERE id = ?`, state, id)
