@@ -162,6 +162,16 @@ tools:
     enabled: true
     requires_approval: false
     timeout: 30s
+  # SMTP send tool. Requires an app-password; sends route through the
+  # compensable hold queue (agent.action.hold_enabled) so there is a recall
+  # window before the mail actually goes out.
+  email:
+    enabled: false
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    username: "${GMAIL_USERNAME}"
+    password: "${GMAIL_APP_PASSWORD}"
+    from: "${GMAIL_USERNAME}"
   # Shell execution backend for the bash tool.
   #   host     — run commands directly (default)
   #   seatbelt — run every command under the macOS sandbox (sandbox-exec)
