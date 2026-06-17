@@ -21,9 +21,13 @@ func InitCommands(gwRef *Gateway) *CommandSubsystem {
 		"/feature":   {gwRef.handleFeature, false},
 		"/config":    {gwRef.handleConfig, true},
 		"/compact":   {gwRef.handleCompact, true},
+		"/episodes":  {gwRef.handleEpisodes, false},
 		"/memory":    {gwRef.handleMemory, false},
 		"/model":     {gwRef.handleModel, false},
+		"/holds":     {gwRef.handleHolds, false},
 		"/new":       {gwRef.handleReset, true},
+		"/proposals": {gwRef.handleProposals, false},
+		"/replay":    {gwRef.handleReplay, false},
 		"/reset":     {gwRef.handleReset, true},
 		"/resume":    {gwRef.handleResume, false},
 		"/start":     {gwRef.handleReset, true},
@@ -35,6 +39,7 @@ func InitCommands(gwRef *Gateway) *CommandSubsystem {
 		"/tasks":     {gwRef.handleTasks, true},
 		"/team":      {gwRef.handleTeam, false},
 		"/throttle":  {gwRef.handleThrottle, false},
+		"/trust":     {gwRef.handleTrust, false},
 	}
 	return cs
 }
