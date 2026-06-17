@@ -54,6 +54,31 @@ var commandRegistry = []Command{
 		Aliases:     []string{"stats"},
 		Category:    "builtin",
 	},
+	{
+		Name:        "episodes",
+		Description: "List recent episode outcomes",
+		Category:    "builtin",
+	},
+	{
+		Name:        "trust",
+		Description: "Inspect the action trust ledger",
+		Category:    "builtin",
+	},
+	{
+		Name:        "holds",
+		Description: "List pending compensable action holds",
+		Category:    "builtin",
+	},
+	{
+		Name:        "proposals",
+		Description: "List pending anticipatory proposals",
+		Category:    "builtin",
+	},
+	{
+		Name:        "replay",
+		Description: "Show replay journal summary",
+		Category:    "builtin",
+	},
 
 	// Memory management
 	{

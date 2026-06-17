@@ -57,6 +57,27 @@ func TestTrustLevelDefaultsAskEvery(t *testing.T) {
 	}
 }
 
+func TestListTrust(t *testing.T) {
+	s := openActionTestStore(t)
+	ctx := context.Background()
+	const key = "file.write|repo=daimon"
+	if err := s.RecordAttempt(ctx, Reversible, key, true); err != nil {
+		t.Fatalf("RecordAttempt() error = %v", err)
+	}
+
+	entries, err := s.ListTrust(ctx)
+	if err != nil {
+		t.Fatalf("ListTrust() error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("ListTrust() len = %d, want 1: %#v", len(entries), entries)
+	}
+	got := entries[0]
+	if got.ActionClass != Reversible.String() || got.ContextKey != key || got.Attempts != 1 || got.VerifiedOK != 1 || got.Corrected != 0 || Level(got.Level) != AskFirst {
+		t.Fatalf("ListTrust()[0] = %#v", got)
+	}
+}
+
 func TestPromotionWalksThresholds(t *testing.T) {
 	s := openActionTestStore(t)
 	const key = "file.write|repo=daimon"

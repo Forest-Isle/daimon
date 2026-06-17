@@ -117,6 +117,15 @@ type Hold struct {
 	CreatedAt string
 }
 
+type TrustEntry struct {
+	ActionClass string
+	ContextKey  string
+	Attempts    int
+	VerifiedOK  int
+	Corrected   int
+	Level       int
+}
+
 // Store persists the trust ledger, undo journal, and hold queue.
 type Store struct {
 	db *sql.DB
@@ -143,6 +152,33 @@ func (s *Store) TrustLevel(ctx context.Context, class Class, contextKey string) 
 		return AskEvery, fmt.Errorf("read trust level: %w", err)
 	}
 	return Level(level), nil
+}
+
+func (s *Store) ListTrust(ctx context.Context) ([]TrustEntry, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT action_class, context_key, attempts, verified_ok, corrected, level
+		FROM trust_ledger
+		ORDER BY action_class, context_key`)
+	if err != nil {
+		return nil, fmt.Errorf("list trust ledger: %w", err)
+	}
+	defer rows.Close()
+
+	var out []TrustEntry
+	for rows.Next() {
+		var entry TrustEntry
+		if err := rows.Scan(&entry.ActionClass, &entry.ContextKey, &entry.Attempts, &entry.VerifiedOK, &entry.Corrected, &entry.Level); err != nil {
+			return nil, fmt.Errorf("scan trust ledger: %w", err)
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate trust ledger: %w", err)
+	}
+	return out, nil
 }
 
 // RecordAttempt logs one execution and, when the track record is clean,
