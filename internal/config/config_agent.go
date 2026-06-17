@@ -31,6 +31,7 @@ type HeartConfig struct {
 	HealthIntervalMinutes     int      `yaml:"health_interval_minutes"`      // 0 = no selfops health timer; >0 fires internal.health every N minutes
 	SleepIntervalMinutes      int      `yaml:"sleep_interval_minutes"`       // 0 = no autonomous sleep timer; >0 fires internal.sleep every N minutes (daily window = 1440)
 	SleepIdleMinutes          int      `yaml:"sleep_idle_minutes"`           // require this many minutes of no real-event activity before an autonomous cycle runs; 0 = no idle gate
+	FSWatchDirs               []string `yaml:"fs_watch_dirs"`                // directories the fs source watches (fsnotify); empty = no fs source. Use absolute paths or ${HOME}/... (env-expanded). Do not watch ~/.daimon.
 	ModelRouter               bool     `yaml:"model_router"`                 // wire the small-model (haiku) triage tier
 	HighRiskKinds             []string `yaml:"high_risk_kinds"`              // extra always-wake event-kind prefixes (added to safe defaults)
 	ChatThroughHeart          bool     `yaml:"chat_through_heart"`           // record inbound chat in the event stream (dedup + audit) before handling

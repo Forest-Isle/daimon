@@ -265,6 +265,9 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 				Interval:   time.Duration(mins) * time.Minute,
 			})
 		}
+		if dirs := cfg.Agent.Heart.FSWatchDirs; len(dirs) > 0 {
+			gw.heart.heart.Register(&heart.FSSource{Dirs: dirs})
+		}
 
 		// Sleep can now learn from routing corrections: the synthesize-rules job
 		// needs the heart's feedback + event stores, which only exist when the heart

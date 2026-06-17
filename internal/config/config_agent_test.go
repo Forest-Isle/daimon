@@ -17,6 +17,8 @@ heart:
   heartbeat_interval_minutes: 5
   sleep_interval_minutes: 1440
   sleep_idle_minutes: 30
+  fs_watch_dirs:
+    - ${HOME}/watched
   model_router: true
   chat_through_heart: true
 `
@@ -26,6 +28,7 @@ heart:
 	assert.Equal(t, 5, ac.Heart.HeartbeatIntervalMinutes)
 	assert.Equal(t, 1440, ac.Heart.SleepIntervalMinutes)
 	assert.Equal(t, 30, ac.Heart.SleepIdleMinutes)
+	assert.Equal(t, []string{"${HOME}/watched"}, ac.Heart.FSWatchDirs)
 	assert.True(t, ac.Heart.ModelRouter)
 	assert.True(t, ac.Heart.ChatThroughHeart)
 }
@@ -39,6 +42,7 @@ func TestHeartConfigDefaultsOff(t *testing.T) {
 	assert.Equal(t, 0, ac.Heart.HeartbeatIntervalMinutes)
 	assert.Equal(t, 0, ac.Heart.SleepIntervalMinutes)
 	assert.Equal(t, 0, ac.Heart.SleepIdleMinutes)
+	assert.Empty(t, ac.Heart.FSWatchDirs)
 	assert.False(t, ac.Heart.ModelRouter)
 	assert.False(t, ac.Heart.ChatThroughHeart)
 }
