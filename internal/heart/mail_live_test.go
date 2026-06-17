@@ -40,17 +40,20 @@ func TestMailLive(t *testing.T) {
 	}
 	defer f.Close()
 
-	msgs, err := f.FetchUnseen(ctx)
+	uidValidity, uidNext := f.Status()
+	t.Logf("connected OK; INBOX uidValidity=%d uidNext=%d", uidValidity, uidNext)
+
+	msgs, err := f.FetchSince(ctx, 1)
 	if err != nil {
-		t.Fatalf("fetch unseen failed: %v", err)
+		t.Fatalf("fetch since failed: %v", err)
 	}
 
-	t.Logf("connected OK; %d unseen message(s) in INBOX", len(msgs))
+	t.Logf("fetched %d message(s) from UID 1", len(msgs))
 	for i, m := range msgs {
 		if i >= 5 {
 			t.Logf("... (%d more)", len(msgs)-5)
 			break
 		}
-		t.Logf("  [%d] from=%q subject=%q id=%q", i, m.From, m.Subject, m.MessageID)
+		t.Logf("  [%d] uid=%d from=%q subject=%q id=%q", i, m.UID, m.From, m.Subject, m.MessageID)
 	}
 }
