@@ -62,6 +62,18 @@ agent:
     # Use absolute paths or ${HOME}/...; do not watch ~/.daimon, or the agent's
     # own writes can feed back into the heart.
     fs_watch_dirs: []
+    # IMAP mail sensory source. Disabled by default. Password MUST be an
+    # app-password supplied via env var, never plaintext. Intended for the
+    # agent's own low-volume mailbox: UNSEEN is re-fetched each poll and
+    # deduped by Message-ID in the heart store.
+    mail:
+      enabled: false
+      imap_host: "imap.gmail.com"
+      imap_port: 993
+      username: "${GMAIL_USERNAME}"
+      password: "${GMAIL_APP_PASSWORD}"
+      mailbox: "INBOX"
+      poll_interval_seconds: 60
     model_router: false            # also triage events with the small (haiku) model when rules don't match
     chat_through_heart: false      # record inbound chat in the event stream (audit + dedup on message id) before handling; reply path unchanged
     # Event kinds (exact or prefix) that ALWAYS wake the user, ahead of any rule
