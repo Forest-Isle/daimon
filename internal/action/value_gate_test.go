@@ -2,6 +2,7 @@ package action
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/tool"
@@ -97,8 +98,11 @@ func TestValueGateSkippedForReversible(t *testing.T) {
 	if gate.calls != 0 {
 		t.Fatal("reversible (low-risk) action must not consult the value gate")
 	}
-	if res.Metadata["value_ref"] != "reversible" {
-		t.Fatalf("value_ref = %q, want reversible", res.Metadata["value_ref"])
+	if res.Metadata["value_ref"] != "trust:ask_first" {
+		t.Fatalf("value_ref = %q, want trust:ask_first", res.Metadata["value_ref"])
+	}
+	if !strings.HasPrefix(res.Metadata["value_ref"], "trust:") {
+		t.Fatalf("value_ref = %q, want trust:<level>", res.Metadata["value_ref"])
 	}
 }
 

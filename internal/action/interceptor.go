@@ -101,9 +101,6 @@ func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next t
 	// Reversible (low-risk) actions are exempt — they are undoable and execute
 	// freely. A nil gate disables the check (observe-only default).
 	valueRef := ""
-	if governed && class == Reversible {
-		valueRef = "reversible"
-	}
 	if governed && class != Reversible && i.gate != nil {
 		ref, permitted := i.gate.Permit(ctx, class, contextKey)
 		if !permitted {
@@ -175,6 +172,9 @@ func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next t
 		slog.Warn("action: record trust attempt failed", "tool", call.ToolName, "err", recErr)
 	} else if change.Promoted && i.notifier != nil {
 		i.notifier.TrustPromoted(ctx, class, contextKey, change.From, change.To)
+	}
+	if recErr == nil && class == Reversible {
+		valueRef = "trust:" + change.Level.String()
 	}
 
 	if result != nil {
