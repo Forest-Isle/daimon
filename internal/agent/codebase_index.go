@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -146,7 +147,16 @@ func (idx *CodebaseIndex) IndexDirectoryContext(ctx context.Context, dir string)
 		if !shouldIndexFile(path) {
 			return nil
 		}
-		return idx.IndexFileContext(ctx, path)
+		// Per-file tolerance: a single embed failure (e.g. a provider timeout)
+		// must not abort indexing the whole tree. Skip the file and continue;
+		// only honor context cancellation (shutdown) as a hard stop.
+		if err := idx.IndexFileContext(ctx, path); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			slog.Warn("codebase index: skip file", "path", path, "err", err)
+		}
+		return nil
 	})
 }
 
