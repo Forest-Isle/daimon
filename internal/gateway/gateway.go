@@ -268,6 +268,16 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		if dirs := cfg.Agent.Heart.FSWatchDirs; len(dirs) > 0 {
 			gw.heart.heart.Register(&heart.FSSource{Dirs: dirs})
 		}
+		if mc := cfg.Agent.Heart.Mail; mc.Enabled && mc.IMAPHost != "" {
+			mailbox := mc.Mailbox
+			if mailbox == "" {
+				mailbox = "INBOX"
+			}
+			gw.heart.heart.Register(&heart.MailSource{
+				Dial:         heart.IMAPDialer(mc.IMAPHost, mc.IMAPPort, mc.Username, mc.Password, mailbox),
+				PollInterval: time.Duration(mc.PollIntervalSeconds) * time.Second,
+			})
+		}
 
 		// Sleep can now learn from routing corrections: the synthesize-rules job
 		// needs the heart's feedback + event stores, which only exist when the heart
