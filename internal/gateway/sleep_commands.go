@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -34,6 +35,10 @@ func (gw *Gateway) handleSleep(ctx context.Context, _ channel.Channel, msg chann
 	if gw.sleep == nil {
 		return "Sleep is not available (no consolidation jobs registered).", nil
 	}
+	if !gw.sleepRunning.CompareAndSwap(false, true) {
+		return "A sleep cycle is already running; try again shortly.", nil
+	}
+	defer gw.sleepRunning.Store(false)
 
 	cycleCtx, cancel := context.WithTimeout(ctx, sleepCycleTimeout)
 	defer cancel()
@@ -61,4 +66,58 @@ func (gw *Gateway) handleSleep(ctx context.Context, _ channel.Channel, msg chann
 		fmt.Fprintf(&b, "- %s: %s\n", r.Name, r.Summary)
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+func (gw *Gateway) triggerAutonomousSleep(ctx context.Context) {
+	if !gw.autonomousSleepIdle(time.Now()) {
+		slog.Info("sleep: skipping autonomous cycle, not idle")
+		return
+	}
+	if !gw.sleepRunning.CompareAndSwap(false, true) {
+		slog.Info("sleep: autonomous cycle already running, skipping")
+		return
+	}
+
+	go func() {
+		defer gw.sleepRunning.Store(false)
+
+		cycleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sleepCycleTimeout)
+		defer cancel()
+		gw.runAutonomousSleepCycle(cycleCtx)
+	}()
+}
+
+func (gw *Gateway) autonomousSleepIdle(now time.Time) bool {
+	cfg := gw.config.Config()
+	idleMinutes := cfg.Agent.Heart.SleepIdleMinutes
+	if idleMinutes <= 0 {
+		return true
+	}
+	last := gw.lastEventAt.Load()
+	if last == 0 {
+		return true
+	}
+	return now.Unix()-last >= int64(idleMinutes)*60
+}
+
+func (gw *Gateway) runAutonomousSleepCycle(ctx context.Context) {
+	if gw.sleep == nil {
+		return
+	}
+	report := gw.sleep.Run(ctx)
+	if len(report.Results) == 0 {
+		slog.Info("sleep: autonomous cycle complete", "jobs", 0)
+	} else {
+		for _, r := range report.Results {
+			if r.Err != nil {
+				slog.Info("sleep: autonomous job complete", "job", r.Name, "status", "failed", "err", r.Err)
+				continue
+			}
+			slog.Info("sleep: autonomous job complete", "job", r.Name, "status", "ok")
+		}
+	}
+
+	deliverCtx, cancel := context.WithTimeout(context.Background(), proposalDeliveryTimeout)
+	defer cancel()
+	gw.deliverProposals(deliverCtx)
 }

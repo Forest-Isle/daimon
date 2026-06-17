@@ -15,6 +15,8 @@ func TestHeartConfigParses(t *testing.T) {
 heart_enabled: true
 heart:
   heartbeat_interval_minutes: 5
+  sleep_interval_minutes: 1440
+  sleep_idle_minutes: 30
   model_router: true
   chat_through_heart: true
 `
@@ -22,6 +24,8 @@ heart:
 	require.NoError(t, yaml.Unmarshal([]byte(y), &ac))
 	assert.True(t, ac.HeartEnabled)
 	assert.Equal(t, 5, ac.Heart.HeartbeatIntervalMinutes)
+	assert.Equal(t, 1440, ac.Heart.SleepIntervalMinutes)
+	assert.Equal(t, 30, ac.Heart.SleepIdleMinutes)
 	assert.True(t, ac.Heart.ModelRouter)
 	assert.True(t, ac.Heart.ChatThroughHeart)
 }
@@ -33,6 +37,8 @@ func TestHeartConfigDefaultsOff(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte("max_iterations: 20\n"), &ac))
 	assert.False(t, ac.HeartEnabled)
 	assert.Equal(t, 0, ac.Heart.HeartbeatIntervalMinutes)
+	assert.Equal(t, 0, ac.Heart.SleepIntervalMinutes)
+	assert.Equal(t, 0, ac.Heart.SleepIdleMinutes)
 	assert.False(t, ac.Heart.ModelRouter)
 	assert.False(t, ac.Heart.ChatThroughHeart)
 }
