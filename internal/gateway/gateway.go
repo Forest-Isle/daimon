@@ -276,6 +276,8 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 			gw.heart.heart.Register(&heart.MailSource{
 				Dial:         heart.IMAPDialer(mc.IMAPHost, mc.IMAPPort, mc.Username, mc.Password, mailbox),
 				PollInterval: time.Duration(mc.PollIntervalSeconds) * time.Second,
+				State:        gw.heart.store,
+				Mailbox:      mailbox,
 			})
 		}
 

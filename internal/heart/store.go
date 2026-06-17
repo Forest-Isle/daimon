@@ -154,6 +154,40 @@ func (s *Store) RecentRouted(ctx context.Context, limit int) ([]RoutedEvent, err
 	return out, nil
 }
 
+func (s *Store) GetMailHighWater(ctx context.Context, mailbox string) (uidValidity uint32, lastUID uint32, found bool, err error) {
+	if err := s.ensure(); err != nil {
+		return 0, 0, false, err
+	}
+	err = s.db.QueryRowContext(ctx,
+		`SELECT uid_validity, last_uid FROM mail_state WHERE mailbox = ?`, mailbox).
+		Scan(&uidValidity, &lastUID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, false, nil
+	}
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("get mail high water: %w", err)
+	}
+	return uidValidity, lastUID, true, nil
+}
+
+func (s *Store) SetMailHighWater(ctx context.Context, mailbox string, uidValidity uint32, lastUID uint32) error {
+	if err := s.ensure(); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO mail_state (mailbox, uid_validity, last_uid)
+		VALUES (?, ?, ?)
+		ON CONFLICT(mailbox) DO UPDATE SET
+			uid_validity = excluded.uid_validity,
+			last_uid = excluded.last_uid,
+			updated_at = datetime('now')`,
+		mailbox, uidValidity, lastUID)
+	if err != nil {
+		return fmt.Errorf("set mail high water: %w", err)
+	}
+	return nil
+}
+
 // KindsByID looks up the source and kind of each given event id. Missing ids are
 // simply absent from the result (not an error). The sleep phase uses this to join
 // routing corrections back to the event they correct, so it can synthesize rules
