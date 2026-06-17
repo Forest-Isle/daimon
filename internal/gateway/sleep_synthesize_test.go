@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Forest-Isle/daimon/internal/attention"
 	"github.com/Forest-Isle/daimon/internal/heart"
 	"github.com/Forest-Isle/daimon/internal/store"
+	"github.com/Forest-Isle/daimon/internal/vcs"
 )
 
 func TestRulesFileSinkRoundTripAndDedup(t *testing.T) {
@@ -40,6 +42,99 @@ func TestRulesFileSinkRoundTripAndDedup(t *testing.T) {
 	}
 	if got[0].Source != "telegram" || got[0].Action != "ignore" {
 		t.Fatalf("roundtrip mismatch: %+v", got[0])
+	}
+}
+
+func TestRulesFileSinkCommitsNewRules(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attention")
+	path := filepath.Join(dir, "rules.yaml")
+	sink := rulesFileSink{path: path}
+	ctx := context.Background()
+
+	r := attention.Rule{Source: "telegram", Kind: "message", Action: "ignore"}
+	if err := sink.Append(ctx, []attention.Rule{r}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("rules.yaml not written: %v", err)
+	}
+	commits, err := vcs.Log(ctx, dir, "rules.yaml", 10)
+	if err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	if len(commits) < 1 {
+		t.Fatal("expected at least one synthesize commit")
+	}
+	if !strings.Contains(commits[0].Subject, "synthesize") {
+		t.Fatalf("expected synthesize commit, got %q", commits[0].Subject)
+	}
+}
+
+func TestRulesFileSinkDoesNotCommitDuplicateRules(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attention")
+	path := filepath.Join(dir, "rules.yaml")
+	sink := rulesFileSink{path: path}
+	ctx := context.Background()
+
+	r := attention.Rule{Source: "telegram", Kind: "message", Action: "ignore"}
+	if err := sink.Append(ctx, []attention.Rule{r}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	before, err := vcs.Log(ctx, dir, "rules.yaml", 10)
+	if err != nil {
+		t.Fatalf("Log before: %v", err)
+	}
+	bytesBefore, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
+	if err := sink.Append(ctx, []attention.Rule{r}); err != nil {
+		t.Fatalf("Append duplicate: %v", err)
+	}
+	after, err := vcs.Log(ctx, dir, "rules.yaml", 10)
+	if err != nil {
+		t.Fatalf("Log after: %v", err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("duplicate append should not create a commit, before=%d after=%d", len(before), len(after))
+	}
+	// And the file itself must be byte-identical: a no-op append must not
+	// silently re-marshal (stripping comments / reordering) without a commit.
+	bytesAfter, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if string(bytesAfter) != string(bytesBefore) {
+		t.Fatalf("duplicate append rewrote rules.yaml content:\nbefore=%q\nafter=%q", bytesBefore, bytesAfter)
+	}
+}
+
+func TestRulesFileSinkRevertRestoresPreviousRules(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attention")
+	path := filepath.Join(dir, "rules.yaml")
+	sink := rulesFileSink{path: path}
+	ctx := context.Background()
+
+	r1 := attention.Rule{Source: "telegram", Kind: "message", Action: "ignore"}
+	if err := sink.Append(ctx, []attention.Rule{r1}); err != nil {
+		t.Fatalf("Append first: %v", err)
+	}
+	r2 := attention.Rule{Source: "email", Kind: "message", Action: "cognize"}
+	if err := sink.Append(ctx, []attention.Rule{r2}); err != nil {
+		t.Fatalf("Append second: %v", err)
+	}
+	if err := vcs.RevertFileToPrevious(ctx, dir, "rules.yaml"); err != nil {
+		t.Fatalf("RevertFileToPrevious: %v", err)
+	}
+	got, err := sink.Existing(ctx)
+	if err != nil {
+		t.Fatalf("Existing: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("revert should restore one prior rule, got %+v", got)
+	}
+	if got[0].Source != "telegram" || got[0].Action != "ignore" {
+		t.Fatalf("reverted content mismatch: %+v", got[0])
 	}
 }
 

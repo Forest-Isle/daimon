@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/attention"
 	"github.com/Forest-Isle/daimon/internal/heart"
 	"github.com/Forest-Isle/daimon/internal/sleep"
+	"github.com/Forest-Isle/daimon/internal/vcs"
 )
 
 // feedbackCorrectionSource adapts the attention feedback store + heart event
@@ -70,18 +72,26 @@ func (s rulesFileSink) Existing(_ context.Context) ([]attention.Rule, error) {
 	return readRulesFile(s.path)
 }
 
-func (s rulesFileSink) Append(_ context.Context, candidates []attention.Rule) error {
+func (s rulesFileSink) Append(ctx context.Context, candidates []attention.Rule) error {
 	before := fileSignature(s.path)
 	existing, err := readRulesFile(s.path)
 	if err != nil {
 		return err
 	}
 	merged := existing
+	nAppended := 0
 	for _, c := range candidates {
 		if containsRule(merged, c) {
 			continue
 		}
 		merged = append(merged, c)
+		nAppended++
+	}
+	// Nothing new to add: leave the file (and any hand-written formatting,
+	// comments, or ordering) untouched rather than re-marshalling it on every
+	// cycle. This also keeps the git history to one commit per real change.
+	if nAppended == 0 {
+		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return fmt.Errorf("ensure attention dir: %w", err)
@@ -112,6 +122,17 @@ func (s rulesFileSink) Append(_ context.Context, candidates []attention.Rule) er
 	}
 	if err := os.Rename(tmpPath, s.path); err != nil {
 		return fmt.Errorf("replace attention rules: %w", err)
+	}
+	// Best-effort: record the synthesis as a single revertable git commit so a
+	// bad autonomous rule can be rolled back (`daimon attention revert`). A VCS
+	// failure never fails synthesis — the rules file is already written.
+	dir := filepath.Dir(s.path)
+	if err := vcs.EnsureRepo(ctx, dir); err != nil {
+		slog.Warn("attention rules git init failed", "path", s.path, "error", err)
+		return nil
+	}
+	if _, _, err := vcs.Commit(ctx, dir, fmt.Sprintf("synthesize: %d attention rule(s)", nAppended), "rules.yaml"); err != nil {
+		slog.Warn("attention rules git commit failed", "path", s.path, "error", err)
 	}
 	return nil
 }
