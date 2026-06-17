@@ -54,6 +54,9 @@ func (defaultClassifier) ContextKey(call *tool.ToolCall) string {
 }
 
 func (c holdAwareClassifier) Classify(call *tool.ToolCall) (Class, bool) {
+	if call != nil && call.ToolName == "send_email" {
+		return Compensable, true
+	}
 	if call != nil && call.ToolName == "http" {
 		if class, ok := classifyHTTP(call.Input); ok {
 			return class, true

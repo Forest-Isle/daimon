@@ -96,6 +96,15 @@ func TestHoldAwareClassifierHTTP(t *testing.T) {
 	}
 }
 
+func TestHoldAwareClassifierSendEmail(t *testing.T) {
+	c := NewClassifierWithCompensableHTTP()
+	call := &tool.ToolCall{ToolName: "send_email", Input: `{"to":"user@example.com","subject":"Hello","body":"Body text"}`}
+	got, governed := c.Classify(call)
+	if !governed || got != Compensable {
+		t.Fatalf("send_email classified %v governed=%v, want Compensable/true", got, governed)
+	}
+}
+
 func TestInterceptorRecordsReversibleAndStamps(t *testing.T) {
 	store := openActionTestStore(t)
 	ic := NewInterceptor(store, nil)

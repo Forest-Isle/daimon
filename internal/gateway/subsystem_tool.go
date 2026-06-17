@@ -91,6 +91,16 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	if cfg.Tools.HTTP.Enabled {
 		ts.Registry.Register(tool.NewHTTPTool(cfg.Tools.HTTP.Timeout, cfg.Tools.HTTP.RequiresApproval))
 	}
+	if cfg.Tools.Email.Enabled && cfg.Tools.Email.SMTPHost != "" {
+		ts.Registry.Register(tool.NewSendEmailTool(
+			cfg.Tools.Email.SMTPHost,
+			cfg.Tools.Email.SMTPPort,
+			cfg.Tools.Email.Username,
+			cfg.Tools.Email.Password,
+			cfg.Tools.Email.From,
+			false, // approval handled by the compensable hold window, not the permission gate
+		))
+	}
 
 	ts.CodebaseIndex = newCodebaseIndexFromCfg(cfg)
 	if ts.CodebaseIndex != nil && ts.CodebaseIndex.IsAvailable() {

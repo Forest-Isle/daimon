@@ -6,6 +6,7 @@ type ToolsConfig struct {
 	Bash                BashToolConfig            `yaml:"bash"`
 	File                FileToolConfig            `yaml:"file"`
 	HTTP                HTTPToolConfig            `yaml:"http"`
+	Email               EmailToolConfig           `yaml:"email"`
 	Exec                ExecConfig                `yaml:"exec"`
 	Verify              VerifyConfig              `yaml:"verify"`
 	MCP                 MCPConfig                 `yaml:"mcp"`
@@ -68,4 +69,13 @@ type HTTPToolConfig struct {
 	Enabled          bool          `yaml:"enabled"`
 	RequiresApproval bool          `yaml:"requires_approval"`
 	Timeout          time.Duration `yaml:"timeout"`
+}
+
+type EmailToolConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	SMTPHost string `yaml:"smtp_host"`
+	SMTPPort int    `yaml:"smtp_port"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	From     string `yaml:"from"`
 }
