@@ -29,6 +29,8 @@ type HeartConfig struct {
 	HeartbeatIntervalMinutes  int      `yaml:"heartbeat_interval_minutes"`   // 0 = no timer source registered
 	DailyBriefIntervalMinutes int      `yaml:"daily_brief_interval_minutes"` // 0 = no daily-brief timer; >0 fires internal.daily_brief every N minutes
 	HealthIntervalMinutes     int      `yaml:"health_interval_minutes"`      // 0 = no selfops health timer; >0 fires internal.health every N minutes
+	SleepIntervalMinutes      int      `yaml:"sleep_interval_minutes"`       // 0 = no autonomous sleep timer; >0 fires internal.sleep every N minutes (daily window = 1440)
+	SleepIdleMinutes          int      `yaml:"sleep_idle_minutes"`           // require this many minutes of no real-event activity before an autonomous cycle runs; 0 = no idle gate
 	ModelRouter               bool     `yaml:"model_router"`                 // wire the small-model (haiku) triage tier
 	HighRiskKinds             []string `yaml:"high_risk_kinds"`              // extra always-wake event-kind prefixes (added to safe defaults)
 	ChatThroughHeart          bool     `yaml:"chat_through_heart"`           // record inbound chat in the event stream (dedup + audit) before handling

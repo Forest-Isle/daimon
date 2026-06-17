@@ -148,6 +148,62 @@ func TestEventDispatcherHealthBypassesCognition(t *testing.T) {
 	}
 }
 
+// TestEventDispatcherSleepBypassesCognition verifies the autonomous sleep timer
+// is handled off the routing/cognition path.
+func TestEventDispatcherSleepBypassesCognition(t *testing.T) {
+	routed := false
+	cognized := false
+	slept := false
+	d := &eventDispatcher{
+		route: func(_ context.Context, _ heart.Event) (attention.Verdict, error) {
+			routed = true
+			return attention.Verdict{Action: attention.Cognize}, nil
+		},
+		cognize: func(_ context.Context, _ heart.Event) { cognized = true },
+		sleep:   func(_ context.Context) { slept = true },
+	}
+	d.handle(context.Background(), heart.Event{Source: "timer", Kind: "internal.sleep"})
+	if !slept {
+		t.Fatal("sleep event must call sleep closure")
+	}
+	if routed || cognized {
+		t.Fatalf("sleep must bypass routing/cognition (routed=%v cognized=%v)", routed, cognized)
+	}
+
+	routed = false
+	d = &eventDispatcher{
+		route: func(_ context.Context, _ heart.Event) (attention.Verdict, error) {
+			routed = true
+			return attention.Verdict{Action: attention.Cognize}, nil
+		},
+		sleep: nil,
+	}
+	d.handle(context.Background(), heart.Event{Source: "timer", Kind: "internal.sleep"})
+	if routed {
+		t.Fatal("sleep event with nil sleep closure must not route")
+	}
+}
+
+func TestEventDispatcherRecordsOnlyRealActivity(t *testing.T) {
+	activity := 0
+	d := &eventDispatcher{
+		route: func(_ context.Context, _ heart.Event) (attention.Verdict, error) {
+			return attention.Verdict{Action: attention.Ignore}, nil
+		},
+		recordActivity: func() { activity++ },
+	}
+
+	d.handle(context.Background(), heart.Event{Source: "timer", Kind: "internal.heartbeat"})
+	if activity != 0 {
+		t.Fatalf("internal event must not count as activity, got %d", activity)
+	}
+
+	d.handle(context.Background(), heart.Event{Source: "mail", Kind: "mail.received"})
+	if activity != 1 {
+		t.Fatalf("real event must count as activity, got %d", activity)
+	}
+}
+
 // TestHandleApprovalDeniesNilChannel pins the autonomous-episode safety rule:
 // with no interactive channel there is no one to sign off, so approval-required
 // tools must be denied (not auto-approved).

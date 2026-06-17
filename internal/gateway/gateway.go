@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Forest-Isle/daimon/internal/agent"
@@ -41,22 +42,24 @@ type Gateway struct {
 	EpisodeRunner  *episode.Runner
 	EpisodeEnabled bool
 
-	config     *ConfigSubsystem
-	database   *DatabaseSubsystem
-	toolSub    *ToolSubsystem
-	memory     *MemorySubsystem
-	skills     *SkillSubsystem
-	channels   *ChannelSubsystem
-	multiAgent *MultiAgentSubsystem
-	mcpSub     *MCPSubsystem
-	health     *HealthSubsystem
-	commands   *CommandSubsystem
-	scheduler  *SchedulerSubsystem
-	taskLedger *taskruntime.Ledger
-	telemetry  *TelemetrySubsystem
-	heart      *HeartSubsystem // nil unless agent.heart_enabled
-	sleep      *sleep.Runner   // consolidation jobs, triggered by /sleep (and later the heart)
-	throttle   *throttleGate   // economy C2e-3: gated enforcement for autonomous Cognize classes
+	config       *ConfigSubsystem
+	database     *DatabaseSubsystem
+	toolSub      *ToolSubsystem
+	memory       *MemorySubsystem
+	skills       *SkillSubsystem
+	channels     *ChannelSubsystem
+	multiAgent   *MultiAgentSubsystem
+	mcpSub       *MCPSubsystem
+	health       *HealthSubsystem
+	commands     *CommandSubsystem
+	scheduler    *SchedulerSubsystem
+	taskLedger   *taskruntime.Ledger
+	telemetry    *TelemetrySubsystem
+	heart        *HeartSubsystem // nil unless agent.heart_enabled
+	sleep        *sleep.Runner   // consolidation jobs, triggered by /sleep (and later the heart)
+	sleepRunning atomic.Bool     // gateway-level guard: manual and autonomous cycles never overlap
+	lastEventAt  atomic.Int64    // unix sec of last real (non-internal) heart activity
+	throttle     *throttleGate   // economy C2e-3: gated enforcement for autonomous Cognize classes
 
 	// proposals (§4.9): the anticipation loop's decision + delivery wiring.
 	proposals         *proposalCoordinator
@@ -252,6 +255,13 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 			gw.heart.heart.Register(&heart.TimerSource{
 				SourceName: "timer",
 				Kind:       "internal.health",
+				Interval:   time.Duration(mins) * time.Minute,
+			})
+		}
+		if mins := cfg.Agent.Heart.SleepIntervalMinutes; mins > 0 {
+			gw.heart.heart.Register(&heart.TimerSource{
+				SourceName: "timer",
+				Kind:       "internal.sleep",
 				Interval:   time.Duration(mins) * time.Minute,
 			})
 		}

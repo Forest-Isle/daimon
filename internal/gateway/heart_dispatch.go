@@ -18,12 +18,14 @@ import (
 // small and dependency-injected (closures, not the whole gateway) so each branch
 // is unit-testable in isolation.
 type eventDispatcher struct {
-	route   func(ctx context.Context, ev heart.Event) (attention.Verdict, error)
-	cognize func(ctx context.Context, ev heart.Event)
-	reflex  func(ctx context.Context, ev heart.Event, reflexID string)
-	wake    func(ctx context.Context, ev heart.Event, v attention.Verdict)
-	brief   func(ctx context.Context)
-	health  func(ctx context.Context)
+	route          func(ctx context.Context, ev heart.Event) (attention.Verdict, error)
+	cognize        func(ctx context.Context, ev heart.Event)
+	reflex         func(ctx context.Context, ev heart.Event, reflexID string)
+	wake           func(ctx context.Context, ev heart.Event, v attention.Verdict)
+	brief          func(ctx context.Context)
+	health         func(ctx context.Context)
+	sleep          func(ctx context.Context)
+	recordActivity func()
 }
 
 // handle is the heart.Handler: route the event, then dispatch on the verdict. A
@@ -56,6 +58,17 @@ func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) {
 			d.health(ctx)
 		}
 		return
+	}
+	// The autonomous sleep timer runs fixed maintenance jobs directly, off the
+	// routing/cognition path. It starts the cycle in a separate goroutine.
+	if ev.Kind == "internal.sleep" {
+		if d.sleep != nil {
+			d.sleep(ctx)
+		}
+		return
+	}
+	if !strings.HasPrefix(ev.Kind, "internal.") && d.recordActivity != nil {
+		d.recordActivity()
 	}
 	v, err := d.route(ctx, ev)
 	if err != nil {
@@ -103,6 +116,10 @@ func (gw *Gateway) newEventDispatcher() *eventDispatcher {
 		wake:   gw.wakeUser,
 		brief:  gw.deliverDailyBrief,
 		health: gw.runHealthCheck,
+		sleep:  gw.triggerAutonomousSleep,
+		recordActivity: func() {
+			gw.lastEventAt.Store(time.Now().Unix())
+		},
 	}
 }
 
