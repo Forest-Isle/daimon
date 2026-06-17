@@ -170,8 +170,17 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	// permission gate so it only sees allowed calls and the raw execution result.
 	// The value gate is the pipeline head: autonomous non-low-risk actions need a
 	// covering value decision or earned trust, else they are blocked (ask-once).
-	interceptors = append(interceptors, action.NewInterceptorWithGate(
-		ts.ActionStore, nil, newValueGate(ts.ValuesStore, ts.ActionStore)))
+	classifier := action.NewClassifier()
+	if cfg.Agent.Action.HoldEnabled {
+		classifier = action.NewClassifierWithCompensableHTTP()
+	}
+	interceptors = append(interceptors, action.NewInterceptorWithGateAndHold(
+		ts.ActionStore,
+		classifier,
+		newValueGate(ts.ValuesStore, ts.ActionStore),
+		cfg.Agent.Action.HoldEnabled,
+		time.Duration(cfg.Agent.Action.HoldWindowSeconds)*time.Second,
+	))
 	// Activity reporter sits innermost so it wraps the real tool execution
 	// tightest — it reports only tools that passed permission and hook gates,
 	// avoiding a flicker for denied/blocked calls.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Forest-Isle/daimon/internal/store"
 )
@@ -157,6 +158,87 @@ func TestHoldsLifecycle(t *testing.T) {
 	// recalling a missing hold fails
 	if err := s.RecallHold(ctx, "missing"); err == nil {
 		t.Fatal("RecallHold(missing) error = nil, want not-found")
+	}
+}
+
+func TestClaimHoldCAS(t *testing.T) {
+	s := openActionTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateHold(ctx, Hold{ID: "h1", ToolName: "http", ExecuteAt: "2030-01-01 00:00:00"}); err != nil {
+		t.Fatalf("CreateHold() error = %v", err)
+	}
+
+	claimed, err := s.ClaimHold(ctx, "h1")
+	if err != nil {
+		t.Fatalf("ClaimHold() error = %v", err)
+	}
+	if !claimed {
+		t.Fatal("first ClaimHold() = false, want true")
+	}
+	claimed, err = s.ClaimHold(ctx, "h1")
+	if err != nil {
+		t.Fatalf("second ClaimHold() error = %v", err)
+	}
+	if claimed {
+		t.Fatal("second ClaimHold() = true, want false")
+	}
+}
+
+func TestRecallVsClaimRaceOutcomes(t *testing.T) {
+	s := openActionTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateHold(ctx, Hold{ID: "claim-first", ToolName: "http", ExecuteAt: "2030-01-01 00:00:00"}); err != nil {
+		t.Fatalf("CreateHold(claim-first) error = %v", err)
+	}
+	claimed, err := s.ClaimHold(ctx, "claim-first")
+	if err != nil {
+		t.Fatalf("ClaimHold(claim-first) error = %v", err)
+	}
+	if !claimed {
+		t.Fatal("ClaimHold(claim-first) = false, want true")
+	}
+	if err := s.RecallHold(ctx, "claim-first"); err == nil {
+		t.Fatal("RecallHold(after claim) error = nil, want failure")
+	}
+
+	if err := s.CreateHold(ctx, Hold{ID: "recall-first", ToolName: "http", ExecuteAt: "2030-01-01 00:00:00"}); err != nil {
+		t.Fatalf("CreateHold(recall-first) error = %v", err)
+	}
+	if err := s.RecallHold(ctx, "recall-first"); err != nil {
+		t.Fatalf("RecallHold(recall-first) error = %v", err)
+	}
+	claimed, err = s.ClaimHold(ctx, "recall-first")
+	if err != nil {
+		t.Fatalf("ClaimHold(recall-first) error = %v", err)
+	}
+	if claimed {
+		t.Fatal("ClaimHold(after recall) = true, want false")
+	}
+}
+
+func TestHoldDueAfterWindow(t *testing.T) {
+	s := openActionTestStore(t)
+	ctx := context.Background()
+	base := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	window := 2 * time.Minute
+	executeAt := base.Add(window).UTC().Format("2006-01-02 15:04:05")
+	if err := s.CreateHold(ctx, Hold{ID: "h1", ToolName: "http", ExecuteAt: executeAt}); err != nil {
+		t.Fatalf("CreateHold() error = %v", err)
+	}
+
+	before, err := s.DueHolds(ctx, base.Add(window-time.Second).UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		t.Fatalf("DueHolds(before) error = %v", err)
+	}
+	if len(before) != 0 {
+		t.Fatalf("DueHolds(before) = %#v, want none", before)
+	}
+	after, err := s.DueHolds(ctx, base.Add(window).UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		t.Fatalf("DueHolds(after) error = %v", err)
+	}
+	if len(after) != 1 || after[0].ID != "h1" {
+		t.Fatalf("DueHolds(after) = %#v, want h1", after)
 	}
 }
 

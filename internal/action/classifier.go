@@ -2,6 +2,7 @@ package action
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
@@ -15,9 +16,16 @@ type Classifier interface {
 }
 
 type defaultClassifier struct{}
+type holdAwareClassifier struct {
+	defaultClassifier
+}
 
 // NewClassifier returns the default reversibility classifier.
 func NewClassifier() Classifier { return defaultClassifier{} }
+
+// NewClassifierWithCompensableHTTP returns the default classifier plus the hold
+// loop's HTTP method rule: mutating HTTP methods are compensable.
+func NewClassifierWithCompensableHTTP() Classifier { return holdAwareClassifier{} }
 
 func (defaultClassifier) Classify(call *tool.ToolCall) (Class, bool) {
 	if call == nil {
@@ -45,6 +53,15 @@ func (defaultClassifier) ContextKey(call *tool.ToolCall) string {
 	return call.ToolName
 }
 
+func (c holdAwareClassifier) Classify(call *tool.ToolCall) (Class, bool) {
+	if call != nil && call.ToolName == "http" {
+		if class, ok := classifyHTTP(call.Input); ok {
+			return class, true
+		}
+	}
+	return c.defaultClassifier.Classify(call)
+}
+
 // classifyBash decides whether a bash tool call earns the cautious Irreversible
 // classification for trust accounting. It parses the command's "command" field
 // into a shell AST (see classifyBashCommand); a malformed tool input is treated
@@ -57,4 +74,23 @@ func classifyBash(input string) Class {
 		return Irreversible
 	}
 	return classifyBashCommand(in.Command)
+}
+
+// classifyHTTP marks mutating HTTP methods as compensable. GET and malformed
+// inputs deliberately fall back to the default classifier.
+func classifyHTTP(input string) (Class, bool) {
+	var in struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal([]byte(input), &in); err != nil {
+		return Reversible, false
+	}
+	switch strings.ToUpper(in.Method) {
+	case "POST", "PUT", "PATCH", "DELETE":
+		return Compensable, true
+	case "GET":
+		return Reversible, false
+	default:
+		return Reversible, false
+	}
 }

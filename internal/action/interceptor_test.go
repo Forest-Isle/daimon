@@ -3,7 +3,9 @@ package action
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Forest-Isle/daimon/internal/tool"
 )
@@ -56,6 +58,26 @@ func TestClassifyDefaultReversible(t *testing.T) {
 	got, governed := c.Classify(call)
 	if !governed || got != Reversible {
 		t.Fatalf("plain mutating tool classified %v governed=%v, want Reversible/true", got, governed)
+	}
+}
+
+func TestHoldAwareClassifierHTTP(t *testing.T) {
+	c := NewClassifierWithCompensableHTTP()
+	post := &tool.ToolCall{ToolName: "http", Input: `{"method":"POST","url":"https://example.com"}`}
+	got, governed := c.Classify(post)
+	if !governed || got != Compensable {
+		t.Fatalf("POST classified %v governed=%v, want Compensable/true", got, governed)
+	}
+
+	get := &tool.ToolCall{ToolName: "http", Input: `{"method":"GET","url":"https://example.com"}`}
+	got, governed = c.Classify(get)
+	if !governed || got != Reversible {
+		t.Fatalf("GET classified %v governed=%v, want default Reversible/true", got, governed)
+	}
+
+	defaultGot, defaultGoverned := NewClassifier().Classify(post)
+	if !defaultGoverned || defaultGot != Reversible {
+		t.Fatalf("default classifier changed: POST classified %v governed=%v, want Reversible/true", defaultGot, defaultGoverned)
 	}
 }
 
@@ -361,5 +383,80 @@ func TestInterceptorDryRunDisabledExecutesForReal(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("trust_ledger rows = %d, want 1 (production records the attempt)", count)
+	}
+}
+
+func TestInterceptorHoldProducerQueuesCompensable(t *testing.T) {
+	store := openActionTestStore(t)
+	ic := NewInterceptorWithGateAndHold(store, NewClassifierWithCompensableHTTP(), nil, true, 120*time.Second)
+	coll := &tool.ActionVerification{}
+	ctx := tool.WithActionCollector(context.Background(), coll)
+
+	called := false
+	call := &tool.ToolCall{ToolName: "http", Input: `{"method":"POST","url":"https://example.com"}`}
+	final := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		called = true
+		return &tool.ToolResult{Output: "executed"}, nil
+	}
+	res, err := ic.Intercept(ctx, call, final)
+	if err != nil {
+		t.Fatalf("Intercept() error = %v", err)
+	}
+	if called {
+		t.Fatal("held compensable action must not execute immediately")
+	}
+	// The queued action counts as a governed, unverified action so the episode
+	// that queued it is not falsely distill-clean.
+	if governed, verified := coll.Snapshot(); governed != 1 || verified != 0 {
+		t.Fatalf("collector snapshot = (governed=%d, verified=%d), want (1, 0)", governed, verified)
+	}
+	if res.Metadata["held"] != "true" || res.Metadata["action_class"] != "compensable" || res.Metadata["hold_id"] == "" {
+		t.Fatalf("metadata = %#v, want held compensable hold id", res.Metadata)
+	}
+	if !strings.Contains(res.Output, "daimon holds recall "+res.Metadata["hold_id"]) {
+		t.Fatalf("held output missing recall command: %q", res.Output)
+	}
+
+	holds, err := store.ListPendingHolds(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingHolds() error = %v", err)
+	}
+	if len(holds) != 1 || holds[0].ID != res.Metadata["hold_id"] || holds[0].Payload != call.Input {
+		t.Fatalf("holds = %#v, want queued input with returned hold id", holds)
+	}
+
+	var attempts int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM trust_ledger`).Scan(&attempts); err != nil {
+		t.Fatalf("count trust ledger: %v", err)
+	}
+	if attempts != 0 {
+		t.Fatalf("trust attempts = %d, want 0 before deferred execution", attempts)
+	}
+}
+
+func TestInterceptorHoldDisabledExecutesNormally(t *testing.T) {
+	store := openActionTestStore(t)
+	ic := NewInterceptorWithGateAndHold(store, NewClassifierWithCompensableHTTP(), nil, false, 120*time.Second)
+	ctx := context.Background()
+
+	called := false
+	call := &tool.ToolCall{ToolName: "http", Input: `{"method":"POST","url":"https://example.com"}`}
+	final := func(_ context.Context, _ *tool.ToolCall) (*tool.ToolResult, error) {
+		called = true
+		return &tool.ToolResult{Output: "executed"}, nil
+	}
+	res, err := ic.Intercept(ctx, call, final)
+	if err != nil {
+		t.Fatalf("Intercept() error = %v", err)
+	}
+	if !called || res.Output != "executed" {
+		t.Fatalf("disabled hold path did not execute normally: called=%v res=%#v", called, res)
+	}
+	holds, err := store.ListPendingHolds(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingHolds() error = %v", err)
+	}
+	if len(holds) != 0 {
+		t.Fatalf("pending holds = %#v, want none when disabled", holds)
 	}
 }

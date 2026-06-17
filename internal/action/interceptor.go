@@ -2,9 +2,12 @@ package action
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/Forest-Isle/daimon/internal/tool"
+	"github.com/google/uuid"
 )
 
 // Interceptor records every governed (non-read-only) tool execution in the
@@ -15,9 +18,11 @@ import (
 // reversibility visible; enforcement (holds, trust-gated approval) lands once
 // compensable/irreversible life tools and the hold-execution loop exist.
 type Interceptor struct {
-	store      *Store
-	classifier Classifier
-	gate       ValueGate
+	store       *Store
+	classifier  Classifier
+	gate        ValueGate
+	holdEnabled bool
+	holdWindow  time.Duration
 }
 
 // NewInterceptor builds the action interceptor. A nil classifier uses the
@@ -30,10 +35,19 @@ func NewInterceptor(store *Store, classifier Classifier) *Interceptor {
 // NewInterceptorWithGate builds the action interceptor with a value gate at the
 // head of the pipeline. A nil gate leaves the interceptor observe-only.
 func NewInterceptorWithGate(store *Store, classifier Classifier, gate ValueGate) *Interceptor {
+	return NewInterceptorWithGateAndHold(store, classifier, gate, false, 0)
+}
+
+// NewInterceptorWithGateAndHold builds the action interceptor with optional
+// compensable-action hold queue enforcement.
+func NewInterceptorWithGateAndHold(store *Store, classifier Classifier, gate ValueGate, holdEnabled bool, holdWindow time.Duration) *Interceptor {
 	if classifier == nil {
 		classifier = NewClassifier()
 	}
-	return &Interceptor{store: store, classifier: classifier, gate: gate}
+	if holdWindow <= 0 {
+		holdWindow = 120 * time.Second
+	}
+	return &Interceptor{store: store, classifier: classifier, gate: gate, holdEnabled: holdEnabled, holdWindow: holdWindow}
 }
 
 func (i *Interceptor) Name() string { return "action" }
@@ -47,6 +61,18 @@ func dryRunResult(toolName string, class Class) *tool.ToolResult {
 		Metadata: map[string]string{
 			"dry_run":      "true",
 			"action_class": class.String(),
+		},
+	}
+}
+
+func heldResult(toolName, holdID string, class Class, window time.Duration) *tool.ToolResult {
+	seconds := int(window.Seconds())
+	return &tool.ToolResult{
+		Output: fmt.Sprintf("[held] %s queued for execution in %ds; recall with: daimon holds recall %s", toolName, seconds, holdID),
+		Metadata: map[string]string{
+			"action_class": class.String(),
+			"held":         "true",
+			"hold_id":      holdID,
 		},
 	}
 }
@@ -81,6 +107,25 @@ func (i *Interceptor) Intercept(ctx context.Context, call *tool.ToolCall, next t
 			return valueBlockedResult(call.ToolName, class), nil
 		}
 		valueRef = ref
+	}
+
+	if governed && class == Compensable && i.holdEnabled && !tool.IsDryRun(ctx) && i.store != nil {
+		holdID := "hold_" + uuid.NewString()
+		executeAt := time.Now().UTC().Add(i.holdWindow).Format("2006-01-02 15:04:05")
+		if err := i.store.CreateHold(ctx, Hold{
+			ID:        holdID,
+			ToolName:  call.ToolName,
+			Payload:   call.Input,
+			ExecuteAt: executeAt,
+			State:     "pending",
+		}); err != nil {
+			return nil, fmt.Errorf("create hold: %w", err)
+		}
+		// A queued compensable action is a governed, not-yet-verified action.
+		// Record it (unverified) so the episode that queued it is not counted
+		// distill-clean: queuing a side-effect is not the same as taking none.
+		tool.ActionCollectorFromContext(ctx).Record(false)
+		return heldResult(call.ToolName, holdID, class, i.holdWindow), nil
 	}
 
 	// Snapshot the target file's prior state BEFORE execution so a reversible file
