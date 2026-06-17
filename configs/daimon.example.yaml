@@ -58,6 +58,10 @@ agent:
     health_interval_minutes: 0     # 0 = off; >0 runs deterministic selfops health checks when feature selfops is enabled
     sleep_interval_minutes: 0      # 0 = off; >0 runs autonomous sleep maintenance every N minutes (use 1440 for daily)
     sleep_idle_minutes: 0          # 0 = no idle gate; >0 requires this many idle minutes before autonomous sleep runs
+    # Local directories watched by the fs source (fsnotify). Empty = off.
+    # Use absolute paths or ${HOME}/...; do not watch ~/.daimon, or the agent's
+    # own writes can feed back into the heart.
+    fs_watch_dirs: []
     model_router: false            # also triage events with the small (haiku) model when rules don't match
     chat_through_heart: false      # record inbound chat in the event stream (audit + dedup on message id) before handling; reply path unchanged
     # Event kinds (exact or prefix) that ALWAYS wake the user, ahead of any rule
