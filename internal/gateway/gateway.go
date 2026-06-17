@@ -411,6 +411,11 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 func (gw *Gateway) Stop(ctx context.Context) error {
 	gw.subsystems.StopAll(ctx)
+	if gw.toolSub != nil {
+		// toolSub is not in the subsystems list, so stop its background
+		// codebase-indexing goroutine explicitly.
+		_ = gw.toolSub.Stop(ctx)
+	}
 	if gw.mcpSub.Manager != nil {
 		_ = gw.mcpSub.Manager.Close()
 	}
