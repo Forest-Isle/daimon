@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Forest-Isle/daimon/internal/heart"
@@ -17,14 +18,26 @@ import (
 type LLMModelRouter struct {
 	provider mind.Provider
 	model    string
+	cost     RouteCostSink
 	// context returns a short digest of current commitments/state to ground the
 	// triage. Optional; nil yields an empty digest.
 	context func(ctx context.Context) string
 }
 
+// RouteCostSink records the token cost of one model-router call. Optional: a
+// nil sink (the default) disables routing cost accounting, leaving routing
+// behavior unchanged.
+type RouteCostSink interface {
+	RecordRouteCost(ctx context.Context, model string, usage mind.Usage)
+}
+
 func NewLLMModelRouter(provider mind.Provider, model string, contextFn func(ctx context.Context) string) *LLMModelRouter {
 	return &LLMModelRouter{provider: provider, model: model, context: contextFn}
 }
+
+// SetCostSink wires the economy route-cost ledger. Optional: a nil sink (the
+// default) disables route-cost accounting with no behavior change.
+func (m *LLMModelRouter) SetCostSink(s RouteCostSink) { m.cost = s }
 
 const modelRouterSystem = `You are the attention router for a personal agent. Decide how to handle one incoming event. Reply with ONLY JSON: {"action": "ignore|reflex|cognize|wake_user", "priority": 0-3, "reason": "..."}.
 - ignore: noise, no action needed.
@@ -58,6 +71,7 @@ func (m *LLMModelRouter) Route(ctx context.Context, ev heart.Event) (Verdict, bo
 	if err != nil || resp == nil {
 		return Verdict{}, false
 	}
+	m.recordCost(ctx, resp.Usage)
 
 	var parsed struct {
 		Action   string `json:"action"`
@@ -72,4 +86,16 @@ func (m *LLMModelRouter) Route(ctx context.Context, ev heart.Event) (Verdict, bo
 		return Verdict{}, false
 	}
 	return Verdict{Action: action, Priority: parsed.Priority, Reason: "model: " + strings.TrimSpace(parsed.Reason)}, true
+}
+
+func (m *LLMModelRouter) recordCost(ctx context.Context, usage mind.Usage) {
+	if m.cost == nil || usage.InputTokens+usage.OutputTokens+usage.CacheReadTokens+usage.CacheCreationTokens <= 0 {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Warn("attention: route cost recorder panicked (ignored)", "model", m.model, "panic", rec)
+		}
+	}()
+	m.cost.RecordRouteCost(ctx, m.model, usage)
 }

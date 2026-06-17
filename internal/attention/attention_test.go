@@ -105,6 +105,59 @@ func TestLLMModelRouterParsesAndAbstains(t *testing.T) {
 	}
 }
 
+func TestLLMModelRouterRecordsCost(t *testing.T) {
+	usage := mind.Usage{InputTokens: 12, OutputTokens: 3, CacheReadTokens: 4, CacheCreationTokens: 5}
+	sink := &stubRouteCostSink{}
+	router := NewLLMModelRouter(&stubProvider{
+		text:  `{"action":"wake_user","priority":0,"reason":"urgent"}`,
+		usage: usage,
+	}, "haiku", nil)
+	router.SetCostSink(sink)
+
+	v, ok := router.Route(context.Background(), heart.Event{Source: "mail", Kind: "mail.received", Payload: "hi"})
+	if !ok || v.Action != WakeUser {
+		t.Fatalf("Route() = ok=%v action=%v, want wake_user verdict", ok, v.Action)
+	}
+	if sink.calls != 1 || sink.model != "haiku" || sink.usage != usage {
+		t.Fatalf("cost sink = calls=%d model=%q usage=%+v, want one haiku call %+v", sink.calls, sink.model, sink.usage, usage)
+	}
+}
+
+func TestLLMModelRouterRecordsCostBeforeParseAbstain(t *testing.T) {
+	usage := mind.Usage{InputTokens: 9}
+	sink := &stubRouteCostSink{}
+	router := NewLLMModelRouter(&stubProvider{text: "not json", usage: usage}, "haiku", nil)
+	router.SetCostSink(sink)
+
+	if _, ok := router.Route(context.Background(), heart.Event{Kind: "x"}); ok {
+		t.Fatal("unparseable response should abstain")
+	}
+	if sink.calls != 1 || sink.usage != usage {
+		t.Fatalf("cost sink = calls=%d usage=%+v, want one call %+v", sink.calls, sink.usage, usage)
+	}
+}
+
+func TestLLMModelRouterCostSinkOptionalAndProviderErrorSkipped(t *testing.T) {
+	ev := heart.Event{Source: "mail", Kind: "mail.received", Payload: "hi"}
+	router := NewLLMModelRouter(&stubProvider{
+		text:  `{"action":"cognize","priority":2,"reason":"needs thought"}`,
+		usage: mind.Usage{InputTokens: 1},
+	}, "haiku", nil)
+	if v, ok := router.Route(context.Background(), ev); !ok || v.Action != Cognize {
+		t.Fatalf("nil sink route = ok=%v action=%v, want cognize verdict", ok, v.Action)
+	}
+
+	sink := &stubRouteCostSink{}
+	errp := NewLLMModelRouter(&stubProvider{err: errors.New("boom")}, "haiku", nil)
+	errp.SetCostSink(sink)
+	if _, ok := errp.Route(context.Background(), ev); ok {
+		t.Fatal("provider error should abstain")
+	}
+	if sink.calls != 0 {
+		t.Fatalf("provider error recorded %d costs, want 0", sink.calls)
+	}
+}
+
 func TestFeedbackStore(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "att.db"))
 	if err != nil {
@@ -140,19 +193,32 @@ func (s *stubModel) Route(_ context.Context, _ heart.Event) (Verdict, bool) {
 }
 
 type stubProvider struct {
-	text string
-	err  error
+	text  string
+	usage mind.Usage
+	err   error
 }
 
 func (s *stubProvider) Complete(_ context.Context, _ mind.CompletionRequest) (*mind.CompletionResponse, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &mind.CompletionResponse{Text: s.text}, nil
+	return &mind.CompletionResponse{Text: s.text, Usage: s.usage}, nil
 }
 
 func (s *stubProvider) Capabilities() mind.Caps { return mind.Caps{} }
 
 func (s *stubProvider) Stream(_ context.Context, _ mind.CompletionRequest) (mind.StreamIterator, error) {
 	return nil, errors.New("not implemented")
+}
+
+type stubRouteCostSink struct {
+	calls int
+	model string
+	usage mind.Usage
+}
+
+func (s *stubRouteCostSink) RecordRouteCost(_ context.Context, model string, usage mind.Usage) {
+	s.calls++
+	s.model = model
+	s.usage = usage
 }

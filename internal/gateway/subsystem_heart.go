@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/attention"
 	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/config"
+	"github.com/Forest-Isle/daimon/internal/economy"
 	"github.com/Forest-Isle/daimon/internal/heart"
 	"github.com/Forest-Isle/daimon/internal/mind"
 	"github.com/Forest-Isle/daimon/internal/store"
@@ -97,7 +99,13 @@ func InitHeart(cfg *config.Config, db *store.DB, provider mind.Provider, worldSt
 				}
 				return digest
 			}
-			model = attention.NewLLMModelRouter(provider, haiku, ctxFn)
+			router := attention.NewLLMModelRouter(provider, haiku, ctxFn)
+			router.SetCostSink(routeCostAdapter{
+				store:    economy.NewStore(db.DB),
+				provider: cfg.LLM.Provider,
+				now:      func() int64 { return time.Now().Unix() },
+			})
+			model = router
 		} else {
 			slog.Warn("heart: model_router enabled but llm.models.haiku is empty; using rules-only routing")
 		}

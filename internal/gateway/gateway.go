@@ -545,6 +545,49 @@ func (a costRecorderAdapter) RecordEpisodeCost(_ context.Context, c episode.Epis
 	return nil
 }
 
+// routeCostAdapter bridges the attention model router's cost sink to the
+// economy store. Routing has no episode id, so each row gets the store's random
+// id fallback and uses a fixed class for cost-share reporting.
+type routeCostAdapter struct {
+	store    *economy.Store
+	provider string
+	now      func() int64
+}
+
+func (a routeCostAdapter) RecordRouteCost(_ context.Context, model string, usage mind.Usage) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Warn("economy: route cost record panicked (ignored)", "model", model, "panic", r)
+		}
+	}()
+	now := a.now
+	if now == nil {
+		now = func() int64 { return time.Now().Unix() }
+	}
+	entry := economy.Entry{
+		Model:               model,
+		Provider:            a.provider,
+		ActivityClass:       "routing",
+		InputTokens:         usage.InputTokens,
+		OutputTokens:        usage.OutputTokens,
+		CacheReadTokens:     usage.CacheReadTokens,
+		CacheCreationTokens: usage.CacheCreationTokens,
+		OccurredAt:          now(),
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Warn("economy: route cost record panicked (ignored)", "model", entry.Model, "panic", r)
+			}
+		}()
+		wctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := a.store.Record(wctx, entry); err != nil {
+			slog.Warn("economy: record route cost failed", "model", entry.Model, "err", err)
+		}
+	}()
+}
+
 type completerAdapter struct {
 	provider mind.Provider
 	model    string
