@@ -120,6 +120,21 @@ func TestRecordAttemptPromotionChange(t *testing.T) {
 	}
 }
 
+func TestRecordAttemptChangeReportsCurrentLevel(t *testing.T) {
+	s := openActionTestStore(t)
+	const key = "file.write|repo=daimon"
+
+	change := mustAttempt(t, s, Reversible, key, true)
+	if !change.Promoted || change.Level != AskFirst {
+		t.Fatalf("first TrustChange = %#v, want promotion to current level AskFirst", change)
+	}
+
+	change = mustAttempt(t, s, Reversible, key, true)
+	if change.Promoted || change.Level != AskFirst {
+		t.Fatalf("second TrustChange = %#v, want no promotion at current level AskFirst", change)
+	}
+}
+
 func TestIrreversibleCapsAtHoldThenAuto(t *testing.T) {
 	s := openActionTestStore(t)
 	const key = "payment|merchant=x"
@@ -296,8 +311,8 @@ func mustAttempt(t *testing.T, s *Store, class Class, key string, verified bool)
 
 func assertPromotion(t *testing.T, got TrustChange, from, to Level) {
 	t.Helper()
-	if !got.Promoted || got.From != from || got.To != to {
-		t.Fatalf("TrustChange = %#v, want promotion %v -> %v", got, from, to)
+	if !got.Promoted || got.From != from || got.To != to || got.Level != to {
+		t.Fatalf("TrustChange = %#v, want promotion %v -> %v with current level %v", got, from, to, to)
 	}
 }
 

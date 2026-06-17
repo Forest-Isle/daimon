@@ -130,6 +130,7 @@ type TrustChange struct {
 	Promoted bool
 	From     Level
 	To       Level
+	Level    Level
 }
 
 // Store persists the trust ledger, undo journal, and hold queue.
@@ -219,7 +220,7 @@ func (s *Store) RecordAttempt(ctx context.Context, class Class, contextKey strin
 	// A single correction freezes promotion: autonomy is earned only by an
 	// unbroken verified record.
 	if corrected != 0 {
-		return TrustChange{}, nil
+		return TrustChange{Level: Level(level)}, nil
 	}
 	ceiling := int(classCeiling(class))
 	if level < ceiling && verifiedOK >= promotionThreshold(Level(level)) {
@@ -228,9 +229,9 @@ func (s *Store) RecordAttempt(ctx context.Context, class Class, contextKey strin
 			level+1, class.String(), contextKey); err != nil {
 			return TrustChange{}, fmt.Errorf("promote trust level: %w", err)
 		}
-		return TrustChange{Promoted: true, From: Level(level), To: Level(level + 1)}, nil
+		return TrustChange{Promoted: true, From: Level(level), To: Level(level + 1), Level: Level(level + 1)}, nil
 	}
-	return TrustChange{}, nil
+	return TrustChange{Level: Level(level)}, nil
 }
 
 // RecordCorrection logs a user correction and demotes the autonomy level by one
