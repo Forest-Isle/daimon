@@ -132,7 +132,7 @@ func TestHandleTrust(t *testing.T) {
 		t.Fatalf("handleTrust(empty) = %q", got)
 	}
 
-	if err := actionStore.RecordAttempt(ctx, action.Reversible, "file.write|repo=daimon", true); err != nil {
+	if _, err := actionStore.RecordAttempt(ctx, action.Reversible, "file.write|repo=daimon", true); err != nil {
 		t.Fatalf("RecordAttempt() error = %v", err)
 	}
 

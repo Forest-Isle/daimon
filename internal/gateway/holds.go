@@ -52,7 +52,7 @@ func (gw *Gateway) drainHolds(ctx context.Context) {
 		if err := gw.toolSub.ActionStore.MarkHoldState(ctx, h.ID, state); err != nil {
 			slog.Warn("holds: mark state failed", "id", h.ID, "state", state, "err", err)
 		}
-		if err := gw.toolSub.ActionStore.RecordAttempt(ctx, action.Compensable, h.ToolName, false); err != nil {
+		if _, err := gw.toolSub.ActionStore.RecordAttempt(ctx, action.Compensable, h.ToolName, false); err != nil {
 			slog.Warn("holds: record trust attempt failed", "id", h.ID, "tool", h.ToolName, "err", err)
 		}
 	}
