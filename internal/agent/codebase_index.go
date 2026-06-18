@@ -18,6 +18,7 @@ import (
 
 var defaultCodebaseIndexExcludes = map[string]struct{}{
 	".git":         {},
+	".claude":      {}, // worktrees/commands/skills — not project source, and worktrees are whole-repo copies
 	"node_modules": {},
 	"vendor":       {},
 	"dist":         {},
