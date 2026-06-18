@@ -31,14 +31,14 @@ type eventDispatcher struct {
 // handle is the heart.Handler: route the event, then dispatch on the verdict. A
 // routing error is not fatal — we fall through to Cognize (prefer to wake rather
 // than silently drop a possibly-important event), matching attention's bias.
-func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) {
+func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) string {
 	// Chat "message" events are recorded for audit/dedup and handled synchronously
 	// by the chat path (HandleMessage); they are never dispatched here. Ignore one
 	// defensively in case a stray/recovered message event reaches the dispatcher,
 	// so it is never re-handled as an autonomous episode.
 	if ev.Kind == "message" {
 		slog.Debug("heart: ignoring chat message event in dispatcher", "id", ev.ID, "source", ev.Source)
-		return
+		return "skipped"
 	}
 	// The daily-brief timer is handled deterministically off the cognition
 	// path (constitution #5/#7): assemble + deliver the digest, never route
@@ -48,7 +48,7 @@ func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) {
 		if d.brief != nil {
 			d.brief(ctx)
 		}
-		return
+		return "brief"
 	}
 	// The selfops health timer is deterministic and stays off the cognition
 	// path (constitution #5/#7): inspect cheap signals, notify/write proposals,
@@ -57,7 +57,7 @@ func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) {
 		if d.health != nil {
 			d.health(ctx)
 		}
-		return
+		return "health"
 	}
 	// The autonomous sleep timer runs fixed maintenance jobs directly, off the
 	// routing/cognition path. It starts the cycle in a separate goroutine.
@@ -65,7 +65,7 @@ func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) {
 		if d.sleep != nil {
 			d.sleep(ctx)
 		}
-		return
+		return "sleep"
 	}
 	if !strings.HasPrefix(ev.Kind, "internal.") && d.recordActivity != nil {
 		d.recordActivity()
@@ -85,6 +85,7 @@ func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) {
 	default: // Cognize — the deliberate default for any unclassified event.
 		d.cognize(ctx, ev)
 	}
+	return v.Action.String()
 }
 
 // newEventDispatcher wires the dispatcher branches to the live gateway: Cognize

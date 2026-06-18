@@ -25,10 +25,11 @@ type recorder struct {
 	events []Event
 }
 
-func (r *recorder) handle(_ context.Context, ev Event) {
+func (r *recorder) handle(_ context.Context, ev Event) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.events = append(r.events, ev)
+	return "cognize"
 }
 
 func (r *recorder) count() int {

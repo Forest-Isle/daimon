@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
@@ -57,6 +58,68 @@ func (s feedbackCorrectionSource) Corrections(ctx context.Context, limit int) ([
 			Kind:     ev.Kind,
 			Expected: fb.ExpectedAction,
 		})
+	}
+	return out, nil
+}
+
+// eventsCanaryCorpus adapts the events + attention_feedback tables to
+// sleep.canaryCorpus: each routed event whose recorded verdict parses to an
+// attention action becomes a CanaryEvent, with a user correction (latest feedback
+// expected_action) overriding the recorded verdict as authoritative ground truth.
+type eventsCanaryCorpus struct {
+	db *sql.DB
+}
+
+const canaryCorpusLimit = 2000
+
+func (c eventsCanaryCorpus) CanaryEvents(ctx context.Context) ([]attention.CanaryEvent, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT e.source, e.kind, e.payload, e.verdict, COALESCE(f.expected_action, '')
+		FROM events e
+		LEFT JOIN (
+			SELECT event_id, expected_action
+			FROM attention_feedback
+			WHERE id IN (SELECT MAX(id) FROM attention_feedback GROUP BY event_id)
+		) f ON f.event_id = e.id
+		WHERE e.routed_at IS NOT NULL
+		ORDER BY e.occurred_at DESC, e.id DESC
+		LIMIT ?`, canaryCorpusLimit)
+	if err != nil {
+		return nil, fmt.Errorf("canary corpus query: %w", err)
+	}
+	defer rows.Close()
+	var out []attention.CanaryEvent
+	for rows.Next() {
+		var source, kind, payload, verdict, expected string
+		if err := rows.Scan(&source, &kind, &payload, &verdict, &expected); err != nil {
+			return nil, fmt.Errorf("canary corpus scan: %w", err)
+		}
+		var gt attention.Action
+		if expected != "" {
+			// A user correction is authoritative at any level — it overrides even a
+			// recorded WakeUser (user sovereignty: "stop waking me for this").
+			a, perr := attention.ParseAction(expected)
+			if perr != nil {
+				continue // unparseable correction → no usable ground truth
+			}
+			gt = a
+		} else {
+			// No correction. Only a recorded WakeUser is a strong enough floor to
+			// gate synthesis (north-star #7: never downgrade a wake). A recorded
+			// Cognize is just the unclassified default the user may be overriding, so
+			// it must not block a correction-derived downgrade; recorded
+			// Reflex/Ignore and internal sentinels ("brief"/"skipped"/…) carry no
+			// floor either. Exclude all of them.
+			a, perr := attention.ParseAction(verdict)
+			if perr != nil || a != attention.WakeUser {
+				continue
+			}
+			gt = attention.WakeUser
+		}
+		out = append(out, attention.CanaryEvent{Source: source, Kind: kind, Payload: payload, GroundTruth: gt})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("canary corpus rows: %w", err)
 	}
 	return out, nil
 }

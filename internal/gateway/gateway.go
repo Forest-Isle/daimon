@@ -287,6 +287,7 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 		gw.sleep.Register(sleep.NewSynthesizeRulesJob(
 			feedbackCorrectionSource{feedback: gw.heart.feedback, events: gw.heart.store},
 			rulesFileSink{path: attentionRulesPath()},
+			eventsCanaryCorpus{db: gw.db.DB},
 		))
 		slog.Info("heart enabled",
 			"heartbeat_interval_minutes", cfg.Agent.Heart.HeartbeatIntervalMinutes,
