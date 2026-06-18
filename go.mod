@@ -78,7 +78,7 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/goldmark v1.7.13 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
-	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/net v0.53.0
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/term v0.42.0
 	golang.org/x/text v0.36.0 // indirect

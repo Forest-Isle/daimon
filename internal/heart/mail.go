@@ -2,6 +2,7 @@ package heart
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Forest-Isle/daimon/internal/netdial"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 )
@@ -150,10 +152,17 @@ func IMAPDialer(host string, port int, username, password, mailbox string) func(
 		default:
 		}
 
-		c, err := imapclient.DialTLS(net.JoinHostPort(host, strconv.Itoa(port)), nil)
+		addr := net.JoinHostPort(host, strconv.Itoa(port))
+		rawConn, err := netdial.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			return nil, fmt.Errorf("mail: dial imap: %w", err)
 		}
+		tlsConn := tls.Client(rawConn, &tls.Config{ServerName: host, NextProtos: []string{"imap"}})
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			_ = rawConn.Close()
+			return nil, fmt.Errorf("mail: imap tls: %w", err)
+		}
+		c := imapclient.New(tlsConn, nil)
 		if err := c.Login(username, password).Wait(); err != nil {
 			c.Close()
 			return nil, fmt.Errorf("mail: login imap: %w", err)

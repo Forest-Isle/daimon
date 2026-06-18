@@ -15,7 +15,7 @@ func TestSendEmailToolExecuteSendsEmail(t *testing.T) {
 	var gotFrom string
 	var gotTo []string
 	var gotMsg []byte
-	tool.send = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	tool.send = func(ctx context.Context, addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 		calls++
 		gotAddr = addr
 		gotFrom = from
@@ -57,7 +57,7 @@ func TestSendEmailToolExecuteSendsEmail(t *testing.T) {
 
 func TestSendEmailToolExecuteInvalidJSON(t *testing.T) {
 	tool := NewSendEmailTool("smtp.example.com", 587, "agent@example.com", "password", "", false)
-	tool.send = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	tool.send = func(ctx context.Context, addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 		t.Fatal("send should not be called")
 		return nil
 	}
@@ -93,7 +93,7 @@ func TestSendEmailToolExecuteInvalidTo(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tool := NewSendEmailTool("smtp.example.com", 587, "agent@example.com", "password", "", false)
-			tool.send = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+			tool.send = func(ctx context.Context, addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 				t.Fatal("send should not be called")
 				return nil
 			}
@@ -117,7 +117,7 @@ func TestSendEmailToolExecuteRejectsHeaderInjection(t *testing.T) {
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {
 			tool := NewSendEmailTool("smtp.example.com", 587, "agent@example.com", "password", "", false)
-			tool.send = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+			tool.send = func(ctx context.Context, addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 				t.Fatal("send should not be called on header injection")
 				return nil
 			}
@@ -134,7 +134,7 @@ func TestSendEmailToolExecuteRejectsHeaderInjection(t *testing.T) {
 
 func TestSendEmailToolExecuteSendError(t *testing.T) {
 	tool := NewSendEmailTool("smtp.example.com", 587, "agent@example.com", "password", "", false)
-	tool.send = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	tool.send = func(ctx context.Context, addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 		return errors.New("boom")
 	}
 
