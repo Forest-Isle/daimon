@@ -2,12 +2,15 @@ package tool
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/smtp"
 	"strconv"
 	"strings"
+
+	"github.com/Forest-Isle/daimon/internal/netdial"
 )
 
 type SendEmailTool struct {
@@ -17,7 +20,7 @@ type SendEmailTool struct {
 	password string
 	from     string
 	approval bool
-	send     func(addr string, a smtp.Auth, from string, to []string, msg []byte) error
+	send     func(ctx context.Context, addr string, a smtp.Auth, from string, to []string, msg []byte) error
 }
 
 type sendEmailInput struct {
@@ -34,7 +37,7 @@ func NewSendEmailTool(host string, port int, username, password, from string, re
 		password: password,
 		from:     from,
 		approval: requiresApproval,
-		send:     smtp.SendMail,
+		send:     proxySendMail,
 	}
 }
 
@@ -108,9 +111,67 @@ func (s *SendEmailTool) Execute(ctx context.Context, input []byte) (Result, erro
 	msg := []byte(fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s", fromAddr, to, subject, in.Body))
 	auth := smtp.PlainAuth("", s.username, s.password, s.host)
 	addr := net.JoinHostPort(s.host, strconv.Itoa(s.port))
-	if err := s.send(addr, auth, fromAddr, []string{to}, msg); err != nil {
+	if err := s.send(ctx, addr, auth, fromAddr, []string{to}, msg); err != nil {
 		return Result{Error: "send email: " + err.Error()}, nil
 	}
 
 	return Result{Output: fmt.Sprintf("Email sent to %s", to)}, nil
+}
+
+func proxySendMail(ctx context.Context, addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	conn, err := netdial.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return err
+	}
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		_ = conn.Close()
+		return err
+	}
+	defer c.Close()
+	if a != nil {
+		// Auth is configured: STARTTLS and AUTH are mandatory. Fail closed if a
+		// proxy or MITM stripped either capability rather than sending the
+		// message (and credentials) over an unauthenticated cleartext session.
+		if ok, _ := c.Extension("STARTTLS"); !ok {
+			return fmt.Errorf("smtp: server does not advertise STARTTLS; refusing to send over cleartext")
+		}
+		if err := c.StartTLS(&tls.Config{ServerName: host}); err != nil {
+			return err
+		}
+		if ok, _ := c.Extension("AUTH"); !ok {
+			return fmt.Errorf("smtp: server does not advertise AUTH after STARTTLS")
+		}
+		if err := c.Auth(a); err != nil {
+			return err
+		}
+	} else if ok, _ := c.Extension("STARTTLS"); ok {
+		// No auth configured: still upgrade opportunistically when offered.
+		if err := c.StartTLS(&tls.Config{ServerName: host}); err != nil {
+			return err
+		}
+	}
+	if err := c.Mail(from); err != nil {
+		return err
+	}
+	for _, rcpt := range to {
+		if err := c.Rcpt(rcpt); err != nil {
+			return err
+		}
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
 }
