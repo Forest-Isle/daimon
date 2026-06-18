@@ -96,13 +96,7 @@ func NewRulesRouter(rules []Rule) *RulesRouter {
 // applies, so the chain can fall through to the next tier.
 func (r *RulesRouter) Route(_ context.Context, ev heart.Event) (Verdict, bool) {
 	for _, rule := range r.rules {
-		if rule.Source != "" && rule.Source != ev.Source {
-			continue
-		}
-		if rule.Kind != "" && rule.Kind != ev.Kind {
-			continue
-		}
-		if rule.Contains != "" && !strings.Contains(ev.Payload, rule.Contains) {
+		if !ruleMatches(rule, ev.Source, ev.Kind, ev.Payload) {
 			continue
 		}
 		action, err := ParseAction(rule.Action)

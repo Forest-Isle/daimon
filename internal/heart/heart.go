@@ -32,8 +32,9 @@ type Source interface {
 	Run(ctx context.Context, emit func(Event) error) error
 }
 
-// Handler consumes a routed event. The router (attention) plugs in here.
-type Handler func(ctx context.Context, ev Event)
+// Handler consumes a routed event and returns the route verdict to persist.
+// Heart does not interpret the string; attention returns its action string.
+type Handler func(ctx context.Context, ev Event) string
 
 // Heart registers sources, persists what they emit (deduplicated), and delivers
 // each newly stored event to the handler exactly once.
@@ -126,11 +127,12 @@ func (h *Heart) Record(ctx context.Context, ev *Event) (bool, error) {
 // fatal: the event stays marked routed (the handler owns its own retries), but
 // the persisted event remains for audit.
 func (h *Heart) deliver(ctx context.Context, ev Event) {
-	verdict := "routed"
+	verdict := "no_handler"
 	if h.handler != nil {
-		h.handler(ctx, ev)
-	} else {
-		verdict = "no_handler"
+		verdict = h.handler(ctx, ev)
+		if verdict == "" {
+			verdict = "routed"
+		}
 	}
 	if err := h.store.MarkRouted(ctx, ev.ID, verdict); err != nil {
 		slog.Error("heart: mark routed failed", "id", ev.ID, "err", err)

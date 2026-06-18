@@ -189,3 +189,64 @@ func TestFeedbackCorrectionSourceJoinsAndFilters(t *testing.T) {
 		t.Fatalf("join mismatch: %+v", c)
 	}
 }
+
+func TestEventsCanaryCorpusGroundTruthDerivation(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "canary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	ctx := context.Background()
+
+	insertRouted := func(id, source, kind, verdict string) {
+		t.Helper()
+		_, err := db.DB.ExecContext(ctx, `
+			INSERT INTO events (id, source, kind, payload, occurred_at, routed_at, verdict)
+			VALUES (?, ?, ?, '', datetime('now'), datetime('now'), ?)`,
+			id, source, kind, verdict)
+		if err != nil {
+			t.Fatalf("insert routed %s: %v", id, err)
+		}
+	}
+	insertFeedback := func(eventID, expected, given string) {
+		t.Helper()
+		_, err := db.DB.ExecContext(ctx,
+			`INSERT INTO attention_feedback (event_id, expected_action, given_action) VALUES (?, ?, ?)`,
+			eventID, expected, given)
+		if err != nil {
+			t.Fatalf("insert feedback %s: %v", eventID, err)
+		}
+	}
+
+	insertRouted("e1", "mail", "mail.received", "wake_user")
+	insertRouted("e2", "calendar", "event.created", "cognize")
+	insertRouted("e3", "news", "digest", "cognize")
+	insertFeedback("e3", "ignore", "cognize")
+	insertRouted("e4", "security", "alert", "wake_user")
+	insertFeedback("e4", "ignore", "wake_user")
+	insertRouted("e5", "timer", "internal.daily_brief", "brief")
+	if _, err := db.DB.ExecContext(ctx, `
+		INSERT INTO events (id, source, kind, payload, occurred_at, routed_at, verdict)
+		VALUES (?, ?, ?, '', datetime('now'), NULL, ?)`,
+		"e6", "mail", "unrouted", "wake_user"); err != nil {
+		t.Fatalf("insert unrouted e6: %v", err)
+	}
+
+	corpus, err := (eventsCanaryCorpus{db: db.DB}).CanaryEvents(ctx)
+	if err != nil {
+		t.Fatalf("CanaryEvents: %v", err)
+	}
+	if len(corpus) != 3 {
+		t.Fatalf("want 3 canary events, got %+v", corpus)
+	}
+	counts := map[attention.Action]int{}
+	for _, ev := range corpus {
+		counts[ev.GroundTruth]++
+		if ev.Source == "calendar" || ev.Source == "timer" || ev.Kind == "unrouted" {
+			t.Fatalf("excluded event appeared in corpus: %+v", ev)
+		}
+	}
+	if counts[attention.WakeUser] != 1 || counts[attention.Ignore] != 2 {
+		t.Fatalf("ground truth distribution wrong: %+v corpus=%+v", counts, corpus)
+	}
+}

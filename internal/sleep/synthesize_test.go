@@ -32,6 +32,15 @@ func (f *fakeRuleSink) Append(_ context.Context, rules []attention.Rule) error {
 	return nil
 }
 
+type fakeCanaryCorpus struct {
+	events []attention.CanaryEvent
+	err    error
+}
+
+func (f fakeCanaryCorpus) CanaryEvents(_ context.Context) ([]attention.CanaryEvent, error) {
+	return f.events, f.err
+}
+
 func corr(eventID, source, kind, expected string) RoutingCorrection {
 	return RoutingCorrection{EventID: eventID, Source: source, Kind: kind, Expected: expected}
 }
@@ -40,7 +49,7 @@ func TestSynthesizeRequiresRepetition(t *testing.T) {
 	sink := &fakeRuleSink{}
 	job := NewSynthesizeRulesJob(fakeCorrections{items: []RoutingCorrection{
 		corr("e1", "telegram", "message", "ignore"),
-	}}, sink)
+	}}, sink, nil)
 
 	msg, err := job.Run(context.Background())
 	if err != nil {
@@ -59,7 +68,7 @@ func TestSynthesizeUnanimousRepeatedRule(t *testing.T) {
 	job := NewSynthesizeRulesJob(fakeCorrections{items: []RoutingCorrection{
 		corr("e1", "telegram", "message", "ignore"),
 		corr("e2", "telegram", "message", "ignore"),
-	}}, sink)
+	}}, sink, nil)
 
 	msg, err := job.Run(context.Background())
 	if err != nil {
@@ -83,7 +92,7 @@ func TestSynthesizeCountsDistinctEvents(t *testing.T) {
 	job := NewSynthesizeRulesJob(fakeCorrections{items: []RoutingCorrection{
 		corr("e1", "telegram", "message", "ignore"),
 		corr("e1", "telegram", "message", "ignore"),
-	}}, sink)
+	}}, sink, nil)
 
 	msg, _ := job.Run(context.Background())
 	if msg != "no new rules to synthesize" {
@@ -172,7 +181,7 @@ func TestSynthesizeIgnoresInvalidAction(t *testing.T) {
 
 func TestSynthesizeEmptyCorrections(t *testing.T) {
 	sink := &fakeRuleSink{}
-	job := NewSynthesizeRulesJob(fakeCorrections{items: nil}, sink)
+	job := NewSynthesizeRulesJob(fakeCorrections{items: nil}, sink, nil)
 	msg, err := job.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -183,8 +192,86 @@ func TestSynthesizeEmptyCorrections(t *testing.T) {
 }
 
 func TestSynthesizeCorrectionSourceErrorPropagates(t *testing.T) {
-	job := NewSynthesizeRulesJob(fakeCorrections{err: errors.New("db down")}, &fakeRuleSink{})
+	job := NewSynthesizeRulesJob(fakeCorrections{err: errors.New("db down")}, &fakeRuleSink{}, nil)
 	if _, err := job.Run(context.Background()); err == nil {
 		t.Fatal("correction source error should propagate")
+	}
+}
+
+func TestSynthesizeCanaryRejectsDowngrade(t *testing.T) {
+	sink := &fakeRuleSink{}
+	job := NewSynthesizeRulesJob(fakeCorrections{items: []RoutingCorrection{
+		corr("e1", "mail", "mail.received", "ignore"),
+		corr("e2", "mail", "mail.received", "ignore"),
+	}}, sink, fakeCanaryCorpus{events: []attention.CanaryEvent{
+		{Source: "mail", Kind: "mail.received", GroundTruth: attention.WakeUser},
+	}})
+
+	msg, err := job.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "all 1 candidate rule(s) withheld by canary" {
+		t.Fatalf("unexpected summary: %q", msg)
+	}
+	if len(sink.appended) != 0 {
+		t.Fatalf("downgrade must not append, got %+v", sink.appended)
+	}
+}
+
+func TestSynthesizeCanaryCorpusErrorFailClosed(t *testing.T) {
+	sink := &fakeRuleSink{}
+	job := NewSynthesizeRulesJob(fakeCorrections{items: []RoutingCorrection{
+		corr("e1", "mail", "mail.received", "ignore"),
+		corr("e2", "mail", "mail.received", "ignore"),
+	}}, sink, fakeCanaryCorpus{err: errors.New("db down")})
+
+	msg, err := job.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "canary corpus unavailable; withheld 1 candidate rule(s)" {
+		t.Fatalf("unexpected summary: %q", msg)
+	}
+	if len(sink.appended) != 0 {
+		t.Fatalf("corpus error must not append, got %+v", sink.appended)
+	}
+}
+
+func TestSynthesizeCanaryEmptyFailClosed(t *testing.T) {
+	sink := &fakeRuleSink{}
+	job := NewSynthesizeRulesJob(fakeCorrections{items: []RoutingCorrection{
+		corr("e1", "mail", "mail.received", "ignore"),
+		corr("e2", "mail", "mail.received", "ignore"),
+	}}, sink, fakeCanaryCorpus{})
+
+	msg, err := job.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "canary corpus empty; withheld 1 candidate rule(s)" {
+		t.Fatalf("unexpected summary: %q", msg)
+	}
+	if len(sink.appended) != 0 {
+		t.Fatalf("empty corpus must not append, got %+v", sink.appended)
+	}
+}
+
+func TestSynthesizeNilCanaryCorpusAppendsAll(t *testing.T) {
+	sink := &fakeRuleSink{}
+	job := NewSynthesizeRulesJob(fakeCorrections{items: []RoutingCorrection{
+		corr("e1", "mail", "mail.received", "ignore"),
+		corr("e2", "mail", "mail.received", "ignore"),
+	}}, sink, nil)
+
+	msg, err := job.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if msg != "synthesized 1 rule(s) (effective next restart)" {
+		t.Fatalf("unexpected summary: %q", msg)
+	}
+	if len(sink.appended) != 1 {
+		t.Fatalf("nil corpus should preserve append behavior, got %+v", sink.appended)
 	}
 }

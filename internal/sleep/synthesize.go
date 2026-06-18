@@ -3,6 +3,7 @@ package sleep
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"github.com/Forest-Isle/daimon/internal/attention"
@@ -41,6 +42,13 @@ type ruleSink interface {
 	Append(ctx context.Context, rules []attention.Rule) error
 }
 
+// canaryCorpus yields recorded events with ground-truth attention actions, for
+// screening synthesized rules before they are appended. Optional: a nil corpus
+// skips screening (preserves prior behavior for callers that do not wire one).
+type canaryCorpus interface {
+	CanaryEvents(ctx context.Context) ([]attention.CanaryEvent, error)
+}
+
 // SynthesizeRulesJob mines user routing corrections into deterministic attention
 // rules, so a correction the user makes repeatedly stops costing a model/cognition
 // call and becomes a cheap rule-tier decision. It is conservative by construction:
@@ -52,10 +60,11 @@ type ruleSink interface {
 type SynthesizeRulesJob struct {
 	corrections correctionSource
 	rules       ruleSink
+	corpus      canaryCorpus
 }
 
-func NewSynthesizeRulesJob(c correctionSource, r ruleSink) *SynthesizeRulesJob {
-	return &SynthesizeRulesJob{corrections: c, rules: r}
+func NewSynthesizeRulesJob(c correctionSource, r ruleSink, corpus canaryCorpus) *SynthesizeRulesJob {
+	return &SynthesizeRulesJob{corrections: c, rules: r, corpus: corpus}
 }
 
 func (j *SynthesizeRulesJob) Name() string { return "synthesize-rules" }
@@ -80,6 +89,27 @@ func (j *SynthesizeRulesJob) Run(ctx context.Context) (string, error) {
 	candidates := synthesizeRules(corrections, existing)
 	if len(candidates) == 0 {
 		return "no new rules to synthesize", nil
+	}
+	if j.corpus != nil {
+		corpus, err := j.corpus.CanaryEvents(ctx)
+		if err != nil {
+			// Fail closed: never append rules we could not screen.
+			return fmt.Sprintf("canary corpus unavailable; withheld %d candidate rule(s)", len(candidates)), nil
+		}
+		if len(corpus) == 0 {
+			// Fail closed: no recorded evidence to screen against.
+			return fmt.Sprintf("canary corpus empty; withheld %d candidate rule(s)", len(candidates)), nil
+		}
+		safe, rejected := attention.ScreenRules(corpus, candidates)
+		for _, rej := range rejected {
+			slog.Warn("synthesize-rules: candidate rejected by canary",
+				"source", rej.Rule.Source, "kind", rej.Rule.Kind,
+				"rule_action", rej.RuleAction.String(), "ground_truth", rej.GroundTruth.String())
+		}
+		candidates = safe
+		if len(candidates) == 0 {
+			return fmt.Sprintf("all %d candidate rule(s) withheld by canary", len(rejected)), nil
+		}
 	}
 	if err := j.rules.Append(ctx, candidates); err != nil {
 		return "", fmt.Errorf("synthesize-rules: append rules: %w", err)
