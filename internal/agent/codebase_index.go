@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"golang.org/x/sync/errgroup"
 )
 
 var defaultCodebaseIndexExcludes = map[string]struct{}{
@@ -42,6 +44,7 @@ type IndexConfig struct {
 	ChunkSize      int    `json:"chunk_size"`
 	Overlap        int    `json:"overlap"`
 	EmbeddingModel string `json:"embedding_model"`
+	Concurrency    int    `json:"concurrency"`
 }
 
 // CodebaseIndex maintains an in-memory semantic index for repository code.
@@ -79,12 +82,22 @@ func NewCodebaseIndex(provider EmbeddingProvider, cfg IndexConfig) *CodebaseInde
 	if cfg.Overlap >= cfg.ChunkSize {
 		cfg.Overlap = cfg.ChunkSize - 1
 	}
+	if cfg.Concurrency <= 0 {
+		cfg.Concurrency = 8
+	}
 	return &CodebaseIndex{
 		provider:   provider,
 		config:     cfg,
 		chunkStore: make(map[string][]indexedChunk),
 		fileHashes: make(map[string]string),
 	}
+}
+
+func (idx *CodebaseIndex) concurrency() int {
+	if idx.config.Concurrency > 0 {
+		return idx.config.Concurrency
+	}
+	return 8
 }
 
 // IsAvailable reports whether the index has a real embedding provider configured.
@@ -134,7 +147,8 @@ func (idx *CodebaseIndex) IndexDirectory(ctx context.Context, dir string) error 
 
 // IndexDirectoryContext recursively indexes source files under dir with context.
 func (idx *CodebaseIndex) IndexDirectoryContext(ctx context.Context, dir string) error {
-	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	var paths []string
+	walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -147,17 +161,30 @@ func (idx *CodebaseIndex) IndexDirectoryContext(ctx context.Context, dir string)
 		if !shouldIndexFile(path) {
 			return nil
 		}
-		// Per-file tolerance: a single embed failure (e.g. a provider timeout)
-		// must not abort indexing the whole tree. Skip the file and continue;
-		// only honor context cancellation (shutdown) as a hard stop.
-		if err := idx.IndexFileContext(ctx, path); err != nil {
-			if ctx.Err() != nil {
-				return err
-			}
-			slog.Warn("codebase index: skip file", "path", path, "err", err)
-		}
+		paths = append(paths, path)
 		return nil
 	})
+	if walkErr != nil {
+		return walkErr
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(idx.concurrency())
+	for _, p := range paths {
+		p := p
+		g.Go(func() error {
+			if err := idx.IndexFileContext(gctx, p); err != nil {
+				if gctx.Err() != nil {
+					return err
+				}
+				// Per-file tolerance: a single embed failure (e.g. a provider timeout)
+				// must not abort indexing the whole tree. Skip the file and continue.
+				slog.Warn("codebase index: skip file", "path", p, "err", err)
+			}
+			return nil
+		})
+	}
+	return g.Wait()
 }
 
 // Search runs a semantic search and returns the top ranked chunks.

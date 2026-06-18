@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -14,6 +16,8 @@ const (
 	openAIDefaultModel        = "text-embedding-3-small"
 	openAIDimensions          = 1536
 )
+
+var openAIRetryBaseDelay = 500 * time.Millisecond
 
 // OpenAIEmbedding implements EmbeddingProvider using the OpenAI Embeddings API.
 type OpenAIEmbedding struct {
@@ -45,19 +49,10 @@ func NewOpenAIEmbeddingWithURL(apiKey, model, baseURL string) *OpenAIEmbedding {
 func (o *OpenAIEmbedding) Dimensions() int { return openAIDimensions }
 
 func (o *OpenAIEmbedding) Embed(ctx context.Context, text string) ([]float32, error) {
-	body, _ := json.Marshal(map[string]any{
+	resp, err := o.postJSONWithRetry(ctx, map[string]any{
 		"input": text,
 		"model": o.model,
 	})
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+o.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := o.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("openai request: %w", err)
 	}
@@ -93,19 +88,10 @@ func (o *OpenAIEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]f
 		return nil, nil
 	}
 
-	body, _ := json.Marshal(map[string]any{
+	resp, err := o.postJSONWithRetry(ctx, map[string]any{
 		"input": texts,
 		"model": o.model,
 	})
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+o.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := o.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("openai batch request: %w", err)
 	}
@@ -144,4 +130,109 @@ func (o *OpenAIEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]f
 	}
 
 	return embeddings, nil
+}
+
+// postJSONWithRetry POSTs payload to o.baseURL and returns a successful (2xx)
+// response, retrying on 429 and 5xx with exponential backoff (honoring any
+// Retry-After header and ctx cancellation). The caller owns resp.Body.
+func (o *OpenAIEmbedding) postJSONWithRetry(ctx context.Context, payload any) (*http.Response, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	var lastResp *http.Response
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+o.apiKey)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := o.client.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			lastResp = nil
+			lastErr = err
+			if resp != nil && resp.Body != nil {
+				_, _ = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+			}
+			if attempt == 3 {
+				break
+			}
+			if err := waitOpenAIRetry(ctx, openAIRetryDelay(attempt, nil)); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if !shouldRetryOpenAI(resp.StatusCode) {
+			return resp, nil
+		}
+
+		lastResp = resp
+		lastErr = nil
+		if attempt == 3 {
+			break
+		}
+
+		delay := openAIRetryDelay(attempt, resp)
+		if resp != nil && resp.Body != nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+
+		if err := waitOpenAIRetry(ctx, delay); err != nil {
+			return nil, err
+		}
+	}
+
+	if lastResp != nil {
+		return lastResp, nil
+	}
+	return nil, lastErr
+}
+
+func shouldRetryOpenAI(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func waitOpenAIRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func openAIRetryDelay(attempt int, resp *http.Response) time.Duration {
+	delay := openAIRetryBaseDelay * time.Duration(1<<attempt)
+	if resp == nil {
+		return delay
+	}
+	retryAfter := resp.Header.Get("Retry-After")
+	if retryAfter == "" {
+		return delay
+	}
+	seconds, err := strconv.Atoi(retryAfter)
+	if err != nil {
+		return delay
+	}
+	headerDelay := time.Duration(seconds) * time.Second
+	if headerDelay > delay {
+		return headerDelay
+	}
+	return delay
 }
