@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 
+	"github.com/Forest-Isle/daimon/internal/action"
 	"github.com/Forest-Isle/daimon/internal/channel"
 	"github.com/Forest-Isle/daimon/internal/session"
 	"github.com/Forest-Isle/daimon/internal/tool"
@@ -19,60 +20,66 @@ import (
 // GatewayToolApprover DENIES the tool execution. This is a safer default
 // than silently auto-approving (the previous behavior with nil approver).
 type GatewayToolApprover struct {
-	sessions  *session.Manager
-	channels  *ChannelSubsystem
-	denyCount atomic.Int64 // tracks denials due to missing channel (observability)
+	sessions   *session.Manager
+	channels   *ChannelSubsystem
+	classifier action.Classifier // read-only determination for autonomous (channel-less) calls
+	denyCount  atomic.Int64
 }
 
 // NewGatewayToolApprover creates a GatewayToolApprover that will look up
 // channels at approval time.
-func NewGatewayToolApprover(sessions *session.Manager, channels *ChannelSubsystem) *GatewayToolApprover {
+func NewGatewayToolApprover(sessions *session.Manager, channels *ChannelSubsystem, classifier action.Classifier) *GatewayToolApprover {
 	return &GatewayToolApprover{
-		sessions: sessions,
-		channels: channels,
+		sessions:   sessions,
+		channels:   channels,
+		classifier: classifier,
 	}
 }
 
 func (a *GatewayToolApprover) RequestApproval(ctx context.Context, call *tool.ToolCall) (bool, error) {
-	// Look up the session to find which channel this tool execution belongs to.
-	sess, err := a.sessions.GetByID(ctx, call.SessionID)
-	if err != nil || sess == nil {
-		slog.Warn("gateway: cannot find session for approval, denying",
-			"session_id", call.SessionID, "tool", call.ToolName, "err", err)
-		a.denyCount.Add(1)
-		return false, nil
-	}
-
-	// Find the channel that owns this session.
-	ch := a.channels.Channel(sess.Channel)
-	if ch == nil {
-		slog.Warn("gateway: channel not found for approval, denying",
-			"channel", sess.Channel, "tool", call.ToolName)
-		a.denyCount.Add(1)
-		return false, nil
-	}
-
-	// Route through ApprovalSender if the channel supports it.
-	if sender, ok := ch.(channel.ApprovalSender); ok {
-		target := channel.MessageTarget{
-			Channel:   sess.Channel,
-			ChannelID: sess.ChannelID,
-		}
+	// Try to reach an interactive approval channel (the chat path: a human signs off).
+	if sender, target, ok := a.interactiveApprover(ctx, call); ok {
 		approved, err := sender.SendApprovalRequest(ctx, target, call.ToolName, call.Input)
 		if err != nil {
-			slog.Warn("gateway: approval request failed, denying",
-				"tool", call.ToolName, "err", err)
+			slog.Warn("gateway: approval request failed, denying", "tool", call.ToolName, "err", err)
 			return false, nil
 		}
 		return approved, nil
 	}
 
-	// No ApprovalSender-capable channel available for this session.
-	// Deny rather than silently auto-approve.
-	slog.Warn("gateway: channel does not support approval, denying",
-		"channel", sess.Channel, "tool", call.ToolName)
+	// No interactive channel: this is an autonomous (channel="internal") episode.
+	// Defer the decision to the action classifier - a read-only call has no side
+	// effects and is safe to run without human sign-off; anything governed
+	// (side-effecting: memory writes, values.record, http POST, send_email, ...) is
+	// denied fail-closed, because an autonomous episode has no human to approve and
+	// must never self-authorize a side effect.
+	if a.classifier != nil {
+		if _, governed := a.classifier.Classify(call); !governed {
+			return true, nil
+		}
+	}
 	a.denyCount.Add(1)
+	slog.Warn("gateway: no interactive channel for autonomous tool call, denying side-effecting tool",
+		"tool", call.ToolName)
 	return false, nil
+}
+
+// interactiveApprover resolves the ApprovalSender + target for a call's session,
+// or ok=false when no interactive approval channel is reachable (autonomous).
+func (a *GatewayToolApprover) interactiveApprover(ctx context.Context, call *tool.ToolCall) (channel.ApprovalSender, channel.MessageTarget, bool) {
+	sess, err := a.sessions.GetByID(ctx, call.SessionID)
+	if err != nil || sess == nil {
+		return nil, channel.MessageTarget{}, false
+	}
+	ch := a.channels.Channel(sess.Channel)
+	if ch == nil {
+		return nil, channel.MessageTarget{}, false
+	}
+	sender, ok := ch.(channel.ApprovalSender)
+	if !ok {
+		return nil, channel.MessageTarget{}, false
+	}
+	return sender, channel.MessageTarget{Channel: sess.Channel, ChannelID: sess.ChannelID}, true
 }
 
 // DenyCount returns the number of tool executions denied due to missing
