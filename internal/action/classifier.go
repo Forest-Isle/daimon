@@ -54,12 +54,30 @@ func (defaultClassifier) ContextKey(call *tool.ToolCall) string {
 }
 
 func (c holdAwareClassifier) Classify(call *tool.ToolCall) (Class, bool) {
-	if call != nil && call.ToolName == "send_email" {
-		return Compensable, true
-	}
-	if call != nil && call.ToolName == "http" {
-		if class, ok := classifyHTTP(call.Input); ok {
-			return class, true
+	if call != nil {
+		switch call.ToolName {
+		case "send_email":
+			return Compensable, true
+		case "http":
+			if class, ok := classifyHTTP(call.Input); ok {
+				return class, true
+			}
+		case "memory":
+			// Read operations carry no side effects, so they are ungoverned and
+			// safe to run autonomously. Writes (save/delete) and any malformed or
+			// unknown op fall through to the default classifier, which sees the
+			// tool's IsDestructive capability and governs them (fail-closed).
+			if isReadOnlyToolOp(call.Input, "search", "list") {
+				return Reversible, false
+			}
+		case "values":
+			// values.list is a harmless read; values.record mints a value, which
+			// is a permission source for autonomous actions - it must stay governed
+			// so the agent can never self-authorize (constitution #4). Only "list"
+			// is ungoverned; record/unknown fall through to governed.
+			if isReadOnlyToolOp(call.Input, "list") {
+				return Reversible, false
+			}
 		}
 	}
 	return c.defaultClassifier.Classify(call)
@@ -96,4 +114,22 @@ func classifyHTTP(input string) (Class, bool) {
 	default:
 		return Reversible, false
 	}
+}
+
+// isReadOnlyToolOp reports whether the call's "operation" field is one of the
+// given read-only operation names. A malformed input matches nothing (fail
+// closed: an undecodable op is never treated as read-only).
+func isReadOnlyToolOp(input string, readOps ...string) bool {
+	var in struct {
+		Operation string `json:"operation"`
+	}
+	if err := json.Unmarshal([]byte(input), &in); err != nil {
+		return false
+	}
+	for _, op := range readOps {
+		if in.Operation == op {
+			return true
+		}
+	}
+	return false
 }

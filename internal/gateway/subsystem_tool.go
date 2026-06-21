@@ -185,7 +185,7 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	interceptors := []tool.ToolInterceptor{
 		tool.NewPermissionInterceptor(ts.PermEngine,
 			tool.WithNotifier(NewGatewayToolNotifier()),
-			tool.WithApprover(NewGatewayToolApprover(sessions, channels)),
+			tool.WithApprover(NewGatewayToolApprover(sessions, channels, action.NewClassifierWithCompensableHTTP())),
 			tool.WithPermissionAuditSink(db),
 			tool.WithPermissionDecisionReporter(NewGatewayPermissionDecisionReporter(bus))),
 		tool.NewHookInterceptor(ts.HookMgr),
