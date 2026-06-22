@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,7 @@ func TestGatewayTelemetryWritesLocalTrace(t *testing.T) {
 
 	gw, err := New(cfg)
 	require.NoError(t, err)
-	defer func() { _ = gw.telemetry.Stop(nil) }()
+	defer func() { _ = gw.telemetry.Stop(context.TODO()) }()
 	defer func() { _ = gw.db.Close() }()
 	require.NotNil(t, gw.telemetry)
 	require.NotNil(t, gw.telemetry.Exporter)

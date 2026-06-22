@@ -93,10 +93,6 @@ func NewClaudeProvider(apiKey, model, baseURL string) *ClaudeProvider {
 }
 
 func (c *ClaudeProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
-	model := req.Model
-	if model == "" {
-		model = c.model
-	}
 	params := c.buildParams(req)
 	resp, err := c.client.Messages.New(ctx, params)
 	if err != nil {

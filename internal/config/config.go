@@ -104,7 +104,7 @@ func FindConfigPath(explicitPath string, devMode bool) (string, error) {
 		}
 		return "", fmt.Errorf(
 			"dev mode: configs/daimon.yaml not found.\n" +
-				"  Copy from configs/daimon.example.yaml and edit it.",
+				"  Copy from configs/daimon.example.yaml and edit it",
 		)
 	}
 

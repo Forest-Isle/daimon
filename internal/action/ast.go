@@ -15,7 +15,7 @@ const maxClassifyDepth = 8
 
 // classifyBashCommand assigns a reversibility Class to a shell command by parsing
 // it into an AST, rather than substring-matching the raw text. The AST defeats
-// the morphing tricks a substring blacklist misses: quote splitting (r''m),
+// the morphing tricks a substring blacklist misses: quote splitting (r”m),
 // command substitution in command position ($(echo rm)), redirections to raw
 // devices (>/dev/sda), exec wrappers (sudo rm), and nested interpreters
 // (eval "rm -rf /", bash -c "rm -rf /").
@@ -371,7 +371,7 @@ func redirectIsIrreversible(r *syntax.Redirect) bool {
 
 func isWriteRedirect(op syntax.RedirOperator) bool {
 	switch op {
-	case syntax.RdrOut, syntax.AppOut, syntax.ClbOut, syntax.RdrAll, syntax.AppAll:
+	case syntax.RdrOut, syntax.AppOut, syntax.RdrClob, syntax.RdrAll, syntax.AppAll:
 		return true
 	default:
 		return false
@@ -419,7 +419,7 @@ func isRawDevice(target string) bool {
 // quoted string with no inner expansion; any parameter/command/arithmetic
 // expansion makes it non-static (ok=false), because its value depends on runtime
 // state. Quoting is then resolved by expand.Literal so the morphs a raw
-// concatenation would miss collapse to their real value: r''m and $'r\x6d' both
+// concatenation would miss collapse to their real value: r”m and $'r\x6d' both
 // become "rm". A residual backslash escape (r\m) is stripped too — no legitimate
 // command name or device path contains a backslash on Unix, and bash itself
 // reads r\m as rm — so this only tightens matching, never loosens it.

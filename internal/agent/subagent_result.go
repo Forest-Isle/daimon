@@ -76,7 +76,7 @@ var (
 	// markdown fence patterns that LLMs often wrap structured output in
 	mdFencePatterns = []*regexp.Regexp{
 		regexp.MustCompile("(?s)`{3,}(?:xml|json)?\\s*\\n?(.*?)\\n?`{3,}"),
-		regexp.MustCompile("(?s)~~~(?:xml|json)?\\s*\\n?(.*?)\\n?~~~"),
+		regexp.MustCompile(`(?s)~~~(?:xml|json)?\s*\n?(.*?)\n?~~~`),
 	}
 	// jsonBlockRe extracts a JSON object from text, handling nested braces
 	subAgentJSONRe = regexp.MustCompile(`(?s)\{\s*"status"[\s\S]*"artifacts"\s*:\s*\[[\s\S]*?\][\s\S]*?\}`)

@@ -103,8 +103,11 @@ func (idx *CodebaseIndex) concurrency() int {
 
 // IsAvailable reports whether the index has a real embedding provider configured.
 func (idx *CodebaseIndex) IsAvailable() bool {
+	if idx == nil {
+		return false
+	}
 	_, noop := idx.provider.(noopEmbeddingProvider)
-	return idx != nil && !noop
+	return !noop
 }
 
 // IndexFile indexes a single file if its contents changed since the last run.

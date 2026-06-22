@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"os"
 	"time"
 
@@ -108,7 +107,7 @@ type Model struct {
 // NewModel creates a new TUI model.
 func NewModel(version, username, cwd string) Model {
 	ta := textarea.New()
-	ta.Placeholder = fmt.Sprintf("Message Daimon… (/help for commands)")
+	ta.Placeholder = "Message Daimon… (/help for commands)"
 	ta.Focus()
 	ta.CharLimit = 4096
 	ta.SetHeight(1) // grows up to maxInputLines as the user types
