@@ -44,6 +44,10 @@ eval:
 eval-gate:
 	CGO_ENABLED=1 go run -tags "$(TAGS)" ./evals/cmd/eval -gate
 
+## eval-calibrate: Score a judge against human labels (LABELS=path [KAPPA=0.6])
+eval-calibrate:
+	CGO_ENABLED=1 go run -tags "$(TAGS)" ./evals/cmd/calibrate -labels "$(LABELS)" -kappa "$(or $(KAPPA),0.6)"
+
 ## lint: Run linter (requires golangci-lint)
 lint:
 	golangci-lint run ./...
