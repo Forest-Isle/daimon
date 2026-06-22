@@ -54,7 +54,7 @@ func Save(path string, sc Scorecard) error {
 		return fmt.Errorf("encode scorecard: %w", err)
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return fmt.Errorf("write scorecard: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

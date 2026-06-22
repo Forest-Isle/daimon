@@ -165,11 +165,21 @@ thought→tool→args→result") and should be fixed while the harness is being 
 
 Not yet at theoretical saturation: 52 traces, one corpus type (email triage),
 one week. The course bar is ≥100 traces and ~20 consecutive with no new class.
-Action items:
+
+**Built (see [`README.md`](./README.md)):** the FM-1 deterministic check is wired
+end-to-end — `make eval` decomposes the live corpus (governance / agent / env /
+unknown) into a scorecard with a Δ column, and `make eval-gate` runs the
+coding-surface acceptance gate. The judge-calibration harness (`make
+eval-calibrate`) computes confusion matrix / TPR-TNR / Cohen's kappa with a CI.
+The live run reproduces this document's hand counts exactly.
+
+Remaining action items:
 1. Keep accumulating replay traffic; re-run open coding past 100 traces to
    confirm the taxonomy and catch chat/proposal/sleep-cycle failure modes the
    email-only corpus can't show.
-2. Build the two Week-2 evals (FM-1 deterministic, FM-3 hybrid) under `evals/`.
+2. FM-3 hybrid: build a labelled set and calibrate the salvage-vs-intent judge
+   (the deterministic pre-filter — salvaged ∧ no world write ∧ status≠done — is
+   ready; the semantic confirm needs the calibrated judge).
 3. Fix the substrate issues open coding surfaced regardless of eval work:
    FM-1 (read-only memory should be allowed in autonomous episodes — §4.6 gap)
    and FM-2 (configure identity/values/commitments).
