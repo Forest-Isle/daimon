@@ -189,6 +189,34 @@ index 1111111..2222222 100644
 +}
 `
 
+const renameTestAwayDiff = `diff --git a/internal/foo/foo_test.go b/internal/foo/foo.go
+similarity index 100%
+rename from internal/foo/foo_test.go
+rename to internal/foo/foo.go
+`
+
+const addBuildTagDiff = `diff --git a/internal/foo/foo_test.go b/internal/foo/foo_test.go
+index 1111111..2222222 100644
+--- a/internal/foo/foo_test.go
++++ b/internal/foo/foo_test.go
+@@ -1,2 +1,4 @@
++//go:build never
++
+ package foo
+ func TestA(t *testing.T) {}
+`
+
+const helperSkipDiff = `diff --git a/internal/foo/foo_test.go b/internal/foo/foo_test.go
+index 1111111..2222222 100644
+--- a/internal/foo/foo_test.go
++++ b/internal/foo/foo_test.go
+@@ -1,3 +1,4 @@
+ package foo
+ func TestA(t *testing.T) {
++	suite.Skip("disabled")
+ }
+`
+
 func TestEvalNoTestTamper(t *testing.T) {
 	tests := []struct {
 		name string
@@ -199,6 +227,9 @@ func TestEvalNoTestTamper(t *testing.T) {
 		{"remove test func", removeTestFuncDiff, false},
 		{"add skip", addSkipDiff, false},
 		{"weaken assertion", weakenAssertDiff, false},
+		{"rename test away", renameTestAwayDiff, false},
+		{"add build tag", addBuildTagDiff, false},
+		{"non-t/b skip", helperSkipDiff, false},
 		{"add test", addTestDiff, true},
 		{"non-test file", modifyDiff, true},
 	}
@@ -232,6 +263,10 @@ func TestEvalInScope(t *testing.T) {
 	// Rename: destination allowed but source not → still out of scope.
 	if g := evalInScope(rename, []string{"internal/b/*.go"}); g.Pass {
 		t.Fatalf("rename source out of scope must fail: %+v", g)
+	}
+	// Malformed glob must be surfaced, not silently swallowed.
+	if g := evalInScope(modify, []string{"internal/[a-.go"}); g.Pass {
+		t.Fatalf("invalid glob must fail the gate: %+v", g)
 	}
 }
 
