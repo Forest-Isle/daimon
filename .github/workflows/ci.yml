@@ -26,6 +26,24 @@ jobs:
         with:
           version: latest
 
+  arch:
+    name: Layer Boundaries
+    runs-on: ubuntu-latest
+    # Blocking, unlike the general lint job above. Runs ONLY the depguard rules
+    # that enforce the layered dependency direction (inner packages must not
+    # import the gateway composition root or the concrete delivery channels).
+    # This is isolated from the lint backlog so layer regressions fail CI even
+    # while the rest of the lint findings remain non-blocking.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+          args: --enable-only=depguard ./...
+
   test:
     name: Test
     runs-on: ubuntu-latest

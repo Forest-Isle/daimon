@@ -40,6 +40,10 @@ test-coverage:
 lint:
 	golangci-lint run ./...
 
+## arch: Enforce layered dependency direction (blocking gate, mirrors CI)
+arch:
+	golangci-lint run --enable-only=depguard ./...
+
 ## fmt: Format code
 fmt:
 	go fmt ./...

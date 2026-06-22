@@ -8,11 +8,41 @@ output:
       path: stdout
 linters:
   enable:
+    - depguard
     - dupl
     - gocognit
     - gosec
     - misspell
   settings:
+    depguard:
+      # Enforce the layered dependency direction: the gateway composition root
+      # and the concrete delivery channels are outer layers. Inner packages
+      # (domain/infra) must never import them — dependencies flow outward→inward
+      # only. Inner code depending on the internal/channel *port* interface is
+      # allowed (and intended); only the concrete delivery implementations are
+      # off-limits. cmd/ is the outermost layer and is exempt (not matched).
+      rules:
+        layer-no-gateway:
+          list-mode: lax
+          files:
+            - "**/internal/**"
+            - "!**/internal/gateway/**"
+          deny:
+            - pkg: github.com/Forest-Isle/daimon/internal/gateway
+              desc: "layer violation: only cmd/ may import internal/gateway; inner packages must not depend on the composition root"
+        layer-no-delivery:
+          list-mode: lax
+          files:
+            - "**/internal/**"
+            - "!**/internal/gateway/**"
+            - "!**/internal/channel/**"
+          deny:
+            - pkg: github.com/Forest-Isle/daimon/internal/channel/tui
+              desc: "layer violation: import the internal/channel port interface, not the TUI delivery implementation"
+            - pkg: github.com/Forest-Isle/daimon/internal/channel/telegram
+              desc: "layer violation: import the internal/channel port interface, not the Telegram delivery implementation"
+            - pkg: github.com/Forest-Isle/daimon/internal/channel/scheduler
+              desc: "layer violation: import the internal/channel port interface, not the scheduler delivery implementation"
     dupl:
       threshold: 100
     funlen:
