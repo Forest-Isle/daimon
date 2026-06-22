@@ -1,4 +1,4 @@
-.PHONY: build build-bin run test test-short test-coverage lint fmt docker clean help
+.PHONY: build build-bin run test test-short test-coverage eval eval-gate lint fmt docker clean help
 
 BINARY    := daimon
 BUILD_DIR := bin
@@ -35,6 +35,14 @@ test-short:
 test-coverage:
 	CGO_ENABLED=1 go test -tags "$(TAGS)" ./... -coverprofile=$(COVERAGE) -covermode=atomic -count=1
 	@echo "Coverage report: go tool cover -html=$(COVERAGE)"
+
+## eval: Run the deterministic eval chain over the replay corpus (scorecard + Δ)
+eval:
+	CGO_ENABLED=1 go run -tags "$(TAGS)" ./evals/cmd/eval
+
+## eval-gate: CI gate — non-zero exit if the coding-surface self-check fails
+eval-gate:
+	CGO_ENABLED=1 go run -tags "$(TAGS)" ./evals/cmd/eval -gate
 
 ## lint: Run linter (requires golangci-lint)
 lint:
