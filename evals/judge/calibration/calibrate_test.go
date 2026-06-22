@@ -3,6 +3,7 @@ package calibration
 import (
 	"context"
 	"math"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -94,6 +95,20 @@ func TestLoadAndAnalyze(t *testing.T) {
 	}
 	if r.Meets(0.85) {
 		t.Fatalf("kappa %.4f must NOT meet 0.85 bar (the misleading raw-agreement value)", r.Kappa)
+	}
+}
+
+func TestLoadLabels_RejectsMissingVerdict(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bad.jsonl")
+	// Second line omits "human" — must be rejected, not defaulted to false.
+	content := `{"id":"a","human":true,"judge":true}
+{"id":"b","judge":true}
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadLabels(path); err == nil {
+		t.Fatal("missing human verdict must be a hard error")
 	}
 }
 

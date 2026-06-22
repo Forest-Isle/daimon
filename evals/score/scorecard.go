@@ -23,6 +23,7 @@ type Scorecard struct {
 	GovernanceDenied int            `json:"governance_denied"`
 	AgentError       int            `json:"agent_error"`
 	EnvError         int            `json:"env_error"`
+	Unknown          int            `json:"unknown"`
 	Salvaged         int            `json:"salvaged"`
 	DeniedByTool     map[string]int `json:"denied_by_tool,omitempty"`
 }
@@ -44,14 +45,20 @@ func Load(path string) (Scorecard, bool, error) {
 	return sc, true, nil
 }
 
-// Save writes the scorecard to path as indented JSON.
+// Save writes the scorecard to path as indented JSON. It writes a sibling temp
+// file and atomically renames it into place, so an interrupted write never
+// leaves a truncated baseline that would corrupt the next run's delta.
 func Save(path string, sc Scorecard) error {
 	b, err := json.MarshalIndent(sc, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode scorecard: %w", err)
 	}
-	if err := os.WriteFile(path, b, 0o644); err != nil {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return fmt.Errorf("write scorecard: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("commit scorecard: %w", err)
 	}
 	return nil
 }
@@ -89,6 +96,7 @@ func metricRows(sc Scorecard) []metricRow {
 		{"governance_denied", sc.GovernanceDenied},
 		{"agent_error", sc.AgentError},
 		{"env_error", sc.EnvError},
+		{"unknown", sc.Unknown},
 		{"salvaged", sc.Salvaged},
 	}
 }

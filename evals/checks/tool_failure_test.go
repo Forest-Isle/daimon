@@ -11,10 +11,14 @@ func TestClassifyToolError(t *testing.T) {
 		{"empty ok", "", ClassOK},
 		{"denied", "execution denied by user", ClassGovernanceDenied},
 		{"denied variant", "tool execution denied by user", ClassGovernanceDenied},
+		{"security policy block", "command blocked by security policy: rm -rf /", ClassGovernanceDenied},
+		{"value gate block", "action blocked by value gate: a payment action requires a value decision", ClassGovernanceDenied},
 		{"timeout", "command timed out after 5s", ClassEnvError},
 		{"context deadline", "context deadline exceeded", ClassEnvError},
 		{"is a directory", "read /x/configs: is a directory", ClassAgentError},
 		{"no such file", "open /x/~/.daimon/y: no such file or directory", ClassAgentError},
+		{"path with timeout substring", "open /tmp/timeout/results.json: no such file or directory", ClassAgentError},
+		{"undecodable sentinel", UndecodableError, ClassUnknown},
 		{"unknown defaults to agent", "weird unmapped failure", ClassAgentError},
 	}
 	for _, tc := range tests {
@@ -35,13 +39,14 @@ func TestSummarizeFailures(t *testing.T) {
 		{Tool: "bash", Error: "execution denied by user"},
 		{Tool: "file_read", Error: "read /x/configs: is a directory"},
 		{Tool: "grep_code", Error: "command timed out after 5s"},
-		{Tool: "world_read", Error: ""}, // success — must be skipped
+		{Tool: "mystery", Error: UndecodableError}, // undecodable → Unknown
+		{Tool: "world_read", Error: ""},            // success — must be skipped
 	}
 	s := SummarizeFailures(failures)
-	if s.Total != 5 {
-		t.Fatalf("Total = %d, want 5 (success skipped)", s.Total)
+	if s.Total != 6 {
+		t.Fatalf("Total = %d, want 6 (success skipped)", s.Total)
 	}
-	if s.GovernanceDenied != 3 || s.AgentError != 1 || s.EnvError != 1 {
+	if s.GovernanceDenied != 3 || s.AgentError != 1 || s.EnvError != 1 || s.Unknown != 1 {
 		t.Fatalf("class split wrong: %+v", s)
 	}
 	if s.DeniedByTool["memory"] != 2 || s.DeniedByTool["bash"] != 1 {

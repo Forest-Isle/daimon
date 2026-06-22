@@ -37,8 +37,19 @@ func Tabulate(labels []Label) Confusion {
 	return c
 }
 
+// rawLabel mirrors Label but with pointer verdicts so a line that omits "human"
+// or "judge" is detected rather than silently defaulting to false (which would
+// poison the ground truth).
+type rawLabel struct {
+	ID    string `json:"id"`
+	Human *bool  `json:"human"`
+	Judge *bool  `json:"judge"`
+	Split string `json:"split,omitempty"`
+}
+
 // LoadLabels reads a JSONL label file (one Label per line). Blank lines are
-// skipped; a malformed line is a hard error so a typo never silently shrinks the
+// skipped; a malformed line, or one missing the required "human"/"judge"
+// verdict, is a hard error so a typo never silently shrinks or poisons the
 // calibration set.
 func LoadLabels(path string) ([]Label, error) {
 	f, err := os.Open(path)
@@ -57,11 +68,14 @@ func LoadLabels(path string) ([]Label, error) {
 		if text == "" {
 			continue
 		}
-		var l Label
-		if err := json.Unmarshal([]byte(text), &l); err != nil {
+		var r rawLabel
+		if err := json.Unmarshal([]byte(text), &r); err != nil {
 			return nil, fmt.Errorf("labels line %d: %w", line, err)
 		}
-		labels = append(labels, l)
+		if r.Human == nil || r.Judge == nil {
+			return nil, fmt.Errorf("labels line %d: missing required human/judge verdict", line)
+		}
+		labels = append(labels, Label{ID: r.ID, Human: *r.Human, Judge: *r.Judge, Split: r.Split})
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("read labels: %w", err)

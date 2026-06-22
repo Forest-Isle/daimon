@@ -52,8 +52,9 @@ func ExtractFailures(sessions []replay.Session) []checks.ToolFailure {
 }
 
 // toolError decodes the error string from a tool round trip's result payload,
-// falling back to a placeholder when the payload is absent or undecodable so a
-// failed call always classifies as a real failure.
+// falling back to the undecodable sentinel when the payload is absent or cannot
+// be decoded so a failed call always classifies as a real failure (and lands in
+// the ClassUnknown bucket rather than inflating agent errors).
 func toolError(tr agent.ToolRoundTrip) string {
 	if len(tr.ResultJSON) > 0 {
 		var r toolResult
@@ -61,7 +62,7 @@ func toolError(tr agent.ToolRoundTrip) string {
 			return r.Error
 		}
 	}
-	return "unknown failure"
+	return checks.UndecodableError
 }
 
 // Run aggregates the deterministic evals over the sessions.

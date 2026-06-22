@@ -88,6 +88,12 @@ func run(replaysDir, scorePath string, gate, update bool) (int, error) {
 		fmt.Printf("\nbaseline written: %s\n", scorePath)
 	}
 
+	// -gate intentionally gates only the zero-noise coding-surface self-check.
+	// Corpus metrics are diagnostic: the corpus grows as replay traffic
+	// accumulates, so raw counts (e.g. agent_error) drift run-to-run with volume
+	// — hard-gating them would fire on traffic growth, not regressions. The Δ
+	// column surfaces those movements for human judgment instead (per the
+	// blueprint's "don't hard-gate noisy rates").
 	if gate && !gateOK {
 		return 1, nil
 	}
@@ -103,6 +109,7 @@ func toScorecard(r runner.CorpusResult) score.Scorecard {
 		GovernanceDenied: r.Failures.GovernanceDenied,
 		AgentError:       r.Failures.AgentError,
 		EnvError:         r.Failures.EnvError,
+		Unknown:          r.Failures.Unknown,
 		Salvaged:         r.Salvaged,
 		DeniedByTool:     r.Failures.DeniedByTool,
 	}

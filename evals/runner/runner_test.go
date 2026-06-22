@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/Forest-Isle/daimon/evals/checks"
 	"github.com/Forest-Isle/daimon/internal/agent"
 	"github.com/Forest-Isle/daimon/internal/replay"
 )
@@ -57,12 +58,13 @@ func TestRun(t *testing.T) {
 
 func TestToolError_FallbackOnEmptyPayload(t *testing.T) {
 	tr := agent.ToolRoundTrip{ToolName: "x", Succeeded: false} // no ResultJSON
-	if got := toolError(tr); got != "unknown failure" {
-		t.Fatalf("toolError empty payload = %q, want placeholder", got)
+	if got := toolError(tr); got != checks.UndecodableError {
+		t.Fatalf("toolError empty payload = %q, want undecodable sentinel", got)
 	}
-	// A failed call with empty payload still counts as a failure (agent-error).
+	// A failed call with empty payload still counts as a failure, but in the
+	// Unknown bucket — it must not inflate agent errors.
 	res := Run([]replay.Session{{SessionID: "s", Tools: []agent.ToolRoundTrip{tr}}})
-	if res.Failures.Total != 1 || res.Failures.AgentError != 1 {
+	if res.Failures.Total != 1 || res.Failures.Unknown != 1 || res.Failures.AgentError != 0 {
 		t.Fatalf("empty-payload failure miscounted: %+v", res.Failures)
 	}
 }
