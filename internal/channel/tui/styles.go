@@ -9,7 +9,6 @@ var (
 	colorCyan        = lipgloss.Color("#4CC9F0")
 	colorGreen       = lipgloss.Color("#35D39D")
 	colorGold        = lipgloss.Color("#F2C14E")
-	colorRed         = lipgloss.Color("#FF5C6C")
 	colorText        = lipgloss.Color("#ECECF1")
 	colorMuted       = lipgloss.Color("#9A9AA6")
 	colorDim         = lipgloss.Color("#5B6070")
@@ -123,9 +122,6 @@ var (
 
 	statusDimStyle = lipgloss.NewStyle().
 			Foreground(colorDim)
-
-	statusPhaseStyle = lipgloss.NewStyle().
-				Foreground(colorPrimary)
 
 	// Stats detail panel
 	statsPanelStyle = lipgloss.NewStyle().

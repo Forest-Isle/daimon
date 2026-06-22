@@ -195,10 +195,6 @@ func (f *PromptFrame) renderLayers(sess *session.Session) []PromptLayer {
 	return layers
 }
 
-func (a *Agent) buildPromptBase(ctx context.Context, userText string) string {
-	return renderPromptLayers(a.buildPromptFrame(ctx, userText).Layers)
-}
-
 func (f *PromptFrame) AddLayer(layer PromptLayer) {
 	layer.Content = strings.TrimSpace(layer.Content)
 	if layer.Content == "" {

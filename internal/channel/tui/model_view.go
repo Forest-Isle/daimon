@@ -492,14 +492,6 @@ func (m Model) renderHelpPanel() string {
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-// formatTokenCount formats a token count with k-suffix for large values.
-func formatTokenCount(n int64) string {
-	if n >= 1000 {
-		return fmt.Sprintf("%.1fk", float64(n)/1000)
-	}
-	return fmt.Sprintf("%d", n)
-}
-
 // shortenPath truncates a path to maxLen display columns by replacing the
 // middle with "…". Operates on runes so multi-byte characters are never
 // split mid-rune.

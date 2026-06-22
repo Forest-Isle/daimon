@@ -127,37 +127,6 @@ func (m *Model) showStatus() {
 	m.addMessage("system", b.String())
 }
 
-// showHelp displays available commands.
-func (m *Model) showHelp() {
-	var b strings.Builder
-	b.WriteString("📚 Available Commands:\n\n")
-
-	// Group commands by category
-	categories := make(map[string][]Command)
-	for _, cmd := range GetCommands() {
-		categories[cmd.Category] = append(categories[cmd.Category], cmd)
-	}
-
-	// Display builtin commands
-	if cmds, ok := categories["builtin"]; ok {
-		b.WriteString("Built-in Commands:\n")
-		for _, cmd := range cmds {
-			fmt.Fprintf(&b, "  /%s", cmd.Name)
-			if cmd.ArgHint != "" {
-				fmt.Fprintf(&b, " %s", cmd.ArgHint)
-			}
-			if len(cmd.Aliases) > 0 {
-				fmt.Fprintf(&b, " (aliases: %s)", strings.Join(cmd.Aliases, ", "))
-			}
-			fmt.Fprintf(&b, "\n    %s\n", cmd.Description)
-		}
-	}
-
-	b.WriteString("\nTip: Type / to see command suggestions with autocomplete")
-
-	m.addMessage("system", b.String())
-}
-
 // showHistory displays conversation history summary.
 func (m *Model) showHistory() {
 	var b strings.Builder
