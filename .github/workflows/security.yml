@@ -44,9 +44,14 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Run govulncheck
+        # Use package-level scanning instead of the default symbol level. The
+        # symbol scan builds an SSA call graph, which panics on generic code
+        # under govulncheck v1.4.0 / x/tools v0.46.0 (golang/go#70350, #75584).
+        # Package-level scanning skips the call graph and still flags
+        # vulnerable imported packages.
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+          govulncheck -scan package ./...
 
   license-scan:
     name: License Compliance
