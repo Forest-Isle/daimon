@@ -41,12 +41,18 @@ func InitMultiAgent(features *FeatureSubsystem, cfg *config.Config, builder *age
 		subDeps.Core.AgentID = "subagent-manager"
 		builder.MultiAgent.SubAgentMgr = agent.NewSubAgentManager(subDeps)
 		agentMgr := agent.NewAgentManager(provider, sessions, db, memStore, toolsReg, cfg.Agent, cfg.LLM)
-		_ = agentMgr.LoadDir(userdir.AgentsDir())
+		if err := agentMgr.LoadDir(userdir.AgentsDir()); err != nil {
+			slog.Warn("multi-agent: load agents dir failed", "dir", userdir.AgentsDir(), "err", err)
+		}
 		for _, dir := range cfg.Agents.ExtraDirs {
-			_ = agentMgr.LoadDir(dir)
+			if err := agentMgr.LoadDir(dir); err != nil {
+				slog.Warn("multi-agent: load agents dir failed", "dir", dir, "err", err)
+			}
 		}
 		for _, def := range cfg.Agents.Definitions {
-			_ = agentMgr.Add(defToSpec(def))
+			if err := agentMgr.Add(defToSpec(def)); err != nil {
+				slog.Warn("multi-agent: add inline agent failed", "name", def.Name, "err", err)
+			}
 		}
 		builder.MultiAgent.AgentMgr = agentMgr
 		agentMgr.SetAgentMCPManager(agentMCPMgr)

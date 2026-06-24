@@ -23,8 +23,12 @@ func InitSkills(features *FeatureSubsystem, cfg *config.Config, toolsReg *tool.R
 		return ss
 	}
 	ss.Manager = skill.New()
-	_ = ss.Manager.LoadBuiltin()
-	_ = ss.Manager.LoadDir(defaultSkillsDir())
+	if err := ss.Manager.LoadBuiltin(); err != nil {
+		slog.Error("skill: load builtin skills failed", "err", err)
+	}
+	if err := ss.Manager.LoadDir(defaultSkillsDir()); err != nil {
+		slog.Warn("skill: load skills dir failed", "dir", defaultSkillsDir(), "err", err)
+	}
 	stagingDir := defaultDistillStagingDir()
 	for _, dir := range cfg.Skills.ExtraDirs {
 		// The distill staging dir holds un-promoted SKILL.md drafts that must stay
@@ -34,7 +38,9 @@ func InitSkills(features *FeatureSubsystem, cfg *config.Config, toolsReg *tool.R
 			slog.Warn("skill: refusing to load distill staging dir as active skills (drafts must stay inert)", "dir", dir)
 			continue
 		}
-		_ = ss.Manager.LoadDir(dir)
+		if err := ss.Manager.LoadDir(dir); err != nil {
+			slog.Warn("skill: load skills dir failed", "dir", dir, "err", err)
+		}
 	}
 	builder.MultiAgent.SkillMgr = ss.Manager
 	toolsReg.Register(tool.NewSkillTool(ss.Manager))
