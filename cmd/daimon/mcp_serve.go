@@ -4,9 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
+	"strings"
 
+	"github.com/Forest-Isle/daimon/internal/appdir"
 	"github.com/Forest-Isle/daimon/internal/config"
 	"github.com/Forest-Isle/daimon/internal/mcp"
+	"github.com/Forest-Isle/daimon/internal/memory"
+	"github.com/Forest-Isle/daimon/internal/skill"
+	"github.com/Forest-Isle/daimon/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -30,10 +36,47 @@ func newMCPCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 
-			srv := mcp.NewServer(mcp.WithDeps(mcp.ServerDeps{
-				// Dependencies will be nil until gateway wires them;
-				// MCP serve standalone exposes tools without deps for now.
-			}))
+			db, err := store.Open(cfg.Store.Path)
+			if err != nil {
+				return fmt.Errorf("open database: %w", err)
+			}
+			defer func() { _ = db.Close() }()
+
+			var memStore memory.Store
+			var embedder memory.EmbeddingProvider = &memory.NoopEmbedding{}
+			if cfg.Memory.OpenAIAPIKey != "" {
+				embedder = memory.NewCachedEmbedder(memory.NewOpenAIEmbeddingWithURL(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel, cfg.Memory.EmbeddingBaseURL))
+			}
+			memCfg := memory.MemoryConfig{
+				FactExtraction:      cfg.Memory.FactExtraction,
+				SimilarityThreshold: cfg.Memory.SimilarityThreshold,
+				BM25Weight:          cfg.Memory.BM25Weight,
+				VectorWeight:        cfg.Memory.VectorWeight,
+				EmbeddingDimension:  cfg.Memory.VectorDimension,
+			}
+			storageDir := cfg.Memory.StorageDir
+			if storageDir == "" {
+				storageDir = filepath.Join(appdir.BaseDir(), "memory")
+			} else if strings.HasPrefix(storageDir, "~/") {
+				storageDir = filepath.Join(filepath.Dir(appdir.BaseDir()), storageDir[2:])
+			}
+			if fileStore, err := memory.NewFileMemoryStore(storageDir, db.DB, embedder, memCfg); err != nil {
+				slog.Warn("mcp server: create memory store failed", "dir", storageDir, "err", err)
+			} else {
+				memStore = fileStore
+			}
+
+			skillMgr := skill.New()
+			if err := skillMgr.LoadBuiltin(); err != nil {
+				slog.Error("skill: load builtin skills failed", "err", err)
+			}
+			skillsDir := filepath.Join(appdir.BaseDir(), "skills")
+			if err := skillMgr.LoadDir(skillsDir); err != nil {
+				slog.Warn("skill: load skills dir failed", "dir", skillsDir, "err", err)
+			}
+
+			srv := mcp.NewServer()
+			mcp.RegisterDefaultTools(srv, mcp.ServerDeps{MemoryStore: memStore, SkillMgr: skillMgr})
 
 			ctx := context.Background()
 
@@ -43,7 +86,6 @@ func newMCPCmd() *cobra.Command {
 			}
 
 			slog.Info("starting MCP server (stdio)")
-			_ = cfg // config available for future use (e.g., tool registration from config)
 			return srv.ServeStdio(ctx)
 		},
 	}
