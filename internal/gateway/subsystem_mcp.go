@@ -41,7 +41,7 @@ func (ms *MCPSubsystem) StartServers(ctx context.Context, cfg *config.Config, to
 	wg.Wait()
 }
 
-func (ms *MCPSubsystem) WatchDir(ctx context.Context, cfg *config.Config) {
+func (ms *MCPSubsystem) WatchDir(ctx context.Context, cfg *config.Config, reg *tool.Registry) {
 	poll := cfg.Tools.MCP.PollInterval
 	if poll <= 0 {
 		poll = 30 * time.Second
@@ -61,7 +61,7 @@ func (ms *MCPSubsystem) WatchDir(ctx context.Context, cfg *config.Config) {
 				desired[name] = srv
 			}
 			if ms.Manager != nil {
-				ms.Manager.SyncServers(ctx, desired, nil)
+				ms.Manager.SyncServers(ctx, desired, reg)
 			}
 		}
 	}

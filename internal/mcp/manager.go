@@ -185,7 +185,7 @@ func (m *Manager) startServer(ctx context.Context, name string, srv config.MCPSe
 			} else {
 				slog.Info("mcp tool deferred", "name", adapter.Name())
 			}
-		} else {
+		} else if registry != nil {
 			registry.Register(adapter)
 			slog.Info("mcp tool registered", "name", adapter.Name())
 		}
@@ -229,7 +229,10 @@ func (m *Manager) StopServer(name string, registry *tool.Registry) {
 	}
 
 	prefix := "mcp_" + name + "_"
-	removed := registry.UnregisterByPrefix(prefix)
+	var removed []string
+	if registry != nil {
+		removed = registry.UnregisterByPrefix(prefix)
+	}
 	m.mu.RLock()
 	catalog := m.catalog
 	deferred := m.deferred
