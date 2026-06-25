@@ -199,6 +199,10 @@ tools:
     ttl_hours: 24           # auto-cleanup after this duration
 
   mcp:
+    # Route MCP tools into the deferred catalog instead of the active registry.
+    # When enabled, MCP tools are discovered via tool_search and loaded on demand
+    # to save context. Default false keeps existing eager registration behavior.
+    deferred: false
     servers:
       # GitHub MCP Server 示例
       # github:

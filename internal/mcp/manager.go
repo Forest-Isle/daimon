@@ -25,6 +25,8 @@ const (
 type Manager struct {
 	clients  map[string]client.MCPClient
 	degraded map[string]bool // servers that failed to connect; cleared on success
+	catalog  *tool.DeferredCatalog
+	deferred bool
 	mu       sync.RWMutex
 }
 
@@ -33,6 +35,13 @@ func NewManager() *Manager {
 		clients:  make(map[string]client.MCPClient),
 		degraded: make(map[string]bool),
 	}
+}
+
+func (m *Manager) SetDeferredCatalog(catalog *tool.DeferredCatalog) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.catalog = catalog
+	m.deferred = catalog != nil
 }
 
 // StartServers connects to each configured MCP server in parallel, discovers tools,
@@ -158,8 +167,28 @@ func (m *Manager) startServer(ctx context.Context, name string, srv config.MCPSe
 	// Register each tool as an adapter
 	for _, t := range toolsResp.Tools {
 		adapter := NewToolAdapter(c, name, t, srv.RequiresApproval)
-		registry.Register(adapter)
-		slog.Info("mcp tool registered", "name", adapter.Name())
+		m.mu.RLock()
+		catalog := m.catalog
+		deferred := m.deferred
+		m.mu.RUnlock()
+		if deferred && catalog != nil {
+			spec := tool.DeferredToolSpec{
+				Name:        adapter.Name(),
+				Description: adapter.Description(),
+				Source:      "mcp:" + name,
+				Load: func(context.Context) (tool.Tool, error) {
+					return adapter, nil
+				},
+			}
+			if err := catalog.Add(spec); err != nil {
+				slog.Warn("mcp: defer tool failed", "name", adapter.Name(), "err", err)
+			} else {
+				slog.Info("mcp tool deferred", "name", adapter.Name())
+			}
+		} else {
+			registry.Register(adapter)
+			slog.Info("mcp tool registered", "name", adapter.Name())
+		}
 	}
 
 	m.mu.Lock()
@@ -201,6 +230,13 @@ func (m *Manager) StopServer(name string, registry *tool.Registry) {
 
 	prefix := "mcp_" + name + "_"
 	removed := registry.UnregisterByPrefix(prefix)
+	m.mu.RLock()
+	catalog := m.catalog
+	deferred := m.deferred
+	m.mu.RUnlock()
+	if deferred && catalog != nil {
+		catalog.RemoveByPrefix(prefix)
+	}
 	slog.Info("mcp server stopped", "server", name, "tools_removed", len(removed))
 }
 

@@ -334,6 +334,10 @@ func (gw *Gateway) SetSchedulerNotifier(ch channel.Channel) {
 func (gw *Gateway) Start(ctx context.Context) error {
 	gw.health.StartServer(gw.config.Config())
 
+	if gw.config.Config().Tools.MCP.Deferred {
+		gw.mcpSub.Manager.SetDeferredCatalog(gw.toolSub.DeferredCatalog)
+		slog.Info("mcp: tools routed to deferred catalog (discoverable via tool_search)")
+	}
 	if len(gw.config.Config().Tools.MCP.Servers) > 0 {
 		go gw.mcpSub.StartServers(ctx, gw.config.Config(), gw.toolSub.Registry)
 	}

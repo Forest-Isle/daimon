@@ -62,6 +62,24 @@ func (c *DeferredCatalog) Add(spec DeferredToolSpec) error {
 	return nil
 }
 
+// RemoveByPrefix removes all deferred tools whose name starts with prefix and returns the removed names.
+func (c *DeferredCatalog) RemoveByPrefix(prefix string) []string {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var removed []string
+	for name := range c.entries {
+		if strings.HasPrefix(name, prefix) {
+			delete(c.entries, name)
+			delete(c.resolved, name)
+			removed = append(removed, name)
+		}
+	}
+	return removed
+}
+
 func (c *DeferredCatalog) Search(query string, limit int) []DeferredToolMatch {
 	if c == nil {
 		return nil

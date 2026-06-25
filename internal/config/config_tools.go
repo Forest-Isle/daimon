@@ -44,6 +44,7 @@ type ResultPersistenceConfig struct {
 type MCPConfig struct {
 	Servers      map[string]MCPServerConfig `yaml:"servers"`
 	PollInterval time.Duration              `yaml:"poll_interval"` // directory scan interval; default: 30s
+	Deferred     bool                       `yaml:"deferred"`      // route MCP tools into the deferred catalog (discover via tool_search) instead of the active registry
 }
 
 type MCPServerConfig struct {
