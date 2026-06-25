@@ -127,6 +127,18 @@ memory:
   storage_dir: ~/.daimon/memory      # 文件存储目录（默认）
   embedding_model: text-embedding-3-small  # 或 text-embedding-3-large（3072维，更高精度）
   openai_api_key: ${OPENAI_API_KEY}
+
+  # 本地 embedding fallback：无有效 openai_api_key 时启用（opt-in，默认关）。
+  # 走本地 OpenAI 兼容引擎 Ollama，daemon 需自行常驻（daimon 不托管该进程）。
+  # local_embedding:
+  #   enabled: true
+  #   engine: ollama
+  #   model: nomic-embed-text          # 768 维
+  #   host: http://localhost:11434
+  #   auto_pull: true                  # 模型缺失时经 daemon 自动拉取（首次可能下载数百 MB）
+  # 维度提示：nomic-embed-text 是 768 维，与 text-embedding-3-small 的 1536 维不兼容。
+  # 从 openai 切到本地需重建已存向量，并把下方 vector_dimension 改为 768。
+
   # fact_extraction: true          # legacy key: enable lifecycle decisions for explicit memory saves
   # similarity_threshold: 0.85     # 去重阈值
   # bm25_weight: 0.4               # BM25 权重

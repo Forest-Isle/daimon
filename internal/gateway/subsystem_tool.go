@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/Forest-Isle/daimon/internal/action"
@@ -114,17 +115,24 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 		))
 	}
 
-	ts.CodebaseIndex = newCodebaseIndexFromCfg(cfg)
-	if ts.CodebaseIndex != nil && ts.CodebaseIndex.IsAvailable() {
+	var indexReady func(context.Context) bool
+	ts.CodebaseIndex, indexReady = newCodebaseIndexFromCfg(cfg)
+	if indexReady != nil {
 		// The initial whole-repo index is hundreds of files, each chunk a network
 		// embedding round-trip, so it cannot finish inside the 30s init budget.
 		// Run it on a long-lived background context in its own goroutine so it
 		// neither aborts on the init deadline nor blocks startup. Per-file embed
 		// failures are already tolerated; only this context's cancellation (on
-		// Stop) halts it.
+		// Stop) halts it. A local engine may still be pulling its model, so gate
+		// the first pass on readiness; avail flips true once the embedder is live.
 		indexCtx, cancel := context.WithCancel(context.Background())
 		ts.indexCancel = cancel
+		var avail atomic.Bool
 		go func() {
+			if !indexReady(indexCtx) {
+				return
+			}
+			avail.Store(true)
 			if err := ts.CodebaseIndex.IndexDirectoryContext(indexCtx, "."); err != nil {
 				slog.Warn("codebase index: initial indexing failed", "err", err)
 			} else {
@@ -132,7 +140,7 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 			}
 		}()
 		ts.Registry.Register(tool.NewSemanticSearchTool(
-			ts.CodebaseIndex.IsAvailable,
+			avail.Load,
 			func(qctx context.Context, query string, topK int) ([]tool.CodeSearchResult, error) {
 				results, err := ts.CodebaseIndex.Search(qctx, query, topK)
 				if err != nil {
@@ -229,12 +237,21 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	return ts
 }
 
-func newCodebaseIndexFromCfg(cfg *config.Config) *agent.CodebaseIndex {
-	if cfg.Memory.OpenAIAPIKey == "" {
-		return agent.NewCodebaseIndex(nil, agent.IndexConfig{ChunkSize: 50, Overlap: 10, EmbeddingModel: cfg.Memory.EmbeddingModel})
+// newCodebaseIndexFromCfg builds the codebase index and a readiness gate. The
+// gate is nil when no embedder is available (the caller skips indexing); for a
+// local engine it blocks until warmup finishes, reporting whether it is usable.
+func newCodebaseIndexFromCfg(cfg *config.Config) (*agent.CodebaseIndex, func(context.Context) bool) {
+	idxCfg := agent.IndexConfig{ChunkSize: 50, Overlap: 10, EmbeddingModel: cfg.Memory.EmbeddingModel}
+	h := buildEmbedder(cfg)
+	if _, noop := h.provider.(*memory.NoopEmbedding); noop {
+		return agent.NewCodebaseIndex(nil, idxCfg), nil
 	}
-	p := memory.NewCachedEmbedder(memory.NewOpenAIEmbeddingWithURL(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel, cfg.Memory.EmbeddingBaseURL))
-	return agent.NewCodebaseIndex(memoryEmbeddingAdapter{provider: p}, agent.IndexConfig{ChunkSize: 50, Overlap: 10, EmbeddingModel: cfg.Memory.EmbeddingModel})
+	idx := agent.NewCodebaseIndex(memoryEmbeddingAdapter{provider: h.provider}, idxCfg)
+	ready := h.waitReady
+	if ready == nil {
+		ready = func(context.Context) bool { return true }
+	}
+	return idx, ready
 }
 
 func permissionProfilesFromConfig(cfg *config.Config) map[tool.ToolChannelClass]tool.PermissionProfile {

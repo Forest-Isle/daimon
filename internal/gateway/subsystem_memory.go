@@ -40,10 +40,9 @@ func InitMemorySystem(features *FeatureSubsystem, cfg *config.Config, builder *a
 	}
 	ms := &MemorySubsystem{}
 
-	var embedder memory.EmbeddingProvider = &memory.NoopEmbedding{}
-	if k := cfg.Memory.OpenAIAPIKey; k != "" && !strings.HasPrefix(k, "${") {
-		embedder = memory.NewCachedEmbedder(memory.NewOpenAIEmbeddingWithURL(cfg.Memory.OpenAIAPIKey, cfg.Memory.EmbeddingModel, cfg.Memory.EmbeddingBaseURL))
-		slog.Info("memory: cached embedder enabled")
+	embedder := buildEmbedder(cfg).provider
+	if _, noop := embedder.(*memory.NoopEmbedding); !noop {
+		slog.Info("memory: embedder enabled")
 	}
 	ms.embedder = embedder
 
