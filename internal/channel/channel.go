@@ -64,6 +64,7 @@ type ProposalSender interface {
 type ToolActivitySender interface {
 	SendToolActivity(ctx context.Context, target MessageTarget, toolName, summary string, done bool) error
 }
+
 // real-time streaming of tool execution output. When a tool produces
 // output incrementally (e.g., long-running bash commands), the runtime
 // sends lines/chunks via this writer while the tool is still running.

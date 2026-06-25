@@ -19,7 +19,7 @@ type fakeProposalChannel struct {
 	handler func(ctx context.Context, id string, accept bool)
 }
 
-func (f *fakeProposalChannel) Name() string                                       { return "telegram" }
+func (f *fakeProposalChannel) Name() string                                        { return "telegram" }
 func (f *fakeProposalChannel) Start(context.Context, channel.InboundHandler) error { return nil }
 func (f *fakeProposalChannel) Send(context.Context, channel.OutboundMessage) error { return nil }
 func (f *fakeProposalChannel) SendStreaming(context.Context, channel.MessageTarget) (channel.StreamUpdater, error) {

@@ -161,8 +161,8 @@ func TestDriftJobIgnoresHallucinatedID(t *testing.T) {
 
 func TestParseDriftVerdictTolerance(t *testing.T) {
 	cases := map[string]int{
-		`{"drifting":[]}`:                               0,
-		"```json\n{\"drifting\":[{\"id\":\"a\"}]}\n```": 1,
+		`{"drifting":[]}`: 0,
+		"```json\n{\"drifting\":[{\"id\":\"a\"}]}\n```":         1,
 		"Here is my verdict:\n{\"drifting\":[{\"id\":\"a\"}]}.": 1,
 		"no json here": 0,
 		"":             0,
