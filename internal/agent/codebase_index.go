@@ -160,6 +160,11 @@ func (idx *CodebaseIndex) IndexDirectoryContext(ctx context.Context, dir string)
 			if _, skip := defaultCodebaseIndexExcludes[d.Name()]; skip {
 				return filepath.SkipDir
 			}
+			// Skip hidden dirs (.git, .gomodcache, .gocache, .idea, .github, ...)
+			// except the walk root itself, which may be a dotted path.
+			if path != dir && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !shouldIndexFile(path) {

@@ -31,7 +31,11 @@ func newMCPCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Start Daimon as an MCP server (stdio or HTTP)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath)
+			resolvedPath, err := config.FindConfigPath(configPath, false)
+			if err != nil {
+				return err
+			}
+			cfg, err := config.Load(resolvedPath)
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
@@ -89,7 +93,7 @@ func newMCPCmd() *cobra.Command {
 			return srv.ServeStdio(ctx)
 		},
 	}
-	serveCmd.Flags().StringVarP(&configPath, "config", "c", "configs/daimon.yaml", "path to config file")
+	serveCmd.Flags().StringVarP(&configPath, "config", "c", "", "path to config file")
 	serveCmd.Flags().StringVar(&httpAddr, "http", "", "HTTP address (e.g., :8089); if empty, uses stdio")
 
 	cmd.AddCommand(serveCmd)

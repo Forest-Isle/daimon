@@ -61,6 +61,6 @@ func newProposalsCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/daimon.yaml", "config file")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file")
 	return cmd
 }

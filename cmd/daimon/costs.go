@@ -232,7 +232,7 @@ func newCostsCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/daimon.yaml", "config file")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file")
 	cmd.Flags().DurationVar(&since, "since", 30*24*time.Hour, "report window (e.g. 720h, 168h); 0 = all time")
 	return cmd
 }

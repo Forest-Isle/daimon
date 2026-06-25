@@ -292,20 +292,26 @@ func runStart(configPath string, devMode bool) error {
 		return fmt.Errorf("init gateway: %w", err)
 	}
 
-	// Create and register Telegram channel
-	tgTimeout := 30
-	if cfg.Telegram.Timeout > 0 {
-		tgTimeout = int(cfg.Telegram.Timeout.Seconds())
+	// Create and register Telegram channel only when a real token is set.
+	// An empty or unexpanded ${VAR} placeholder would make telegram.New call
+	// the Bot API and fail, taking down the entire runtime.
+	if tgToken := cfg.Telegram.Token; tgToken == "" || strings.HasPrefix(tgToken, "${") {
+		slog.Info("telegram channel disabled (no token configured)")
+	} else {
+		tgTimeout := 30
+		if cfg.Telegram.Timeout > 0 {
+			tgTimeout = int(cfg.Telegram.Timeout.Seconds())
+		}
+		tg, err := telegram.New(tgToken, cfg.Telegram.AllowedUserIDs, tgTimeout)
+		if err != nil {
+			return fmt.Errorf("init telegram: %w", err)
+		}
+		if cfg.Agent.Execution.ApprovalTimeoutSeconds > 0 {
+			tg.SetApprovalTimeout(cfg.Agent.Execution.ApprovalTimeoutSeconds)
+		}
+		gw.AddChannel(tg)
+		gw.SetSchedulerNotifier(tg)
 	}
-	tg, err := telegram.New(cfg.Telegram.Token, cfg.Telegram.AllowedUserIDs, tgTimeout)
-	if err != nil {
-		return fmt.Errorf("init telegram: %w", err)
-	}
-	if cfg.Agent.Execution.ApprovalTimeoutSeconds > 0 {
-		tg.SetApprovalTimeout(cfg.Agent.Execution.ApprovalTimeoutSeconds)
-	}
-	gw.AddChannel(tg)
-	gw.SetSchedulerNotifier(tg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

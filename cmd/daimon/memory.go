@@ -33,7 +33,11 @@ func newMemoryReindexCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 
-			cfg, err := config.Load(configPath)
+			resolvedPath, err := config.FindConfigPath(configPath, false)
+			if err != nil {
+				return err
+			}
+			cfg, err := config.Load(resolvedPath)
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
@@ -61,7 +65,7 @@ func newMemoryReindexCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&configPath, "config", "c", "configs/daimon.yaml", "config file")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file")
 
 	return cmd
 }
