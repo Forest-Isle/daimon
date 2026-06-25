@@ -5,7 +5,6 @@ type HooksConfig struct {
 	PreToolUse    []HookHandlerConfig `yaml:"pre_tool_use"`
 	PostToolUse   []HookHandlerConfig `yaml:"post_tool_use"`
 	OnUserMessage []HookHandlerConfig `yaml:"on_user_message"`
-	PreCompact    []HookHandlerConfig `yaml:"pre_compact"`
 }
 
 // HookHandlerConfig configures a single hook handler.

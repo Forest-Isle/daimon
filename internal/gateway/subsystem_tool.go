@@ -162,11 +162,7 @@ func InitTools(ctx context.Context, cfg *config.Config, features *FeatureSubsyst
 	for i, h := range cfg.Hooks.OnUserMessage {
 		onUserMsgCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
 	}
-	preCompactCfg := make([]hook.HandlerConfig, len(cfg.Hooks.PreCompact))
-	for i, h := range cfg.Hooks.PreCompact {
-		preCompactCfg[i] = hook.HandlerConfig{Type: h.Type, Config: h.Config}
-	}
-	ts.HookMgr = hook.BuildManager(preToolUseCfg, postToolUseCfg, onUserMsgCfg, preCompactCfg, &hook.BuildManagerOpts{DB: db.DB})
+	ts.HookMgr = hook.BuildManager(preToolUseCfg, postToolUseCfg, onUserMsgCfg, &hook.BuildManagerOpts{DB: db.DB})
 	slog.Info("hook system initialized")
 
 	hooksDir := filepath.Join(appdir.BaseDir(), "hooks")

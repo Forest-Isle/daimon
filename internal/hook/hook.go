@@ -56,18 +56,6 @@ type OnUserMessageResult struct {
 	ModifiedText    *string  // if non-nil, replaces the user message
 }
 
-// PreCompactEvent is fired before context compression.
-type PreCompactEvent struct {
-	SessionID      string
-	MessageCount   int
-	EstUtilization float64
-}
-
-// PreCompactResult allows handlers to mark messages for preservation.
-type PreCompactResult struct {
-	PreserveMessageIDs []string // message IDs that must not be compressed/dropped
-}
-
 // --- Handler Interfaces ---
 
 // PreToolUseHandler handles events before tool execution.
@@ -85,11 +73,6 @@ type OnUserMessageHandler interface {
 	OnUserMessage(ctx context.Context, event OnUserMessageEvent) (OnUserMessageResult, error)
 }
 
-// PreCompactHandler handles events before context compression.
-type PreCompactHandler interface {
-	OnPreCompact(ctx context.Context, event PreCompactEvent) (PreCompactResult, error)
-}
-
 // --- Hook Manager ---
 
 // Manager dispatches lifecycle events to registered handlers.
@@ -97,7 +80,6 @@ type Manager struct {
 	preToolUse    []PreToolUseHandler
 	postToolUse   []PostToolUseHandler
 	onUserMessage []OnUserMessageHandler
-	preCompact    []PreCompactHandler
 }
 
 // NewManager creates an empty hook manager.
@@ -118,11 +100,6 @@ func (m *Manager) RegisterPostToolUse(h PostToolUseHandler) {
 // RegisterOnUserMessage adds a handler for OnUserMessage events.
 func (m *Manager) RegisterOnUserMessage(h OnUserMessageHandler) {
 	m.onUserMessage = append(m.onUserMessage, h)
-}
-
-// RegisterPreCompact adds a handler for PreCompact events.
-func (m *Manager) RegisterPreCompact(h PreCompactHandler) {
-	m.preCompact = append(m.preCompact, h)
 }
 
 // FirePreToolUse dispatches a PreToolUse event to all handlers.
@@ -172,21 +149,6 @@ func (m *Manager) FireOnUserMessage(ctx context.Context, event OnUserMessageEven
 		if result.ModifiedText != nil {
 			combined.ModifiedText = result.ModifiedText
 		}
-	}
-	return combined, nil
-}
-
-// FirePreCompact dispatches a PreCompact event to ALL handlers.
-// Preserved message IDs are aggregated.
-func (m *Manager) FirePreCompact(ctx context.Context, event PreCompactEvent) (PreCompactResult, error) {
-	var combined PreCompactResult
-	for _, h := range m.preCompact {
-		result, err := h.OnPreCompact(ctx, event)
-		if err != nil {
-			slog.Warn("hook: PreCompact handler error", "err", err)
-			continue
-		}
-		combined.PreserveMessageIDs = append(combined.PreserveMessageIDs, result.PreserveMessageIDs...)
 	}
 	return combined, nil
 }

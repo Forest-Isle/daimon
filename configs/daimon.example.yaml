@@ -282,7 +282,6 @@ hooks:
       config:
         include_ls: true
         max_files: 20
-  # pre_compact: []
 
 server:
   addr: ":8080"

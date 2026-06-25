@@ -109,7 +109,7 @@ func TestSafetyAnalyzerBlocks(t *testing.T) {
 func TestBuildManagerUnknownType(t *testing.T) {
 	m := BuildManager(
 		[]HandlerConfig{{Type: "unknown_handler"}},
-		nil, nil, nil, nil,
+		nil, nil, nil,
 	)
 	// Should not panic, should log warning and skip
 	if m.HasPreToolUseHandlers() {
