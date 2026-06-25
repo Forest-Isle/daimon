@@ -341,7 +341,7 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	if len(gw.config.Config().Tools.MCP.Servers) > 0 {
 		go gw.mcpSub.StartServers(ctx, gw.config.Config(), gw.toolSub.Registry)
 	}
-	go gw.mcpSub.WatchDir(ctx, gw.config.Config())
+	go gw.mcpSub.WatchDir(ctx, gw.config.Config(), gw.toolSub.Registry)
 
 	if gw.toolSub.ResultStore != nil {
 		go func() {
