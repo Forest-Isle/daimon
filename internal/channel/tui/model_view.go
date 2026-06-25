@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
@@ -172,8 +171,10 @@ func (m Model) renderHeader() string {
 
 // renderWelcome renders the branded welcome screen.
 func (m Model) renderWelcome() string {
-	logo := welcomeTitleStyle.Render("🦾  Daimon")
-
+	// Title leads with the agent glyph so the welcome speaks the same visual
+	// language as a Daimon turn; no emoji (its width varies across terminals
+	// and would skew the centering).
+	title := agentGlyphStyle.Render("⏺") + "  " + welcomeTitleStyle.Render("Daimon")
 	subtitle := welcomeSubtitleStyle.Render("Local-first AI Agent Runtime")
 
 	shortcuts := []struct{ key, desc string }{
@@ -183,43 +184,44 @@ func (m Model) renderWelcome() string {
 		{"Ctrl+O", "Toggle text selection mode"},
 	}
 
-	var hintLines string
+	// Two-column hint block: keys padded to a fixed column (measured on the
+	// plain text, styled after), descriptions trailing. Left-aligned as a
+	// block, the block itself centered below.
+	const keyCol = 10
+	var hintLines []string
 	for _, s := range shortcuts {
-		hintLines += fmt.Sprintf("  %s  %s\n",
-			welcomeKeyStyle.Render(s.key),
-			welcomeHintStyle.Render(s.desc))
+		pad := keyCol - runewidth.StringWidth(s.key)
+		if pad < 1 {
+			pad = 1
+		}
+		hintLines = append(hintLines,
+			welcomeKeyStyle.Render(s.key)+strings.Repeat(" ", pad)+welcomeHintStyle.Render(s.desc))
 	}
+	hints := lipgloss.JoinVertical(lipgloss.Left, hintLines...)
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Center,
-		logo,
-		subtitle,
-		"",
-		hintLines,
-	)
-	box := welcomeBoxStyle.Render(content)
+	content := lipgloss.JoinVertical(lipgloss.Center, title, subtitle, "", "", hints)
 
-	// Center vertically by padding top
 	availableHeight := m.viewport.Height
 	if availableHeight < 1 {
 		availableHeight = 1
 	}
-	boxHeight := lipgloss.Height(box)
-	if boxHeight > availableHeight {
+	// Fall back to the compact form when the screen is too short or too narrow.
+	if lipgloss.Height(content) > availableHeight || lipgloss.Width(content) > m.termWidth() {
 		return m.renderCompactWelcome(availableHeight)
 	}
-	topPad := (availableHeight - boxHeight) / 2
+
+	centered := lipgloss.NewStyle().Width(m.termWidth()).Align(lipgloss.Center).Render(content)
+	topPad := (availableHeight - lipgloss.Height(content)) / 2
 	if topPad < 0 {
 		topPad = 0
 	}
-
-	return strings.Repeat("\n", topPad) + box
+	return strings.Repeat("\n", topPad) + centered
 }
 
 func (m Model) renderCompactWelcome(maxRows int) string {
 	width := m.messageContentWidth()
 	lines := []string{
-		agentLabelStyle.Render(truncateTail("Daimon", width)),
+		agentGlyphStyle.Render("⏺") + " " + welcomeTitleStyle.Render(truncateTail("Daimon", maxInt(1, width-2))),
 		statusDimStyle.Render(truncateTail("Local-first AI Agent Runtime", width)),
 		welcomeHintStyle.Render(truncateTail("/help commands · Ctrl+O text select", width)),
 	}
@@ -232,17 +234,36 @@ func (m Model) renderCompactWelcome(maxRows int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, lines[:maxRows]...)
 }
 
-// renderChat renders the message history with visual distinction.
+// renderChat renders the message history plus any live streaming tail.
 //
-// Each message block is cached on the message itself (keyed by terminal
-// width) so glamour runs once per message instead of on every streaming
-// tick. The streaming tail is rendered as plain wrapped text — cheap, and
-// it avoids the flicker of half-closed markdown fences mid-stream.
+// The finalized history is cached as one joined string (renderStaticChat);
+// the streaming tail is the only part rebuilt on each ~20Hz tick, so a long
+// transcript no longer re-concatenates on every frame.
 func (m *Model) renderChat() string {
+	static := m.renderStaticChat()
+	if m.streamingID == "" || m.streamingText == "" {
+		return static
+	}
+	tail := m.renderStreamingTail()
+	if static == "" {
+		return tail
+	}
+	return static + "\n\n" + tail
+}
+
+// renderStaticChat returns the joined render of all finalized messages,
+// rebuilding only when the transcript changed (chatRev) or the width changed.
+// Each block is also cached on its message (keyed by width) so glamour runs
+// once per message rather than per frame.
+func (m *Model) renderStaticChat() string {
+	if m.chatCacheBuilt && m.chatCacheRev == m.chatRev && m.chatCacheWidth == m.width {
+		return m.chatCache
+	}
+
 	var b strings.Builder
 	for i := range m.messages {
 		if i > 0 {
-			b.WriteString("\n")
+			b.WriteString("\n\n")
 		}
 		msg := &m.messages[i]
 		if msg.renderedWidth != m.width || msg.rendered == "" {
@@ -252,51 +273,46 @@ func (m *Model) renderChat() string {
 		b.WriteString(msg.rendered)
 	}
 
-	// Streaming text — never cached (changes every frame), rendered plain.
-	if m.streamingID != "" && m.streamingText != "" {
-		b.WriteString("\n")
-		ts := timestampStyle.Render(time.Now().Format("15:04"))
-		bar := agentBarStyle.Render("▌")
-		label := agentLabelStyle.Render("Daimon")
-		indicator := streamingStyle.Render(" ▊")
-		body := wrapText(m.streamingText, m.messageContentWidth())
-		b.WriteString(fmt.Sprintf("%s %s %s\n%s%s",
-			ts, bar, label, indentWithBar(body, bar), indicator))
-	}
-
-	return b.String()
+	m.chatCache = b.String()
+	m.chatCacheWidth = m.width
+	m.chatCacheRev = m.chatRev
+	m.chatCacheBuilt = true
+	return m.chatCache
 }
 
-// renderMessageBlock renders a single message block (header line + body).
-// Deterministic given the message content, role, timestamp, and width — so
-// the result is safe to cache.
+// renderStreamingTail renders the live, still-growing agent text. Plain
+// wrapped text (no glamour) — cheap, and it avoids the flicker of half-closed
+// markdown fences mid-stream.
+func (m *Model) renderStreamingTail() string {
+	glyph := agentGlyphStyle.Render("⏺")
+	body := wrapText(m.streamingText, m.messageContentWidth()) + streamCursorStyle.Render("▌")
+	return indentBlock(body, glyph+" ", "  ")
+}
+
+// renderMessageBlock renders a single message block: a leading role glyph on
+// the first line, continuation indented to align under the text. Deterministic
+// given the message content, role, and width — so the result is safe to cache.
 func (m *Model) renderMessageBlock(msg *chatMessage) string {
-	ts := timestampStyle.Render(msg.timestamp.Format("15:04"))
 	contentWidth := m.messageContentWidth()
 
 	switch msg.role {
 	case "user":
-		bar := userBarStyle.Render("▌")
-		label := userLabelStyle.Render(m.username)
-		wrapped := wrapText(msg.content, contentWidth)
-		return fmt.Sprintf("%s %s %s\n%s  %s", ts, bar, label, bar, wrapped)
+		body := wrapText(msg.content, contentWidth)
+		return indentBlock(body, userGlyphStyle.Render("›")+" ", "  ")
 
 	case "agent":
-		bar := agentBarStyle.Render("▌")
-		label := agentLabelStyle.Render("Daimon")
-		rendered := renderMarkdown(msg.content)
-		return fmt.Sprintf("%s %s %s\n%s",
-			ts, bar, label, indentWithBar(rendered, bar))
+		rendered := strings.Trim(renderMarkdown(msg.content), "\n")
+		return indentBlock(rendered, agentGlyphStyle.Render("⏺")+" ", "  ")
 
 	case "system":
-		bar := systemBarStyle.Render("·")
-		wrapped := wrapText(msg.content, contentWidth)
-		return fmt.Sprintf("%s %s %s", ts, bar, systemStyle.Render(wrapped))
+		body := systemStyle.Render(wrapText(msg.content, contentWidth))
+		return indentBlock(body, "  ", "  ")
 	}
 	return ""
 }
 
-// renderTypingIndicator renders the animated "waiting" dots.
+// renderTypingIndicator renders the animated "waiting" dots, aligned under the
+// agent glyph so it reads as a turn that hasn't produced text yet.
 func (m Model) renderTypingIndicator() string {
 	dots := []string{"○", "○", "○"}
 	dots[m.typingTick] = typingDotActiveStyle.Render("●")
@@ -305,7 +321,7 @@ func (m Model) renderTypingIndicator() string {
 			dots[i] = typingDotInactiveStyle.Render(dots[i])
 		}
 	}
-	return "  " + agentLabelStyle.Render("Daimon") + " " +
+	return agentGlyphStyle.Render("⏺") + " " +
 		strings.Join(dots, " ") + "  " + statusDimStyle.Render("thinking…")
 }
 
@@ -514,7 +530,9 @@ func shortenPath(path string, maxLen int) string {
 }
 
 // truncateTail trims s to maxWidth display columns, appending "…" when it
-// overflows. Operates on runes so multi-byte characters are never split.
+// overflows. runewidth.Truncate measures the ellipsis with the same condition
+// it uses for the body, so the result holds even when "…" is a wide (East
+// Asian ambiguous) rune — a 1-col reservation would overflow by one there.
 func truncateTail(s string, maxWidth int) string {
 	if runewidth.StringWidth(s) <= maxWidth {
 		return s
@@ -522,16 +540,7 @@ func truncateTail(s string, maxWidth int) string {
 	if maxWidth < 1 {
 		return "…"
 	}
-	r := []rune(s)
-	w := 0
-	for i, c := range r {
-		cw := runewidth.RuneWidth(c)
-		if w+cw > maxWidth-1 { // reserve 1 col for the ellipsis
-			return string(r[:i]) + "…"
-		}
-		w += cw
-	}
-	return s
+	return runewidth.Truncate(s, maxWidth, "…")
 }
 
 func twoColumnLine(prefix, primary, secondary string, width int) string {
@@ -645,14 +654,18 @@ func minInt(a, b int) int {
 	return b
 }
 
-// indentWithBar prefixes each line of s with the bar rune for visual alignment.
-func indentWithBar(s string, bar string) string {
+// indentBlock prefixes the first line of s with first and every subsequent
+// non-empty line with cont, keeping blank lines empty (no trailing spaces).
+func indentBlock(s, first, cont string) string {
 	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if line == "" {
-			lines[i] = bar
-		} else {
-			lines[i] = bar + " " + line
+	for i := range lines {
+		switch {
+		case i == 0:
+			lines[i] = first + lines[i]
+		case lines[i] == "":
+			// keep blank
+		default:
+			lines[i] = cont + lines[i]
 		}
 	}
 	return strings.Join(lines, "\n")

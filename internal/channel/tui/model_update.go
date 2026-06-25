@@ -397,12 +397,17 @@ func (m *Model) handleFeedbackKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // addMessage appends a message to the conversation history.
+//
+// chatRev is bumped so the static-chat render cache rebuilds on the next
+// frame. Both transcript-clearing paths (/clear, session reset) append a
+// message immediately after truncating, so this single bump covers them too.
 func (m *Model) addMessage(role, content string) {
 	m.messages = append(m.messages, chatMessage{
 		role:      role,
 		content:   content,
 		timestamp: time.Now(),
 	})
+	m.chatRev++
 }
 
 // refreshViewport re-renders content, re-enables autoScroll, and jumps to bottom.

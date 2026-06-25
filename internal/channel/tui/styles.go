@@ -4,17 +4,21 @@ import "github.com/charmbracelet/lipgloss"
 
 var (
 	// ─── Palette ──────────────────────────────────────────────
-	colorPrimary     = lipgloss.Color("#8B7CF6")
-	colorPrimarySoft = lipgloss.Color("#B8B2FF")
-	colorCyan        = lipgloss.Color("#4CC9F0")
-	colorGreen       = lipgloss.Color("#35D39D")
-	colorGold        = lipgloss.Color("#F2C14E")
-	colorText        = lipgloss.Color("#ECECF1")
-	colorMuted       = lipgloss.Color("#9A9AA6")
-	colorDim         = lipgloss.Color("#5B6070")
-	colorPanelBorder = lipgloss.Color("#343A46")
-	colorSurface     = lipgloss.Color("#151923")
-	colorStatusBg    = lipgloss.Color("#10131A")
+	// Calm, low-noise dark theme: one dominant accent (soft blue) anchors
+	// the agent, a single secondary (mint) marks the user, everything else
+	// stays neutral so long sessions are easy on the eyes.
+	colorBrand    = lipgloss.Color("#82AAFF") // agent glyph, brand, primary accent
+	colorBrandDim = lipgloss.Color("#A9C2FF") // lighter brand for headers/labels
+	colorUser     = lipgloss.Color("#7DCFB6") // user glyph + input prompt
+	colorText     = lipgloss.Color("#C8CCD4") // primary text
+	colorMuted    = lipgloss.Color("#828A99") // secondary text
+	colorDim      = lipgloss.Color("#4B515E") // tertiary / dim / separators
+	colorGreen    = lipgloss.Color("#9ECE6A") // ready / success
+	colorGold     = lipgloss.Color("#E0AF68") // busy / approval / warn
+	colorBorder   = lipgloss.Color("#2A2F3A") // panel borders
+	colorSurface  = lipgloss.Color("#161A22") // header background
+	colorStatusBg = lipgloss.Color("#0E1117") // status bar background
+	colorSelBg    = lipgloss.Color("#243049") // selected list row background
 
 	// Header
 	headerStyle = lipgloss.NewStyle().
@@ -24,34 +28,28 @@ var (
 			Padding(0, 1)
 
 	headerLabelStyle = lipgloss.NewStyle().
-				Foreground(colorCyan)
+				Foreground(colorMuted)
 
-	// Chat message labels
-	userLabelStyle = lipgloss.NewStyle().
+	// Chat — role glyphs lead each turn; bodies use neutral text.
+	userGlyphStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorGreen)
+			Foreground(colorUser)
 
-	agentLabelStyle = lipgloss.NewStyle().
+	agentGlyphStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorPrimarySoft)
+			Foreground(colorBrand)
 
 	systemStyle = lipgloss.NewStyle().
 			Italic(true).
 			Foreground(colorDim)
 
-	timestampStyle = lipgloss.NewStyle().
-			Foreground(colorDim).
-			Width(5)
-
-	// Message bar accents
+	// Input prompt glyph (textarea).
 	userBarStyle = lipgloss.NewStyle().
-			Foreground(colorGreen)
+			Foreground(colorUser)
 
-	agentBarStyle = lipgloss.NewStyle().
-			Foreground(colorPrimary)
-
-	systemBarStyle = lipgloss.NewStyle().
-			Foreground(colorDim)
+	// Streaming cursor.
+	streamCursorStyle = lipgloss.NewStyle().
+				Foreground(colorBrand)
 
 	// Approval dialog
 	approvalBoxStyle = lipgloss.NewStyle().
@@ -78,17 +76,12 @@ var (
 	// Input area
 	inputBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPrimary).
+			BorderForeground(colorBrand).
 			Padding(0, 1)
-
-	// Streaming indicator
-	streamingStyle = lipgloss.NewStyle().
-			Foreground(colorPrimary).
-			Italic(true)
 
 	// Typing indicator
 	typingDotActiveStyle = lipgloss.NewStyle().
-				Foreground(colorCyan).
+				Foreground(colorBrand).
 				Bold(true)
 
 	typingDotInactiveStyle = lipgloss.NewStyle().
@@ -97,13 +90,13 @@ var (
 	// Suggestion box
 	suggestionBoxStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(colorCyan).
+				BorderForeground(colorBrand).
 				Padding(0, 1).
 				MarginBottom(1)
 
 	suggestionHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(colorCyan)
+				Foreground(colorBrandDim)
 
 	suggestionMetaStyle = lipgloss.NewStyle().
 				Foreground(colorMuted)
@@ -114,7 +107,7 @@ var (
 	selectedSuggestionStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(colorText).
-				Background(lipgloss.Color("#2B3452"))
+				Background(colorSelBg)
 
 	suggestionHintStyle = lipgloss.NewStyle().
 				Foreground(colorMuted).
@@ -126,12 +119,12 @@ var (
 	// Stats detail panel
 	statsPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPanelBorder).
+			BorderForeground(colorBorder).
 			Padding(0, 1)
 
 	statsHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(colorPrimarySoft)
+				Foreground(colorBrandDim)
 
 	statsLabelStyle = lipgloss.NewStyle().
 			Foreground(colorMuted)
@@ -140,27 +133,19 @@ var (
 			Foreground(colorText)
 
 	// Welcome screen
-	welcomeBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPanelBorder).
-			Padding(1, 2).
-			Align(lipgloss.Center)
-
 	welcomeTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(colorPrimarySoft).
-				MarginBottom(1)
+				Foreground(colorBrandDim)
 
 	welcomeSubtitleStyle = lipgloss.NewStyle().
 				Foreground(colorMuted).
-				Italic(true).
-				MarginBottom(1)
+				Italic(true)
 
 	welcomeHintStyle = lipgloss.NewStyle().
 				Foreground(colorMuted)
 
 	welcomeKeyStyle = lipgloss.NewStyle().
-			Foreground(colorCyan).
+			Foreground(colorBrand).
 			Bold(true)
 
 	// ─── Status bar ───────────────────────────────────────────
@@ -179,10 +164,10 @@ var (
 			Bold(true)
 
 	statusModelStyle = lipgloss.NewStyle().
-				Foreground(colorPrimarySoft).
+				Foreground(colorBrandDim).
 				Background(colorStatusBg)
 
 	statusHintStyle = lipgloss.NewStyle().
-			Foreground(colorGold).
+			Foreground(colorMuted).
 			Background(colorStatusBg)
 )

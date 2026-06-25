@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -12,17 +13,27 @@ var mdRenderer *glamour.TermRenderer
 var rendererWidth int
 var rendererMu sync.RWMutex
 
+// newMarkdownRenderer builds a glamour renderer from the dark style with the
+// document margin removed, so rendered agent lines sit flush against the "⏺"
+// glyph (matching the plain streaming tail) instead of being indented 2 cols.
+func newMarkdownRenderer(width int) *glamour.TermRenderer {
+	cfg := styles.DarkStyleConfig
+	noMargin := uint(0)
+	cfg.Document.Margin = &noMargin // replace the pointer; don't mutate the shared default
+	r, err := glamour.NewTermRenderer(
+		glamour.WithStyles(cfg),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return nil
+	}
+	return r
+}
+
 func init() {
 	// Initialize with a default width, will be updated dynamically
 	rendererWidth = 80
-	var err error
-	mdRenderer, err = glamour.NewTermRenderer(
-		glamour.WithStandardStyle("dark"),
-		glamour.WithWordWrap(rendererWidth),
-	)
-	if err != nil {
-		mdRenderer = nil
-	}
+	mdRenderer = newMarkdownRenderer(rendererWidth)
 }
 
 // updateRendererWidth updates the markdown renderer width for proper text wrapping.
@@ -41,14 +52,7 @@ func updateRendererWidth(width int) {
 
 	if effectiveWidth != rendererWidth {
 		rendererWidth = effectiveWidth
-		var err error
-		mdRenderer, err = glamour.NewTermRenderer(
-			glamour.WithStandardStyle("dark"),
-			glamour.WithWordWrap(rendererWidth),
-		)
-		if err != nil {
-			mdRenderer = nil
-		}
+		mdRenderer = newMarkdownRenderer(rendererWidth)
 	}
 }
 

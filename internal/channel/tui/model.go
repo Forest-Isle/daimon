@@ -49,6 +49,17 @@ type Model struct {
 	streamingText string
 	version       string
 
+	// Static-chat render cache: the joined render of all finalized
+	// (non-streaming) messages. Rebuilt only when a message is added/cleared
+	// (chatRev bumps) or the terminal width changes — never on a streaming
+	// tick, where only the live tail is re-concatenated. Keeps the ~20Hz
+	// streaming refresh O(tail) instead of O(whole transcript).
+	chatCache      string
+	chatCacheWidth int
+	chatCacheRev   uint64
+	chatCacheBuilt bool
+	chatRev        uint64
+
 	// Approval state
 	approvalTool  string
 	approvalInput string
