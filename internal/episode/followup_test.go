@@ -125,13 +125,19 @@ func TestSalvageMarksOutcomeAndJournal(t *testing.T) {
 	for i := range streams {
 		streams[i] = providerResponse{text: "still working, no close call"}
 	}
+	// A tool call on the first turn makes this a working episode; implicit close
+	// only applies to no-tool turns, so a model that then never calls episode_close
+	// takes the salvage path rather than auto-closing.
+	streams[0].toolCalls = []mind.ToolUseBlock{{ID: "c1", Name: "work", Input: `{}`}}
 	provider := &episodeTestProvider{streams: streams, complete: providerResponse{text: "not json"}}
 
 	bus := &syncBus{}
 	runner, ws := testRunner(t, provider)
 	runner.bus = bus
 
-	out, err := runner.Execute(context.Background(), chatRequest("Long task", "go"))
+	req := chatRequest("Long task", "go")
+	req.Invoke = func(context.Context, int, mind.ToolUseBlock) (string, bool) { return "ok", false }
+	out, err := runner.Execute(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}

@@ -62,6 +62,11 @@ func ClassifyOutcome(detail, summary string) OutcomeQuality {
 	switch {
 	case detail == "salvaged=true":
 		return OutcomeSalvaged
+	case detail == "auto_closed=true":
+		// A framework-closed no-tool conversational turn is clean delivered value
+		// (it counts toward ROI/health like any clean outcome); only distill treats
+		// it specially, via IsAutoClosed.
+		return OutcomeClean
 	case positiveCount(detail, "tool_failures="):
 		return OutcomeToolFailures
 	case positiveCount(detail, "unverified_actions="):
@@ -69,6 +74,14 @@ func ClassifyOutcome(detail, summary string) OutcomeQuality {
 	default:
 		return OutcomeClean
 	}
+}
+
+// IsAutoClosed reports whether an outcome was closed implicitly by the framework
+// for a no-tool conversational turn (the model never called episode_close). Such
+// outcomes are clean (see ClassifyOutcome) but are not distill candidates: a pure
+// chat turn is not a repeatable tool task worth turning into a skill.
+func IsAutoClosed(detail string) bool {
+	return strings.TrimSpace(detail) == "auto_closed=true"
 }
 
 // positiveCount reports whether detail is "<prefix>N" with N > 0, so a "<key>=0"

@@ -80,8 +80,14 @@ func (j *DistillJob) Run(ctx context.Context) (string, error) {
 		// truth for that judgment — it owns the outcome detail encoding (salvaged /
 		// tool_failures=N / unverified_actions=N) and the failEpisode summary markers —
 		// so anything but OutcomeClean is excluded here. The conservative judge prompt
-		// then further requires genuine success before grouping.
-		if world.ClassifyOutcome(oneLine(e.Detail), e.Summary) != world.OutcomeClean {
+		// then further requires genuine success before grouping. An auto-closed
+		// no-tool conversational turn classifies as clean but is excluded here: a
+		// pure chat turn has no tool sequence to encode into a repeatable skill.
+		detail := oneLine(e.Detail)
+		if world.IsAutoClosed(detail) {
+			continue
+		}
+		if world.ClassifyOutcome(detail, e.Summary) != world.OutcomeClean {
 			continue
 		}
 		cleanOutcomes = append(cleanOutcomes, e)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -37,6 +38,11 @@ type Outcome struct {
 	// recovered because episode_close was never called. It feeds the salvaged-rate
 	// metric and is recorded in the journal detail.
 	Salvaged bool `json:"-"`
+	// AutoClosed is set by the framework when a no-tool conversational turn ended
+	// without an episode_close call and the framework closed it implicitly. Unlike
+	// Salvaged it is a clean delivered outcome (it counts toward value/ROI), but it
+	// is excluded from distill candidacy: a pure chat turn is not a repeatable task.
+	AutoClosed bool `json:"-"`
 }
 
 // FollowUp describes future work to plant after an episode closes. Kind is one of
@@ -202,6 +208,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 	var lastReply string
 	var toolFailures int // non-close tool calls that returned an error (clean-execution signal)
 	closeReminderSent := false
+	toolInvoked := false // any non-close tool dispatched this episode (gates implicit close)
 
 	for iteration := 0; iteration < defaultMaxIterations; iteration++ {
 		creq := mind.CompletionRequest{
@@ -221,7 +228,13 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 			return r.failEpisode(ctx, req, episodeID, "episode stream error: "+streamErr.Error()), streamErr
 		}
 
-		if fullText != "" {
+		// When the close reminder was already sent, this turn exists only because
+		// the model gave a complete answer without calling episode_close; its text
+		// is a throwaway acknowledgement ("ok, closing now") that must not clobber
+		// the substantive reply captured before the reminder. A normal multi-step
+		// episode never sets closeReminderSent (every turn calls a tool), so the
+		// final answer it produces alongside episode_close is still adopted.
+		if fullText != "" && !(closeReminderSent && lastReply != "") {
 			lastReply = fullText
 		}
 		if fullText != "" || len(toolCalls) > 0 {
@@ -230,6 +243,18 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 		}
 
 		if len(toolCalls) == 0 {
+			// Implicit close: a no-tool turn whose text reads as a finished answer is a
+			// pure conversational reply. Forcing a second main-model round-trip only to
+			// obtain an episode_close call wastes a full turn (and provokes throwaway
+			// filler), so synthesize the Outcome from the reply instead. Gated three ways:
+			// (1) reminder not yet sent; (2) no tool used this episode — any tool use
+			// means the model may have world writes/value to declare, so the strict
+			// contract is kept; (3) status reads as "done" — a blocked/handed_off reply
+			// falls through to the reminder so the model can declare follow_ups/an
+			// open question (and is salvaged if it still never closes).
+			if !closeReminderSent && !toolInvoked && inferStatus(lastReply) == "done" {
+				return r.close(ctx, req, episodeID, autoCloseOutcome(lastReply), lastReply, toolFailures, unverifiedActionCount(actions)), nil
+			}
 			if iteration == defaultMaxIterations-1 || closeReminderSent {
 				break
 			}
@@ -251,6 +276,7 @@ func (r *Runner) Execute(ctx context.Context, req agent.CognitiveRequest) (resul
 				return r.close(ctx, req, episodeID, out, lastReply, toolFailures, unverifiedActionCount(actions)), nil
 			}
 
+			toolInvoked = true
 			output, isErr := req.Invoke(ctx, iteration, tc)
 			if isErr {
 				toolFailures++
@@ -298,7 +324,7 @@ func (r *Runner) close(ctx context.Context, req agent.CognitiveRequest, episodeI
 	}
 
 	if r.world != nil {
-		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, world.OutcomeMeta{Salvaged: out.Salvaged, ToolFailures: toolFailures, UnverifiedActions: unverifiedActions, ParentEpisodeID: req.ParentEpisodeID, ValueCreatedUSD: out.ValueCreatedUSD}); err != nil {
+		if err := r.world.ApplyOutcome(ctx, episodeID, out.WorldWrites, out.Summary, world.OutcomeMeta{Salvaged: out.Salvaged, AutoClosed: out.AutoClosed, ToolFailures: toolFailures, UnverifiedActions: unverifiedActions, ParentEpisodeID: req.ParentEpisodeID, ValueCreatedUSD: out.ValueCreatedUSD}); err != nil {
 			// Invariant #3 (交账强制): a malformed WorldWrite must not roll back the
 			// episode's journal trace along with it. failEpisode re-applies the
 			// outcome with no writes (idempotent), so the summary still lands and the
@@ -485,6 +511,47 @@ func (r *Runner) salvage(ctx context.Context, req agent.CognitiveRequest, system
 	return out
 }
 
+// Status signals match on word boundaries so a substring inside an unrelated word
+// does not trigger ("awaiting" is not "waiting", "needed" is not a blocked signal).
+// The vocabulary is deliberately high-precision incapacity language; bare "need"
+// was dropped because it is common in finished answers ("you need to run make").
+var (
+	blockedSignal = regexp.MustCompile(`(?i)\b(blocked|waiting|stuck|unable)\b`)
+	handoffSignal = regexp.MustCompile(`(?i)\bhand(ed|ing)?[ -]?off\b`)
+)
+
+// inferStatus maps free text to an episode status via the keyword heuristic the
+// transcript salvage relies on: empty or an incapacity signal → blocked, a handoff
+// mention → handed_off, otherwise done. It is the shared, conservative reading used
+// both to salvage a non-compliant episode and to gate implicit close (only a "done"
+// reply is auto-closed; anything else takes the reminder path). The heuristic is
+// English-only — a non-English blocked reply may read as done and auto-close.
+func inferStatus(text string) string {
+	switch {
+	case strings.TrimSpace(text) == "":
+		return "blocked"
+	case blockedSignal.MatchString(text):
+		return "blocked"
+	case handoffSignal.MatchString(text):
+		return "handed_off"
+	default:
+		return "done"
+	}
+}
+
+// autoCloseOutcome synthesizes a clean Outcome for a no-tool conversational turn
+// the model ended without calling episode_close. The reply is the summary: a turn
+// that called no tool declares no world writes, so there is nothing richer to
+// capture. Marked AutoClosed (not Salvaged) so it counts as delivered value yet is
+// kept out of distillation.
+func autoCloseOutcome(reply string) Outcome {
+	return Outcome{
+		Status:     "done",
+		Summary:    truncateRunes(compactWhitespace(reply), 500),
+		AutoClosed: true,
+	}
+}
+
 func inferOutcomeFromTranscript(goal string, transcript []transcriptTurn) Outcome {
 	var lines []string
 	for _, turn := range transcript {
@@ -495,16 +562,7 @@ func inferOutcomeFromTranscript(goal string, transcript []transcriptTurn) Outcom
 	}
 	text := strings.Join(lines, "\n")
 
-	status := "done"
-	lower := strings.ToLower(text)
-	switch {
-	case strings.Contains(lower, "blocked") || strings.Contains(lower, "waiting") || strings.Contains(lower, "need"):
-		status = "blocked"
-	case strings.Contains(lower, "handed off") || strings.Contains(lower, "handoff"):
-		status = "handed_off"
-	case strings.TrimSpace(text) == "":
-		status = "blocked"
-	}
+	status := inferStatus(text)
 
 	summary := strings.TrimSpace(text)
 	if summary == "" {
