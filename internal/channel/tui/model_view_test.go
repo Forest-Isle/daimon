@@ -128,6 +128,7 @@ func TestRenderStepLineCollapsed(t *testing.T) {
 }
 
 func TestFormatDuration(t *testing.T) {
+	assert.Equal(t, "<1ms", formatDuration(400*time.Microsecond))
 	assert.Equal(t, "400ms", formatDuration(400*time.Millisecond))
 	assert.Equal(t, "1.5s", formatDuration(1500*time.Millisecond))
 }

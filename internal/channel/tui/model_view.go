@@ -422,10 +422,14 @@ func stepStatus(s *workflowStep) (plain, styled string) {
 }
 
 func formatDuration(d time.Duration) string {
-	if d < time.Second {
+	switch {
+	case d > 0 && d < time.Millisecond:
+		return "<1ms" // sub-millisecond in-process tools would otherwise read as "0ms"
+	case d < time.Second:
 		return fmt.Sprintf("%dms", d.Milliseconds())
+	default:
+		return fmt.Sprintf("%.1fs", d.Seconds())
 	}
-	return fmt.Sprintf("%.1fs", d.Seconds())
 }
 
 // renderTypingIndicator renders the animated "waiting" dots, aligned under the
