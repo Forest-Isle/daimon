@@ -38,6 +38,10 @@ func (m *SubAgentManager) SetEpisodeKernel(kernel CognitiveKernel, enabled bool)
 	m.episodeEnabled = enabled
 }
 
+// MaxSubAgentDepth bounds how deep sub-agent nesting can go (a sub-agent N
+// levels down cannot spawn another). Matches Claude Code's nesting limit.
+const MaxSubAgentDepth = 5
+
 // SpawnRequest holds the parameters for spawning a sub-agent.
 type SpawnRequest struct {
 	Spec            *AgentSpec
@@ -53,6 +57,10 @@ type SpawnRequest struct {
 // For background execution mode, it delegates to spawnBackground.
 func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgentResult, error) {
 	start := time.Now()
+
+	if req.ParentDepth+1 > MaxSubAgentDepth {
+		return nil, fmt.Errorf("sub-agent depth limit (%d) exceeded", MaxSubAgentDepth)
+	}
 
 	if req.Spec.ExecutionMode == ExecModeBackground {
 		return m.spawnBackground(ctx, req)

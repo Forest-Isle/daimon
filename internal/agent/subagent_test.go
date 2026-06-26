@@ -105,6 +105,35 @@ func (s *stubCognitiveKernel) ParentEpisodeID() string {
 	return s.parentEpisodeID
 }
 
+func TestSubAgentManager_Spawn_DepthCapExceeded(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "depth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mgr := NewSubAgentManager(AgentDeps{
+		Core: CoreDeps{
+			Provider: &mockSubagentProvider{response: "ok"},
+			Sessions: session.NewManager(db),
+			DB:       db,
+			Tools:    tool.NewRegistry(),
+			Cfg:      config.AgentConfig{MaxIterations: 1},
+			LLMCfg:   config.LLMConfig{Model: "m", MaxTokens: 50},
+		},
+	}.WithDefaults())
+
+	spec := &AgentSpec{Name: "x", Description: "x"}
+	_ = spec.Validate()
+
+	_, err = mgr.Spawn(context.Background(), SpawnRequest{
+		Spec: spec, Task: "t", ParentDepth: MaxSubAgentDepth,
+	})
+	if err == nil {
+		t.Fatalf("expected depth-cap error at ParentDepth=%d", MaxSubAgentDepth)
+	}
+}
+
 func TestSubAgentManager_Spawn_IndependentSession(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
