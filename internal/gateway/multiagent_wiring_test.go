@@ -7,6 +7,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGatewayRegistersDispatchToolWithoutConfiguredAgents(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Agents.Enabled = true
+	// No definitions: agent_dispatch must still register — that is its purpose.
+
+	gw, err := New(cfg)
+	require.NoError(t, err)
+	defer func() { _ = gw.db.Close() }()
+
+	_, err = gw.toolSub.Registry.Get("agent_dispatch")
+	require.NoError(t, err, "agent_dispatch should register even with zero configured agents")
+}
+
 func TestGatewayRegistersConfiguredAgentTools(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Agents.Enabled = true

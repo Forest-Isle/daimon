@@ -201,6 +201,10 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 			workflow.NewSQLiteCache(gw.db.DB),
 			eventBus,
 		))
+		gw.toolSub.Registry.Register(agent.NewDispatchTool(
+			gw.multiAgent.SubAgentMgr,
+			gw.multiAgent.AgentMgr,
+		))
 	}
 
 	gw.mcpSub = InitMCP()
