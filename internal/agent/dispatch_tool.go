@@ -65,9 +65,11 @@ func (t *DispatchTool) InputSchema() map[string]any {
 
 func (t *DispatchTool) RequiresApproval() bool { return true }
 
-// buildDispatchSpec constructs an ephemeral AgentSpec from inline input,
-// applying the read-only default toolset and a description fallback (Validate
-// requires a non-empty description).
+// buildDispatchSpec constructs an ephemeral AgentSpec from inline input. It
+// applies the read-only default toolset and a description fallback (the field
+// is otherwise blank in the worker's prompt), then runs Validate so the inline
+// spec gets the same defaults a registered spec would (Mode, Timeout,
+// ExecutionMode). Validate cannot fail here — Name and Description are set.
 func buildDispatchSpec(in dispatchToolInput) *AgentSpec {
 	desc := in.Description
 	if desc == "" {
@@ -77,7 +79,7 @@ func buildDispatchSpec(in dispatchToolInput) *AgentSpec {
 	if len(tools) == 0 {
 		tools = defaultDispatchTools
 	}
-	return &AgentSpec{
+	spec := &AgentSpec{
 		Name:          "dispatch",
 		Description:   desc,
 		SystemPrompt:  in.Prompt,
@@ -85,6 +87,20 @@ func buildDispatchSpec(in dispatchToolInput) *AgentSpec {
 		Model:         in.Model,
 		MaxIterations: DefaultMaxIterations,
 	}
+	_ = spec.Validate()
+	return spec
+}
+
+// resolveSpec picks a registered spec when `agent` references one (and a
+// registry is available), otherwise builds an ephemeral spec from the inline
+// fields.
+func (t *DispatchTool) resolveSpec(in dispatchToolInput) *AgentSpec {
+	if in.Agent != "" && t.agents != nil {
+		if registered, ok := t.agents.Get(in.Agent); ok {
+			return registered
+		}
+	}
+	return buildDispatchSpec(in)
 }
 
 func (t *DispatchTool) Execute(ctx context.Context, input []byte) (tool.Result, error) {
@@ -102,15 +118,7 @@ func (t *DispatchTool) Execute(ctx context.Context, input []byte) (tool.Result, 
 		return tool.Result{Error: "task is required"}, nil
 	}
 
-	var spec *AgentSpec
-	if in.Agent != "" && t.agents != nil {
-		if registered, ok := t.agents.Get(in.Agent); ok {
-			spec = registered
-		}
-	}
-	if spec == nil {
-		spec = buildDispatchSpec(in)
-	}
+	spec := t.resolveSpec(in)
 
 	var parentID string
 	var parentDepth int
