@@ -80,7 +80,8 @@ func (s *Store) Apply(ctx context.Context, episodeID string, muts []Mutation) er
 // OutcomeMeta is the per-episode metadata stamped onto the outcome journal
 // marker's detail field, for downstream consumers (distill candidacy, ROI).
 // Salvaged marks a framework-recovered episode (the model never called
-// episode_close). ToolFailures is how many of the episode's tool calls returned
+// episode_close). AutoClosed marks a framework-closed no-tool conversational turn
+// (clean delivered value, but not a distill candidate). ToolFailures is how many of the episode's tool calls returned
 // an error — a clean-execution signal: 0 means every tool call the episode made
 // succeeded. UnverifiedActions is how many of the episode's governed action calls
 // were not verified this run (§4.8): 0 means every governed action earned
@@ -88,6 +89,7 @@ func (s *Store) Apply(ctx context.Context, episodeID string, muts []Mutation) er
 // control flow.
 type OutcomeMeta struct {
 	Salvaged          bool
+	AutoClosed        bool
 	ToolFailures      int
 	UnverifiedActions int
 	// ParentEpisodeID is the parent episode id for a subagent episode; empty for top-level episodes.
@@ -660,15 +662,19 @@ func updateCommitment(ctx context.Context, exec sqlExecer, id string, set map[st
 // idempotency claim: a false return means the episode's outcome was already
 // recorded and the caller must not re-apply its world writes.
 func claimOutcomeJournal(ctx context.Context, exec sqlExecer, episodeID string, summary string, meta OutcomeMeta) (bool, error) {
-	// Detail encodes one per-episode signal, by precedence. Each is independently
-	// an exclusion signal downstream (distill), so which one wins the single detail
-	// slot does not change any decision — it only picks what is displayed. Salvaged
+	// Detail encodes one per-episode signal, by precedence (salvaged > auto_closed >
+	// tool_failures > unverified_actions). Each is independently an exclusion signal
+	// downstream (distill), so which one wins the single detail slot does not change
+	// any decision — it only picks what is displayed (auto_closed never co-occurs
+	// with the others: a no-tool turn has no tool failures or actions). Salvaged
 	// is preserved byte-exact for backward compatibility; a fully clean, fully
 	// verified episode records "" exactly as before.
 	detail := ""
 	switch {
 	case meta.Salvaged:
 		detail = "salvaged=true"
+	case meta.AutoClosed:
+		detail = "auto_closed=true"
 	case meta.ToolFailures > 0:
 		detail = fmt.Sprintf("tool_failures=%d", meta.ToolFailures)
 	case meta.UnverifiedActions > 0:

@@ -314,6 +314,88 @@ func TestExecuteWorldWriteFailureStillRecordsTrace(t *testing.T) {
 	}
 }
 
+// TestExecuteAutoClosesNoToolConversationalTurn verifies the implicit-close path:
+// a pure conversational answer (text, no tool, no episode_close) closes in a single
+// model round-trip — no reminder, no second turn — and records a clean auto-closed
+// outcome (not salvaged).
+func TestExecuteAutoClosesNoToolConversationalTurn(t *testing.T) {
+	const answer = "我是 Daimon，可以帮你写代码、跑命令、管理记忆。"
+	provider := &episodeTestProvider{streams: []providerResponse{
+		{text: answer}, // conversational answer, no tool, no episode_close
+		// Provided to prove it is never consumed (no second round-trip).
+		{text: "should-not-be-used", toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"unused"}`)}},
+	}}
+	runner, ws := testRunner(t, provider)
+
+	req := chatRequest("Answer the user", "你有什么功能")
+	req.EpisodeID = "evt-autoclose-1"
+	out, err := runner.Execute(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != "done" {
+		t.Fatalf("status = %q, want done", out.Status)
+	}
+	if out.Reply != answer {
+		t.Fatalf("reply = %q, want %q", out.Reply, answer)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 (implicit close, no reminder round-trip)", len(provider.requests))
+	}
+
+	journal, err := ws.ListJournal(context.Background(), "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var detail string
+	found := false
+	for _, e := range journal {
+		if e.ID == "journal_outcome_evt-autoclose-1" && e.Kind == "outcome" {
+			found, detail = true, e.Detail
+		}
+	}
+	if !found {
+		t.Fatalf("auto-closed episode left no outcome journal: %#v", journal)
+	}
+	if detail != "auto_closed=true" {
+		t.Fatalf("outcome detail = %q, want auto_closed=true", detail)
+	}
+	if q := world.ClassifyOutcome(detail, ""); q != world.OutcomeClean {
+		t.Fatalf("auto-closed outcome must classify as clean (counts toward ROI/health), got %v", q)
+	}
+	if !world.IsAutoClosed(detail) {
+		t.Fatal("IsAutoClosed should be true for an auto-closed outcome (distill skips it)")
+	}
+}
+
+// TestExecuteReplyKeepsAnswerAfterCloseReminder verifies that for a working episode
+// (one that invoked a tool, so implicit close does not apply) the throwaway
+// acknowledgement the model emits in the reminder-induced close turn does not
+// clobber the substantive answer it gave in a prior turn.
+func TestExecuteReplyKeepsAnswerAfterCloseReminder(t *testing.T) {
+	const answer = "Found it: the config lives in internal/gateway."
+	var calls atomic.Int32
+	provider := &episodeTestProvider{streams: []providerResponse{
+		// A tool turn makes this a working episode → not eligible for implicit close.
+		{text: "Let me search.", toolCalls: []mind.ToolUseBlock{{ID: "c1", Name: "search", Input: `{}`}}},
+		// A complete text answer without episode_close → triggers the reminder.
+		{text: answer},
+		// The reminder-induced turn replies with throwaway filler alongside the close.
+		{text: "你说得对，让我现在关闭这个对话。", toolCalls: []mind.ToolUseBlock{closeCall(`{"status":"done","summary":"Located the config."}`)}},
+	}}
+	runner, _ := testRunner(t, provider)
+
+	req := chatRequest("Find the config", "where is the config")
+	req.Invoke = countingInvoke(&calls)
+	out, err := runner.Execute(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Reply != answer {
+		t.Fatalf("reply = %q, want the substantive answer %q (not the close filler)", out.Reply, answer)
+	}
+}
+
 func TestExecuteToolDispatchBeforeClose(t *testing.T) {
 	var calls atomic.Int32
 	provider := &episodeTestProvider{streams: []providerResponse{
@@ -732,6 +814,33 @@ func TestParseOutcomeValueCreatedUSD(t *testing.T) {
 	}
 	if _, err := parseOutcome(`{"status":"done","summary":"did the thing","value_created_usd":-1}`); err == nil {
 		t.Fatal("parseOutcome accepted negative value_created_usd")
+	}
+}
+
+func TestInferStatus(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{"plain_answer", "Here is your answer.", "done"},
+		{"need_is_not_blocked", "You need to run make build first.", "done"},
+		{"awaiting_is_not_waiting", "The file you were awaiting is ready.", "done"},
+		{"needed_substring", "All needed changes are applied.", "done"},
+		{"empty", "", "blocked"},
+		{"blocked_word", "I am blocked waiting for credentials.", "blocked"},
+		{"stuck", "I'm stuck on the failing test.", "blocked"},
+		{"unable", "Unable to access the repository.", "blocked"},
+		{"handed_off", "Handed off to the ops team.", "handed_off"},
+		{"handoff", "handoff complete.", "handed_off"},
+		{"handing_off", "Handing off now.", "handed_off"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := inferStatus(tc.text); got != tc.want {
+				t.Fatalf("inferStatus(%q) = %q, want %q", tc.text, got, tc.want)
+			}
+		})
 	}
 }
 
