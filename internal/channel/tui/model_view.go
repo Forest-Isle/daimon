@@ -93,6 +93,9 @@ func (m Model) renderStatusBar() string {
 	if !m.autoScroll && m.ready {
 		rightSegments = append(rightSegments, statusSegment{text: "scrolled · End", style: statusHintStyle})
 	}
+	if m.hasSteps() {
+		rightSegments = append(rightSegments, statusSegment{text: "Ctrl+T details", style: statusHintStyle})
+	}
 	if m.currentModel != "" {
 		rightSegments = append(rightSegments, statusSegment{text: shortenPath(m.currentModel, 28), style: statusModelStyle})
 	}
@@ -371,7 +374,12 @@ func (m *Model) renderStepLine(s *workflowStep) string {
 		line += "  " + stepMetaStyle.Render(meta)
 	}
 
-	return indentBlock(line, stepGuideStyle.Render("│ "), "  ")
+	body := line
+	if m.stepsExpanded && s.output != "" {
+		body += "\n" + stepOutputStyle.Render(wrapText(s.output, width-2))
+	}
+
+	return indentBlock(body, stepGuideStyle.Render("│ "), "  ")
 }
 
 // stepStatus returns the plain text (for width budgeting) and the styled glyph

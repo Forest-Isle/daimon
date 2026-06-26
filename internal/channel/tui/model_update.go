@@ -234,6 +234,14 @@ func (m *Model) handleChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.toggleMouseMode()
 	}
 
+	// ── Workflow-step raw-output expand toggle ────────────────────
+	if msg.Type == tea.KeyCtrlT {
+		m.stepsExpanded = !m.stepsExpanded
+		m.chatRev++
+		m.updateViewportKeepScroll()
+		return m, nil
+	}
+
 	switch msg.Type {
 	case tea.KeyEsc:
 		// Priority: close panels first, then cancel running request

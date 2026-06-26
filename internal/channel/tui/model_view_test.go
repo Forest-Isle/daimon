@@ -132,6 +132,31 @@ func TestFormatDuration(t *testing.T) {
 	assert.Equal(t, "1.5s", formatDuration(1500*time.Millisecond))
 }
 
+func TestStepRawOutputExpandToggle(t *testing.T) {
+	m := NewModel("v", "local", "/tmp")
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.appendStep("a1", "grep", "implicitClose")
+	if i, ok := m.stepIndex["a1"]; ok {
+		s := m.messages[i].step
+		s.done, s.ok, s.output = true, true, "UNIQUE_OUTPUT_MARKER"
+	}
+
+	m.stepsExpanded = false
+	assert.NotContains(t, m.renderStaticChat(), "UNIQUE_OUTPUT_MARKER")
+
+	m.chatRev++ // invalidate the cache the way the Ctrl+T handler does
+	m.stepsExpanded = true
+	assert.Contains(t, m.renderStaticChat(), "UNIQUE_OUTPUT_MARKER")
+}
+
+func TestCtrlTTogglesExpansion(t *testing.T) {
+	m := NewModel("v", "local", "/tmp")
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	before := m.stepsExpanded
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	assert.NotEqual(t, before, m.stepsExpanded)
+}
+
 func assertRenderedWidthWithin(t *testing.T, rendered string, maxWidth int) {
 	t.Helper()
 	for _, line := range strings.Split(rendered, "\n") {
