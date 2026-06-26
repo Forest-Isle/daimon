@@ -337,8 +337,9 @@ func (m *Model) renderMessageBlock(msg *chatMessage) string {
 // step's captured raw output is appended (dim) under the line.
 func (m *Model) renderStepLine(s *workflowStep) string {
 	firstGuide, contGuide := stepGuides(s.depth)
-	guideWidth := runewidth.StringWidth(firstGuide)
-	width := m.messageContentWidth() - (guideWidth - 2) // depth-0 guide ("│ ") already budgeted
+	// messageContentWidth already leaves room for the depth-0 guide ("│ ",
+	// depth0GuideWidth cols); deeper guides cost more, so subtract the extra.
+	width := m.messageContentWidth() - (runewidth.StringWidth(firstGuide) - depth0GuideWidth)
 	if width < 8 {
 		width = 8
 	}
@@ -400,6 +401,10 @@ func stepGuides(depth int) (first, cont string) {
 	pad := strings.Repeat("  ", depth)
 	return "│ " + pad + "⤷ ", "│ " + pad + "  "
 }
+
+// depth0GuideWidth is the display width of the depth-0 step guide ("│ "), which
+// messageContentWidth already reserves headroom for.
+const depth0GuideWidth = 2
 
 // stepStatus returns the plain text (for width budgeting) and the styled glyph
 // for a step's current state.

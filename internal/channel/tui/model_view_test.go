@@ -177,7 +177,9 @@ func TestRenderStepLineNestedDepth(t *testing.T) {
 		if i, ok := m.stepIndex["s1"]; ok {
 			st := m.messages[i].step
 			st.done, st.ok, st.resultSummary = true, true, "3 lines"
+			st.output = strings.Repeat("long生line ", 40) // wraps under the deeper continuation guide
 		}
+		m.stepsExpanded = true // exercise the depth>0 expanded-output wrap + continuation-guide width
 
 		out := m.renderStaticChat()
 		assert.Contains(t, out, "⤷", "nested step should show the depth connector")

@@ -117,6 +117,10 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 	if req.ParentSessionID != "" {
 		if subSess, sErr := m.deps.Core.Sessions.Get(ctx, "subagent", sessionID); sErr == nil && subSess != nil {
 			subSess.SetParentSessionID(req.ParentSessionID)
+		} else if sErr != nil {
+			// Non-fatal: the sub-agent still runs, its tool activity just won't
+			// surface in the parent transcript.
+			slog.Debug("subagent: parent-session link failed; activity won't nest", "session", sessionID, "err", sErr)
 		}
 	}
 
@@ -217,6 +221,11 @@ func (m *SubAgentManager) spawnBackground(ctx context.Context, req SpawnRequest)
 		spawnReq := req
 		spawnReq.Spec = copySpec(req.Spec)
 		spawnReq.Spec.ExecutionMode = ExecModeSpawn
+		// Detached run: the delegating agent_<name> step has already returned, so
+		// do not link to the parent session — forwarded activity would append
+		// out of context, after the round closed. (The synchronous fallback above
+		// keeps the link, since it blocks within the delegating round.)
+		spawnReq.ParentSessionID = ""
 		result, err := m.Spawn(bgCtx, spawnReq)
 		if err != nil {
 			return &AgentResult{AgentName: req.Spec.Name, Error: err}, nil
