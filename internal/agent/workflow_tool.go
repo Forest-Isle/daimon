@@ -40,6 +40,10 @@ Use this for high-value tasks that need explicit pipeline orchestration,
 structured sub-agent outputs, replay caching, and per-run budgets. Workflow
 execution is pipeline-first: stages run in order; only stages marked
 parallel=true run their steps concurrently as a barrier.
+
+Each agent step's "agent" field must name an ALREADY-REGISTERED agent — do not
+invent names. For a one-off worker with no registered agent, use the
+agent_dispatch tool instead (it takes an inline prompt and tools).
 `)
 }
 
@@ -126,6 +130,25 @@ type agentWorkflowRunner struct {
 	subMgr   *SubAgentManager
 }
 
+// availableAgentsHint lists registered agent names so a workflow that names a
+// nonexistent agent fails with a self-correcting message instead of a dead end.
+// Falls back to pointing at agent_dispatch when nothing is registered.
+func availableAgentsHint(m *AgentManager) string {
+	const dispatchHint = "use the agent_dispatch tool with an inline prompt for an ad-hoc worker"
+	if m == nil {
+		return "no agents are registered — " + dispatchHint
+	}
+	specs := m.All()
+	if len(specs) == 0 {
+		return "no agents are registered — " + dispatchHint
+	}
+	names := make([]string, 0, len(specs))
+	for _, s := range specs {
+		names = append(names, s.Name)
+	}
+	return "available agents: " + strings.Join(names, ", ") + " (or " + dispatchHint + ")"
+}
+
 func (r *agentWorkflowRunner) RunStep(ctx context.Context, step workflow.Step, input workflow.StepInput) (workflow.StepOutput, error) {
 	if step.Type != workflow.StepTypeAgent {
 		return workflow.StepOutput{Status: workflow.StatusError}, fmt.Errorf("workflow step type %q is not supported by agent runner", step.Type)
@@ -135,7 +158,7 @@ func (r *agentWorkflowRunner) RunStep(ctx context.Context, step workflow.Step, i
 	}
 	spec, ok := r.agentMgr.Get(step.Agent)
 	if !ok {
-		return workflow.StepOutput{Status: workflow.StatusError}, fmt.Errorf("unknown workflow agent %q", step.Agent)
+		return workflow.StepOutput{Status: workflow.StatusError}, fmt.Errorf("unknown workflow agent %q; %s", step.Agent, availableAgentsHint(r.agentMgr))
 	}
 	spec.ExecutionMode = ExecModeSpawn
 	start := time.Now()
