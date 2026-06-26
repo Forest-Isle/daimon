@@ -30,6 +30,7 @@ func (m *Model) handleLocalCommand(text string) (bool, tea.Cmd) {
 
 	case "clear", "cls":
 		m.messages = m.messages[:0]
+		m.stepIndex = nil
 		m.addMessage("system", "Conversation cleared.")
 		m.refreshViewport()
 		return true, nil

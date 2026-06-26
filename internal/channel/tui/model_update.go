@@ -101,6 +101,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionResetMsg:
 		m.messages = m.messages[:0]
+		m.stepIndex = nil
 		m.addMessage("system", "New conversation started.")
 		m.refreshViewport()
 
@@ -124,14 +125,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case toolActivityMsg:
 		if msg.done {
+			if i, ok := m.stepIndex[msg.callID]; ok {
+				s := m.messages[i].step
+				s.done = true
+				s.ok = msg.ok
+				s.resultSummary = msg.resultSummary
+				s.output = msg.output
+				s.duration = msg.duration
+				m.chatRev++
+			}
 			if msg.tool == m.activeTool {
 				m.activeTool = ""
 				m.activeToolSummary = ""
 			}
 		} else {
+			m.appendStep(msg.callID, msg.tool, msg.arg)
 			m.activeTool = msg.tool
 			m.activeToolSummary = msg.arg
 		}
+		m.updateViewportKeepScroll()
 
 	}
 
@@ -407,6 +419,26 @@ func (m *Model) addMessage(role, content string) {
 		timestamp: time.Now(),
 	})
 	m.chatRev++
+}
+
+// appendStep adds a pending workflow step to the transcript and indexes it by
+// callID so the matching done event can update it in place.
+func (m *Model) appendStep(callID, tool, arg string) {
+	m.messages = append(m.messages, chatMessage{
+		role:      "step",
+		step:      &workflowStep{callID: callID, tool: tool, arg: arg},
+		timestamp: time.Now(),
+	})
+	if m.stepIndex == nil {
+		m.stepIndex = make(map[string]int)
+	}
+	m.stepIndex[callID] = len(m.messages) - 1
+	m.chatRev++
+}
+
+// hasSteps reports whether the transcript contains any workflow step.
+func (m *Model) hasSteps() bool {
+	return len(m.stepIndex) > 0
 }
 
 // refreshViewport re-renders content, re-enables autoScroll, and jumps to bottom.

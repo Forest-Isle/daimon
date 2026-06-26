@@ -22,11 +22,27 @@ const (
 	modeFeedback             // y/n intercepted for feedback rating
 )
 
+// workflowStep is one tool call shown inline in the transcript as part of a
+// round's workflow. Mutated in place from start (pending) to done.
+type workflowStep struct {
+	callID        string
+	tool          string
+	arg           string
+	done          bool
+	ok            bool
+	resultSummary string
+	output        string // capped raw output, shown when expanded
+	duration      time.Duration
+}
+
 // chatMessage represents a single message in the conversation.
 type chatMessage struct {
 	role      string // "user", "agent", "system"
 	content   string
 	timestamp time.Time
+
+	// step holds tool-call workflow data when role == "step". nil otherwise.
+	step *workflowStep
 
 	// Render cache: the rendered body (glamour for agent, wrapped for
 	// user/system) and the terminal width it was built at. renderedWidth==0
@@ -97,6 +113,11 @@ type Model struct {
 	// Active tool activity (shown in status line while a tool runs).
 	activeTool        string
 	activeToolSummary string
+
+	// Workflow steps: tool calls persisted inline in messages as role "step".
+	// stepIndex maps a callID to its index in messages (append-only, so stable).
+	stepIndex     map[string]int
+	stepsExpanded bool // global: show captured raw output under each step
 
 	// Environment
 	username string
