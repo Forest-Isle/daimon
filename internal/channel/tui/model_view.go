@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
@@ -263,9 +264,17 @@ func (m *Model) renderStaticChat() string {
 	var b strings.Builder
 	for i := range m.messages {
 		if i > 0 {
-			b.WriteString("\n\n")
+			if m.messages[i].role == "step" && m.messages[i-1].role == "step" {
+				b.WriteString("\n")
+			} else {
+				b.WriteString("\n\n")
+			}
 		}
 		msg := &m.messages[i]
+		if msg.role == "step" {
+			b.WriteString(m.renderMessageBlock(msg)) // depends on stepsExpanded; never cached
+			continue
+		}
 		if msg.renderedWidth != m.width || msg.rendered == "" {
 			msg.rendered = m.renderMessageBlock(msg)
 			msg.renderedWidth = m.width
@@ -307,8 +316,82 @@ func (m *Model) renderMessageBlock(msg *chatMessage) string {
 	case "system":
 		body := systemStyle.Render(wrapText(msg.content, contentWidth))
 		return indentBlock(body, "  ", "  ")
+
+	case "step":
+		return m.renderStepLine(msg.step)
 	}
 	return ""
+}
+
+// renderStepLine renders one workflow step as a guide-prefixed line:
+//
+//	│ ⚙ <tool> · <arg>   <status> <duration> · <result>
+//
+// The variable-length arg is budgeted on plain widths so the styled line stays
+// within messageContentWidth. (Expanded raw output is added in a later task.)
+func (m *Model) renderStepLine(s *workflowStep) string {
+	width := m.messageContentWidth()
+
+	statusPlain, statusStyled := stepStatus(s)
+
+	meta := ""
+	if s.done {
+		var parts []string
+		if s.duration > 0 {
+			parts = append(parts, formatDuration(s.duration))
+		}
+		if s.resultSummary != "" {
+			parts = append(parts, s.resultSummary)
+		}
+		meta = strings.Join(parts, " · ")
+	}
+
+	head := "⚙ " + s.tool
+	used := runewidth.StringWidth(statusPlain) + 1 + runewidth.StringWidth(head)
+	metaCost := 0
+	if meta != "" {
+		metaCost = 2 + runewidth.StringWidth(meta)
+	}
+
+	arg := s.arg
+	if arg != "" {
+		argBudget := width - used - metaCost - runewidth.StringWidth(" · ")
+		if argBudget < 4 {
+			arg = ""
+		} else {
+			arg = truncateTail(arg, argBudget)
+		}
+	}
+
+	line := statusStyled + " " + stepGlyphStyle.Render("⚙ ") + s.tool
+	if arg != "" {
+		line += stepArgStyle.Render(" · " + arg)
+	}
+	if meta != "" {
+		line += "  " + stepMetaStyle.Render(meta)
+	}
+
+	return indentBlock(line, stepGuideStyle.Render("│ "), "  ")
+}
+
+// stepStatus returns the plain text (for width budgeting) and the styled glyph
+// for a step's current state.
+func stepStatus(s *workflowStep) (plain, styled string) {
+	switch {
+	case !s.done:
+		return "⏵ running", stepRunStyle.Render("⏵ running")
+	case s.ok:
+		return "✓", stepOkStyle.Render("✓")
+	default:
+		return "✗", stepErrStyle.Render("✗")
+	}
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
 }
 
 // renderTypingIndicator renders the animated "waiting" dots, aligned under the

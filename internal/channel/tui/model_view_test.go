@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -102,6 +103,33 @@ func TestStatusBarTruncatesLongSegments(t *testing.T) {
 	m.mouseEnabled = false
 
 	assert.LessOrEqual(t, lipgloss.Width(m.renderStatusBar()), 48)
+}
+
+func TestRenderStepLineCollapsed(t *testing.T) {
+	m := NewModel("v", "local", "/tmp")
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.addMessage("user", "find the close logic")
+	m.appendStep("a1", "grep", "implicitClose")
+	if i, ok := m.stepIndex["a1"]; ok {
+		s := m.messages[i].step
+		s.done, s.ok, s.resultSummary, s.duration = true, true, "3 lines", 400*time.Millisecond
+	}
+	m.addMessage("agent", "It closes at episode.go:142")
+
+	out := m.renderStaticChat()
+	assert.Contains(t, out, "grep")
+	assert.Contains(t, out, "implicitClose")
+	assert.Contains(t, out, "3 lines")
+	assert.Contains(t, out, "│") // round grouping guide
+	for _, line := range strings.Split(out, "\n") {
+		assert.LessOrEqual(t, lipgloss.Width(line), 80)
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	assert.Equal(t, "400ms", formatDuration(400*time.Millisecond))
+	assert.Equal(t, "1.5s", formatDuration(1500*time.Millisecond))
 }
 
 func assertRenderedWidthWithin(t *testing.T, rendered string, maxWidth int) {

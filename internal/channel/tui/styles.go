@@ -116,6 +116,16 @@ var (
 	statusDimStyle = lipgloss.NewStyle().
 			Foreground(colorDim)
 
+	// Workflow steps — tool calls shown inline under a round.
+	stepGuideStyle  = lipgloss.NewStyle().Foreground(colorDim)
+	stepGlyphStyle  = lipgloss.NewStyle().Foreground(colorMuted)
+	stepArgStyle    = lipgloss.NewStyle().Foreground(colorMuted)
+	stepMetaStyle   = lipgloss.NewStyle().Foreground(colorDim)
+	stepRunStyle    = lipgloss.NewStyle().Foreground(colorGold)
+	stepOkStyle     = lipgloss.NewStyle().Foreground(colorGreen).Bold(true)
+	stepErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E")).Bold(true)
+	stepOutputStyle = lipgloss.NewStyle().Foreground(colorDim)
+
 	// Stats detail panel
 	statsPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
