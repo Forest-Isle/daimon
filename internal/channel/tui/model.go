@@ -30,6 +30,7 @@ type workflowStep struct {
 	arg           string
 	done          bool
 	ok            bool
+	interrupted   bool // round ended before the tool reported done
 	resultSummary string
 	output        string // capped raw output, shown when expanded
 	duration      time.Duration

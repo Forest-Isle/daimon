@@ -128,6 +128,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if i, ok := m.stepIndex[msg.callID]; ok {
 				s := m.messages[i].step
 				s.done = true
+				s.interrupted = false // a real done supersedes an earlier interrupt sweep
 				s.ok = msg.ok
 				s.resultSummary = msg.resultSummary
 				s.output = msg.output
@@ -497,10 +498,22 @@ func (m *Model) updateSuggestions() {
 	}
 }
 
-// clearToolActivity resets the active-tool status indicator.
+// clearToolActivity resets the active-tool status indicator and resolves any
+// step still pending. clearToolActivity fires on every round-terminal event
+// (agent reply, stream finish, error, cancel); a step still running at that
+// point never got its done event, so mark it interrupted rather than leave a
+// permanently-"running" row in the durable transcript. A late done supersedes
+// this (it clears the interrupted flag).
 func (m *Model) clearToolActivity() {
 	m.activeTool = ""
 	m.activeToolSummary = ""
+	for _, i := range m.stepIndex {
+		if s := m.messages[i].step; s != nil && !s.done {
+			s.done = true
+			s.interrupted = true
+			m.chatRev++
+		}
+	}
 }
 
 // viewportHeight returns the chat viewport height for the current chrome.

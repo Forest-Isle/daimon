@@ -15,6 +15,7 @@ var (
 	colorDim      = lipgloss.Color("#4B515E") // tertiary / dim / separators
 	colorGreen    = lipgloss.Color("#9ECE6A") // ready / success
 	colorGold     = lipgloss.Color("#E0AF68") // busy / approval / warn
+	colorRed      = lipgloss.Color("#F7768E") // error / failed step
 	colorBorder   = lipgloss.Color("#2A2F3A") // panel borders
 	colorSurface  = lipgloss.Color("#161A22") // header background
 	colorStatusBg = lipgloss.Color("#0E1117") // status bar background
@@ -123,7 +124,7 @@ var (
 	stepMetaStyle   = lipgloss.NewStyle().Foreground(colorDim)
 	stepRunStyle    = lipgloss.NewStyle().Foreground(colorGold)
 	stepOkStyle     = lipgloss.NewStyle().Foreground(colorGreen).Bold(true)
-	stepErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E")).Bold(true)
+	stepErrStyle    = lipgloss.NewStyle().Foreground(colorRed).Bold(true)
 	stepOutputStyle = lipgloss.NewStyle().Foreground(colorDim)
 
 	// Stats detail panel

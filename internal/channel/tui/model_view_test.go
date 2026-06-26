@@ -149,6 +149,25 @@ func TestStepRawOutputExpandToggle(t *testing.T) {
 	assert.Contains(t, m.renderStaticChat(), "UNIQUE_OUTPUT_MARKER")
 }
 
+func TestStepExpandedOutputWithinWidth(t *testing.T) {
+	for _, w := range []int{80, 60} {
+		m := NewModel("v", "local", "/tmp")
+		m.Update(tea.WindowSizeMsg{Width: w, Height: 24})
+		m.appendStep("a1", "grep", "x")
+		if i, ok := m.stepIndex["a1"]; ok {
+			s := m.messages[i].step
+			s.done, s.ok = true, true
+			s.output = strings.Repeat("long生line ", 40) // long, with multibyte runes → forces wrap
+		}
+		m.stepsExpanded = true
+
+		out := m.renderStaticChat()
+		for _, line := range strings.Split(out, "\n") {
+			assert.LessOrEqual(t, lipgloss.Width(line), w, "expanded step line exceeded width %d", w)
+		}
+	}
+}
+
 func TestCtrlTTogglesExpansion(t *testing.T) {
 	m := NewModel("v", "local", "/tmp")
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

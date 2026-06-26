@@ -52,13 +52,20 @@ func (a *ActivityInterceptor) Intercept(ctx context.Context, call *ToolCall, nex
 	id := newActivityID()
 	a.reporter.ReportToolActivity(ctx, call, ToolActivityEvent{ID: id})
 	start := time.Now()
-	result, err := next(ctx, call)
-	a.reporter.ReportToolActivity(ctx, call, ToolActivityEvent{
-		ID:       id,
-		Done:     true,
-		Result:   result,
-		Err:      err,
-		Duration: time.Since(start),
-	})
+	var result *ToolResult
+	var err error
+	// Deferred so a panic in the tool still emits the done event — otherwise a
+	// consumer that pairs start/done (e.g. the TUI step trace) would leave the
+	// call stuck "running" forever.
+	defer func() {
+		a.reporter.ReportToolActivity(ctx, call, ToolActivityEvent{
+			ID:       id,
+			Done:     true,
+			Result:   result,
+			Err:      err,
+			Duration: time.Since(start),
+		})
+	}()
+	result, err = next(ctx, call)
 	return result, err
 }

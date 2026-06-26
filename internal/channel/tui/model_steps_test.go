@@ -43,6 +43,25 @@ func TestToolActivityBuildsAndUpdatesStep(t *testing.T) {
 	assert.Equal(t, 400*time.Millisecond, steps[0].duration)
 }
 
+func TestPendingStepInterruptedOnRoundEnd(t *testing.T) {
+	m := NewModel("v", "local", "/tmp")
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.Update(toolActivityMsg{callID: "a1", tool: "grep", arg: "x", done: false})
+	// Round ends (agent finishes talking) while the step is still running.
+	m.Update(streamFinishMsg{id: "s1", text: "done talking"})
+	st := stepsOf(&m)[0]
+	assert.True(t, st.done, "pending step should be resolved when the round ends")
+	assert.True(t, st.interrupted, "unresolved step should be marked interrupted")
+
+	// A late done supersedes the interrupt sweep.
+	m.Update(toolActivityMsg{callID: "a1", done: true, ok: true, resultSummary: "3 lines"})
+	st = stepsOf(&m)[0]
+	assert.False(t, st.interrupted, "late done should clear the interrupted flag")
+	assert.True(t, st.ok)
+	assert.Equal(t, "3 lines", st.resultSummary)
+}
+
 func TestClearResetsStepIndex(t *testing.T) {
 	m := NewModel("v", "local", "/tmp")
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

@@ -1,6 +1,31 @@
 package gateway
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
+
+func TestCapOutputByteCapRuneSafe(t *testing.T) {
+	// A single line of 3-byte runes longer than the byte cap forces the
+	// byte-truncation path; the result must stay valid UTF-8 (no split rune).
+	var b strings.Builder
+	for b.Len() <= maxOutputBytes+12 {
+		b.WriteString("世")
+	}
+	got := capOutput(b.String())
+
+	body := strings.TrimSuffix(got, "\n… (truncated)")
+	if !utf8.ValidString(body) {
+		t.Errorf("capOutput must trim to a valid rune boundary; got invalid UTF-8")
+	}
+	if len(body) > maxOutputBytes {
+		t.Errorf("capOutput body = %d bytes, want <= %d", len(body), maxOutputBytes)
+	}
+	if !strings.HasSuffix(got, "(truncated)") {
+		t.Errorf("expected truncation marker, got tail %q", got[len(got)-12:])
+	}
+}
 
 func TestDeriveResultSummary(t *testing.T) {
 	tests := []struct {

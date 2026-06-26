@@ -331,7 +331,8 @@ func (m *Model) renderMessageBlock(msg *chatMessage) string {
 //	│ ⚙ <tool> · <arg>   <status> <duration> · <result>
 //
 // The variable-length arg is budgeted on plain widths so the styled line stays
-// within messageContentWidth. (Expanded raw output is added in a later task.)
+// within messageContentWidth. When stepsExpanded is set, the step's captured
+// raw output is appended (dim) under the line.
 func (m *Model) renderStepLine(s *workflowStep) string {
 	width := m.messageContentWidth()
 
@@ -388,6 +389,8 @@ func stepStatus(s *workflowStep) (plain, styled string) {
 	switch {
 	case !s.done:
 		return "⏵ running", stepRunStyle.Render("⏵ running")
+	case s.interrupted:
+		return "⊘ interrupted", stepMetaStyle.Render("⊘ interrupted")
 	case s.ok:
 		return "✓", stepOkStyle.Render("✓")
 	default:
