@@ -139,10 +139,24 @@ func (r *agentWorkflowRunner) RunStep(ctx context.Context, step workflow.Step, i
 	}
 	spec.ExecutionMode = ExecModeSpawn
 	start := time.Now()
+	// Link the spawned worker to the parent session/depth so its tool activity
+	// surfaces nested in the parent transcript (same as the agent_<name> and
+	// agent_dispatch paths). The parent session id rides on ctx via WithSessionID.
+	var parentID string
+	var parentDepth int
+	if pa := AgentFromContext(ctx); pa != nil {
+		parentID = pa.AgentID()
+	}
+	if sc := SubagentContextFromCtx(ctx); sc != nil {
+		parentDepth = sc.Depth
+	}
 	result, err := r.subMgr.Spawn(ctx, SpawnRequest{
-		Spec:        spec,
-		Task:        step.Task,
-		TaskContext: workflowContext(input.PriorResults),
+		Spec:            spec,
+		Task:            step.Task,
+		TaskContext:     workflowContext(input.PriorResults),
+		ParentID:        parentID,
+		ParentDepth:     parentDepth,
+		ParentSessionID: tool.SessionIDFromContext(ctx),
 	})
 	if err != nil {
 		return workflow.StepOutput{Status: workflow.StatusError}, err
