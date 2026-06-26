@@ -27,16 +27,13 @@ func (r *GatewayToolActivityReporter) ReportToolActivity(ctx context.Context, ca
 	if r.sessions == nil || r.channels == nil {
 		return
 	}
-	sess, err := r.sessions.GetByID(ctx, call.SessionID)
-	if err != nil || sess == nil {
-		return
-	}
-	ch := r.channels.Channel(sess.Channel)
-	if ch == nil {
-		return
-	}
-	sender, ok := ch.(channel.ToolActivitySender)
-	if !ok {
+	// Walk up the parent-session chain (cache-first) to the nearest session whose
+	// channel can display activity. A main-agent call resolves at depth 0 (its own
+	// channel). A sub-agent call runs under a "subagent" session that has no
+	// channel, so it resolves at its parent (the user-facing channel) at depth>0 —
+	// surfacing nested sub-agent tool activity in the parent transcript.
+	sender, target, depth := r.resolveActivitySink(ctx, call.SessionID)
+	if sender == nil {
 		return
 	}
 
@@ -44,6 +41,7 @@ func (r *GatewayToolActivityReporter) ReportToolActivity(ctx context.Context, ca
 		CallID:   evt.ID,
 		ToolName: call.ToolName,
 		Done:     evt.Done,
+		Depth:    depth,
 	}
 	if !evt.Done {
 		act.ArgSummary = summarizeToolInput(call.ToolName, call.Input)
@@ -65,7 +63,29 @@ func (r *GatewayToolActivityReporter) ReportToolActivity(ctx context.Context, ca
 		act.Output = capOutput(output)
 	}
 
-	_ = sender.SendToolActivity(ctx, channel.MessageTarget{Channel: sess.Channel, ChannelID: sess.ChannelID}, act)
+	_ = sender.SendToolActivity(ctx, target, act)
+}
+
+// resolveActivitySink walks the session's parent chain (cache-first) and returns
+// the first channel that can display activity, the target to send to, and the
+// number of hops walked (0 = the call's own channel). Returns a nil sender when
+// no ancestor has a displaying channel. Bounded to avoid a runaway/cyclic chain.
+func (r *GatewayToolActivityReporter) resolveActivitySink(ctx context.Context, sessionID string) (channel.ToolActivitySender, channel.MessageTarget, int) {
+	const maxDepth = 8
+	id := sessionID
+	for depth := 0; id != "" && depth <= maxDepth; depth++ {
+		sess, err := r.sessions.GetByID(ctx, id)
+		if err != nil || sess == nil {
+			return nil, channel.MessageTarget{}, 0
+		}
+		if ch := r.channels.Channel(sess.Channel); ch != nil {
+			if sender, ok := ch.(channel.ToolActivitySender); ok {
+				return sender, channel.MessageTarget{Channel: sess.Channel, ChannelID: sess.ChannelID}, depth
+			}
+		}
+		id = sess.ParentSessionID
+	}
+	return nil, channel.MessageTarget{}, 0
 }
 
 // deriveResultSummary produces a short, tool-agnostic outcome hint: the error's

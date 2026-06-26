@@ -140,7 +140,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activeToolSummary = ""
 			}
 		} else {
-			m.appendStep(msg.callID, msg.tool, msg.arg)
+			m.appendStep(msg.callID, msg.tool, msg.arg, msg.depth)
 			m.activeTool = msg.tool
 			m.activeToolSummary = msg.arg
 		}
@@ -432,10 +432,10 @@ func (m *Model) addMessage(role, content string) {
 
 // appendStep adds a pending workflow step to the transcript and indexes it by
 // callID so the matching done event can update it in place.
-func (m *Model) appendStep(callID, tool, arg string) {
+func (m *Model) appendStep(callID, tool, arg string, depth int) {
 	m.messages = append(m.messages, chatMessage{
 		role:      "step",
-		step:      &workflowStep{callID: callID, tool: tool, arg: arg},
+		step:      &workflowStep{callID: callID, tool: tool, arg: arg, depth: depth},
 		timestamp: time.Now(),
 	})
 	if m.stepIndex == nil {

@@ -22,6 +22,7 @@ type routingTestChannel struct {
 	activityTarget channel.MessageTarget
 	activityTool   string
 	activityDone   bool
+	activityDepth  int
 }
 
 func (c *routingTestChannel) Name() string { return "test" }
@@ -43,7 +44,46 @@ func (c *routingTestChannel) SendToolActivity(_ context.Context, target channel.
 	c.activityTarget = target
 	c.activityTool = act.ToolName
 	c.activityDone = act.Done
+	c.activityDepth = act.Depth
 	return nil
+}
+
+func TestReportToolActivityForwardsSubAgentToParent(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "fwd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	sessions := session.NewManager(db)
+	parent, err := sessions.Get(context.Background(), "test", "chan-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := sessions.Get(context.Background(), "subagent", "subagent_researcher_ab12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub.SetParentSessionID(parent.ID) // links sub-agent session to the parent channel
+
+	ch := &routingTestChannel{}
+	channels := &ChannelSubsystem{channels: map[string]channel.Channel{"test": ch}}
+
+	reporter := NewGatewayToolActivityReporter(sessions, channels)
+	reporter.ReportToolActivity(context.Background(), &tool.ToolCall{
+		ToolName:  "grep_code",
+		SessionID: sub.ID,
+	}, tool.ToolActivityEvent{ID: "a1", Done: true, Result: &tool.ToolResult{Output: "x\ny\nz"}})
+
+	if ch.activityTool != "grep_code" {
+		t.Fatalf("forwarded tool = %q, want grep_code", ch.activityTool)
+	}
+	if ch.activityTarget.Channel != "test" || ch.activityTarget.ChannelID != "chan-1" {
+		t.Fatalf("forwarded target = %+v, want test/chan-1 (the parent channel)", ch.activityTarget)
+	}
+	if ch.activityDepth != 1 {
+		t.Fatalf("forwarded depth = %d, want 1 (one hop to the parent)", ch.activityDepth)
+	}
 }
 
 type testStreamUpdater struct{}

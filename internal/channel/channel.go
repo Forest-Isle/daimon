@@ -69,6 +69,7 @@ type ToolActivity struct {
 	ResultSummary string
 	Output        string // capped raw output, for expand
 	Duration      time.Duration
+	Depth         int // 0 = main agent; >0 = nested sub-agent level (for indentation)
 }
 
 // ToolActivitySender is an optional interface for channels that can display

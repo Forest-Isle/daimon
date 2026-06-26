@@ -330,11 +330,18 @@ func (m *Model) renderMessageBlock(msg *chatMessage) string {
 //
 //	│ ⚙ <tool> · <arg>   <status> <duration> · <result>
 //
-// The variable-length arg is budgeted on plain widths so the styled line stays
-// within messageContentWidth. When stepsExpanded is set, the step's captured
-// raw output is appended (dim) under the line.
+// A sub-agent step (depth>0) is indented one level deeper per depth with a "⤷"
+// connector so nested tool activity reads as part of the delegating round. The
+// variable-length arg is budgeted on plain widths (accounting for the guide) so
+// the styled line stays within terminal width. When stepsExpanded is set, the
+// step's captured raw output is appended (dim) under the line.
 func (m *Model) renderStepLine(s *workflowStep) string {
-	width := m.messageContentWidth()
+	firstGuide, contGuide := stepGuides(s.depth)
+	guideWidth := runewidth.StringWidth(firstGuide)
+	width := m.messageContentWidth() - (guideWidth - 2) // depth-0 guide ("│ ") already budgeted
+	if width < 8 {
+		width = 8
+	}
 
 	statusPlain, statusStyled := stepStatus(s)
 
@@ -380,7 +387,18 @@ func (m *Model) renderStepLine(s *workflowStep) string {
 		body += "\n" + stepOutputStyle.Render(wrapText(s.output, width-2))
 	}
 
-	return indentBlock(body, stepGuideStyle.Render("│ "), "  ")
+	return indentBlock(body, stepGuideStyle.Render(firstGuide), stepGuideStyle.Render(contGuide))
+}
+
+// stepGuides returns the first-line and continuation prefixes for a step at the
+// given nesting depth. Depth 0 is the round's own guide ("│ "); deeper levels
+// add two columns per level plus a "⤷ " connector for sub-agent steps.
+func stepGuides(depth int) (first, cont string) {
+	if depth <= 0 {
+		return "│ ", "  "
+	}
+	pad := strings.Repeat("  ", depth)
+	return "│ " + pad + "⤷ ", "│ " + pad + "  "
 }
 
 // stepStatus returns the plain text (for width budgeting) and the styled glyph

@@ -148,12 +148,13 @@ func (a *AgentTool) Execute(ctx context.Context, input []byte) (tool.Result, err
 	}
 
 	result, err := a.manager.Spawn(ctx, SpawnRequest{
-		Spec:        a.spec,
-		Task:        in.Task,
-		TaskContext: in.Context,
-		ParentID:    parentID,
-		ParentDepth: parentDepth,
-		ChainID:     chainID,
+		Spec:            a.spec,
+		Task:            in.Task,
+		TaskContext:     in.Context,
+		ParentID:        parentID,
+		ParentDepth:     parentDepth,
+		ChainID:         chainID,
+		ParentSessionID: tool.SessionIDFromContext(ctx),
 	})
 
 	if err != nil {

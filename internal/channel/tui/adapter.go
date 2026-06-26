@@ -301,6 +301,7 @@ func (a *Adapter) SendToolActivity(_ context.Context, _ channel.MessageTarget, a
 		resultSummary: act.ResultSummary,
 		output:        act.Output,
 		duration:      act.Duration,
+		depth:         act.Depth,
 	})
 	return nil
 }

@@ -34,6 +34,7 @@ type workflowStep struct {
 	resultSummary string
 	output        string // capped raw output, shown when expanded
 	duration      time.Duration
+	depth         int // 0 = main agent; >0 = nested sub-agent level (indentation)
 }
 
 // chatMessage represents a single message in the conversation.

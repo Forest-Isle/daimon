@@ -40,12 +40,13 @@ func (m *SubAgentManager) SetEpisodeKernel(kernel CognitiveKernel, enabled bool)
 
 // SpawnRequest holds the parameters for spawning a sub-agent.
 type SpawnRequest struct {
-	Spec        *AgentSpec
-	Task        string
-	TaskContext string
-	ParentID    string
-	ParentDepth int
-	ChainID     string
+	Spec            *AgentSpec
+	Task            string
+	TaskContext     string
+	ParentID        string
+	ParentDepth     int
+	ChainID         string
+	ParentSessionID string // parent's session id; links the sub-session so its tool activity surfaces in the parent channel
 }
 
 // Spawn runs a sub-agent with an isolated session, scoped tools, and optional model override.
@@ -107,6 +108,16 @@ func (m *SubAgentManager) Spawn(ctx context.Context, req SpawnRequest) (*SubAgen
 		UserID:    "orchestrator",
 		UserName:  "orchestrator",
 		Text:      userText,
+	}
+
+	// Pre-create the sub-agent session and link it to the parent so the activity
+	// reporter can walk up to the parent's channel and surface this sub-agent's
+	// tool steps in the parent transcript. The session is cached, so HandleMessage
+	// reuses it and the reporter (cache-first GetByID) sees the parent link.
+	if req.ParentSessionID != "" {
+		if subSess, sErr := m.deps.Core.Sessions.Get(ctx, "subagent", sessionID); sErr == nil && subSess != nil {
+			subSess.SetParentSessionID(req.ParentSessionID)
+		}
 	}
 
 	execErr := subAgent.HandleMessage(ctx, capture, msg)

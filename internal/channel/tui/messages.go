@@ -72,6 +72,7 @@ type toolActivityMsg struct {
 	resultSummary string
 	output        string
 	duration      time.Duration
+	depth         int // 0 = main agent; >0 = nested sub-agent level
 }
 
 // cancelRequestMsg signals that the user wants to cancel the in-flight request.

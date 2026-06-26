@@ -110,7 +110,7 @@ func TestRenderStepLineCollapsed(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m.addMessage("user", "find the close logic")
-	m.appendStep("a1", "grep", "implicitClose")
+	m.appendStep("a1", "grep", "implicitClose", 0)
 	if i, ok := m.stepIndex["a1"]; ok {
 		s := m.messages[i].step
 		s.done, s.ok, s.resultSummary, s.duration = true, true, "3 lines", 400*time.Millisecond
@@ -135,7 +135,7 @@ func TestFormatDuration(t *testing.T) {
 func TestStepRawOutputExpandToggle(t *testing.T) {
 	m := NewModel("v", "local", "/tmp")
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m.appendStep("a1", "grep", "implicitClose")
+	m.appendStep("a1", "grep", "implicitClose", 0)
 	if i, ok := m.stepIndex["a1"]; ok {
 		s := m.messages[i].step
 		s.done, s.ok, s.output = true, true, "UNIQUE_OUTPUT_MARKER"
@@ -153,7 +153,7 @@ func TestStepExpandedOutputWithinWidth(t *testing.T) {
 	for _, w := range []int{80, 60} {
 		m := NewModel("v", "local", "/tmp")
 		m.Update(tea.WindowSizeMsg{Width: w, Height: 24})
-		m.appendStep("a1", "grep", "x")
+		m.appendStep("a1", "grep", "x", 0)
 		if i, ok := m.stepIndex["a1"]; ok {
 			s := m.messages[i].step
 			s.done, s.ok = true, true
@@ -164,6 +164,26 @@ func TestStepExpandedOutputWithinWidth(t *testing.T) {
 		out := m.renderStaticChat()
 		for _, line := range strings.Split(out, "\n") {
 			assert.LessOrEqual(t, lipgloss.Width(line), w, "expanded step line exceeded width %d", w)
+		}
+	}
+}
+
+func TestRenderStepLineNestedDepth(t *testing.T) {
+	for _, w := range []int{80, 60} {
+		m := NewModel("v", "local", "/tmp")
+		m.Update(tea.WindowSizeMsg{Width: w, Height: 24})
+		m.appendStep("p1", "agent_researcher", "find X", 0)
+		m.appendStep("s1", "grep_code", "implicitClose", 1) // sub-agent step
+		if i, ok := m.stepIndex["s1"]; ok {
+			st := m.messages[i].step
+			st.done, st.ok, st.resultSummary = true, true, "3 lines"
+		}
+
+		out := m.renderStaticChat()
+		assert.Contains(t, out, "⤷", "nested step should show the depth connector")
+		assert.Contains(t, out, "grep_code")
+		for _, line := range strings.Split(out, "\n") {
+			assert.LessOrEqual(t, lipgloss.Width(line), w, "nested step line exceeded width %d", w)
 		}
 	}
 }
