@@ -39,10 +39,10 @@ func (c *routingTestChannel) SendApprovalRequest(_ context.Context, target chann
 	c.approvalInput = input
 	return c.approved, c.approvalErr
 }
-func (c *routingTestChannel) SendToolActivity(_ context.Context, target channel.MessageTarget, toolName, _ string, done bool) error {
+func (c *routingTestChannel) SendToolActivity(_ context.Context, target channel.MessageTarget, act channel.ToolActivity) error {
 	c.activityTarget = target
-	c.activityTool = toolName
-	c.activityDone = done
+	c.activityTool = act.ToolName
+	c.activityDone = act.Done
 	return nil
 }
 
@@ -90,7 +90,7 @@ func TestGatewayToolRoutingUsesSessionID(t *testing.T) {
 		ToolName:  "bash",
 		Input:     `{"command":"echo ok"}`,
 		SessionID: sess.ID,
-	}, true)
+	}, tool.ToolActivityEvent{ID: "act_test", Done: true, Result: &tool.ToolResult{Output: "ok"}})
 	if ch.activityTool != "bash" {
 		t.Fatalf("activity tool = %q, want bash", ch.activityTool)
 	}

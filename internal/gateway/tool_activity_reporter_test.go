@@ -2,38 +2,50 @@ package gateway
 
 import "testing"
 
-func TestSummarizeToolInput(t *testing.T) {
+func TestDeriveResultSummary(t *testing.T) {
 	tests := []struct {
-		name  string
-		tool  string
-		input string
-		want  string
+		name    string
+		errText string
+		output  string
+		want    string
 	}{
-		{"bash command", "bash", `{"command":"go test ./..."}`, "go test ./..."},
-		{"file path", "file_read", `{"file_path":"/etc/hosts"}`, "/etc/hosts"},
-		{"query", "grep", `{"pattern":"TODO"}`, "TODO"},
-		{"newlines collapsed", "bash", `{"command":"a\nb"}`, "a b"},
-		{"no recognizable field", "x", `{"foo":"bar"}`, ""},
-		{"invalid json", "x", `not json`, ""},
-		{"empty", "x", ``, ""},
+		{"error wins", "permission denied\nstack", "ignored", "error: permission denied"},
+		{"empty output", "", "", "done"},
+		{"single line", "", "hello world", "hello world"},
+		{"multi line", "", "a\nb\nc", "3 lines"},
+		{"trailing newline single", "", "one\n", "one"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := summarizeToolInput(tt.tool, tt.input); got != tt.want {
-				t.Errorf("summarizeToolInput(%q) = %q, want %q", tt.input, got, tt.want)
+			if got := deriveResultSummary(tt.errText, tt.output); got != tt.want {
+				t.Errorf("deriveResultSummary(%q,%q) = %q, want %q", tt.errText, tt.output, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestClampSummaryLongUnicode(t *testing.T) {
-	// 80 CJK runes; must clamp to 60 runes + ellipsis and stay valid.
-	long := ""
-	for i := 0; i < 80; i++ {
-		long += "测"
+func TestCapOutputLines(t *testing.T) {
+	var b []byte
+	for i := 0; i < 100; i++ {
+		b = append(b, 'x', '\n')
 	}
-	got := clampSummary(long)
-	if r := []rune(got); len(r) != 61 { // 60 + "…"
-		t.Errorf("expected 61 runes after clamp, got %d (%q)", len(r), got)
+	got := capOutput(string(b))
+	if n := len(splitLines(got)); n > maxOutputLines+1 {
+		t.Errorf("capOutput kept %d lines, want <= %d", n, maxOutputLines+1)
 	}
+	if got[len(got)-len("(truncated)"):] != "(truncated)" {
+		t.Errorf("expected truncation marker, got tail %q", got)
+	}
+}
+
+func splitLines(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, s[start:])
 }

@@ -124,14 +124,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case toolActivityMsg:
 		if msg.done {
-			// Only clear if this finish refers to the tool we're showing.
-			if msg.toolName == m.activeTool {
+			if msg.tool == m.activeTool {
 				m.activeTool = ""
 				m.activeToolSummary = ""
 			}
 		} else {
-			m.activeTool = msg.toolName
-			m.activeToolSummary = msg.summary
+			m.activeTool = msg.tool
+			m.activeToolSummary = msg.arg
 		}
 
 	}

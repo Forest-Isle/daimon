@@ -1,6 +1,9 @@
 package channel
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // InboundHandler is called by a channel adapter when a message arrives.
 type InboundHandler func(ctx context.Context, msg InboundMessage)
@@ -55,14 +58,23 @@ type ProposalSender interface {
 	SetProposalHandler(h func(ctx context.Context, id string, accept bool))
 }
 
+// ToolActivity is one tool-execution activity event. On start, only ArgSummary
+// is meaningful; on done, OK/ResultSummary/Output/Duration are populated.
+type ToolActivity struct {
+	CallID        string
+	ToolName      string
+	ArgSummary    string
+	Done          bool
+	OK            bool
+	ResultSummary string
+	Output        string // capped raw output, for expand
+	Duration      time.Duration
+}
+
 // ToolActivitySender is an optional interface for channels that can display
-// live tool-execution activity (which tool is running right now). Unlike
-// ApprovalSender it never blocks and never affects execution — it is purely
-// informational. done=false signals a tool started; done=true signals it
-// finished and the activity line should clear. Channels that do not implement
-// this interface simply show nothing.
+// live tool-execution activity. It never blocks and never affects execution.
 type ToolActivitySender interface {
-	SendToolActivity(ctx context.Context, target MessageTarget, toolName, summary string, done bool) error
+	SendToolActivity(ctx context.Context, target MessageTarget, act ToolActivity) error
 }
 
 // real-time streaming of tool execution output. When a tool produces

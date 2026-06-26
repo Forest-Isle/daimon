@@ -288,11 +288,20 @@ func (a *Adapter) SendFeedbackRequest(ctx context.Context, target channel.Messag
 
 // SendToolActivity surfaces live tool-execution activity in the TUI status
 // line. It is non-blocking and best-effort.
-func (a *Adapter) SendToolActivity(_ context.Context, _ channel.MessageTarget, toolName, summary string, done bool) error {
+func (a *Adapter) SendToolActivity(_ context.Context, _ channel.MessageTarget, act channel.ToolActivity) error {
 	if a.program == nil {
 		return nil
 	}
-	a.program.Send(toolActivityMsg{toolName: toolName, summary: summary, done: done})
+	a.program.Send(toolActivityMsg{
+		callID:        act.CallID,
+		tool:          act.ToolName,
+		arg:           act.ArgSummary,
+		done:          act.Done,
+		ok:            act.OK,
+		resultSummary: act.ResultSummary,
+		output:        act.Output,
+		duration:      act.Duration,
+	})
 	return nil
 }
 
