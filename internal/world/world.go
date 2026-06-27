@@ -282,6 +282,40 @@ func (s *Store) ListJournal(ctx context.Context, sinceOccurredAt string, limit i
 	return out, nil
 }
 
+// ListJournalWithoutEmbedding returns recent journal rows that still need a
+// stored semantic embedding. Newer rows are returned first so the embed sleep job
+// prioritizes recent memory when catching up.
+func (s *Store) ListJournalWithoutEmbedding(ctx context.Context, limit int) ([]JournalEntry, error) {
+	if err := s.ensure(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, kind, summary, detail, occurred_at
+		FROM journal
+		WHERE embedding IS NULL
+		ORDER BY occurred_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list journal without embedding: %w", err)
+	}
+	defer rows.Close()
+
+	var out []JournalEntry
+	for rows.Next() {
+		var entry JournalEntry
+		if err := rows.Scan(&entry.ID, &entry.Kind, &entry.Summary, &entry.Detail, &entry.OccurredAt); err != nil {
+			return nil, fmt.Errorf("scan journal without embedding: %w", err)
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate journal without embedding: %w", err)
+	}
+	return out, nil
+}
+
 // ListOutcomes returns up to limit episode-outcome journal entries (kind="outcome"),
 // newest first. Unlike ListJournal it is window-independent over outcomes: the
 // distill detection job needs to see recurring patterns across many episodes, and a

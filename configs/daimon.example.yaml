@@ -139,6 +139,11 @@ memory:
   # 维度提示：nomic-embed-text 是 768 维，与 text-embedding-3-small 的 1536 维不兼容。
   # 从 openai 切到本地需重建已存向量，并把下方 vector_dimension 改为 768。
 
+  # World 语义检索默认关闭；开启需有效 openai_api_key 或 local_embedding。
+  # 开启后每次检索会 embed 查询（可能产生 API 成本），并对 journal 行做暴力 cosine 扫描，
+  # 适合中等规模记忆库；大规模前应先引入索引。
+  semantic_retrieval: false
+
   # fact_extraction: true          # legacy key: enable lifecycle decisions for explicit memory saves
   # similarity_threshold: 0.85     # 去重阈值
   # bm25_weight: 0.4               # BM25 权重

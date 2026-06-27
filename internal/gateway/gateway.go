@@ -25,6 +25,7 @@ import (
 	"github.com/Forest-Isle/daimon/internal/taskruntime"
 	"github.com/Forest-Isle/daimon/internal/tool"
 	"github.com/Forest-Isle/daimon/internal/workflow"
+	"github.com/Forest-Isle/daimon/internal/world"
 )
 
 type Gateway struct {
@@ -142,7 +143,17 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	proposalsStore := proposals.NewStore(gw.db.DB)
 	// The clock is injected at this boundary so the sleep jobs stay clock-free.
 	unixNow := func() int64 { return time.Now().Unix() }
+	var semanticEmbedder world.Embedder
+	if cfg.Memory.SemanticRetrieval {
+		if h := buildEmbedder(cfg); h.real {
+			semanticEmbedder = h.provider
+			gw.toolSub.WorldStore.SetEmbedder(semanticEmbedder)
+		} else {
+			slog.Warn("semantic_retrieval enabled but no real embedder configured; staying lexical")
+		}
+	}
 	gw.sleep = sleep.NewRunner(
+		sleep.NewEmbedJob(gw.toolSub.WorldStore, semanticEmbedder),
 		sleep.NewDigestJob(gw.toolSub.WorldStore, sleepSummarizer),
 		sleep.NewDriftJob(gw.toolSub.ValuesStore, gw.toolSub.WorldStore, sleepSummarizer),
 		sleep.NewRollupJob(gw.toolSub.WorldStore, sleepSummarizer),

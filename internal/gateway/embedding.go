@@ -15,6 +15,7 @@ import (
 type embedderHandle struct {
 	provider  memory.EmbeddingProvider
 	waitReady func(context.Context) bool
+	real      bool
 }
 
 // buildEmbedder selects the embedding provider by fallback chain:
@@ -30,6 +31,7 @@ func buildEmbedder(cfg *config.Config) embedderHandle {
 		return embedderHandle{
 			provider: memory.NewCachedEmbedder(
 				memory.NewOpenAIEmbeddingWithURL(k, cfg.Memory.EmbeddingModel, cfg.Memory.EmbeddingBaseURL)),
+			real: true,
 		}
 	}
 	if cfg.Memory.LocalEmbedding.Enabled {
@@ -39,7 +41,7 @@ func buildEmbedder(cfg *config.Config) embedderHandle {
 			Host:     cfg.Memory.LocalEmbedding.Host,
 			AutoPull: cfg.Memory.LocalEmbedding.AutoPull,
 		})
-		return embedderHandle{provider: provider, waitReady: waitReady}
+		return embedderHandle{provider: provider, waitReady: waitReady, real: true}
 	}
-	return embedderHandle{provider: &memory.NoopEmbedding{}}
+	return embedderHandle{provider: &memory.NoopEmbedding{}, real: false}
 }

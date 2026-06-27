@@ -309,6 +309,56 @@ func TestJournalAppendAndListOrdering(t *testing.T) {
 	}
 }
 
+func TestListJournalWithoutEmbedding(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name  string
+		limit int
+		want  []string
+	}{
+		{name: "recent first with limit", limit: 2, want: []string{"journal_new", "journal_mid"}},
+		{name: "default limit includes all missing", limit: 0, want: []string{"journal_new", "journal_mid", "journal_old"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openWorldTestDB(t)
+			world := NewStore(db.DB)
+			entries := []JournalEntry{
+				{ID: "journal_old", Kind: "fact", Summary: "old", OccurredAt: "2029-01-01T00:00:00Z"},
+				{ID: "journal_embedded", Kind: "decision", Summary: "embedded", OccurredAt: "2030-01-01T00:00:00Z"},
+				{ID: "journal_mid", Kind: "decision", Summary: "mid", Detail: "detail", OccurredAt: "2030-01-02T00:00:00Z"},
+				{ID: "journal_new", Kind: "outcome", Summary: "new", OccurredAt: "2030-01-03T00:00:00Z"},
+			}
+			for _, entry := range entries {
+				if err := world.AppendJournal(ctx, entry); err != nil {
+					t.Fatalf("AppendJournal(%s) error = %v", entry.ID, err)
+				}
+			}
+			if err := world.SetJournalEmbedding(ctx, "journal_embedded", []float32{1, 2}); err != nil {
+				t.Fatalf("SetJournalEmbedding() error = %v", err)
+			}
+
+			got, err := world.ListJournalWithoutEmbedding(ctx, tc.limit)
+			if err != nil {
+				t.Fatalf("ListJournalWithoutEmbedding() error = %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("len = %d, want %d: %#v", len(got), len(tc.want), got)
+			}
+			for i, want := range tc.want {
+				if got[i].ID != want {
+					t.Fatalf("got[%d].ID = %q, want %q; all = %#v", i, got[i].ID, want, got)
+				}
+			}
+			for _, entry := range got {
+				if entry.EpisodeID != "" || entry.RollupID != "" {
+					t.Fatalf("unexpected unselected fields populated: %#v", entry)
+				}
+			}
+		})
+	}
+}
+
 func TestListOutcomes(t *testing.T) {
 	db := openWorldTestDB(t)
 	world := NewStore(db.DB)

@@ -14,6 +14,7 @@ type MemoryConfig struct {
 	EmbeddingBaseURL      string               `yaml:"embedding_base_url"` // base URL for embedding API (default: https://api.openai.com/v1/embeddings)
 	OpenAIAPIKey          string               `yaml:"openai_api_key"`
 	LocalEmbedding        LocalEmbeddingConfig `yaml:"local_embedding"`        // OpenAI-key-less fallback via a local OpenAI-compatible engine (Ollama)
+	SemanticRetrieval     bool                 `yaml:"semantic_retrieval"`     // opt-in world semantic retrieval; embeds each query (API cost) and brute-force scans journal embeddings, suitable for medium scale
 	FactExtraction        bool                 `yaml:"fact_extraction"`        // legacy key: enable lifecycle decisions for explicit memory saves
 	SimilarityThreshold   float64              `yaml:"similarity_threshold"`   // dedup threshold (default 0.85)
 	ConsolidationInterval time.Duration        `yaml:"consolidation_interval"` // session->user promotion interval
