@@ -28,6 +28,16 @@ type Hit struct {
 
 const defaultRetrieveLimit = 8
 
+const (
+	correctionRankWeight = 1.30
+	decisionRankWeight   = 1.15
+	outcomeRankWeight    = 1.05
+	factRankWeight       = 1.00
+	commitmentRankWeight = 1.10
+	neutralRankWeight    = 1.00
+	maxRecencyRankBump   = 1.15
+)
+
 // Retrieve does a hybrid lexical search across the journal and commitments and
 // returns the top hits fused by reciprocal-rank. It prefers FTS5 (BM25) and
 // falls back to LIKE per source when FTS5 is unavailable or the query is
@@ -87,8 +97,17 @@ func rrfMerge(lists ...[]rankedHit) []Hit {
 		}
 	}
 	out := make([]Hit, 0, len(merged))
+	candidates := make([]Hit, 0, len(merged))
 	for _, a := range merged {
-		a.hit.Score = a.score
+		candidates = append(candidates, a.hit)
+	}
+	recencyRanks, recencyTotal := recencyRankByHits(candidates)
+	for _, a := range merged {
+		recencyRank, ok := recencyRanks[a.hit.Source+":"+a.hit.ID]
+		if !ok {
+			recencyRank = -1
+		}
+		a.hit.Score = a.score * rankBoost(a.hit, recencyRank, recencyTotal)
 		out = append(out, a.hit)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -102,6 +121,57 @@ func rrfMerge(lists ...[]rankedHit) []Hit {
 		return out[i].ID < out[j].ID
 	})
 	return out
+}
+
+// rankBoost returns the multiplicative provenance and recency weight for a hit.
+// recencyRank is 0-based among journal hits ordered by newest OccurredAt first;
+// negative ranks, commitments, and hits without OccurredAt get a neutral recency
+// weight.
+func rankBoost(h Hit, recencyRank, recencyTotal int) float64 {
+	kindWeight := neutralRankWeight
+	switch {
+	case h.Source == "commitment":
+		kindWeight = commitmentRankWeight
+	case h.Kind == "correction":
+		kindWeight = correctionRankWeight
+	case h.Kind == "decision":
+		kindWeight = decisionRankWeight
+	case h.Kind == "outcome":
+		kindWeight = outcomeRankWeight
+	case h.Kind == "fact":
+		kindWeight = factRankWeight
+	}
+
+	recencyWeight := neutralRankWeight
+	if h.Source == "journal" && h.OccurredAt != "" && recencyRank >= 0 && recencyTotal > 0 {
+		if recencyTotal == 1 {
+			recencyWeight = maxRecencyRankBump
+		} else {
+			step := (maxRecencyRankBump - neutralRankWeight) / float64(recencyTotal-1)
+			recencyWeight = maxRecencyRankBump - step*float64(recencyRank)
+		}
+	}
+	return kindWeight * recencyWeight
+}
+
+func recencyRankByHits(hits []Hit) (map[string]int, int) {
+	candidates := make([]Hit, 0, len(hits))
+	for _, hit := range hits {
+		if hit.Source == "journal" && hit.OccurredAt != "" {
+			candidates = append(candidates, hit)
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].OccurredAt != candidates[j].OccurredAt {
+			return candidates[i].OccurredAt > candidates[j].OccurredAt
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	ranks := make(map[string]int, len(candidates))
+	for i, hit := range candidates {
+		ranks[hit.Source+":"+hit.ID] = i
+	}
+	return ranks, len(candidates)
 }
 
 func (s *Store) searchJournal(ctx context.Context, ftsText string, kinds []string, limit int) []rankedHit {
