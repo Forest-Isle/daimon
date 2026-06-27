@@ -3,9 +3,48 @@ package retrievaleval
 import (
 	"context"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/Forest-Isle/daimon/internal/world"
 )
+
+const conceptDimensions = 3
+
+// ConceptEmbedder is a deterministic test embedder that maps synonyms onto
+// shared concept dimensions.
+type ConceptEmbedder struct{}
+
+// Embed returns a sparse concept-count vector for recognized keywords.
+func (ConceptEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	_ = ctx
+	concepts := map[string]int{
+		"reside":      0,
+		"residence":   0,
+		"relocated":   0,
+		"relocation":  0,
+		"moved":       0,
+		"home":        0,
+		"lives":       0,
+		"live":        0,
+		"credential":  1,
+		"credentials": 1,
+		"password":    1,
+		"rotation":    1,
+		"renewal":     1,
+		"schedule":    2,
+		"calendar":    2,
+		"dawn":        2,
+		"morning":     2,
+	}
+	vec := make([]float32, conceptDimensions)
+	for _, token := range conceptTokens(text) {
+		if dim, ok := concepts[token]; ok {
+			vec[dim]++
+		}
+	}
+	return vec, nil
+}
 
 // SeedCorpus writes a deterministic personal-agent retrieval corpus and returns labels.
 func SeedCorpus(ctx context.Context, ws *world.Store) ([]LabeledQuery, error) {
@@ -143,4 +182,85 @@ func SeedCorpus(ctx context.Context, ws *world.Store) ([]LabeledQuery, error) {
 			Limit: 3,
 		},
 	}, nil
+}
+
+// SeedParaphraseCorpus writes a deterministic paraphrase corpus where lexical
+// retrieval misses the gold rows but ConceptEmbedder can recover them.
+func SeedParaphraseCorpus(ctx context.Context, ws *world.Store) ([]LabeledQuery, error) {
+	entries := []world.JournalEntry{
+		{
+			ID:         "bench_para_residence_correction",
+			Kind:       "correction",
+			Summary:    "residence correction",
+			Detail:     "correction says the user now resides in Hangzhou after relocation",
+			OccurredAt: "2026-06-14 09:00:00",
+		},
+		{
+			ID:         "bench_para_laptop_fact",
+			Kind:       "fact",
+			Summary:    "laptop setup note",
+			Detail:     "laptop bag inventory mentioned city stickers and chargers",
+			OccurredAt: "2026-06-01 09:00:00",
+		},
+		{
+			ID:         "bench_para_security_decision",
+			Kind:       "decision",
+			Summary:    "credential handling decision",
+			Detail:     "decision keeps credential rotation weekly for local operator access",
+			OccurredAt: "2026-06-15 10:00:00",
+		},
+		{
+			ID:         "bench_para_keyboard_fact",
+			Kind:       "fact",
+			Summary:    "keyboard layout note",
+			Detail:     "keyboard firmware notes for local macros and typing setup",
+			OccurredAt: "2026-06-02 10:00:00",
+		},
+		{
+			ID:         "bench_para_schedule_correction",
+			Kind:       "correction",
+			Summary:    "schedule correction",
+			Detail:     "correction says focused work starts at dawn after the routine change",
+			OccurredAt: "2026-06-16 11:00:00",
+		},
+		{
+			ID:         "bench_para_planner_fact",
+			Kind:       "fact",
+			Summary:    "planner export note",
+			Detail:     "planner export checked color labels and sidebar ordering",
+			OccurredAt: "2026-06-03 11:00:00",
+		},
+	}
+	for _, entry := range entries {
+		if err := ws.AppendJournal(ctx, entry); err != nil {
+			return nil, fmt.Errorf("seed paraphrase journal %s: %w", entry.ID, err)
+		}
+	}
+
+	return []LabeledQuery{
+		{
+			Name:  "residence paraphrase",
+			Text:  "home laptop",
+			Gold:  map[string]bool{"bench_para_residence_correction": true},
+			Limit: 1,
+		},
+		{
+			Name:  "security paraphrase",
+			Text:  "password keyboard",
+			Gold:  map[string]bool{"bench_para_security_decision": true},
+			Limit: 1,
+		},
+		{
+			Name:  "schedule paraphrase",
+			Text:  "morning planner",
+			Gold:  map[string]bool{"bench_para_schedule_correction": true},
+			Limit: 1,
+		},
+	}, nil
+}
+
+func conceptTokens(text string) []string {
+	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
 }

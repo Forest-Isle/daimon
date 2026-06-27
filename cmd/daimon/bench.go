@@ -46,9 +46,93 @@ func newMemoryBenchCmd() *cobra.Command {
 			if err := w.Flush(); err != nil {
 				return fmt.Errorf("flush benchmark output: %w", err)
 			}
+
+			lexicalParaphrase, semanticParaphrase, err := runSemanticBench(ctx)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintln(os.Stdout)
+			sw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
+			_, _ = fmt.Fprintln(sw, "SYSTEM\tRECALL\tPRECISION\tF1\tMRR\tTOKENS/Q\tSTORE\t")
+			_, _ = fmt.Fprintf(sw, "lexical\t%.3f\t%.3f\t%.3f\t%.3f\t%.1f\t%d\t\n",
+				lexicalParaphrase.Recall, lexicalParaphrase.Precision, lexicalParaphrase.F1,
+				lexicalParaphrase.MRR, lexicalParaphrase.TokensPerQuery, lexicalParaphrase.StoreSize)
+			_, _ = fmt.Fprintf(sw, "+semantic\t%.3f\t%.3f\t%.3f\t%.3f\t%.1f\t%d\t\n",
+				semanticParaphrase.Recall, semanticParaphrase.Precision, semanticParaphrase.F1,
+				semanticParaphrase.MRR, semanticParaphrase.TokensPerQuery, semanticParaphrase.StoreSize)
+			if err := sw.Flush(); err != nil {
+				return fmt.Errorf("flush semantic benchmark output: %w", err)
+			}
 			return nil
 		},
 	}
+}
+
+func runSemanticBench(ctx context.Context) (retrievaleval.SystemReport, retrievaleval.SystemReport, error) {
+	lexicalStore, lexicalCleanup, err := newParaphraseBenchStore("lexical")
+	if err != nil {
+		return retrievaleval.SystemReport{}, retrievaleval.SystemReport{}, err
+	}
+	defer lexicalCleanup()
+	lexicalQueries, err := retrievaleval.SeedParaphraseCorpus(ctx, lexicalStore)
+	if err != nil {
+		return retrievaleval.SystemReport{}, retrievaleval.SystemReport{}, fmt.Errorf("seed lexical paraphrase corpus: %w", err)
+	}
+	lexicalReport, err := retrievaleval.Run(ctx, lexicalStore.Retrieve, lexicalQueries, 6)
+	if err != nil {
+		return retrievaleval.SystemReport{}, retrievaleval.SystemReport{}, fmt.Errorf("run lexical paraphrase benchmark: %w", err)
+	}
+
+	semanticStore, semanticCleanup, err := newParaphraseBenchStore("semantic")
+	if err != nil {
+		return retrievaleval.SystemReport{}, retrievaleval.SystemReport{}, err
+	}
+	defer semanticCleanup()
+	semanticQueries, err := retrievaleval.SeedParaphraseCorpus(ctx, semanticStore)
+	if err != nil {
+		return retrievaleval.SystemReport{}, retrievaleval.SystemReport{}, fmt.Errorf("seed semantic paraphrase corpus: %w", err)
+	}
+	embedder := retrievaleval.ConceptEmbedder{}
+	if err := embedBenchJournal(ctx, semanticStore, embedder); err != nil {
+		return retrievaleval.SystemReport{}, retrievaleval.SystemReport{}, err
+	}
+	semanticStore.SetEmbedder(embedder)
+	semanticReport, err := retrievaleval.Run(ctx, semanticStore.Retrieve, semanticQueries, 6)
+	if err != nil {
+		return retrievaleval.SystemReport{}, retrievaleval.SystemReport{}, fmt.Errorf("run semantic paraphrase benchmark: %w", err)
+	}
+	return lexicalReport, semanticReport, nil
+}
+
+func newParaphraseBenchStore(suffix string) (*world.Store, func(), error) {
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("daimon-bench-%s-%d.db", suffix, os.Getpid()))
+	removeSQLiteFiles(path)
+	db, err := store.Open(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open %s paraphrase database: %w", suffix, err)
+	}
+	cleanup := func() {
+		_ = db.Close()
+		removeSQLiteFiles(path)
+	}
+	return world.NewStore(db.DB), cleanup, nil
+}
+
+func embedBenchJournal(ctx context.Context, ws *world.Store, embedder retrievaleval.ConceptEmbedder) error {
+	entries, err := ws.ListJournal(ctx, "", 100)
+	if err != nil {
+		return fmt.Errorf("list semantic bench journal: %w", err)
+	}
+	for _, entry := range entries {
+		vec, err := embedder.Embed(ctx, entry.Summary+" "+entry.Detail)
+		if err != nil {
+			return fmt.Errorf("embed semantic bench journal %s: %w", entry.ID, err)
+		}
+		if err := ws.SetJournalEmbedding(ctx, entry.ID, vec); err != nil {
+			return fmt.Errorf("set semantic bench journal embedding %s: %w", entry.ID, err)
+		}
+	}
+	return nil
 }
 
 func removeSQLiteFiles(path string) {

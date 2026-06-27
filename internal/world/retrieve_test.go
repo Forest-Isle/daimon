@@ -2,6 +2,7 @@ package world
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
 
@@ -121,6 +122,24 @@ func TestRetrieve_LimitRespected(t *testing.T) {
 	}
 	if len(hits) > 2 {
 		t.Fatalf("limit 2 exceeded: got %d", len(hits))
+	}
+}
+
+func TestRetrieve_NilEmbedderLeavesLexicalResultsUnchanged(t *testing.T) {
+	s := seedRetrieval(t)
+	ctx := context.Background()
+
+	want, err := s.Retrieve(ctx, Query{Text: "daimon storage", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetEmbedder(nil)
+	got, err := s.Retrieve(ctx, Query{Text: "daimon storage", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Retrieve with nil embedder changed results:\ngot  %#v\nwant %#v", got, want)
 	}
 }
 

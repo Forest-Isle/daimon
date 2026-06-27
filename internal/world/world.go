@@ -44,11 +44,30 @@ type Mutation struct {
 }
 
 type Store struct {
-	db *sql.DB
+	db       *sql.DB
+	embedder Embedder
 }
 
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// SetEmbedder configures the optional semantic retrieval channel. Passing nil
+// disables semantic retrieval and leaves lexical retrieval unchanged.
+func (s *Store) SetEmbedder(e Embedder) {
+	s.embedder = e
+}
+
+// SetJournalEmbedding stores a serialized embedding for one journal row.
+func (s *Store) SetJournalEmbedding(ctx context.Context, id string, vec []float32) error {
+	if err := s.ensure(); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE journal SET embedding = ? WHERE id = ?`, serializeEmbedding(vec), id); err != nil {
+		return fmt.Errorf("set journal embedding: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) Apply(ctx context.Context, episodeID string, muts []Mutation) error {

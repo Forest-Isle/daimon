@@ -68,6 +68,52 @@ func TestSeedCorpusBoostedReport(t *testing.T) {
 	})
 }
 
+func TestSeedParaphraseCorpusSemanticRecall(t *testing.T) {
+	ctx := context.Background()
+	lexicalStore, qs := seedParaphraseBenchStore(t, ctx)
+	lexicalReport, err := Run(ctx, lexicalStore.Retrieve, qs, 6)
+	if err != nil {
+		t.Fatalf("Run lexical error = %v", err)
+	}
+
+	semanticStore, semanticQs := seedParaphraseBenchStore(t, ctx)
+	if !reflect.DeepEqual(qs, semanticQs) {
+		t.Fatalf("SeedParaphraseCorpus queries differ:\n%#v\n%#v", qs, semanticQs)
+	}
+	embedJournalEntries(t, ctx, semanticStore, ConceptEmbedder{})
+	semanticStore.SetEmbedder(ConceptEmbedder{})
+	semanticReport, err := Run(ctx, semanticStore.Retrieve, semanticQs, 6)
+	if err != nil {
+		t.Fatalf("Run semantic error = %v", err)
+	}
+
+	if lexicalReport.Recall >= 1 {
+		t.Fatalf("lexical recall = %.3f, want < 1", lexicalReport.Recall)
+	}
+	if semanticReport.Recall != 1 {
+		t.Fatalf("semantic recall = %.3f, want 1", semanticReport.Recall)
+	}
+	for _, q := range semanticQs {
+		lexicalHits, err := lexicalStore.Retrieve(ctx, world.Query{Text: q.Text, Limit: q.Limit})
+		if err != nil {
+			t.Fatalf("lexical Retrieve(%s): %v", q.Name, err)
+		}
+		lexicalRecall, _, _, _ := Metrics(lexicalHits, q.Gold)
+		if lexicalRecall >= 1 {
+			t.Fatalf("%s lexical recall=%.3f, want < 1 hits=%v", q.Name, lexicalRecall, hitIDs(lexicalHits))
+		}
+
+		semanticHits, err := semanticStore.Retrieve(ctx, world.Query{Text: q.Text, Limit: q.Limit})
+		if err != nil {
+			t.Fatalf("semantic Retrieve(%s): %v", q.Name, err)
+		}
+		semanticRecall, _, _, _ := Metrics(semanticHits, q.Gold)
+		if semanticRecall != 1 {
+			t.Fatalf("%s semantic recall=%.3f, want 1 hits=%v", q.Name, semanticRecall, hitIDs(semanticHits))
+		}
+	}
+}
+
 func hitIDs(hits []world.Hit) []string {
 	ids := make([]string, len(hits))
 	for i, hit := range hits {
@@ -90,4 +136,37 @@ func seedBenchStore(t *testing.T, ctx context.Context) (*world.Store, []LabeledQ
 		t.Fatalf("SeedCorpus() error = %v", err)
 	}
 	return ws, qs
+}
+
+func seedParaphraseBenchStore(t *testing.T, ctx context.Context) (*world.Store, []LabeledQuery) {
+	t.Helper()
+	db, err := store.Open(filepath.Join(t.TempDir(), "world.db"))
+	if err != nil {
+		t.Fatalf("open paraphrase test db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ws := world.NewStore(db.DB)
+	qs, err := SeedParaphraseCorpus(ctx, ws)
+	if err != nil {
+		t.Fatalf("SeedParaphraseCorpus() error = %v", err)
+	}
+	return ws, qs
+}
+
+func embedJournalEntries(t *testing.T, ctx context.Context, ws *world.Store, embedder ConceptEmbedder) {
+	t.Helper()
+	entries, err := ws.ListJournal(ctx, "", 100)
+	if err != nil {
+		t.Fatalf("ListJournal() error = %v", err)
+	}
+	for _, entry := range entries {
+		vec, err := embedder.Embed(ctx, entry.Summary+" "+entry.Detail)
+		if err != nil {
+			t.Fatalf("Embed(%s) error = %v", entry.ID, err)
+		}
+		if err := ws.SetJournalEmbedding(ctx, entry.ID, vec); err != nil {
+			t.Fatalf("SetJournalEmbedding(%s) error = %v", entry.ID, err)
+		}
+	}
 }

@@ -38,14 +38,11 @@ const (
 	maxRecencyRankBump   = 1.15
 )
 
-// Retrieve does a hybrid lexical search across the journal and commitments and
-// returns the top hits fused by reciprocal-rank. It prefers FTS5 (BM25) and
-// falls back to LIKE per source when FTS5 is unavailable or the query is
-// malformed, so retrieval degrades gracefully rather than failing. An empty
-// query returns the most recent journal entries (a useful default context).
-//
-// This is the lexical foundation; a vector channel can be fused in later without
-// changing the signature (the RRF merge already takes ranked id lists).
+// Retrieve does a hybrid search across the journal and commitments and returns
+// the top hits fused by reciprocal-rank. It prefers FTS5 (BM25) and falls back
+// to LIKE per source when FTS5 is unavailable or the query is malformed, so
+// retrieval degrades gracefully rather than failing. An empty query returns the
+// most recent journal entries (a useful default context).
 func (s *Store) Retrieve(ctx context.Context, q Query) ([]Hit, error) {
 	if err := s.ensure(); err != nil {
 		return nil, err
@@ -62,8 +59,9 @@ func (s *Store) Retrieve(ctx context.Context, q Query) ([]Hit, error) {
 
 	journalRanked := s.searchJournal(ctx, text, q.Kinds, limit*3)
 	commitRanked := s.searchCommitments(ctx, text, limit*3)
+	semanticRanked := s.searchSemanticJournal(ctx, q.Text, q.Kinds, limit*3)
 
-	hits := rrfMerge(journalRanked, commitRanked)
+	hits := rrfMerge(journalRanked, commitRanked, semanticRanked)
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
