@@ -20,6 +20,7 @@ func newMemoryCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		newMemoryReindexCmd(),
+		newMemoryBenchCmd(),
 	)
 	return cmd
 }
