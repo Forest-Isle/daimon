@@ -61,7 +61,17 @@ func (s *Store) searchSemanticJournal(ctx context.Context, text string, kinds []
 	}
 	out := make([]rankedHit, len(candidates))
 	for i, candidate := range candidates {
-		out[i] = rankedHit{hit: candidate.hit, rank: i}
+		out[i] = rankedHit{hit: candidate.hit, rank: i, relevance: clampRelevance(candidate.similarity)}
 	}
 	return out
+}
+
+func clampRelevance(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }

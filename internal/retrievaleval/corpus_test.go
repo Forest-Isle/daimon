@@ -114,12 +114,50 @@ func TestSeedParaphraseCorpusSemanticRecall(t *testing.T) {
 	}
 }
 
+func TestRankRobustness(t *testing.T) {
+	ctx := context.Background()
+	ws, qs := seedRobustnessBenchStore(t, ctx)
+
+	for _, q := range qs {
+		q := q
+		t.Run(q.Name, func(t *testing.T) {
+			hits, err := ws.Retrieve(ctx, world.Query{Text: q.Text, Limit: q.Limit})
+			if err != nil {
+				t.Fatalf("Retrieve(%s): %v", q.Name, err)
+			}
+			diagnosticHits, err := ws.Retrieve(ctx, world.Query{Text: q.Text, Limit: 3})
+			if err != nil {
+				t.Fatalf("diagnostic Retrieve(%s): %v", q.Name, err)
+			}
+
+			top1Gold := len(hits) > 0 && q.Gold[hits[0].ID]
+			t.Logf("%s limit=%d top=%v gold_top1=%t", q.Name, q.Limit, hitDetails(hits, q.Gold), top1Gold)
+			t.Logf("%s top3=%v", q.Name, hitDetails(diagnosticHits, q.Gold))
+			if !top1Gold {
+				t.Fatalf("%s top-1 = %v, want gold fact in top-1", q.Name, hitDetails(hits, q.Gold))
+			}
+		})
+	}
+}
+
 func hitIDs(hits []world.Hit) []string {
 	ids := make([]string, len(hits))
 	for i, hit := range hits {
 		ids[i] = hit.ID
 	}
 	return ids
+}
+
+func hitDetails(hits []world.Hit, gold map[string]bool) []string {
+	details := make([]string, len(hits))
+	for i, hit := range hits {
+		marker := "distractor"
+		if gold[hit.ID] {
+			marker = "gold"
+		}
+		details[i] = hit.ID + "(" + hit.Kind + "," + marker + ")"
+	}
+	return details
 }
 
 func seedBenchStore(t *testing.T, ctx context.Context) (*world.Store, []LabeledQuery) {
@@ -134,6 +172,22 @@ func seedBenchStore(t *testing.T, ctx context.Context) (*world.Store, []LabeledQ
 	qs, err := SeedCorpus(ctx, ws)
 	if err != nil {
 		t.Fatalf("SeedCorpus() error = %v", err)
+	}
+	return ws, qs
+}
+
+func seedRobustnessBenchStore(t *testing.T, ctx context.Context) (*world.Store, []LabeledQuery) {
+	t.Helper()
+	db, err := store.Open(filepath.Join(t.TempDir(), "world.db"))
+	if err != nil {
+		t.Fatalf("open robustness test db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ws := world.NewStore(db.DB)
+	qs, err := SeedRobustnessCorpus(ctx, ws)
+	if err != nil {
+		t.Fatalf("SeedRobustnessCorpus() error = %v", err)
 	}
 	return ws, qs
 }

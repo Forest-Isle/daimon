@@ -36,6 +36,9 @@ const (
 	commitmentRankWeight = 1.10
 	neutralRankWeight    = 1.00
 	maxRecencyRankBump   = 1.15
+	// minBoostRelevance gates provenance and recency boosts to genuinely relevant
+	// hits, blocking recent high-kind rows that only share one incidental query term.
+	minBoostRelevance = 0.4
 )
 
 // Retrieve does a hybrid search across the journal and commitments and returns
@@ -68,10 +71,12 @@ func (s *Store) Retrieve(ctx context.Context, q Query) ([]Hit, error) {
 	return hits, nil
 }
 
-// rankedHit pairs a hit with its within-source rank (0-based) for RRF fusion.
+// rankedHit pairs a hit with its within-source rank (0-based) and query
+// relevance for RRF fusion.
 type rankedHit struct {
-	hit  Hit
-	rank int
+	hit       Hit
+	rank      int
+	relevance float64
 }
 
 // rrfMerge fuses per-source ranked lists into one ordering by reciprocal-rank
@@ -79,8 +84,9 @@ type rankedHit struct {
 func rrfMerge(lists ...[]rankedHit) []Hit {
 	const k = 60.0
 	type acc struct {
-		hit   Hit
-		score float64
+		hit       Hit
+		score     float64
+		relevance float64
 	}
 	merged := make(map[string]*acc)
 	for _, list := range lists {
@@ -92,6 +98,9 @@ func rrfMerge(lists ...[]rankedHit) []Hit {
 				merged[key] = a
 			}
 			a.score += 1.0 / (k + float64(rh.rank+1))
+			if rh.relevance > a.relevance {
+				a.relevance = rh.relevance
+			}
 		}
 	}
 	out := make([]Hit, 0, len(merged))
@@ -105,7 +114,11 @@ func rrfMerge(lists ...[]rankedHit) []Hit {
 		if !ok {
 			recencyRank = -1
 		}
-		a.hit.Score = a.score * rankBoost(a.hit, recencyRank, recencyTotal)
+		boost := neutralRankWeight
+		if a.relevance >= minBoostRelevance {
+			boost = rankBoost(a.hit, recencyRank, recencyTotal)
+		}
+		a.hit.Score = a.score * boost
 		out = append(out, a.hit)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -191,7 +204,7 @@ func (s *Store) searchJournal(ctx context.Context, ftsText string, kinds []strin
 		return s.likeJournal(ctx, ftsText, kinds, limit)
 	}
 	defer func() { _ = rows.Close() }()
-	hits := scanJournalHits(rows, limit)
+	hits := scanJournalHits(rows, limit, queryTerms(ftsText))
 	if err := rows.Err(); err != nil {
 		return s.likeJournal(ctx, ftsText, kinds, limit)
 	}
@@ -213,10 +226,10 @@ func (s *Store) likeJournal(ctx context.Context, text string, kinds []string, li
 		return nil
 	}
 	defer func() { _ = rows.Close() }()
-	return scanJournalHits(rows, limit)
+	return scanJournalHits(rows, limit, queryTerms(text))
 }
 
-func scanJournalHits(rows *sql.Rows, limit int) []rankedHit {
+func scanJournalHits(rows *sql.Rows, limit int, terms []string) []rankedHit {
 	var out []rankedHit
 	for rows.Next() {
 		var id, kind, summary, detail, occurred string
@@ -228,7 +241,8 @@ func scanJournalHits(rows *sql.Rows, limit int) []rankedHit {
 				Source: "journal", ID: id, Kind: kind,
 				Title: summary, Text: detail, OccurredAt: occurred,
 			},
-			rank: len(out),
+			rank:      len(out),
+			relevance: matchFraction(terms, summary+" "+detail),
 		})
 		if len(out) >= limit {
 			break
@@ -264,7 +278,7 @@ func (s *Store) searchCommitments(ctx context.Context, ftsText string, limit int
 		return s.likeCommitments(ctx, ftsText, limit)
 	}
 	defer func() { _ = rows.Close() }()
-	hits := scanCommitmentHits(rows, limit)
+	hits := scanCommitmentHits(rows, limit, queryTerms(ftsText))
 	if err := rows.Err(); err != nil {
 		return s.likeCommitments(ctx, ftsText, limit)
 	}
@@ -283,10 +297,10 @@ func (s *Store) likeCommitments(ctx context.Context, text string, limit int) []r
 		return nil
 	}
 	defer func() { _ = rows.Close() }()
-	return scanCommitmentHits(rows, limit)
+	return scanCommitmentHits(rows, limit, queryTerms(text))
 }
 
-func scanCommitmentHits(rows *sql.Rows, limit int) []rankedHit {
+func scanCommitmentHits(rows *sql.Rows, limit int, terms []string) []rankedHit {
 	var out []rankedHit
 	for rows.Next() {
 		var id, kind, title, body string
@@ -298,7 +312,8 @@ func scanCommitmentHits(rows *sql.Rows, limit int) []rankedHit {
 				Source: "commitment", ID: id, Kind: kind,
 				Title: title, Text: body,
 			},
-			rank: len(out),
+			rank:      len(out),
+			relevance: matchFraction(terms, title+" "+body),
 		})
 		if len(out) >= limit {
 			break
@@ -324,7 +339,7 @@ func (s *Store) recentJournal(ctx context.Context, kinds []string, limit int) ([
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	ranked := scanJournalHits(rows, limit)
+	ranked := scanJournalHits(rows, limit, nil)
 	out := make([]Hit, 0, len(ranked))
 	for i, rh := range ranked {
 		// Recency-ordered: score by position so callers can treat it uniformly.
@@ -377,4 +392,35 @@ func sanitizeFTSQuery(text string) string {
 		}
 	}
 	return strings.Join(clean, " ")
+}
+
+func queryTerms(sanitized string) []string {
+	seen := make(map[string]bool)
+	var terms []string
+	for _, field := range strings.Fields(strings.ToLower(sanitized)) {
+		if !seen[field] {
+			seen[field] = true
+			terms = append(terms, field)
+		}
+	}
+	return terms
+}
+
+func matchFraction(terms []string, text string) float64 {
+	if len(terms) == 0 {
+		return 0
+	}
+	textTerms := make(map[string]bool)
+	for _, field := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		textTerms[field] = true
+	}
+	matches := 0
+	for _, term := range terms {
+		if textTerms[term] {
+			matches++
+		}
+	}
+	return float64(matches) / float64(len(terms))
 }
