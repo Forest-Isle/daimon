@@ -98,7 +98,7 @@ shellBackend := NewChannelRoutingBackend(NewHostShellBackend(), NewSeatbeltShell
 
 - `HostShellBackend`：直接 shell。
 - `SeatbeltShellBackend`：macOS `sandbox-exec` 沙箱。
-- `ChannelRoutingBackend`：按 channel class 路由——远程触发（telegram/timer/internal）强制 seatbelt，本地按配置默认。非 darwin 回退 host + 警告。
+- `ChannelRoutingBackend`：按 channel class 路由——远程/定时/internal/background 强制 sandbox，本地按配置默认。sandbox 不可用时非本地来源 fail-closed；只有本地 seatbelt opt-in 可降级 host + 警告。
 
 ## 权限引擎
 

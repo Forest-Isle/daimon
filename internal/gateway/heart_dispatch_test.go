@@ -34,8 +34,12 @@ func TestEventDispatcherRoutesVerdicts(t *testing.T) {
 					return tc.verdict, tc.routeErr
 				},
 				cognize: func(_ context.Context, _ heart.Event) { got = "cognize" },
-				reflex:  func(_ context.Context, _ heart.Event, id string) { got = "reflex"; gotReflexID = id },
-				wake:    func(_ context.Context, _ heart.Event, _ attention.Verdict) { got = "wake" },
+				reflex: func(_ context.Context, _ heart.Event, id string) error {
+					got = "reflex"
+					gotReflexID = id
+					return nil
+				},
+				wake: func(_ context.Context, _ heart.Event, _ attention.Verdict) { got = "wake" },
 			}
 			d.handle(context.Background(), heart.Event{Source: "timer", Kind: "internal.heartbeat"})
 			if got != tc.want {
@@ -61,7 +65,7 @@ func TestEventDispatcherIgnoresChatMessages(t *testing.T) {
 			return attention.Verdict{Action: attention.Cognize}, nil
 		},
 		cognize: func(_ context.Context, _ heart.Event) { cognized = true },
-		reflex:  func(_ context.Context, _ heart.Event, _ string) {},
+		reflex:  func(_ context.Context, _ heart.Event, _ string) error { return nil },
 		wake:    func(_ context.Context, _ heart.Event, _ attention.Verdict) {},
 	}
 	d.handle(context.Background(), heart.Event{Source: "telegram", Kind: "message", Payload: "hi"})
@@ -84,7 +88,7 @@ func TestEventDispatcherDailyBriefBypassesCognition(t *testing.T) {
 			return attention.Verdict{Action: attention.Cognize}, nil
 		},
 		cognize: func(_ context.Context, _ heart.Event) { cognized = true },
-		reflex:  func(_ context.Context, _ heart.Event, _ string) { reflexed = true },
+		reflex:  func(_ context.Context, _ heart.Event, _ string) error { reflexed = true; return nil },
 		wake:    func(_ context.Context, _ heart.Event, _ attention.Verdict) { woke = true },
 		brief:   func(_ context.Context) { briefed = true },
 	}

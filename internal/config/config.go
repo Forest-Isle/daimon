@@ -161,8 +161,9 @@ func defaultConfig() Config {
 			Timeout: 30 * time.Second,
 		},
 		Agent: AgentConfig{
-			MaxIterations:  20,
-			EpisodeEnabled: true,
+			MaxIterations:          20,
+			EpisodeEnabled:         true,
+			SubagentEpisodeEnabled: true,
 			Action: ActionConfig{
 				HoldWindowSeconds:        120,
 				HoldDrainIntervalSeconds: 15,

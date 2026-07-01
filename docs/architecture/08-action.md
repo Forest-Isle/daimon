@@ -142,7 +142,7 @@ shellBackend := tool.NewChannelRoutingBackend(
     cfg.Tools.Exec.Backend == "seatbelt")
 ```
 
-`tools.exec.backend = host | seatbelt`。**远程触发（telegram/timer/internal）的 bash 强制走 seatbelt**（macOS `sandbox-exec` + 动态 SBPL profile），本地按配置默认。非 darwin 回退 host + 警告。这是宪法第 4 条「可逆性分域」的代码域一半——生活域用可逆性+trust+hold，代码域用 OS 沙箱。
+`tools.exec.backend = host | seatbelt`。**远程触发（telegram/timer/internal/background）的 bash 强制走 sandbox**（macOS `sandbox-exec` + 动态 SBPL profile），本地按配置默认。sandbox 不可用时，非本地来源 fail-closed 拒绝执行；只有本地 seatbelt opt-in 可降级 host + 警告。这是宪法第 4 条「可逆性分域」的代码域一半——生活域用可逆性+trust+hold，代码域用 OS 沙箱。
 
 ## 数据
 

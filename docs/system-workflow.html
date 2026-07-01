@@ -1,0 +1,2168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Daimon 系统工作流交互图</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --panel-2: #f1f5f9;
+      --ink: #172033;
+      --muted: #637083;
+      --line: #c9d2df;
+      --line-hot: #0f9b8e;
+      --red: #d85c4a;
+      --green: #158f6a;
+      --blue: #3778c2;
+      --amber: #b7791f;
+      --violet: #7760b8;
+      --cyan: #1b8ba8;
+      --radius: 8px;
+      --shadow: 0 16px 48px rgba(23, 32, 51, 0.12);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.82), rgba(246,247,251,0.96)),
+        radial-gradient(circle at 12% 4%, rgba(15,155,142,0.09), transparent 32%),
+        radial-gradient(circle at 92% 12%, rgba(216,92,74,0.08), transparent 30%),
+        var(--bg);
+      font-family: var(--sans);
+    }
+
+    button, input { font: inherit; }
+
+    .app {
+      display: grid;
+      grid-template-columns: 280px minmax(560px, 1fr) 360px;
+      gap: 16px;
+      min-height: 100vh;
+      padding: 16px;
+    }
+
+    .shell {
+      background: rgba(255,255,255,0.88);
+      border: 1px solid rgba(23, 32, 51, 0.08);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .sidebar, .detail {
+      position: sticky;
+      top: 16px;
+      height: calc(100vh - 32px);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand {
+      padding: 18px;
+      border-bottom: 1px solid rgba(23,32,51,0.08);
+      background: linear-gradient(180deg, #ffffff, #f7fafc);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .brand p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .search-wrap {
+      padding: 12px;
+      border-bottom: 1px solid rgba(23,32,51,0.08);
+    }
+
+    .search-wrap input {
+      width: 100%;
+      border: 1px solid #d7dfeb;
+      border-radius: 7px;
+      padding: 10px 11px;
+      color: var(--ink);
+      background: #fff;
+      outline: none;
+    }
+
+    .search-wrap input:focus {
+      border-color: var(--line-hot);
+      box-shadow: 0 0 0 3px rgba(15,155,142,0.14);
+    }
+
+    .module-list {
+      padding: 8px;
+      overflow: auto;
+    }
+
+    .module-button {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 8px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin: 4px 0;
+      padding: 9px 10px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      color: var(--ink);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .module-button:hover {
+      background: #f4f7fb;
+      border-color: #e2e8f0;
+    }
+
+    .module-button.active {
+      background: #e9fbf7;
+      border-color: rgba(15,155,142,0.32);
+    }
+
+    .module-dot {
+      width: 8px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--blue);
+    }
+
+    .module-title {
+      min-width: 0;
+    }
+
+    .module-title strong {
+      display: block;
+      font-size: 13px;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .module-title span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .module-count {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .main {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .hero {
+      padding: 18px;
+      background:
+        linear-gradient(135deg, rgba(15,155,142,0.13), rgba(255,255,255,0.94) 38%, rgba(216,92,74,0.10)),
+        #fff;
+    }
+
+    .hero-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .hero h2 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      max-width: 920px;
+      margin: 9px 0 0;
+      color: #455267;
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .source-link {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #d9e2ef;
+      border-radius: 7px;
+      padding: 8px 10px;
+      color: var(--ink);
+      background: rgba(255,255,255,0.78);
+      text-decoration: none;
+      font-size: 12px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .stat {
+      border: 1px solid rgba(23,32,51,0.08);
+      border-radius: 7px;
+      padding: 12px;
+      background: rgba(255,255,255,0.72);
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .flow-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px;
+      border-bottom: 1px solid rgba(23,32,51,0.08);
+      background: #fff;
+    }
+
+    .flow-tab {
+      flex: 0 0 auto;
+      border: 1px solid #d7dfeb;
+      border-radius: 7px;
+      padding: 9px 11px;
+      background: #fff;
+      color: #243149;
+      cursor: pointer;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .flow-tab:hover { border-color: #9fb0c5; }
+
+    .flow-tab.active {
+      color: #fff;
+      background: #172033;
+      border-color: #172033;
+    }
+
+    .flow-tabs .spacer {
+      flex: 1 1 auto;
+    }
+
+    .flow-control {
+      flex: 0 0 auto;
+      border: 1px solid #d7dfeb;
+      border-radius: 7px;
+      padding: 9px 11px;
+      background: #f8fafc;
+      color: #243149;
+      cursor: pointer;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .flow-control:hover {
+      border-color: #9fb0c5;
+      background: #fff;
+    }
+
+    .map-shell {
+      position: relative;
+      min-height: 760px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.96), rgba(241,245,249,0.72)),
+        repeating-linear-gradient(90deg, transparent 0 54px, rgba(23,32,51,0.028) 55px 56px),
+        repeating-linear-gradient(0deg, transparent 0 54px, rgba(23,32,51,0.028) 55px 56px);
+    }
+
+    .map {
+      position: relative;
+      width: 100%;
+      height: 760px;
+      overflow: hidden;
+    }
+
+    .edges {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .edges path {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      opacity: 0.72;
+      transition: stroke .2s ease, opacity .2s ease, stroke-width .2s ease;
+    }
+
+    .edges path.flow {
+      stroke: #9fb0c5;
+      stroke-width: 2.5;
+      opacity: 0.7;
+    }
+
+    .edges path.hot {
+      stroke: var(--line-hot);
+      stroke-width: 3.4;
+      opacity: 1;
+      stroke-dasharray: 9 8;
+      animation: dash 1s linear infinite;
+    }
+
+    .edges path.pending {
+      stroke: #e2a44f;
+      stroke-width: 2.8;
+      stroke-dasharray: 4 7;
+      animation: dash 1.35s linear infinite;
+    }
+
+    @keyframes dash {
+      to { stroke-dashoffset: -34; }
+    }
+
+    .node {
+      position: absolute;
+      width: 130px;
+      min-height: 68px;
+      border: 1px solid rgba(23,32,51,0.12);
+      border-top: 5px solid var(--blue);
+      border-radius: var(--radius);
+      padding: 9px 10px;
+      background: rgba(255,255,255,0.94);
+      box-shadow: 0 8px 22px rgba(23,32,51,0.08);
+      cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+    }
+
+    .node:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 34px rgba(23,32,51,0.14);
+    }
+
+    .node.active {
+      background: #e9fbf7;
+      border-color: rgba(15,155,142,0.5);
+      box-shadow: 0 16px 36px rgba(15,155,142,0.18);
+    }
+
+    .node.current {
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px rgba(15,155,142,0.24);
+    }
+
+    .node h3 {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .node p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .node code {
+      display: block;
+      margin-top: 7px;
+      color: #243149;
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .node.support {
+      width: 112px;
+      min-height: 58px;
+      padding: 7px 8px;
+      border-top-width: 4px;
+    }
+
+    .node.support h3 {
+      font-size: 12px;
+    }
+
+    .node.support p {
+      font-size: 10px;
+    }
+
+    .node.support code {
+      font-size: 9px;
+    }
+
+    .packet {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: var(--line-hot);
+      box-shadow: 0 0 0 7px rgba(15,155,142,0.15);
+      transform: translate(-50%, -50%);
+      transition: left .55s ease, top .55s ease;
+      z-index: 8;
+      pointer-events: none;
+    }
+
+    .legend {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      max-width: calc(100% - 28px);
+      z-index: 10;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid rgba(23,32,51,0.1);
+      border-radius: 7px;
+      padding: 6px 8px;
+      background: rgba(255,255,255,0.84);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .legend i {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+
+    .lower {
+      display: grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap: 16px;
+    }
+
+    .panel-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(23,32,51,0.08);
+      background: #fff;
+    }
+
+    .panel-title h2,
+    .panel-title h3 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+
+    .panel-title span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    .steps {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      background: #fff;
+      max-height: 510px;
+      overflow: auto;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 10px;
+      border: 1px solid #e0e7f0;
+      border-radius: 7px;
+      padding: 10px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .step.active {
+      border-color: rgba(15,155,142,0.44);
+      background: #effcf9;
+    }
+
+    .step-number {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: #edf2f7;
+      color: #29364d;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .step.active .step-number {
+      color: #fff;
+      background: var(--line-hot);
+    }
+
+    .step h4 {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .step p {
+      margin: 5px 0 0;
+      color: #566276;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .step code {
+      display: inline-block;
+      margin-top: 7px;
+      color: #26344c;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .step a.source-ref {
+      display: inline-block;
+      margin-top: 7px;
+      color: #26344c;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.4;
+      text-decoration: none;
+    }
+
+    .step a.source-ref:hover {
+      color: var(--line-hot);
+      text-decoration: underline;
+    }
+
+    .step-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .step-meta span {
+      border: 1px solid #d8e2ef;
+      border-radius: 7px;
+      padding: 4px 6px;
+      background: #f8fafc;
+      color: #526077;
+      font-size: 10px;
+      line-height: 1.2;
+    }
+
+    .data-panel {
+      background: #fff;
+    }
+
+    .data-list {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+      max-height: 510px;
+      overflow: auto;
+    }
+
+    .data-card {
+      border: 1px solid #e0e7f0;
+      border-radius: 7px;
+      padding: 11px;
+      background: #fbfdff;
+    }
+
+    .data-card strong {
+      display: block;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    .data-card p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .data-card.current-link {
+      border-color: rgba(15,155,142,0.38);
+      background: #effcf9;
+    }
+
+    .io-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .io-card {
+      border: 1px solid rgba(23,32,51,0.08);
+      border-radius: 7px;
+      padding: 8px;
+      background: rgba(255,255,255,0.78);
+    }
+
+    .io-card b {
+      display: block;
+      margin-bottom: 4px;
+      color: #29364d;
+      font-size: 11px;
+      line-height: 1.25;
+    }
+
+    .io-card span {
+      color: #566276;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .detail-body {
+      padding: 16px;
+      overflow: auto;
+    }
+
+    .detail-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .detail-color {
+      flex: 0 0 auto;
+      width: 10px;
+      height: 48px;
+      border-radius: 8px;
+      background: var(--blue);
+    }
+
+    .detail h2 {
+      margin: 0;
+      font-size: 21px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .detail .pkg {
+      margin-top: 5px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .summary {
+      margin: 0 0 14px;
+      color: #455267;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .detail-section {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(23,32,51,0.08);
+    }
+
+    .detail-section h3 {
+      margin: 0 0 9px;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .pill {
+      border: 1px solid #d8e2ef;
+      border-radius: 7px;
+      padding: 6px 8px;
+      background: #fff;
+      color: #344158;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .code-list {
+      display: grid;
+      gap: 7px;
+    }
+
+    .code-item {
+      display: block;
+      border: 1px solid #d8e2ef;
+      border-radius: 7px;
+      padding: 8px;
+      background: #fbfdff;
+      color: #26344c;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.45;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    a.code-item:hover {
+      border-color: #9fb0c5;
+      background: #fff;
+    }
+
+    .bullets {
+      margin: 0;
+      padding-left: 18px;
+      color: #455267;
+      font-size: 12px;
+      line-height: 1.62;
+    }
+
+    .flow-chip {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid #d8e2ef;
+      border-radius: 7px;
+      padding: 5px 7px;
+      margin: 0 5px 5px 0;
+      background: #fff;
+      color: #35445c;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .flow-chip.active {
+      color: #fff;
+      background: #172033;
+      border-color: #172033;
+    }
+
+    .footer-note {
+      padding: 14px 16px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      border-top: 1px solid rgba(23,32,51,0.08);
+      background: #fff;
+    }
+
+    @media (max-width: 1260px) {
+      .app {
+        grid-template-columns: 240px minmax(520px, 1fr);
+      }
+      .detail {
+        grid-column: 1 / -1;
+        position: relative;
+        top: auto;
+        height: auto;
+        max-height: none;
+      }
+      .detail-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .detail-head, .summary { grid-column: 1 / -1; }
+    }
+
+    @media (max-width: 920px) {
+      .app {
+        grid-template-columns: 1fr;
+        padding: 10px;
+      }
+      .sidebar {
+        position: relative;
+        top: auto;
+        height: auto;
+        max-height: 420px;
+      }
+      .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .lower {
+        grid-template-columns: 1fr;
+      }
+      .io-grid {
+        grid-template-columns: 1fr;
+      }
+      .map-shell {
+        overflow-x: auto;
+      }
+      .map {
+        min-width: 920px;
+      }
+      .detail-body {
+        display: block;
+      }
+      .hero-top {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar shell">
+      <div class="brand">
+        <h1>Daimon 工作流图谱</h1>
+        <p>从代码入口、数据流、自治闭环到治理落账的交互式系统说明。</p>
+      </div>
+      <div class="search-wrap">
+        <input id="moduleSearch" type="search" placeholder="搜索模块、包名、入口函数" />
+      </div>
+      <div id="moduleList" class="module-list" aria-label="模块列表"></div>
+    </aside>
+
+    <main class="main">
+      <section class="hero shell">
+        <div class="hero-top">
+          <div>
+            <h2>完整系统项目工作流程</h2>
+            <p>Daimon 是本地优先、单用户的常驻 Agent runtime。所有入口最终由 Gateway 装配，聊天和自治事件汇入同一个 Episode 认知内核；工具副作用经拦截链与 Action 层治理；Outcome、成本、事实、提案与回放都落到本地世界模型和 SQLite。</p>
+          </div>
+          <a class="source-link" href="architecture/README.md">架构文档索引</a>
+        </div>
+        <div class="stats">
+          <div class="stat"><strong>2</strong><span>主入口：同步聊天链 + 异步自治链</span></div>
+          <div class="stat"><strong>22</strong><span>模块在 Gateway 组合根显式接线</span></div>
+          <div class="stat"><strong>9</strong><span>可切换闭环动画，覆盖核心执行面</span></div>
+          <div class="stat"><strong>1</strong><span>World 是事实与交账的唯一真相源</span></div>
+        </div>
+      </section>
+
+      <section class="shell">
+        <div id="flowTabs" class="flow-tabs" aria-label="流程切换"></div>
+        <div class="map-shell">
+          <div id="map" class="map">
+            <svg class="edges" viewBox="0 0 1000 760" preserveAspectRatio="none" aria-hidden="true">
+              <path data-edge="cli-gateway" d="M170 148 C192 148 202 148 220 148" />
+              <path data-edge="config-gateway" d="M170 292 C205 250 238 205 285 182" />
+              <path data-edge="gateway-agent" d="M350 148 C378 148 392 148 420 148" />
+              <path data-edge="agent-episode" d="M550 148 C578 148 592 148 620 148" />
+              <path data-edge="episode-mind" d="M750 135 C780 110 805 88 825 80" />
+              <path data-edge="episode-tool" d="M750 162 C805 200 850 245 885 292" />
+              <path data-edge="tool-action" d="M885 326 C900 350 900 378 885 406" />
+              <path data-edge="action-world" d="M820 406 C790 406 780 406 750 406" />
+              <path data-edge="episode-world" d="M685 182 C685 260 685 330 685 372" />
+              <path data-edge="world-store" d="M750 420 C795 460 835 500 885 536" />
+              <path data-edge="episode-telemetry" d="M620 135 C570 95 520 76 500 64" />
+              <path data-edge="telemetry-replay" d="M370 64 C345 64 335 64 310 64" />
+              <path data-edge="heart-store" d="M350 415 C500 500 700 520 820 536" />
+              <path data-edge="heart-attention" d="M350 399 C380 399 390 399 420 399" />
+              <path data-edge="attention-agent" d="M485 365 C485 300 485 240 485 182" />
+              <path data-edge="attention-gateway" d="M420 385 C360 330 300 245 285 182" />
+              <path data-edge="sleep-world" d="M645 623 C655 560 670 480 685 440" />
+              <path data-edge="sleep-proposals" d="M710 657 C735 657 755 657 780 657" />
+              <path data-edge="proposals-gateway" d="M845 623 C760 500 500 280 350 170" />
+              <path data-edge="skills-tool" d="M550 657 C660 540 760 410 820 305" />
+              <path data-edge="memory-agent" d="M350 657 C405 520 455 330 485 182" />
+              <path data-edge="mcp-tool" d="M845 205 C860 235 875 260 885 292" />
+              <path data-edge="values-action" d="M772 515 C810 480 840 440 865 406" />
+              <path data-edge="episode-economy" d="M620 162 C470 250 250 420 152 530" />
+              <path data-edge="economy-store" d="M152 530 C330 560 660 560 820 536" />
+              <path data-edge="selfops-proposals" d="M532 515 C650 560 760 615 845 657" />
+              <path data-edge="heart-selfops" d="M350 415 C395 450 430 485 476 515" />
+            </svg>
+            <div class="packet" id="packet"></div>
+            <button class="node" data-module="cli" style="left:4%;top:15%;border-top-color:#3778c2"><h3>CLI / Channel</h3><p>TUI、Telegram、scheduler</p><code>cmd/daimon</code></button>
+            <button class="node" data-module="config" style="left:4%;top:34%;border-top-color:#7760b8"><h3>Config / Userdir</h3><p>配置、用户目录、特性开关</p><code>internal/config</code></button>
+            <button class="node" data-module="gateway" style="left:22%;top:15%;border-top-color:#d85c4a"><h3>Gateway</h3><p>组合根与生命周期</p><code>gateway.New</code></button>
+            <button class="node" data-module="agent" style="left:42%;top:15%;border-top-color:#158f6a"><h3>Agent Runtime</h3><p>会话、工具注入、内核桥</p><code>HandleMessage</code></button>
+            <button class="node" data-module="episode" style="left:62%;top:15%;border-top-color:#b7791f"><h3>Episode Kernel</h3><p>ReAct、episode_close、交账</p><code>Runner.Execute</code></button>
+            <button class="node" data-module="mind" style="left:78%;top:4%;border-top-color:#1b8ba8"><h3>Mind</h3><p>Claude / OpenAI Provider</p><code>Provider.Stream</code></button>
+            <button class="node" data-module="mcp" style="left:78%;top:18%;border-top-color:#7760b8"><h3>MCP</h3><p>外部工具适配与服务端</p><code>InitMCP</code></button>
+            <button class="node" data-module="tool" style="left:82%;top:34%;border-top-color:#3778c2"><h3>Tool Layer</h3><p>Registry、拦截链、工具执行</p><code>InterceptorChain</code></button>
+            <button class="node" data-module="action" style="left:82%;top:49%;border-top-color:#d85c4a"><h3>Action</h3><p>可逆性、trust、hold、undo</p><code>action.Intercept</code></button>
+            <button class="node" data-module="world" style="left:62%;top:49%;border-top-color:#158f6a"><h3>World</h3><p>唯一事实源</p><code>ApplyOutcome</code></button>
+            <button class="node" data-module="store" style="left:82%;top:66%;border-top-color:#172033"><h3>SQLite / Files</h3><p>WAL、迁移、~/.daimon</p><code>internal/store</code></button>
+            <button class="node" data-module="heart" style="left:22%;top:48%;border-top-color:#d85c4a"><h3>Heart</h3><p>持久事件流与感官源</p><code>Heart.Run</code></button>
+            <button class="node" data-module="attention" style="left:42%;top:48%;border-top-color:#b7791f"><h3>Attention</h3><p>高风险、规则、小模型、兜底</p><code>Chain.Route</code></button>
+            <button class="node" data-module="telemetry" style="left:37%;top:4%;border-top-color:#1b8ba8"><h3>Telemetry</h3><p>Provider/Tool/Turn JSONL</p><code>InitTelemetry</code></button>
+            <button class="node" data-module="replay" style="left:18%;top:4%;border-top-color:#7760b8"><h3>Replay</h3><p>回放、重打分、金丝雀</p><code>daimon replay</code></button>
+            <button class="node" data-module="sleep" style="left:58%;top:82%;border-top-color:#158f6a"><h3>Sleep</h3><p>整固、蒸馏、规则合成</p><code>sleep.Runner</code></button>
+            <button class="node" data-module="proposals" style="left:78%;top:82%;border-top-color:#b7791f"><h3>Proposals</h3><p>预期提案与 typed accept</p><code>wireProposals</code></button>
+            <button class="node" data-module="skills" style="left:42%;top:82%;border-top-color:#3778c2"><h3>Skills / Workflow</h3><p>蒸馏输出与 DAG 执行</p><code>read_skill</code></button>
+            <button class="node" data-module="memory" style="left:22%;top:82%;border-top-color:#1b8ba8"><h3>Memory</h3><p>遗留检索，world 迁移中</p><code>Cortex.Search</code></button>
+            <button class="node support" data-module="values" style="left:66%;top:64%;border-top-color:#7760b8"><h3>Values</h3><p>自主许可源</p><code>values.Store</code></button>
+            <button class="node support" data-module="economy" style="left:4%;top:66%;border-top-color:#1b8ba8"><h3>Economy</h3><p>成本与节流</p><code>costs</code></button>
+            <button class="node support" data-module="selfops" style="left:42%;top:64%;border-top-color:#d85c4a"><h3>SelfOps</h3><p>健康巡检</p><code>Evaluate</code></button>
+            <div class="legend">
+              <span><i style="background:#0f9b8e"></i>当前流程</span>
+              <span><i style="background:#e2a44f"></i>待审批 / 人签分支</span>
+              <span><i style="background:#d85c4a"></i>安全治理</span>
+              <span><i style="background:#158f6a"></i>状态与复利</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="lower">
+        <section class="shell">
+          <div class="panel-title">
+            <h3 id="stepsTitle">流程步骤</h3>
+            <span id="stepsSubtitle"></span>
+          </div>
+          <div id="steps" class="steps"></div>
+        </section>
+        <section class="shell data-panel">
+          <div class="panel-title">
+            <h3 id="dataTitle">数据对象流动</h3>
+            <span id="dataSubtitle">随流程切换</span>
+          </div>
+          <div id="dataList" class="data-list"></div>
+        </section>
+      </div>
+    </main>
+
+    <aside class="detail shell">
+      <div class="panel-title">
+        <h2>模块详情</h2>
+        <span>点击左侧或图中节点</span>
+      </div>
+      <div id="detailBody" class="detail-body"></div>
+      <div class="footer-note">内容依据当前仓库的 `README_zh.md`、`docs/architecture/*` 与真实 Go 入口整理。页面为静态文件，可直接打开。<span id="validationStatus"></span></div>
+    </aside>
+  </div>
+
+  <script>
+    const modules = {
+      cli: {
+        name: "CLI / Channel",
+        pkg: "cmd/daimon + internal/channel",
+        color: "#3778c2",
+        summary: "用户与系统交互的入口。CLI 提供启动、检查、回放、undo、world、skill 等命令；channel 抽象 TUI、Telegram、scheduler 的收发能力。",
+        entries: ["cmd/daimon/main.go", "cmd/daimon/tui.go", "cmd/daimon/replay.go", "cmd/daimon/world.go", "internal/channel/channel.go: Channel", "internal/channel/tui/adapter.go: New", "internal/channel/telegram/adapter.go: New"],
+        works: ["TUI/Telegram 调用 Channel.Start，把 InboundMessage 交给 Gateway.handleInbound。", "Telegram 额外承担审批、提案、hold 撤回等 inline 交互。", "CLI 子命令直接读写对应 store 或触发只读检查，不绕过核心治理。"],
+        data: ["InboundMessage", "OutboundMessage", "MessageTarget", "Approval / Proposal callback", "scheduled_tasks"]
+      },
+      config: {
+        name: "Config / Userdir / Feature",
+        pkg: "internal/config + internal/userdir + internal/feature",
+        color: "#7760b8",
+        summary: "加载默认值、YAML、环境变量与 ~/.daimon 用户目录，并注册运行时特性开关。Gateway 读取配置后显式装配所有子系统。",
+        entries: ["internal/config/config.go: Config", "internal/config/validate.go", "internal/config/watcher.go", "internal/gateway/subsystem_config.go", "internal/gateway/subsystem_feature.go", "internal/appdir/appdir.go"],
+        works: ["配置文件支持 ${VAR} 环境展开，密钥不进入代码。", "OnReload 热重载回调由 Gateway 注册。", "feature registry 控制 memory、skills、multi-agent、selfops、server 等功能。"],
+        data: ["configs/daimon.example.yaml", "~/.daimon/config.yaml", "~/.daimon/feature_state.json", "~/.daimon/world / skills / agents"]
+      },
+      gateway: {
+        name: "Gateway",
+        pkg: "internal/gateway",
+        color: "#d85c4a",
+        summary: "唯一组合根。负责装配数据库、工具、agent、episode、heart、sleep、proposals、channels、MCP、telemetry，并驱动 Start/Stop 生命周期。",
+        entries: ["internal/gateway/gateway.go:76 New", "internal/gateway/gateway.go:451 handleInbound", "internal/gateway/heart_dispatch.go: handle", "internal/gateway/subsystem_tool.go", "internal/gateway/subsystem_*.go"],
+        works: ["New() 顶部强制 heart_enabled ⇒ episode_enabled，避免自治事件缺内核。", "handleInbound 先短路 slash commands，再记录聊天事件，最后调用 Agent.HandleMessage。", "heart_dispatch 把 heart 事件分到 deterministic 分支、WakeUser、Reflex 或 RunInternalEpisode。"],
+        data: ["Config", "Gateway.subsystems", "EventBus", "taskLedger", "throttleGate", "proposalCoordinator"]
+      },
+      agent: {
+        name: "Agent Runtime",
+        pkg: "internal/agent",
+        color: "#158f6a",
+        summary: "认知内核与 runtime 资产的桥。它不知道 episode 包，只持 CognitiveKernel 接口，并负责会话、工具定义、记忆段、审批与工具调用闭包。",
+        entries: ["internal/agent/agent.go:106 HandleMessage", "internal/agent/agent.go:189 runKernel", "internal/agent/agent.go:274 RunInternalEpisode", "internal/agent/cognitive.go: CognitiveKernel", "internal/agent/dispatch_tool.go"],
+        works: ["HandleMessage 对同一 channel/channelID 加互斥锁，避免会话状态交错。", "runKernel 组装 CognitiveRequest，Invoke 闭包复用工具治理链。", "RunInternalEpisode 用事件 id 做 episode 幂等键，nil channel 使需审批工具被拒绝。"],
+        data: ["Session", "CompletionMessage transcript", "CognitiveRequest", "CognitiveOutcome", "ToolInvokeFunc"]
+      },
+      episode: {
+        name: "Episode Kernel",
+        pkg: "internal/episode",
+        color: "#b7791f",
+        summary: "认知执行单元：从 world 重组上下文，跑裸 ReAct 循环，强制 episode_close 交账，最后把 Outcome 写回 world 并丢弃上下文。",
+        entries: ["internal/episode/episode.go:147 Execute", "internal/episode/composer.go: composeSystem", "internal/episode/episode.go: close", "internal/episode/episode.go: parseOutcome", "internal/episode/episode.go: salvage"],
+        works: ["Execute 先检查 episodeID 是否已有 outcome，支持 heart 崩溃重投幂等跳过。", "每轮 provider.Stream 后处理 tool_calls；episode_close 校验失败会回灌 rejection 让模型重试。", "未交账则 salvage 或 failEpisode，保证每个情节都有 durable journal trace。"],
+        data: ["Outcome", "WorldWrites", "Receipts", "FollowUps", "EpisodeCost", "TurnClosed / EpisodeSalvaged"]
+      },
+      mind: {
+        name: "Mind",
+        pkg: "internal/mind",
+        color: "#1b8ba8",
+        summary: "LLM Provider 边界。episode 与 attention 只见 Provider 接口，模型 ID 与后端差异被限制在 mind 包和配置中。",
+        entries: ["internal/mind/provider.go: Provider", "internal/mind/claude_provider.go", "internal/mind/openai.go", "internal/mind/retry.go", "internal/mind/circuit_breaker.go"],
+        works: ["Provider 提供 Complete、Stream、Capabilities。", "Claude/OpenAI-compatible 通过统一请求/响应类型适配。", "RetryProvider 处理可重试错误、指数退避和熔断。"],
+        data: ["CompletionRequest", "CompletionResponse", "StreamDelta", "Usage", "Caps.CacheBreakpoints"]
+      },
+      tool: {
+        name: "Tool Layer",
+        pkg: "internal/tool",
+        color: "#3778c2",
+        summary: "工具注册、路径围栏、权限引擎、拦截链与真实工具执行层。所有工具调用经统一 InterceptorChain。",
+        entries: ["internal/tool/tool.go: Tool", "internal/tool/interceptor.go:44 InterceptorChain.Execute", "internal/gateway/subsystem_tool.go: InitTools", "internal/tool/file_*.go", "internal/tool/bash.go", "internal/tool/world.go"],
+        works: ["Registry 管理内置工具、MCP 工具、memory/world/skill/workflow 工具。", "拦截链顺序：permission → hook → user_hooks → read_before_edit → verify → audit → action → activity。", "文件工具用工作目录路径围栏；bash 可按 channel class 走 host 或 seatbelt。"],
+        data: ["ToolCall", "ToolResult", "ToolCapabilities", "PermissionRule", "permission_audit_log"]
+      },
+      action: {
+        name: "Action",
+        pkg: "internal/action",
+        color: "#d85c4a",
+        summary: "副作用治理主线。作为工具拦截器，完成可逆性分类、价值/信任门控、hold 队列、undo 记录与 receipt 盖章。",
+        entries: ["internal/action/interceptor.go:83 Intercept", "internal/action/action.go", "internal/action/classifier.go", "internal/action/value_gate.go", "internal/action/undo.go", "internal/action/ast.go"],
+        works: ["Reversible 成功即可记录 undo 并视为 verified；Compensable 可入 hold 窗口；Irreversible 信任封顶不全自动。", "ValueGate 对非低风险自治行动做 ask-once；无价值覆盖则工具不执行，情节 blocked 问用户。", "Trust ledger 根据 verified 战绩升降级，用户纠正会降级并冻结升级。"],
+        data: ["trust_ledger", "holds", "undo_journal", "Receipt ID", "ActionVerification"]
+      },
+      world: {
+        name: "World",
+        pkg: "internal/world",
+        color: "#158f6a",
+        summary: "唯一事实源。身份层、事项层、journal 层共同承载传记、承诺、事实、outcome、纠正和 rollup。",
+        entries: ["internal/world/world.go:124 ApplyOutcome", "internal/world/retrieve.go:49 Retrieve", "internal/world/world.go: applyMutations", "internal/world/embedding.go", "internal/tool/world.go"],
+        works: ["ApplyOutcome 先 claim journal_outcome_<episodeID>，再事务性应用 WorldWrites，防止非幂等 mutation 双写。", "Retrieve 跨 journal + commitments 做 FTS5/BM25 与向量 RRF 融合，FTS5 不可用降级 LIKE。", "world_read/world_edit/commitment 工具让模型自编辑世界，但审计行 append-only 受 kind 守卫保护。"],
+        data: ["~/.daimon/world/identity/digest.md", "commitments", "journal", "journal_fts / commitments_fts", "OutcomeMeta"]
+      },
+      values: {
+        name: "Values",
+        pkg: "internal/values",
+        color: "#7760b8",
+        summary: "显式、可溯源、可编辑的用户价值模型，是自主行动的许可来源。",
+        entries: ["internal/values/values.go: Store", "internal/action/value_gate.go", "internal/tool/values.go", "internal/sleep/drift.go"],
+        works: ["Store.Load 读取 markdown 条目并维护内存索引。", "Action.ValueGate 查 active 条目；没有覆盖则 ask-once。", "Sleep DriftJob 可把矛盾价值标为 drifting，撤销其授权。"],
+        data: ["~/.daimon/world/values/**/*.md", "Entry", "Provenance", "value:<id>", "drifting / retired"]
+      },
+      heart: {
+        name: "Heart",
+        pkg: "internal/heart",
+        color: "#d85c4a",
+        summary: "事件心脏，把邮件、文件、timer、follow-up 等变化转成单一持久化事件流。核心原则是先落库后路由。",
+        entries: ["internal/heart/heart.go:62 Run", "internal/heart/heart.go:91 process", "internal/heart/heart.go:117 Record", "internal/heart/store.go: Persist", "internal/heart/timer.go", "internal/heart/mail.go", "internal/heart/fs.go", "internal/heart/followup.go"],
+        works: ["Run 启动前先 recover 未路由 backlog，再为每个 Source 开 goroutine。", "process 用 Persist 去重，新事件 deliver 给 handler 后 MarkRouted。", "聊天通过 Record 只审计/去重，不交给 heart dispatcher 重新处理。"],
+        data: ["Event", "events", "DedupKey", "follow_ups", "mail_state"]
+      },
+      attention: {
+        name: "Attention",
+        pkg: "internal/attention",
+        color: "#b7791f",
+        summary: "自治事件的成本过滤与安全路由。按硬白名单、规则、小模型、兜底 Cognize 的顺序判断事件值得怎样处理。",
+        entries: ["internal/attention/attention.go:131 Chain", "internal/attention/attention.go:162 Route", "internal/attention/model_router.go", "internal/attention/feedback.go", "internal/gateway/heart_dispatch.go"],
+        works: ["高风险 kind 永远 WakeUser，先于规则和模型。", "rules.yaml 命中则确定性返回 Ignore/Reflex/Cognize/WakeUser。", "小模型 abstain 或出错时默认 Cognize，宁可误醒也不漏掉重要事件。"],
+        data: ["Verdict", "attention/rules.yaml", "attention_feedback", "RouteCostSink"]
+      },
+      sleep: {
+        name: "Sleep",
+        pkg: "internal/sleep",
+        color: "#158f6a",
+        summary: "空闲时的离线整固作业群，让世界模型保持连贯，并把成功情节模式沉淀为技能草稿和提案。",
+        entries: ["internal/sleep/sleep.go:75 Runner.Run", "internal/sleep/digest.go", "internal/sleep/drift.go", "internal/sleep/rollup.go", "internal/sleep/reconcile.go", "internal/sleep/distill.go", "internal/sleep/distill_promote.go", "internal/sleep/proposals.go", "internal/sleep/synthesize.go"],
+        works: ["Runner 用 TryLock 防止 cycle 重叠，逐 job 隔离 error/panic。", "Digest、Drift、Rollup、Reconcile 维护 world；Distill/Promote/Screen 产生技能草稿和 promote_skill 提案。", "SynthesizeRulesJob 从 attention feedback 合成规则，写 rules.yaml 并可回滚。"],
+        data: ["world journal", "skills-staging", "proposals", "attention rules", "throttle gate"]
+      },
+      proposals: {
+        name: "Proposals",
+        pkg: "internal/proposals + gateway wiring",
+        color: "#b7791f",
+        summary: "预期引擎。从 commitments 与技能草稿中主动生成提案，投递给用户，按 typed accept 分派到 episode 或确定性技能转正。",
+        entries: ["internal/proposals/proposals.go: Proposal", "internal/gateway/proposals_wiring.go", "internal/gateway/proposals_coordinator.go", "internal/gateway/proposals_deliverer.go", "internal/sleep/proposals.go"],
+        works: ["ProposalsJob 扫 72h commitments 入队。", "Deliverer send-then-mark，保证 at-least-once 投递。", "Accept exact-once；episode kind 点燃 RunInternalEpisode，promote_skill kind 调 skill.PromoteDraft，不经 LLM。"],
+        data: ["proposals", "action_kind", "action_ref", "delivered_at", "cooldown / dismissed"]
+      },
+      replay: {
+        name: "Replay",
+        pkg: "internal/replay",
+        color: "#7760b8",
+        summary: "回放评测与金丝雀，是模型、prompt、规则、技能变更的裁判。",
+        entries: ["internal/replay/replay.go: LoadDir / Analyze", "internal/replay/rescore.go", "internal/replay/regression.go", "internal/replay/corrections.go", "cmd/daimon/replay.go", "cmd/daimon/correct.go"],
+        works: ["默认模式分析 JSONL 健康指标。", "--against 把历史上下文喂给候选 provider，行动 dry-run 判分。", "--canary 用 corrected ∪ salvaged 回归集 fail-closed。"],
+        data: ["~/.daimon/replays/*.jsonl", "Session", "ProviderExchange", "ToolRoundTrip", "regression_corrections"]
+      },
+      telemetry: {
+        name: "Telemetry",
+        pkg: "internal/telemetry + agent.EventBus",
+        color: "#1b8ba8",
+        summary: "录制端。订阅 EventBus，把 provider 往返、工具往返、TurnClosed、EpisodeSalvaged 写成 JSONL 语料。",
+        entries: ["internal/gateway/subsystem_telemetry.go: InitTelemetry", "internal/telemetry/jsonl.go", "internal/telemetry/replay.go", "internal/agent/events.go"],
+        works: ["Episode 发布 ProviderExchange 和 TurnClosed。", "Tool dispatch 发布 ToolRoundTrip。", "JSONL 是 replay 和 canary 的输入。"],
+        data: ["ProviderExchange", "ToolRoundTrip", "TurnClosed", "EpisodeSalvaged", "replays/YYYY-MM-DD.jsonl"]
+      },
+      economy: {
+        name: "Economy",
+        pkg: "internal/economy + gateway/throttle.go",
+        color: "#1b8ba8",
+        summary: "成本与 ROI 核算。episode 与 attention 记录 token usage，月报按模型和 activity class 聚合，并可对负 ROI 自治 Cognize 做节流。",
+        entries: ["internal/economy/economy.go: Store.Record", "internal/economy/throttle.go", "internal/gateway/throttle.go", "cmd/daimon/costs.go"],
+        works: ["EpisodeCost 异步 best-effort 写 costs，失败不影响情节。", "RouteCostSink 记录小模型路由 token。", "throttleGate 只门控自治 Cognize，不影响 chat/WakeUser/Reflex。"],
+        data: ["costs", "activity_class", "value_created_usd", "economy.prices", "throttle overrides"]
+      },
+      selfops: {
+        name: "SelfOps",
+        pkg: "internal/selfops",
+        color: "#d85c4a",
+        summary: "自我运维看门狗。internal.health timer 触发确定性巡检，异常变成 WakeUser 或提案。",
+        entries: ["internal/selfops/health.go: Evaluate", "internal/selfops/logsink.go", "internal/gateway/selfops.go", "internal/gateway/health.go"],
+        works: ["采集 salvage 率、路由漏报、holds 积压、磁盘空间、错误簇。", "critical 走 WakeUser，warn 去重提案。", "读取失败采用良性默认，避免看门狗故障制造误唤醒。"],
+        data: ["Signals", "Finding", "ErrorRing", "world journal", "holds"]
+      },
+      skills: {
+        name: "Skills / Workflow",
+        pkg: "internal/skill + internal/workflow",
+        color: "#3778c2",
+        summary: "技能库是蒸馏输出端，workflow 是确定性 DAG 执行底座。技能正文惰性加载，草稿 staging 不被加载，转正需人签。",
+        entries: ["internal/skill/skill.go: Skill", "internal/skill/manager.go", "internal/skill/promote.go", "internal/workflow/spec.go", "internal/workflow/executor.go", "internal/agent/workflow_tool.go"],
+        works: ["Manager 只把技能元数据放进 prompt，正文通过 read_skill 工具读取。", "PromoteDraft 对 slug、symlink、root 做三道守卫后 os.Rename。", "Workflow 执行 stage 串行、step 可并行，支持 replay cache 与预算。"],
+        data: ["~/.daimon/skills", "~/.daimon/skills-staging", "SKILL.md", "workflow_step_cache", "Run / StepResult"]
+      },
+      memory: {
+        name: "Memory",
+        pkg: "internal/memory",
+        color: "#1b8ba8",
+        summary: "遗留检索引擎，包含文件记忆、embedding、事实抽取、混合检索。目标态逐步被 world.Retrieve 吸收。",
+        entries: ["internal/gateway/subsystem_memory.go", "internal/memory/retriever.go", "internal/memory/store.go", "internal/memory/local_embedding.go", "internal/tool/memory.go"],
+        works: ["InitMemorySystem 建立 Store、Lifecycle、Cortex 并注册 memory 工具。", "Agent prompt frame 仍可能使用 legacy Cortex.Search。", "World.Retrieve 是新主源，memory 是绞杀中的兼容路径。"],
+        data: ["memory_index", "memory_fts", "memory_embeddings", "memory_audit_log", "fact_access_stats"]
+      },
+      mcp: {
+        name: "MCP",
+        pkg: "internal/mcp",
+        color: "#7760b8",
+        summary: "Model Context Protocol 客户端与服务端。外部 MCP 工具经 adapter 注入 Tool Registry，Daimon 也可作为 MCP server 暴露能力。",
+        entries: ["internal/gateway/subsystem_mcp.go", "internal/mcp/manager.go", "internal/mcp/adapter.go", "internal/mcp/server.go", "cmd/daimon/mcp_serve.go"],
+        works: ["InitMCP 建立 Manager。", "adapter 把外部 MCP tool 包成 internal/tool.Tool。", "mcp serve 命令暴露本地能力给外部客户端。"],
+        data: ["mcp/*.yaml", "MCP tool schema", "redacted args", "Tool Registry"]
+      },
+      store: {
+        name: "SQLite / Files",
+        pkg: "internal/store + ~/.daimon",
+        color: "#172033",
+        summary: "数据层底座。单 SQLite + WAL + 嵌入迁移，配合 ~/.daimon 文件布局承载本地主权状态。",
+        entries: ["internal/store/sqlite.go", "internal/store/migrations/*.sql", "internal/appdir/appdir.go", "docs/architecture/19-data-layer.md"],
+        works: ["打开数据库时按字母序自动应用嵌入迁移。", "world、heart、action、proposals、costs、replay、workflow 等表都在同一个 daimon.db。", "~/.daimon 作为本地主权状态根；world identity、attention rules、skills 都有明确回滚路径。"],
+        data: ["daimon.db", "events", "journal", "commitments", "trust_ledger", "holds", "proposals", "costs", "replays", "~/.daimon/world"]
+      }
+    };
+
+    function step(module, title, body, source, opts = {}) {
+      return {
+        module,
+        title,
+        body,
+        source,
+        edges: opts.edges || [],
+        input: opts.input || "",
+        output: opts.output || "",
+        persist: opts.persist || "",
+        failure: opts.failure || "",
+        note: opts.note || ""
+      };
+    }
+
+    const flows = {
+      startup: {
+        title: "启动装配链",
+        subtitle: "Gateway.New 是组合根，按依赖顺序显式接线，Start 再按生命周期启动。",
+        nodes: ["cli", "config", "gateway", "store", "tool", "mind", "episode", "sleep", "memory", "skills", "mcp", "agent", "proposals", "heart", "attention"],
+        edges: ["cli-gateway", "config-gateway", "gateway-agent", "agent-episode", "episode-mind", "mcp-tool", "skills-tool", "memory-agent", "heart-attention"],
+        steps: [
+          step("config", "读取配置", "cmd/daimon 载入 config，Gateway.New 顶部先校验 heart_enabled ⇒ episode_enabled。", "internal/gateway/gateway.go:76", {
+            edges: ["cli-gateway", "config-gateway"],
+            input: "CLI flags、configs/daimon.yaml、环境变量、~/.daimon 用户目录。",
+            output: "已展开且通过 validate 的 Config，传入 Gateway.New。",
+            persist: "~/.daimon/config.yaml 与 feature_state.json 是后续热重载输入。",
+            failure: "配置无效或 heart/episode 组合非法时启动前失败，不分配运行时资源。"
+          }),
+          step("gateway", "基础设施", "InitConfig、InitTelemetry、InitFeatures、InitDatabase 依次建立配置、录制、开关、SQLite 和 sessions。", "internal/gateway/gateway.go:96-112", {
+            edges: ["config-gateway", "world-store"],
+            input: "Config.Store、Telemetry、Feature 配置。",
+            output: "eventBus、telemetry recorder、feature registry、SQLite DB、session.Manager。",
+            persist: "SQLite 迁移按字母序应用，WAL 打开后承载后续所有账本。",
+            failure: "DB 打不开或迁移失败会中止 New()，避免半装配运行时。"
+          }),
+          step("tool", "工具子系统", "InitTools 注册 world/values/bash/file/http/email 等工具，建立 permission/hook/verify/audit/action/activity 拦截链。", "internal/gateway/subsystem_tool.go", {
+            edges: ["skills-tool", "mcp-tool", "values-action"],
+            input: "Config.Tools、permissions、hooks、DB store。",
+            output: "Tool Registry、WorldStore、ValuesStore、ActionStore、InterceptorChain。",
+            persist: "permission_audit_log、trust_ledger、undo_journal、holds 等表从这里接线。",
+            failure: "工具注册失败直接阻断启动，防止 agent 获得不完整工具面。"
+          }),
+          step("episode", "模型与内核", "InitAgentRuntime 构造 mind.Provider；episode.NewRunner 注入 world、identity、eventBus、values 和 cost recorder。", "internal/gateway/gateway.go:124-137", {
+            edges: ["gateway-agent", "agent-episode", "episode-mind", "episode-world", "episode-economy"],
+            input: "Provider 配置、world store、identity digest、values store、eventBus。",
+            output: "EpisodeRunner，后续作为 CognitiveKernel 注入 agent。",
+            persist: "内核本身无长期状态，状态通过 World 与 telemetry/economy 落账。",
+            failure: "Provider 构造失败或必要 store 缺失会中止装配。"
+          }),
+          step("sleep", "后台心智", "sleep.NewRunner 注册 embed/digest/drift/rollup/reconcile/distill/promote/proposals/screen/throttle 等 job。", "internal/gateway/gateway.go:152-205", {
+            edges: ["sleep-world", "sleep-proposals"],
+            input: "World journal、commitments、values、replay/canary、skills staging。",
+            output: "Sleep Runner 与作业集合，等待 timer 或 /sleep 触发。",
+            persist: "digest、rollup、rules、skills-staging、proposals 会在作业运行时落盘。",
+            failure: "单个 job 的失败在 sleep cycle 内隔离，不应拖垮 daemon。"
+          }),
+          step("skills", "扩展能力", "InitMemorySystem、InitSkills、InitMultiAgent、InitMCP 后，workflow/dispatch 工具回填到 Tool Registry。", "internal/gateway/gateway.go:207-234", {
+            edges: ["memory-agent", "skills-tool", "mcp-tool"],
+            input: "memory 配置、active skills、subagent 配置、MCP server 配置。",
+            output: "Cortex、Skill Manager、SubAgentManager、MCP Manager 与新增工具。",
+            persist: "~/.daimon/skills、memory_index、mcp 配置目录。",
+            failure: "可选能力受 feature flag 门控；失败路径按子系统返回错误或降级。"
+          }),
+          step("agent", "Agent 接线", "agent.NewAgent 后 SetApprovalFunc 与 SetKernel；agent 只持 CognitiveKernel 接口，不 import episode 包。", "internal/agent/cognitive.go", {
+            edges: ["gateway-agent", "agent-episode"],
+            input: "DepsBuilder 汇总的 sessions、tools、memory、multi-agent、security 依赖。",
+            output: "Agent Runtime，聊天和自治事件共用这一入口桥。",
+            persist: "会话状态由 session.Manager 持久化，agent 自身只持运行时依赖。",
+            failure: "episode flag 关闭时保留 legacy LinearLoop；heart 开启则前置强制 episode 开启。"
+          }),
+          step("heart", "自治心脏", "heart_enabled 时构造 Heart、FollowUpSource、TimerSource、FSSource、MailSource，并把 dispatcher.handle 作为 handler。", "internal/gateway/gateway.go:252-315", {
+            edges: ["heart-store", "heart-attention"],
+            input: "agent.heart_enabled、timer/fs/mail/followup 配置。",
+            output: "Heart 事件流与 dispatcher handler。",
+            persist: "events、follow_ups、mail_state 为自治链提供去重与恢复。",
+            failure: "heart 未启用时聊天仍可工作；启用时 source 构造失败会阻止自治链启动。"
+          }),
+          step("gateway", "生命周期启动", "Start 先健康/MCP/hold/proposal handler，再 channels.Start(handleInbound)，最后 heart.Start。", "internal/gateway/gateway.go:349", {
+            edges: ["gateway-agent", "heart-attention", "proposals-gateway"],
+            input: "已装配的 subsystem 列表、channels、heart、MCP、holds/proposals handlers。",
+            output: "常驻 daemon：通道接收用户消息，heart 接收自治事件。",
+            persist: "Start 期间会恢复 stale holds，并注册 proposal inline handlers。",
+            failure: "任一关键 Start 失败触发启动失败；Stop 统一回收子系统。"
+          })
+        ],
+        data: [
+          ["DepsBuilder", "Core/Security/Memory/MultiAgent 依赖先建后回填，避免包环。"],
+          ["ToolSubsystem", "Registry、WorldStore、ValuesStore、ActionStore、InterceptorChain 是 agent Invoke 的基础。"],
+          ["EpisodeRunner", "Provider + world + identity + EventBus + values + cost recorder 构成认知内核。"],
+          ["subsystems", "Start/Stop 统一生命周期；toolSub、MCP、DB 有额外显式收尾。"]
+        ]
+      },
+      chat: {
+        title: "同步聊天链",
+        subtitle: "人在等回复，默认直接 Cognize，不经过 attention 成本路由。",
+        nodes: ["cli", "gateway", "heart", "agent", "episode", "mind", "tool", "action", "world", "store", "telemetry"],
+        edges: ["cli-gateway", "gateway-agent", "agent-episode", "episode-mind", "episode-tool", "tool-action", "action-world", "episode-world", "world-store", "episode-telemetry"],
+        steps: [
+          step("cli", "渠道入站", "TUI/Telegram/scheduler 生成 InboundMessage，Channel.Start 把它交给 Gateway.handleInbound。", "internal/gateway/gateway.go:451", {
+            edges: ["cli-gateway"],
+            input: "用户消息、channel、channelID、messageID、target。",
+            output: "Gateway.handleInbound 获得统一 InboundMessage。",
+            persist: "此步尚未落账，下一步由 heart.RecordChatEvent 做去重审计。",
+            failure: "通道层失败只影响该 channel，不应绕过 gateway。"
+          }),
+          step("gateway", "命令短路", "Gateway 先 dispatch slash commands；命令已处理则直接 Send 返回。", "internal/gateway/commands.go", {
+            edges: ["cli-gateway"],
+            input: "InboundMessage.Text 与已注册命令表。",
+            output: "命令结果或继续进入聊天认知链。",
+            persist: "只读 inspect 命令直接读 DB；变更命令走对应 store/治理入口。",
+            failure: "命令错误直接回发 channel，不进入 Episode。"
+          }),
+          step("heart", "聊天事件审计", "heart_enabled 时 RecordChatEvent 写 events 并按 source+dedup_key 去重，重复投递跳过。", "internal/heart/heart.go:117", {
+            edges: ["heart-store"],
+            input: "InboundMessage 派生 message Event。",
+            output: "events 表中 routed 的聊天事件，或 duplicate skip。",
+            persist: "events(source,dedup_key) 去重；聊天事件不交给 heart dispatcher 重跑。",
+            failure: "Record 是 best-effort 审计；重复消息会跳过后续回复以避免重答。"
+          }),
+          step("agent", "进入 Agent", "Agent.HandleMessage 获取/创建 session，追加用户消息，并对同一会话加锁。", "internal/agent/agent.go:106", {
+            edges: ["gateway-agent"],
+            input: "InboundMessage、Channel、session manager。",
+            output: "串行化后的会话上下文与用户消息。",
+            persist: "sessions/messages 持久化当前用户 turn。",
+            failure: "同一 channel:channelID 被互斥锁保护，避免并发消息交错。"
+          }),
+          step("agent", "组装 CognitiveRequest", "runKernel 注入 persona、rules、memory、tool defs、transcript 和 Invoke 闭包。", "internal/agent/agent.go:189", {
+            edges: ["agent-episode", "memory-agent"],
+            input: "Session transcript、prompt frame、memory/world snippets、Tool definitions。",
+            output: "CognitiveRequest{Goal, Messages, Tools, Invoke}。",
+            persist: "此对象是一次性请求，不持久化；持久状态由 session/world 维护。",
+            failure: "kernel 未启用或失败时，聊天路径可回退 legacy LinearLoop。"
+          }),
+          step("episode", "Episode ReAct", "Runner.Execute 组装 system prompt，调用 Provider.Stream，执行工具或 episode_close。", "internal/episode/episode.go:147", {
+            edges: ["agent-episode", "episode-mind", "episode-tool"],
+            input: "CognitiveRequest、world.Retrieve、values、commitments。",
+            output: "tool calls、assistant text 或 episode_close Outcome。",
+            persist: "ProviderExchange 经 EventBus 交给 telemetry 录制。",
+            failure: "provider 错误、panic、未 close 都进入 salvage/failEpisode 交账路径。"
+          }),
+          step("tool", "工具治理", "非 close 工具调用经 permission/hook/verify/audit/action/activity 链后执行。", "internal/gateway/subsystem_tool.go:185", {
+            edges: ["episode-tool", "tool-action", "values-action"],
+            input: "ToolCall、session/channel 上下文、permission rules、values/trust。",
+            output: "ToolResult、receipt、undo/hold/audit 记录。",
+            persist: "permission_audit_log、trust_ledger、holds、undo_journal、ToolRoundTrip。",
+            failure: "审批拒绝、ValueGate 阻断或工具软失败都作为 ToolResult.Error 回灌模型。"
+          }),
+          step("world", "交账与回复", "Outcome.WorldWrites + journal outcome 事务写入 world；reply/summary 发回 channel，session 持久化。", "internal/world/world.go:124", {
+            edges: ["episode-world", "world-store", "episode-telemetry"],
+            input: "Outcome、WorldWrites、receipts、follow_ups、reply/summary。",
+            output: "持久 journal/commitments/facts 与用户可见回复。",
+            persist: "world.ApplyOutcome 事务写入 journal 与相关表，session 追加 assistant 回复。",
+            failure: "world 写失败会走 failEpisode 兜底，保证有 durable outcome trace。"
+          })
+        ],
+        data: [
+          ["InboundMessage", "包含 channel、channelID、MessageID、Text，用于会话定位与 heart 去重。"],
+          ["Session + Transcript", "Agent 从 session 历史构造 CompletionMessage 列表，当前用户消息只追加一次。"],
+          ["CognitiveRequest", "把 runtime 资产打包给 episode，内核不直接依赖 gateway/tool/session。"],
+          ["Outcome", "status、summary、world_writes、receipts、follow_ups、open_question 是强制交账形态。"]
+        ]
+      },
+      autonomous: {
+        title: "自治事件链",
+        subtitle: "没人等回复，heart 先落库再路由，只有 Cognize 才点燃内部 episode。",
+        nodes: ["heart", "store", "selfops", "attention", "gateway", "agent", "episode", "mind", "tool", "action", "world", "economy"],
+        edges: ["heart-store", "heart-attention", "attention-agent", "agent-episode", "episode-mind", "episode-tool", "tool-action", "episode-world", "world-store", "episode-economy", "economy-store"],
+        steps: [
+          step("heart", "Source 产生事件", "Timer、Mail、FS、FollowUp 等 Source.Run 发出 Event。", "internal/heart/timer.go", {
+            edges: ["heart-store"],
+            input: "外部变化或 internal timer tick。",
+            output: "heart.Event{Source, Kind, Payload, DedupKey, OccurredAt}。",
+            persist: "Source 不直接决定命运，只把事件交给 Heart.process。",
+            failure: "Source 失败应记录错误并等待下一轮，不让单个源拖垮 heart。"
+          }),
+          step("heart", "先落库", "Heart.process 调 Store.Persist，INSERT OR IGNORE 去重；新事件才 deliver。", "internal/heart/heart.go:91", {
+            edges: ["heart-store"],
+            input: "Event 与 DedupKey。",
+            output: "新事件 id 或 duplicate skip。",
+            persist: "events 表先落库，routed_at 为空表示待路由。",
+            failure: "崩溃后 recover 未路由 backlog，重复 DedupKey 不会重跑副作用。"
+          }),
+          step("gateway", "确定性内部分支", "daily_brief、health、sleep 不进 LLM，直接 formatter、selfops 或 sleep cycle。", "internal/gateway/heart_dispatch.go", {
+            edges: ["heart-selfops", "sleep-world", "selfops-proposals"],
+            input: "Kind 以 internal. 开头的事件。",
+            output: "早报、健康巡检、sleep cycle 或 heartbeat activity 更新。",
+            persist: "按分支写 world/proposals/costs；通常不产生 ProviderExchange。",
+            failure: "内部维护失败应被隔离并记录，不进入昂贵认知兜底。"
+          }),
+          step("attention", "Attention 路由", "高风险白名单、rules.yaml、小模型依次判断；失败或未决默认 Cognize。", "internal/attention/attention.go:162", {
+            edges: ["heart-attention"],
+            input: "非 internal Event。",
+            output: "Verdict{Action, Reason, ReflexID?}。",
+            persist: "RouteCostSink 可把小模型 token 记入 costs。",
+            failure: "模型 abstain 或出错默认 Cognize，偏向避免漏掉重要事件。"
+          }),
+          step("gateway", "Verdict 分派", "Ignore 丢弃，WakeUser 通知主渠道，Reflex 当前记录 stub，Cognize 调 RunInternalEpisode。", "internal/gateway/heart_dispatch.go", {
+            edges: ["attention-agent", "attention-gateway"],
+            input: "Attention Verdict 与原始 Event。",
+            output: "Ignore/WakeUser/Reflex/Cognize 的具体执行路径。",
+            persist: "WakeUser 走主通知 channel；Reflex 现状为诚实 stub。",
+            failure: "throttleGate 可阻断负 ROI 自治 Cognize，但不影响 WakeUser。"
+          }),
+          step("agent", "内部情节", "事件 id 作为 EpisodeID 和 session channelID 的幂等键；nil channel 拒绝需审批工具。", "internal/agent/agent.go:274", {
+            edges: ["attention-agent", "agent-episode", "episode-mind", "episode-tool"],
+            input: "eventID、goal、payload、activityClass。",
+            output: "CognitiveOutcome，通常不直接回复用户。",
+            persist: "episodeID=eventID 让崩溃重投安全跳过已交账情节。",
+            failure: "无 channel 意味着需要人签的工具自动拒绝，模型应 blocked/open_question。"
+          }),
+          step("heart", "落账与标路由", "Episode outcome 写 world；Heart.MarkRouted 回填 verdict。", "internal/heart/store.go:74", {
+            edges: ["episode-world", "world-store", "heart-store", "episode-economy"],
+            input: "CognitiveOutcome 与路由 verdict。",
+            output: "world journal outcome + events.routed_at/verdict。",
+            persist: "OutcomeMeta、costs、events 路由状态构成审计链。",
+            failure: "如果 deliver 失败，事件保持未路由，下一次启动可重投。"
+          })
+        ],
+        data: [
+          ["Event", "ID、Source、Kind、Payload、OccurredAt、DedupKey 是事件心脏的统一格式。"],
+          ["Verdict", "Action=Ignore/Reflex/Cognize/WakeUser，Reason 用于审计。"],
+          ["ActivityClass", "自治成本按事件 kind 归因，例如 internal.followup、mail.received。"],
+          ["events 表", "routed_at/verdict 标记事件生命周期，unrouted 支撑崩溃恢复。"]
+        ]
+      },
+      tools: {
+        title: "工具治理链",
+        subtitle: "所有副作用都通过统一拦截链，Action 是治理主线。",
+        nodes: ["episode", "agent", "tool", "action", "values", "world", "store", "mcp", "skills"],
+        edges: ["agent-episode", "episode-tool", "mcp-tool", "skills-tool", "tool-action", "values-action", "action-world", "world-store"],
+        pendingEdges: ["tool-action"],
+        steps: [
+          step("episode", "模型发出 tool_use", "episode 遇到非 episode_close 工具，调用 req.Invoke。", "internal/episode/episode.go", {
+            edges: ["agent-episode", "episode-tool"],
+            input: "Provider 返回的 tool_use block。",
+            output: "ToolCall 交给 agent Invoke 闭包。",
+            persist: "ProviderExchange 记录本轮工具选择上下文。",
+            failure: "episode_close 是保留工具，不走普通工具治理链。"
+          }),
+          step("agent", "Agent dispatch", "Invoke 闭包进入 invokeTool，携带 session、channel、target、iteration。", "internal/agent/dispatch_tool.go", {
+            edges: ["episode-tool"],
+            input: "ToolCall 与当前会话/channel 上下文。",
+            output: "进入 InterceptorChain.Execute。",
+            persist: "ToolRoundTrip 在执行结果返回后经 EventBus 录制。",
+            failure: "找不到工具或 schema 错误会作为 ToolResult.Error 回灌模型。"
+          }),
+          step("tool", "Permission", "权限引擎按 tool/pattern/path/channel profile 决策，必要时向用户审批。", "internal/tool/interceptor_permission.go", {
+            edges: ["tool-action"],
+            input: "ToolCall、PermissionRule、channel class。",
+            output: "allow/deny/ask 的权限决策。",
+            persist: "permission_audit_log 记录决策与原因。",
+            failure: "无人可审批时 ask 类调用被拒绝，自治链不会绕过人签。"
+          }),
+          step("tool", "Hook 与编辑前读", "内置 hook 注入 git/workdir 上下文，用户 hook 可做 pre/post，编辑工具需先读。", "internal/tool/interceptor_hook.go", {
+            edges: ["tool-action"],
+            input: "已获权限的 ToolCall。",
+            output: "增强上下文或 hook 修改后的调用，编辑工具满足 read-before-edit。",
+            persist: "用户 hook 可写自身审计；内置 hook 主要增强上下文。",
+            failure: "hook 拒绝或编辑前未读会短路工具执行。"
+          }),
+          step("tool", "Verify / Audit", "写类工具可触发客观验证，审计记录进入 DB。", "internal/tool/interceptor_verify.go", {
+            edges: ["tool-action"],
+            input: "将执行的写类 ToolCall 与验证策略。",
+            output: "验证上下文、审计 envelope。",
+            persist: "audit sink 与 verification 结果供 action/trust 判断。",
+            failure: "验证失败不应被吞掉，否则会误记 undo 或 trust。"
+          }),
+          step("action", "Action", "分类 Reversible/Compensable/Irreversible；查 values/trust；hold 或 undo；盖 receipt。", "internal/action/interceptor.go:83", {
+            edges: ["tool-action", "values-action", "action-world", "world-store"],
+            input: "已通过前置 gate 的 ToolCall、Action class、Values、Trust ledger。",
+            output: "执行/排队/阻断结果，receipt 与 ActionVerification。",
+            persist: "trust_ledger、holds、undo_journal、world journal 审计。",
+            failure: "ValueGate 拒绝时工具不执行，模型以 blocked/open_question 交账。"
+          }),
+          step("tool", "真实执行", "activity 最内层包住 tool.Execute，只报告真正通过治理的工具。", "internal/tool/interceptor_activity.go", {
+            edges: ["tool-action", "episode-tool"],
+            input: "被所有拦截器放行的 ToolCall。",
+            output: "ToolResult 回灌 Episode ReAct loop。",
+            persist: "ToolRoundTrip 与 activity stream 只覆盖已通过治理的调用。",
+            failure: "软失败必须体现在 ToolResult.Error，防止后续层误判成功。"
+          })
+        ],
+        data: [
+          ["ToolCapabilities", "只读、破坏性、网络需求、审批模式、并发安全由工具声明。"],
+          ["trust_ledger", "按 action_class + context_key 记录 attempts、verified_ok、corrected、level。"],
+          ["holds", "Compensable pending → executing → executed/failed/recalled。"],
+          ["undo_journal", "Reversible 文件修改记录 receipt，支持 receipt 或 episode 级 LIFO undo。"]
+        ]
+      },
+      accountability: {
+        title: "Episode 交账闭环",
+        subtitle: "每段认知必须以 Outcome 收尾，正常、失败、panic、salvage 都有 durable trace。",
+        nodes: ["agent", "episode", "mind", "tool", "action", "world", "store", "heart", "telemetry", "economy"],
+        edges: ["agent-episode", "episode-mind", "episode-tool", "tool-action", "episode-world", "world-store", "episode-telemetry", "episode-economy", "economy-store"],
+        steps: [
+          step("episode", "幂等检查", "若 caller 提供 EpisodeID 且 world 已有 outcome，直接返回 already handled。", "internal/episode/episode.go:147", {
+            edges: ["agent-episode", "episode-world"],
+            input: "CognitiveRequest.EpisodeID。",
+            output: "新情节继续执行，或已有 outcome 直接返回。",
+            persist: "world journal 的 outcome claim 是幂等判断依据。",
+            failure: "自治事件重投不会重复执行副作用。"
+          }),
+          step("episode", "上下文组装", "Composer 从 persona、rules、identity digest、values、commitments、world.Retrieve 重组 system。", "internal/episode/composer.go", {
+            edges: ["episode-world"],
+            input: "Goal、Trigger、identity digest、values、commitments、world retrieval。",
+            output: "本次 fresh system prompt。",
+            persist: "上下文本身不长期保存，事实必须通过 Outcome 写回 world。",
+            failure: "检索降级不应阻止交账；缺失上下文由模型显式说明。"
+          }),
+          step("mind", "裸 ReAct", "Provider.Stream 返回文本与 tool calls；工具结果回灌 messages。", "internal/mind/provider.go", {
+            edges: ["episode-mind", "episode-tool"],
+            input: "System、messages、tool definitions。",
+            output: "assistant delta、tool_calls、usage、stop_reason。",
+            persist: "ProviderExchange 进入 telemetry JSONL。",
+            failure: "Provider 错误进入 failEpisode；max token/异常 stop 进入 salvage 候选。"
+          }),
+          step("episode", "强制 close", "模型必须调用 episode_close；schema 不合法会被 rejection 要求重试。", "internal/episode/episode.go", {
+            edges: ["episode-mind", "episode-world"],
+            input: "episode_close tool arguments。",
+            output: "合法 Outcome 或 rejection message。",
+            persist: "合法 Outcome 才能进入 world.ApplyOutcome。",
+            failure: "schema 不合法不会静默通过，会回灌要求模型修正。"
+          }),
+          step("episode", "自动/兜底交账", "纯聊天可 auto-close；耗尽或未 close 则 salvage；provider/panic 走 failEpisode。", "internal/episode/episode.go", {
+            edges: ["episode-world", "episode-telemetry"],
+            input: "未正常 close 的情节状态。",
+            output: "auto-close、salvaged outcome 或 failed outcome。",
+            persist: "EpisodeSalvaged / failed outcome 都进入 durable trace。",
+            failure: "panic 也必须落一条 failed outcome，避免情节凭空消失。"
+          }),
+          step("world", "应用 Outcome", "watch/check followup 展开为 commitment；timer followup 写 heart 队列；world.ApplyOutcome 事务落账。", "internal/world/world.go:124", {
+            edges: ["episode-world", "world-store", "heart-store"],
+            input: "Outcome.WorldWrites、FollowUps、OutcomeMeta。",
+            output: "journal、facts、commitments、follow_ups 更新。",
+            persist: "ApplyOutcome 事务性应用 mutation，并按 episodeID 防双写。",
+            failure: "world 写失败触发 failEpisode 二次兜底，summary 保留失败标记。"
+          }),
+          step("telemetry", "观测信号", "发布 TurnClosed/EpisodeSalvaged；记录 toolFailures、unverifiedActions 和 token cost。", "internal/agent/events.go", {
+            edges: ["episode-telemetry", "episode-economy", "economy-store"],
+            input: "CognitiveOutcome、usage、ActionVerification collector。",
+            output: "replay 语料、成本条目、distill clean/dirty 信号。",
+            persist: "replays/*.jsonl、costs、OutcomeMeta。",
+            failure: "telemetry/economy best-effort 失败不应改变用户响应。"
+          })
+        ],
+        data: [
+          ["System Prompt", "每次 fresh compose，状态在 world，不依赖长期上下文对象。"],
+          ["FollowUps", "timer 续跑进入 follow_ups；watch/check 事务性变成 commitments。"],
+          ["OutcomeMeta", "salvaged、tool_failures、unverified_actions、parent_episode_id、value_created_usd。"],
+          ["Cost Entry", "Usage 汇总后异步写 costs，不影响情节返回路径。"]
+        ]
+      },
+      sleep: {
+        title: "Sleep 复利闭环",
+        subtitle: "空闲整固让世界更连贯，把昂贵情节沉淀为便宜技能和规则。",
+        nodes: ["heart", "gateway", "sleep", "world", "store", "proposals", "skills", "attention", "values", "economy"],
+        edges: ["sleep-world", "world-store", "sleep-proposals", "proposals-gateway", "skills-tool", "heart-attention", "values-action"],
+        steps: [
+          step("gateway", "触发 cycle", "/sleep 或 internal.sleep timer 触发；Gateway 用 CAS 防止自治与手动 cycle 重叠。", "internal/gateway/sleep_commands.go", {
+            edges: ["heart-attention", "sleep-world"],
+            input: "/sleep 命令或 internal.sleep Event。",
+            output: "一次 sleep cycle 请求。",
+            persist: "触发来源可进入 events 或命令审计。",
+            failure: "CAS 命中已有 cycle 时跳过，避免并发整固互相污染。"
+          }),
+          step("sleep", "Runner 互斥", "sleep.Runner.TryLock，已有 cycle 则 skipped；每个 job panic/error 隔离。", "internal/sleep/sleep.go:75", {
+            edges: ["sleep-world"],
+            input: "Sleep Runner 与注册 job 列表。",
+            output: "逐个执行 digest/drift/rollup/reconcile/distill 等 job。",
+            persist: "cycle 结果按 job 分别落 world/proposals/skills/rules。",
+            failure: "job panic 被隔离并记录，后续 job 仍可继续。"
+          }),
+          step("world", "世界维护", "Digest、Drift、Rollup、Reconcile 维护 identity digest、values drift、journal rollup、事实和解。", "internal/sleep/digest.go", {
+            edges: ["sleep-world", "world-store", "values-action"],
+            input: "world journal、facts、commitments、values markdown。",
+            output: "更新后的 digest、rollup、drifting values、和解结果。",
+            persist: "~/.daimon/world 与 SQLite journal/commitments。",
+            failure: "维护失败应留下错误信号，不应产生半可信事实。"
+          }),
+          step("skills", "蒸馏候选", "Distill 扫重复且干净的 outcome 模式，Promote 生成 inert SKILL.md 草稿。", "internal/sleep/distill.go", {
+            edges: ["sleep-world", "skills-tool"],
+            input: "clean outcomes：无 salvage、低 tool failure、无未验证治理行动。",
+            output: "skills-staging 下的 SKILL.md 草稿。",
+            persist: "~/.daimon/skills-staging，草稿默认 inert 不加载。",
+            failure: "不干净情节被过滤，避免把坏模式复制成技能。"
+          }),
+          step("proposals", "草稿筛选", "DistillScreen judge 草稿质量/安全/结构，产 promote_skill typed proposal。", "internal/sleep/distill_screen.go", {
+            edges: ["sleep-proposals", "proposals-gateway"],
+            input: "staged skill draft 与筛选规则/回放信号。",
+            output: "promote_skill 提案或拒绝原因。",
+            persist: "proposals 表记录 typed action_ref。",
+            failure: "筛选不过不转正，仍保留草稿供人工查看。"
+          }),
+          step("attention", "规则合成", "SynthesizeRulesJob 从 attention_feedback 生成 rules.yaml，带 canary 与 git commit。", "internal/sleep/synthesize.go", {
+            edges: ["heart-attention", "sleep-world"],
+            input: "attention_feedback、当前 rules.yaml、canary 样本。",
+            output: "候选 attention rules。",
+            persist: "~/.daimon/attention/rules.yaml，git commit 支撑回滚。",
+            failure: "canary 不过则 fail-closed，不写入生效规则。"
+          }),
+          step("economy", "节流刷新", "throttleEvalJob 刷新负 ROI 自治 class 的 gate。", "internal/gateway/throttle.go", {
+            edges: ["episode-economy", "economy-store"],
+            input: "costs、value_created_usd、activity_class 聚合。",
+            output: "throttle gate override。",
+            persist: "economy/throttle 状态影响后续自治 Cognize。",
+            failure: "只节流自治 Cognize，不影响聊天、WakeUser 或确定性 Reflex。"
+          })
+        ],
+        data: [
+          ["journal / commitments", "sleep 的主读写对象，长期运行后仍保持检索质量。"],
+          ["skills-staging", "蒸馏草稿目录，绝不被加载执行。"],
+          ["attention_feedback", "用户纠正形成规则合成输入。"],
+          ["proposals", "预期提案与技能转正提案都落同一队列。"]
+        ]
+      },
+      proposals: {
+        title: "提案执行闭环",
+        subtitle: "系统主动提出下一步，用户按 [做/不做] 决定；执行路径按类型分派。",
+        nodes: ["sleep", "proposals", "cli", "gateway", "agent", "episode", "skills", "world", "store"],
+        edges: ["sleep-proposals", "proposals-gateway", "gateway-agent", "agent-episode", "episode-world", "world-store", "skills-tool"],
+        pendingEdges: ["proposals-gateway"],
+        steps: [
+          step("sleep", "产生提案", "ProposalsJob 扫 72h 内 commitments；DistillScreenJob 产 promote_skill 提案。", "internal/sleep/proposals.go", {
+            edges: ["sleep-proposals"],
+            input: "近期 commitments、skills-staging 筛选结果。",
+            output: "候选 Proposal。",
+            persist: "尚未投递前进入 proposals 队列。",
+            failure: "同类冷却或过期承诺会抑制重复提案。"
+          }),
+          step("proposals", "入队", "Proposal 包含 title、body、action_kind、action_ref、urgency、expires_at。", "internal/proposals/proposals.go", {
+            edges: ["sleep-proposals", "world-store"],
+            input: "Proposal draft。",
+            output: "pending Proposal 记录。",
+            persist: "proposals 表保存状态机与 action_ref。",
+            failure: "唯一键/冷却命中时不重复入队。"
+          }),
+          step("proposals", "投递", "Deliverer send-then-mark delivered_at；Telegram 显示 [做/不做]。", "internal/gateway/proposals_deliverer.go", {
+            edges: ["proposals-gateway", "cli-gateway"],
+            input: "pending 且未 delivered 的 Proposal。",
+            output: "用户可见 inline proposal。",
+            persist: "send 成功后 mark delivered_at，形成 at-least-once 边界。",
+            failure: "发送失败不 mark，后续可重投。"
+          }),
+          step("cli", "用户决定", "Accept/Dismiss 原子状态机；dismiss 写冷却，防止同题重复骚扰。", "internal/proposals/proposals.go", {
+            edges: ["cli-gateway", "proposals-gateway"],
+            input: "Telegram callback 或 CLI proposal 决策。",
+            output: "accepted/dismissed 状态。",
+            persist: "dismiss cooldown 与 proposal 状态原子更新。",
+            failure: "重复 callback exact-once 处理，不会重复执行 action_ref。"
+          }),
+          step("gateway", "typed accept", "episode kind 调 RunInternalEpisode；promote_skill 先校验 slug 再 PromoteDraft，绝不走 LLM。", "internal/gateway/proposals_coordinator.go", {
+            edges: ["proposals-gateway", "gateway-agent", "agent-episode", "skills-tool"],
+            input: "accepted Proposal.action_kind/action_ref。",
+            output: "内部情节执行或技能确定性转正。",
+            persist: "accepted_at 与执行结果进入 world/skills。",
+            failure: "未知 action_kind fail-closed；promote_skill 校验失败不加载草稿。"
+          }),
+          step("world", "结果回写", "执行情节通过 Outcome 写 world；技能转正变成 active skills，可被 InitSkills 加载。", "internal/skill/promote.go", {
+            edges: ["episode-world", "world-store", "skills-tool"],
+            input: "CognitiveOutcome 或 PromoteDraft 结果。",
+            output: "world journal 更新或 active skill。",
+            persist: "~/.daimon/skills 与 world outcome。",
+            failure: "技能转正使用 rename 与路径守卫，失败时保持 staging inert。"
+          })
+        ],
+        data: [
+          ["Proposal", "pending/accepted/dismissed/expired 状态机。"],
+          ["action_kind/action_ref", "episode goal 或 staged skill slug。"],
+          ["delivered_at", "投递幂等与 at-least-once 的边界。"],
+          ["cooldown", "dismissed 同类提案 14 天抑制。"]
+        ]
+      },
+      replay: {
+        title: "录制与回放评测闭环",
+        subtitle: "所有变更用真实历史上下文裁决，纠正过的会话自动进入回归集。",
+        nodes: ["episode", "tool", "telemetry", "replay", "mind", "world", "store"],
+        edges: ["episode-telemetry", "telemetry-replay", "episode-tool", "episode-world", "world-store"],
+        steps: [
+          step("episode", "事件发布", "Episode 每轮发布 ProviderExchange，工具调用发布 ToolRoundTrip，结束发布 TurnClosed。", "internal/agent/events.go", {
+            edges: ["episode-telemetry", "episode-tool"],
+            input: "Provider response、ToolResult、CognitiveOutcome。",
+            output: "EventBus 上的 replay events。",
+            persist: "事件先在进程内发布，由 telemetry 订阅落盘。",
+            failure: "录制失败不改变情节执行结果，但会减少回放语料。"
+          }),
+          step("telemetry", "JSONL 录制", "Telemetry 订阅 EventBus，写 ~/.daimon/replays/YYYY-MM-DD.jsonl。", "internal/telemetry/jsonl.go", {
+            edges: ["episode-telemetry", "telemetry-replay"],
+            input: "ProviderExchange、ToolRoundTrip、TurnClosed、EpisodeSalvaged。",
+            output: "按日期切分的 JSONL replay 文件。",
+            persist: "~/.daimon/replays/*.jsonl。",
+            failure: "单条写入失败应记录日志，不阻塞主链路。"
+          }),
+          step("replay", "健康分析", "daimon replay LoadDir + Analyze 统计 tool failures、salvaged、abnormal stops。", "internal/replay/replay.go", {
+            edges: ["telemetry-replay"],
+            input: "历史 JSONL sessions。",
+            output: "SessionMetrics 与健康摘要。",
+            persist: "默认分析只读，不修改 runtime 状态。",
+            failure: "坏 JSONL 行应跳过或报告，不影响其它 session 分析。"
+          }),
+          step("mind", "候选重打分", "--against 用候选 provider 读历史上下文，工具决策 dry-run judge。", "internal/replay/rescore.go", {
+            edges: ["telemetry-replay", "episode-mind"],
+            input: "baseline 上下文与候选 provider config。",
+            output: "候选模型的 dry-run 工具决策评分。",
+            persist: "重打分结果用于报告，不执行真实工具。",
+            failure: "载荷解码失败 fail-closed，避免错误评价行动决策。"
+          }),
+          step("replay", "金丝雀", "--canary 选 corrected ∪ salvaged 会话 fail-closed。", "internal/replay/regression.go", {
+            edges: ["telemetry-replay", "episode-world"],
+            input: "纠正集与 salvaged 回归集。",
+            output: "pass/fail canary 结果。",
+            persist: "用于阻止模型/prompt/rules/skill 退化上线。",
+            failure: "金丝雀失败则候选变更不应自动生效。"
+          }),
+          step("replay", "纠正回流", "daimon correct 把用户纠正标成 regression_corrections，后续改动必须过。", "internal/replay/corrections.go", {
+            edges: ["telemetry-replay", "world-store"],
+            input: "用户纠正的 session id 与期望行为。",
+            output: "新增 regression correction。",
+            persist: "regression_corrections 表。",
+            failure: "找不到 session 或映射失败应明确报错，不生成空纠正。"
+          })
+        ],
+        data: [
+          ["ProviderExchange", "system、messages、response、tool_calls、stop_reason、latency。"],
+          ["ToolRoundTrip", "工具名、输入、输出、错误。"],
+          ["SessionMetrics", "回放健康指标的基本单位。"],
+          ["Regression Set", "用户纠正与 salvaged 形成免疫集合。"]
+        ]
+      },
+      health: {
+        title: "SelfOps 健康巡检",
+        subtitle: "internal.health 走确定性看门狗，critical 直接唤醒，warn 进入提案。",
+        nodes: ["heart", "store", "gateway", "selfops", "world", "action", "proposals", "cli"],
+        edges: ["heart-store", "heart-selfops", "selfops-proposals", "proposals-gateway", "world-store"],
+        pendingEdges: ["selfops-proposals"],
+        steps: [
+          step("heart", "健康 timer", "heart 的 internal.health timer 事件触发 Gateway.runHealthCheck。", "internal/gateway/heart_dispatch.go", {
+            edges: ["heart-store", "heart-selfops"],
+            input: "internal.health Event。",
+            output: "确定性健康巡检请求。",
+            persist: "events 表记录 timer 事件与 routed 状态。",
+            failure: "timer 重复触发由 DedupKey/路由状态约束。"
+          }),
+          step("selfops", "采集信号", "读取 world outcome、attention feedback、holds、磁盘空间和 ErrorRing。", "internal/gateway/selfops.go", {
+            edges: ["heart-selfops", "world-store"],
+            input: "world journal、attention_feedback、holds、disk stats、ErrorRing。",
+            output: "Signals 聚合对象。",
+            persist: "采集本身只读，finding 才会投递或入队。",
+            failure: "读失败使用良性默认，避免监控故障制造误报。"
+          }),
+          step("selfops", "纯函数评估", "Evaluate(signals, thresholds) 产出 warn/critical finding，阈值为 0 的检查关闭。", "internal/selfops/health.go:80", {
+            edges: ["heart-selfops"],
+            input: "Signals 与 thresholds。",
+            output: "Finding{Severity, Title, Detail}。",
+            persist: "Evaluate 是纯函数，便于测试和回放。",
+            failure: "阈值配置为 0 时该检查关闭。"
+          }),
+          step("selfops", "失败安全", "读取失败用良性默认，避免看门狗自身故障误唤醒用户。", "internal/gateway/selfops.go", {
+            edges: ["heart-selfops"],
+            input: "部分缺失的 Signals。",
+            output: "降级后的 Findings 或空结果。",
+            persist: "错误只进入日志/ErrorRing，不直接升级为 critical。",
+            failure: "看门狗不能因为自己读失败而骚扰用户。"
+          }),
+          step("cli", "critical 唤醒", "严重问题通过 primary notification channel WakeUser。", "internal/gateway/heart_dispatch.go", {
+            edges: ["heart-selfops", "attention-gateway", "cli-gateway"],
+            input: "critical Finding。",
+            output: "主渠道即时通知。",
+            persist: "journal 可记录健康异常；通知由 channel 投递。",
+            failure: "主渠道不可用时应记录失败，避免假定用户已收到。"
+          }),
+          step("proposals", "warn 提案", "一般问题去重写 proposals，等待用户决定是否处理。", "internal/gateway/selfops.go", {
+            edges: ["selfops-proposals", "proposals-gateway"],
+            input: "warn Finding。",
+            output: "pending health proposal。",
+            persist: "proposals 表去重与冷却。",
+            failure: "重复 warn 不应刷屏，等待用户通过提案闭环处理。"
+          })
+        ],
+        data: [
+          ["Signals", "OutcomesTotal、Salvaged、RoutingMisses、HoldsPending、DiskFreePct、ErrorClusters。"],
+          ["Finding", "Severity=warn/critical，Title/Detail 可直接投递。"],
+          ["ErrorRing", "slog teeHandler 只额外捕获 error，不改变原日志输出。"],
+          ["Proposals", "warn 类健康问题进入同一个提案队列。"]
+        ]
+      }
+    };
+
+    const nodePositions = {
+      cli: [105, 148], config: [105, 292], gateway: [285, 148], agent: [485, 148], episode: [685, 148],
+      mind: [845, 64], mcp: [845, 171], tool: [885, 292], action: [885, 406], world: [685, 406],
+      store: [885, 536], heart: [285, 399], attention: [485, 399], telemetry: [435, 64], replay: [245, 64],
+      sleep: [645, 657], proposals: [845, 657], skills: [485, 657], memory: [285, 657],
+      economy: [96, 530], selfops: [476, 515], values: [716, 515]
+    };
+
+    const state = {
+      flow: "chat",
+      module: "gateway",
+      step: 0,
+      timer: null,
+      paused: false
+    };
+
+    function $(sel) { return document.querySelector(sel); }
+    function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function sourceHref(ref) {
+      const match = String(ref || "").match(/^((?:cmd|configs|docs|internal)\/[^\s:*]+)(?::(\d+))?/);
+      if (!match || match[1].includes("*")) return "";
+      const path = match[1].startsWith("docs/") ? match[1].slice(5) : `../${match[1]}`;
+      return match[2] ? `${path}#L${match[2]}` : path;
+    }
+
+    function renderSourceChip(ref) {
+      const href = sourceHref(ref);
+      const label = escapeHtml(ref);
+      return href ? `<a class="code-item" href="${href}">${label}</a>` : `<span class="code-item">${label}</span>`;
+    }
+
+    function renderInlineSource(ref) {
+      const href = sourceHref(ref);
+      const label = escapeHtml(ref);
+      return href ? `<a class="source-ref" href="${href}">${label}</a>` : `<code>${label}</code>`;
+    }
+
+    function currentStep() {
+      const f = flows[state.flow];
+      return f.steps[Math.min(state.step, f.steps.length - 1)] || f.steps[0];
+    }
+
+    function clearPlaybackTimer() {
+      if (state.timer) {
+        clearInterval(state.timer);
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+    }
+
+    function pausePlayback() {
+      state.paused = true;
+      clearPlaybackTimer();
+      renderFlowTabs();
+      updateHash();
+    }
+
+    function resumePlayback() {
+      state.paused = false;
+      renderFlowTabs();
+      startPlayback();
+      updateHash();
+    }
+
+    function togglePlayback() {
+      state.paused ? resumePlayback() : pausePlayback();
+    }
+
+    function updateHash() {
+      const params = new URLSearchParams();
+      params.set("flow", state.flow);
+      params.set("step", String(state.step + 1));
+      params.set("module", state.module);
+      if (state.paused) params.set("paused", "1");
+      history.replaceState(null, "", `${location.pathname}${location.search}#${params.toString()}`);
+    }
+
+    function applyHash() {
+      const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+      const flow = params.get("flow");
+      if (flow && flows[flow]) state.flow = flow;
+      const hasStep = params.has("step");
+      const stepIndex = Number.parseInt(params.get("step") || "1", 10) - 1;
+      if (hasStep && Number.isFinite(stepIndex)) {
+        state.step = Math.max(0, Math.min(stepIndex, flows[state.flow].steps.length - 1));
+      }
+      const module = params.get("module");
+      if (module && modules[module]) {
+        state.module = module;
+        if (!hasStep) {
+          const idx = flows[state.flow].steps.findIndex(s => s.module === module);
+          if (idx >= 0) state.step = idx;
+        }
+      }
+      state.paused = params.get("paused") === "1";
+    }
+
+    function renderModuleList(filter = "") {
+      const list = $("#moduleList");
+      const q = filter.trim().toLowerCase();
+      list.innerHTML = "";
+      Object.entries(modules)
+        .filter(([, m]) => !q || [m.name, m.pkg, ...(m.entries || [])].join(" ").toLowerCase().includes(q))
+        .forEach(([id, m]) => {
+          const btn = document.createElement("button");
+          btn.className = "module-button" + (id === state.module ? " active" : "");
+          btn.dataset.module = id;
+          btn.innerHTML = `
+            <span class="module-dot" style="background:${m.color}"></span>
+            <span class="module-title"><strong>${m.name}</strong><span>${m.pkg}</span></span>
+            <span class="module-count">${(m.entries || []).length}</span>`;
+          btn.addEventListener("click", () => {
+            pausePlayback();
+            selectModule(id, false);
+          });
+          list.appendChild(btn);
+        });
+    }
+
+    function renderFlowTabs() {
+      const tabs = $("#flowTabs");
+      tabs.innerHTML = "";
+      Object.entries(flows).forEach(([id, f]) => {
+        const btn = document.createElement("button");
+        btn.className = "flow-tab" + (id === state.flow ? " active" : "");
+        btn.textContent = f.title;
+        btn.addEventListener("click", () => selectFlow(id));
+        tabs.appendChild(btn);
+      });
+      const spacer = document.createElement("span");
+      spacer.className = "spacer";
+      tabs.appendChild(spacer);
+      const play = document.createElement("button");
+      play.id = "playPause";
+      play.className = "flow-control";
+      play.textContent = state.paused ? "播放" : "暂停";
+      play.addEventListener("click", togglePlayback);
+      tabs.appendChild(play);
+    }
+
+    function selectFlow(id) {
+      state.flow = id;
+      state.step = 0;
+      renderFlowTabs();
+      renderFlow();
+      if (!state.paused) startPlayback();
+      updateHash();
+    }
+
+    function selectModule(id, syncFlow = true) {
+      if (!modules[id]) return;
+      state.module = id;
+      renderModuleList($("#moduleSearch").value);
+      renderDetail();
+      $all(".node").forEach(n => n.classList.toggle("active", n.dataset.module === id || flows[state.flow].nodes.includes(n.dataset.module)));
+      if (syncFlow) {
+        const currentFlowHasModule = flows[state.flow].nodes.includes(id);
+        const targetFlow = currentFlowHasModule
+          ? [state.flow, flows[state.flow]]
+          : Object.entries(flows).find(([, f]) => f.nodes.includes(id));
+        if (targetFlow) {
+          state.flow = targetFlow[0];
+          const stepIndex = targetFlow[1].steps.findIndex(s => s.module === id);
+          state.step = stepIndex >= 0 ? stepIndex : 0;
+          renderFlowTabs();
+          renderFlow();
+          return;
+        }
+      }
+      updateHash();
+    }
+
+    function renderDetail() {
+      const m = modules[state.module] || modules.gateway;
+      const activeFlows = Object.entries(flows).filter(([, f]) => f.nodes.includes(state.module));
+      $("#detailBody").innerHTML = `
+        <div class="detail-head">
+          <div class="detail-color" style="background:${m.color}"></div>
+          <div>
+            <h2>${m.name}</h2>
+            <div class="pkg">${m.pkg}</div>
+          </div>
+        </div>
+        <p class="summary">${m.summary}</p>
+        <div class="detail-section">
+          <h3>对应代码入口</h3>
+          <div class="code-list">${m.entries.map(renderSourceChip).join("")}</div>
+        </div>
+        <div class="detail-section">
+          <h3>怎么工作</h3>
+          <ul class="bullets">${m.works.map(x => `<li>${x}</li>`).join("")}</ul>
+        </div>
+        <div class="detail-section">
+          <h3>关键数据</h3>
+          <div class="pill-list">${m.data.map(x => `<span class="pill">${x}</span>`).join("")}</div>
+        </div>
+        <div class="detail-section">
+          <h3>出现在哪些闭环</h3>
+          <div>${activeFlows.map(([id, f]) => `<button class="flow-chip ${id === state.flow ? "active" : ""}" data-flow="${id}">${f.title}</button>`).join("") || "<span class='pill'>支撑模块</span>"}</div>
+        </div>`;
+      $all(".flow-chip").forEach(btn => btn.addEventListener("click", () => selectFlow(btn.dataset.flow)));
+    }
+
+    function renderFlow() {
+      const f = flows[state.flow];
+      const st = currentStep();
+      const hotEdges = new Set((st.edges && st.edges.length) ? st.edges : f.edges);
+      $("#stepsTitle").textContent = f.title;
+      $("#stepsSubtitle").textContent = f.subtitle;
+
+      $all(".node").forEach(n => {
+        const id = n.dataset.module;
+        n.classList.toggle("active", f.nodes.includes(id));
+        n.classList.toggle("current", id === currentNode());
+      });
+
+      $all(".edges path").forEach(p => {
+        const id = p.dataset.edge;
+        p.classList.toggle("flow", f.edges.includes(id));
+        p.classList.toggle("hot", hotEdges.has(id));
+        p.classList.toggle("pending", (f.pendingEdges || []).includes(id));
+      });
+
+      const steps = $("#steps");
+      steps.innerHTML = "";
+      f.steps.forEach((s, i) => {
+        const module = modules[s.module];
+        const card = document.createElement("button");
+        card.className = "step" + (i === state.step ? " active" : "");
+        card.innerHTML = `
+          <span class="step-number">${String(i + 1).padStart(2, "0")}</span>
+          <span>
+            <h4>${escapeHtml(s.title)}</h4>
+            <p>${escapeHtml(s.body)}</p>
+            ${renderInlineSource(s.source)}
+            <span class="step-meta">
+              <span>${escapeHtml(module ? module.name : s.module)}</span>
+              <span>${escapeHtml((s.edges || []).join(" / ") || "无直接边")}</span>
+            </span>
+          </span>`;
+        card.addEventListener("click", () => {
+          pausePlayback();
+          state.step = i;
+          updateStep();
+        });
+        steps.appendChild(card);
+      });
+
+      renderDataPane();
+      updateStep();
+    }
+
+    function renderDataPane() {
+      const f = flows[state.flow];
+      const st = currentStep();
+      const module = modules[st.module];
+      $("#dataTitle").textContent = "当前链路";
+      $("#dataSubtitle").textContent = `${f.title} / ${module ? module.name : st.module}`;
+      const io = [
+        ["输入", st.input || "此步骤无显式输入。"],
+        ["输出", st.output || "此步骤无显式输出。"],
+        ["落账", st.persist || "此步骤不直接持久化。"],
+        ["失败路径", st.failure || "沿调用方错误处理返回。"]
+      ];
+      const current = `
+        <div class="data-card current-link">
+          <strong>${escapeHtml(st.title)}</strong>
+          <p>${escapeHtml(st.body)}</p>
+          <div class="io-grid">
+            ${io.map(([label, value]) => `<div class="io-card"><b>${escapeHtml(label)}</b><span>${escapeHtml(value)}</span></div>`).join("")}
+          </div>
+        </div>`;
+      const flowData = f.data.map(d => `<div class="data-card"><strong>${escapeHtml(d[0])}</strong><p>${escapeHtml(d[1])}</p></div>`).join("");
+      $("#dataList").innerHTML = current + flowData;
+    }
+
+    function currentNode() {
+      const st = currentStep();
+      return st && st.module ? st.module : flows[state.flow].nodes[0];
+    }
+
+    function updateStep() {
+      const f = flows[state.flow];
+      const st = currentStep();
+      const hotEdges = new Set((st.edges && st.edges.length) ? st.edges : f.edges);
+      $all(".step").forEach((s, i) => s.classList.toggle("active", i === state.step));
+      const current = currentNode();
+      $all(".node").forEach(n => {
+        const id = n.dataset.module;
+        n.classList.toggle("current", id === current);
+        n.classList.toggle("active", f.nodes.includes(id));
+      });
+      $all(".edges path").forEach(p => {
+        const id = p.dataset.edge;
+        p.classList.toggle("flow", f.edges.includes(id));
+        p.classList.toggle("hot", hotEdges.has(id));
+        p.classList.toggle("pending", (f.pendingEdges || []).includes(id));
+      });
+      if (current && modules[current]) {
+        state.module = current;
+        renderModuleList($("#moduleSearch").value);
+        renderDetail();
+      }
+      renderDataPane();
+      movePacket(current);
+      updateHash();
+    }
+
+    function movePacket(moduleId) {
+      const pos = nodePositions[moduleId] || nodePositions.gateway;
+      const packet = $("#packet");
+      packet.style.left = `${pos[0] / 10}%`;
+      packet.style.top = `${pos[1] / 7.6}%`;
+    }
+
+    function startPlayback() {
+      clearPlaybackTimer();
+      if (state.paused) return;
+      state.timer = setInterval(() => {
+        const len = flows[state.flow].steps.length;
+        state.step = (state.step + 1) % len;
+        updateStep();
+      }, 1850);
+    }
+
+    function restartPlaybackDelay() {
+      if (state.paused) return;
+      clearPlaybackTimer();
+      state.timer = setTimeout(() => {
+        startPlayback();
+      }, 3600);
+    }
+
+    $("#moduleSearch").addEventListener("input", e => renderModuleList(e.target.value));
+
+    $all(".node").forEach(btn => {
+      btn.addEventListener("click", () => {
+        pausePlayback();
+        selectModule(btn.dataset.module, true);
+      });
+    });
+
+    function validateGraph() {
+      const problems = [];
+      const moduleIDs = new Set(Object.keys(modules));
+      const edgeIDs = new Set($all(".edges path").map(p => p.dataset.edge));
+      $all(".node").forEach(n => {
+        if (!moduleIDs.has(n.dataset.module)) problems.push(`节点缺少模块: ${n.dataset.module}`);
+      });
+      Object.entries(flows).forEach(([flowID, f]) => {
+        (f.nodes || []).forEach(id => {
+          if (!moduleIDs.has(id)) problems.push(`${flowID}.nodes 引用未知模块 ${id}`);
+        });
+        [...(f.edges || []), ...(f.pendingEdges || [])].forEach(id => {
+          if (!edgeIDs.has(id)) problems.push(`${flowID}.edges 引用未知边 ${id}`);
+        });
+        (f.steps || []).forEach((s, i) => {
+          if (!moduleIDs.has(s.module)) problems.push(`${flowID}.steps[${i + 1}] 引用未知模块 ${s.module}`);
+          (s.edges || []).forEach(id => {
+            if (!edgeIDs.has(id)) problems.push(`${flowID}.steps[${i + 1}] 引用未知边 ${id}`);
+          });
+        });
+      });
+      const status = $("#validationStatus");
+      if (status) {
+        status.textContent = problems.length ? ` 图谱校验：${problems.length} 个问题，见控制台。` : " 图谱校验：通过。";
+      }
+      if (problems.length) console.warn("system-workflow graph validation", problems);
+    }
+
+    window.addEventListener("hashchange", () => {
+      applyHash();
+      clearPlaybackTimer();
+      renderModuleList($("#moduleSearch").value);
+      renderFlowTabs();
+      renderFlow();
+      renderDetail();
+      if (!state.paused) startPlayback();
+    });
+
+    applyHash();
+    validateGraph();
+    renderModuleList();
+    renderFlowTabs();
+    renderFlow();
+    renderDetail();
+    if (!state.paused) startPlayback();
+  </script>
+</body>
+</html>

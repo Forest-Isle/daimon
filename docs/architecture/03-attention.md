@@ -69,6 +69,7 @@ type Rule struct {
 ```
 
 格式错误的规则被跳过（`ParseAction` 失败 `continue`），不会静默吞掉事件。
+当 `Action == Reflex` 时，`ReflexID` 必须能在 `agent.heart.reflexes` 中找到显式 workflow 配置；否则 dispatcher fail-closed 记录错误，不会改走 Cognize。
 
 ### 3) 小模型（可选中间层）
 

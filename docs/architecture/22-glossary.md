@@ -19,7 +19,7 @@
 | **attention（注意力）** | 事件路由：硬白名单→rules→model→Cognize 兜底。决定 Ignore/Reflex/Cognize/WakeUser |
 | **Cognize** | 路由动作：起一个情节认知处理事件 |
 | **WakeUser** | 路由动作：推用户。高风险 kind 硬白名单永不下放给模型路由 |
-| **Reflex（反射）** | 路由动作：免 LLM 执行预编 workflow。**现状 stub**（诚实墙）|
+| **Reflex（反射）** | 路由动作：免 LLM 执行显式配置的预编 tool-workflow |
 | **world（世界模型）** | 三层状态：identity（身份文件）+ commitments（承诺）+ journal（流水）。唯一真相 |
 | **commitment（承诺）** | 项目/承诺/截止/关注/例程，state=active/waiting/done/dropped |
 | **values（价值）** | 用户价值条目（confidence/provenance/state）。自主行动许可源之一，ask-once 门控 |
@@ -42,7 +42,7 @@
 | **mind（模型层）** | Provider 抽象：Claude/OpenAI、缓存协商、重试熔断、Shadow 影子脑 |
 | **gateway（组合根）** | 唯一装配点：subsystem + init_*.go 显式接线，驱动生命周期 |
 | **绞杀者（strangler）** | 重铸方法：新路径渐进取代旧 IronClaw，旧路径跑通才拆 |
-| **诚实墙** | 受真实约束无法 in-process 实现的能力（§706 行为 canary/多步 replay/Reflex executor）|
+| **诚实墙** | 受真实约束无法 in-process 实现的能力（§706 行为 canary/多步 replay/自动 reflex 转正）|
 | **§706** | 自我修改安全边界：草稿绝不自动加载/执行，确定性文件移动绝不走 LLM 情节 |
 
 ## 北极星指标（蓝图 §8）

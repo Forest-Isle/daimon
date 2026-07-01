@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	"github.com/Forest-Isle/daimon/internal/appdir"
 	"gopkg.in/yaml.v3"
@@ -77,6 +78,19 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Agent.MaxIterations <= 0 {
 		cfg.Agent.MaxIterations = 20
+	}
+	for id, reflex := range cfg.Agent.Heart.Reflexes {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("agent.heart.reflexes: reflex id must not be empty")
+		}
+		hasInline := strings.TrimSpace(reflex.Workflow) != ""
+		hasPath := strings.TrimSpace(reflex.WorkflowPath) != ""
+		if hasInline == hasPath {
+			return fmt.Errorf("agent.heart.reflexes.%s: set exactly one of workflow or workflow_path", id)
+		}
+		if reflex.TimeoutSeconds < 0 {
+			return fmt.Errorf("agent.heart.reflexes.%s.timeout_seconds must be >= 0", id)
+		}
 	}
 	if cfg.Store.Path == "" {
 		cfg.Store.Path = filepath.Join(appdir.BaseDir(), "data", appdir.DBName)

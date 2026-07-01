@@ -15,7 +15,8 @@ import (
 
 // newProposalsCmd builds the `daimon proposals` command: it lists the pending
 // anticipatory proposals the sleep cycle has queued (DAIMON_BLUEPRINT.md §4.9).
-// Read-only inspection of the queue; delivery and accept/dismiss UX land later.
+// Read-only inspection of the queue; delivery and accept/dismiss are handled by
+// proposal-capable channels at runtime.
 func newProposalsCmd() *cobra.Command {
 	var configPath string
 	var devMode bool
@@ -62,5 +63,6 @@ func newProposalsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file")
+	cmd.Flags().BoolVar(&devMode, "dev", false, "use configs/daimon.yaml in dev mode")
 	return cmd
 }

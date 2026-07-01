@@ -224,8 +224,8 @@ func newCostsCmd() *cobra.Command {
 								class, throttleReason(a), costCol, 100*a.CleanRate, a.Episodes)
 						}
 						_ = aw.Flush()
-						fmt.Println("\nNote: advisory only — no class is auto-throttled. Enforcement" +
-							" (down-routing or reduced cadence) is a separate, gated step.")
+						fmt.Println("\nNote: this table is advisory unless economy.throttle.enforce is enabled; " +
+							"enforcement only gates autonomous Cognize classes.")
 					}
 				}
 			}
@@ -233,6 +233,7 @@ func newCostsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "config file")
+	cmd.Flags().BoolVar(&devMode, "dev", false, "use configs/daimon.yaml in dev mode")
 	cmd.Flags().DurationVar(&since, "since", 30*24*time.Hour, "report window (e.g. 720h, 168h); 0 = all time")
 	return cmd
 }

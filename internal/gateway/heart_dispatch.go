@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -20,7 +21,7 @@ import (
 type eventDispatcher struct {
 	route          func(ctx context.Context, ev heart.Event) (attention.Verdict, error)
 	cognize        func(ctx context.Context, ev heart.Event)
-	reflex         func(ctx context.Context, ev heart.Event, reflexID string)
+	reflex         func(ctx context.Context, ev heart.Event, reflexID string) error
 	wake           func(ctx context.Context, ev heart.Event, v attention.Verdict)
 	brief          func(ctx context.Context)
 	health         func(ctx context.Context)
@@ -79,7 +80,13 @@ func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) string {
 	case attention.Ignore:
 		slog.Debug("heart: ignore", "source", ev.Source, "kind", ev.Kind, "reason", v.Reason)
 	case attention.Reflex:
-		d.reflex(ctx, ev, v.ReflexID)
+		if d.reflex == nil {
+			slog.Error("heart: reflex requested but executor is not wired", "kind", ev.Kind, "reflex_id", v.ReflexID)
+			break
+		}
+		if err := d.reflex(ctx, ev, v.ReflexID); err != nil {
+			slog.Error("heart: reflex failed", "kind", ev.Kind, "reflex_id", v.ReflexID, "err", err)
+		}
 	case attention.WakeUser:
 		d.wake(ctx, ev, v)
 	default: // Cognize — the deliberate default for any unclassified event.
@@ -90,7 +97,7 @@ func (d *eventDispatcher) handle(ctx context.Context, ev heart.Event) string {
 
 // newEventDispatcher wires the dispatcher branches to the live gateway: Cognize
 // fires an autonomous (channel-less) episode, WakeUser notifies the primary
-// channel, Reflex is logged (workflow/skill dispatch is a later increment).
+// channel, Reflex executes an explicitly configured deterministic workflow.
 func (gw *Gateway) newEventDispatcher() *eventDispatcher {
 	return &eventDispatcher{
 		route: gw.heart.chain.Route,
@@ -111,8 +118,16 @@ func (gw *Gateway) newEventDispatcher() *eventDispatcher {
 				slog.Error("heart: internal episode failed", "kind", ev.Kind, "err", err)
 			}
 		},
-		reflex: func(_ context.Context, ev heart.Event, reflexID string) {
-			slog.Info("heart: reflex (stub)", "kind", ev.Kind, "reflex_id", reflexID)
+		reflex: func(ctx context.Context, ev heart.Event, reflexID string) error {
+			if gw.reflexes == nil {
+				return fmt.Errorf("reflex executor unavailable")
+			}
+			run, err := gw.reflexes.Execute(ctx, reflexID, ev)
+			if err != nil {
+				return err
+			}
+			slog.Info("heart: reflex executed", "kind", ev.Kind, "reflex_id", reflexID, "workflow", run.WorkflowName, "status", run.Status)
+			return nil
 		},
 		wake:   gw.wakeUser,
 		brief:  gw.deliverDailyBrief,

@@ -145,10 +145,10 @@ f49435b fix(setup): drop single-option mode step, always write base_url
 
 需要做的:
 1. **heart 接入 gateway 生命周期**:`gateway.New` 建 `heart.Store`,注册 `TelegramSource`/`TUISource`/`TimerSource`。每个 Source 把入站消息/定时事件 emit 为 Event。
-2. **attention.Chain 作为 heart.Handler**:事件投递给 Chain→Route,根据 Verdict 路由——`Cognize`→点燃 episode,`Ignore`→跳过,`Reflex`→调 workflow/skill(先 stub),`WakeUser`→推 Notification。
+2. **attention.Chain 作为 heart.Handler**:事件投递给 Chain→Route,根据 Verdict 路由——`Cognize`→点燃 episode,`Ignore`→跳过,`Reflex`→执行 `agent.heart.reflexes[reflex_id]` 配置的 deterministic tool-workflow,`WakeUser`→推 Notification。
 3. **channel→Source 适配器**:telegram/tui 各包一层 `heart.Source` 实现(不删旧 channel 路径,绞杀器)。
 4. **handleInbound 分流**:heart 路径和旧直接路径共存(heart 路径默认关,`agent.heart_enabled` 配置开关),开关开时才走 heart→attention→episode 链。
-5. **早报 timer**:`TimerSource{Kind:"daily.report", Interval:24h}` 注册,`ReflexID:"daily_report"`→先 stub 为简单日志。
+5. **早报 timer**:`TimerSource{Kind:"internal.daily_brief", Interval:24h}` 注册后走 deterministic `deliverDailyBrief`; 自定义反射由 `ReflexID` 映射到显式 workflow。
 
 **涉及文件**:`internal/gateway/gateway.go`(heart/attention 初始化+生命周期),`internal/channel/tui/adapter.go`/`telegram/adapter.go`(Source 适配),`internal/gateway/subsystem_heart.go`(新增),`configs/daimon.example.yaml`(`agent.heart_enabled`)。
 

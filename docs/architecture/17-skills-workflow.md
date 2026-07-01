@@ -114,16 +114,21 @@ func (e *Executor) Execute(ctx, spec *Spec) (*Run, error)
 
 这是 multi-agent `workflow` 工具的编排底座（[16-channels-agent.md](16-channels-agent.md) 子代理）。
 
-## 反射弧诚实墙
+## 反射弧
 
-蓝图设想：蒸馏出的高频模式 → 注册为 reflex 规则 → attention 路由 `Reflex` 动作 → 免 LLM 执行 workflow（"反射免费"）。**现状是死胡同**：
+蓝图设想：蒸馏出的高频模式 → 注册为 reflex 规则 → attention 路由 `Reflex` 动作 → 免 LLM 执行 workflow（"反射免费"）。当前实现已闭合手工配置链路：
 
-- 无 workflow-by-id loader / registry（需从零建投机子系统）。
-- workflow agent step 仍走 LLM（违蓝图"反射免费"成本模型）。
+- `agent.heart.reflexes` 是 workflow-by-id registry；`rules.yaml` 的 `action: reflex` 必须带 `reflex_id`。
+- `heart_dispatch` 调 `reflexExecutor.Execute`，按 `reflex_id` 载入 YAML/JSON workflow。
+- reflex workflow 只执行 deterministic `type: tool` step；`type: agent` step 被拒绝，避免自治反射偷偷花 LLM。
+- 工具调用走现有权限链并标记为 `ToolChannelInternal`：只读工具可跑，写/网络/破坏性工具在无人审批场景下 fail-closed。
+
+仍未自动化的部分：
+
 - `synthesize.go` 明确不产 reflex 规则。
 - distill→reflex 自治需 §706 行为 canary。
 
-故 `heart_dispatch` 的 `Reflex` 分支是 stub（[14-gateway.md](14-gateway.md)）。详见 MEMORY 终态判定与 [00-overview.md](00-overview.md) 诚实墙小节。
+因此反射执行器已可用，但“从技能草稿自动晋升为自治 reflex 规则”仍保持人签/提案路径。
 
 ## 跨包接缝
 

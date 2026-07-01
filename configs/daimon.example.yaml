@@ -44,7 +44,8 @@ tui:
 agent:
   max_iterations: 20
   episode_enabled: true  # route inbound chat through the episode kernel; false falls back to legacy agent loop
-  # subagent_episode_enabled: false  # when true, synchronous subagents run as episodes with forced Outcome handoff and governance
+  kernel_fallback_enabled: false  # when true, failed chat episodes may re-run through the legacy loop; default keeps governance strict
+  subagent_episode_enabled: true  # synchronous subagents run as episodes with forced Outcome handoff and governance
   # Heart: the autonomous event path. When enabled, non-chat events (a timer
   # heartbeat today; mail/calendar later) flow through heart → attention router
   # → a channel-less episode. The chat reply path is unaffected. Off by default;
@@ -80,6 +81,16 @@ agent:
     # or model decision. Safe defaults (payment./security./legal./account.delete)
     # are always applied; these only widen the net, never shrink it.
     high_risk_kinds: []
+    # Explicit reflex_id -> deterministic tool-workflow mapping for attention
+    # rules with action: reflex. Reflex workflows run as internal/autonomous
+    # tool calls: read-only tools can run; writes/network/destructive tools are
+    # denied unless the governance layer is explicitly extended.
+    reflexes: {}
+    # Example:
+    # reflexes:
+    #   mail_digest:
+    #     workflow_path: "${HOME}/.daimon/reflexes/mail-digest.yaml"
+    #     timeout_seconds: 60
   # Action holds: the compensable-action recall queue. When enabled, mutating
   # HTTP calls that already passed permission/value gates are queued, can be
   # recalled for the window below, then auto-execute. Off by default; when off,
@@ -95,6 +106,7 @@ agent:
   #   - source: timer
   #     kind: internal.heartbeat
   #     action: ignore        # ignore | reflex | cognize | wake_user
+  #     reflex_id: mail_digest  # required when action: reflex
   execution:
     max_parallel_tools: 3
   # Context compression strategy (Phase 1 performance optimization)
@@ -193,8 +205,9 @@ tools:
   #   host     — run commands directly (default)
   #   seatbelt — run every command under the macOS sandbox (sandbox-exec)
   # Regardless of this default, commands triggered by a non-local source
-  # (remote/scheduled/internal/background) are ALWAYS sandboxed. On non-darwin
-  # hosts the sandbox is unavailable and falls back to host with a warning.
+  # (remote/scheduled/internal/background) are ALWAYS sandboxed; if the sandbox
+  # is unavailable they are refused. Only local seatbelt opt-in may fall back to
+  # host with a warning.
   exec:
     backend: host
   # MCP (Model Context Protocol) 工具集成

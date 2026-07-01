@@ -39,6 +39,36 @@ func TestValidateThrottleBounds(t *testing.T) {
 	}
 }
 
+func TestValidateReflexConfig(t *testing.T) {
+	base := func() *Config {
+		c := &Config{}
+		c.LLM.Provider = "claude"
+		c.LLM.APIKey = "test"
+		return c
+	}
+	cases := []struct {
+		name    string
+		reflex  ReflexConfig
+		wantErr bool
+	}{
+		{"inline workflow", ReflexConfig{Workflow: "name: x\nstages: []"}, false},
+		{"workflow path", ReflexConfig{WorkflowPath: "/tmp/reflex.yaml"}, false},
+		{"missing both", ReflexConfig{}, true},
+		{"both set", ReflexConfig{Workflow: "x", WorkflowPath: "/tmp/reflex.yaml"}, true},
+		{"negative timeout", ReflexConfig{WorkflowPath: "/tmp/reflex.yaml", TimeoutSeconds: -1}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base()
+			cfg.Agent.Heart.Reflexes = map[string]ReflexConfig{"r": tc.reflex}
+			err := validate(cfg)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validate() error = %v, wantErr = %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestCheckUnknownKeys_NoWarnings(t *testing.T) {
 	// Known keys should not trigger warnings.
 	yaml := []byte(`

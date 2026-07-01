@@ -59,7 +59,7 @@ HandleMessage(ch, msg):
   priorTranscript = session 历史
   kernelEnabled？
     是 → runKernel（走 episode 内核）
-    否 → 回退 legacy LinearLoop（绞杀残留）
+    否 → 回退 legacy LinearLoop（episode 关，或显式 kernel_fallback_enabled）
   session.Persist + 发布 SessionEnded
 ```
 
@@ -71,7 +71,7 @@ runKernel(ch, sess, msg, transcript):
   构建 CognitiveRequest{Goal:"Respond...", Persona, Rules, Memories, Invoke, ...}
   kernel.Execute(req)
   子代理（SubagentContextFromCtx）→ 暂存 LastKernelOutcome（供 Spawn 结果传播）
-  kernel 错误 / status="failed" → 回退 legacy loop
+  kernel 错误 / status="failed" → 默认 surface 失败；仅 chat 且 kernel_fallback_enabled=true 时回退 legacy loop
   否则 → handled=true，回复经 channel
 ```
 
@@ -100,7 +100,7 @@ func (m *SubAgentManager) SetEpisodeKernel(kernel, enabled)
 
 Spawn：fresh sessionID/agentID/chainID → scoped tool registry（**排除 `agent_*` 工具防递归**）→ 覆盖配置（model/persona）→ `SubagentContext` 入 ctx（AgentID/ParentID/Depth/ChainID）→ `HandleMessage(ctx, nil, task)` → 读 `LastKernelOutcome` → `SubAgentResult`。
 
-**flag 门控**：`EpisodeEnabled && cfg.Agent.SubagentEpisodeEnabled`（`gateway.go:194`）。开 → 子代理走 episode 内核（强制 Outcome 交账 + 治理 + 成本归 subagent 类 + 父子链）；关 → legacy。子代理内核运行终态（失败 surfaces summary 不回退 legacy = 无双跑/无治理绕过）。
+**flag 门控**：`EpisodeEnabled && cfg.Agent.SubagentEpisodeEnabled`（默认开）。开 → 子代理走 episode 内核（强制 Outcome 交账 + 治理 + 成本归 subagent 类 + 父子链）；关 → legacy。子代理内核运行终态（失败 surfaces summary 不回退 legacy = 无双跑/无治理绕过）。
 
 ### CognitiveOutcome 状态传播（§4.3 slice 2）
 

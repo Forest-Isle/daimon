@@ -57,10 +57,11 @@ type Gateway struct {
 	taskLedger   *taskruntime.Ledger
 	telemetry    *TelemetrySubsystem
 	heart        *HeartSubsystem // nil unless agent.heart_enabled
-	sleep        *sleep.Runner   // consolidation jobs, triggered by /sleep (and later the heart)
-	sleepRunning atomic.Bool     // gateway-level guard: manual and autonomous cycles never overlap
-	lastEventAt  atomic.Int64    // unix sec of last real (non-internal) heart activity
-	throttle     *throttleGate   // economy C2e-3: gated enforcement for autonomous Cognize classes
+	reflexes     *reflexExecutor
+	sleep        *sleep.Runner // consolidation jobs, triggered by /sleep (and later the heart)
+	sleepRunning atomic.Bool   // gateway-level guard: manual and autonomous cycles never overlap
+	lastEventAt  atomic.Int64  // unix sec of last real (non-internal) heart activity
+	throttle     *throttleGate // economy C2e-3: gated enforcement for autonomous Cognize classes
 
 	// proposals (§4.9): the anticipation loop's decision + delivery wiring.
 	proposals         *proposalCoordinator
@@ -193,9 +194,6 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	gw.memory = InitMemorySystem(featSub, cfg, builder, agentSub.Provider, gw.db, gw.toolSub.Registry)
 	gw.memory.BuildCortex()
 	builder.Memory.Cortex = gw.memory.Cortex()
-	if gw.memory.Store() != nil {
-		gw.toolSub.Registry.Register(tool.NewMemoryTool(gw.memory.Store(), gw.memory.LifecycleManager()))
-	}
 
 	gw.skills = InitSkills(featSub, cfg, gw.toolSub.Registry, builder)
 
@@ -242,6 +240,11 @@ func New(cfg *config.Config, opts ...GatewayOptions) (*Gateway, error) {
 	// handler needs gw.agent and gw.channels, so it is wired here after both exist.
 	if cfg.Agent.HeartEnabled {
 		// Invariant (heart ⇒ episode) is enforced at the top of New().
+		var reflexErr error
+		gw.reflexes, reflexErr = newReflexExecutor(cfg.Agent.Heart.Reflexes, gw.toolSub.Registry, gw.toolSub.InterceptorChain)
+		if reflexErr != nil {
+			return nil, fmt.Errorf("reflexes: %w", reflexErr)
+		}
 		gw.heart = InitHeart(cfg, gw.db, agentSub.Provider, gw.toolSub.WorldStore)
 		gw.heart.heart = heart.New(gw.heart.store, gw.newEventDispatcher().handle)
 

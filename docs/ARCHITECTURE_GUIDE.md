@@ -39,8 +39,9 @@
 | 能力 | flag | 默认 | 打开后 |
 |---|---|---|---|
 | 认知内核 | `agent.episode_enabled` | **on** | 聊天走 episode 内核（否则走 legacy loop） |
+| 内核失败回退 | `agent.kernel_fallback_enabled` | off | 聊天内核失败后才允许重跑 legacy loop |
 | 自治心跳 | `agent.heart_enabled` | off | 定时器/邮件/文件事件驱动自治 episode |
-| 子代理 episode 化 | `agent.subagent_episode_enabled` | off | 子代理也走内核，强制交账+治理 |
+| 子代理 episode 化 | `agent.subagent_episode_enabled` | **on** | 子代理也走内核，强制交账+治理 |
 | 行动 hold 队列 | `agent.action.hold_enabled` | off | 可补偿动作进延迟执行队列（带召回窗口） |
 | 自我运维看门狗 | feature `selfops` | off | 确定性健康巡检 |
 | HTTP admin server | feature `server` | off | 起 :8080 健康服务 |
@@ -217,7 +218,7 @@ flowchart TB
       B3 -->|Cognize| B4["RunInternalEpisode"]
       B3 -->|WakeUser| B5["通知 Telegram"]
       B3 -->|Ignore| B6["丢弃"]
-      B3 -->|Reflex| B7["（stub）"]
+      B3 -->|Reflex| B7["配置的 tool-workflow"]
     end
     A6 --> K["episode.Runner.Execute<br/>认知内核"]
     B4 --> K
@@ -238,7 +239,7 @@ channel(telegram/tui) 收到消息
           ├ sess.AddMessage(user 消息)
           ├ if kernel && kernelEnabled:
           │     handled, err = runKernel(...)       agent.go:187   ← 走认知内核
-          ├ if !handled:                            // 内核失败/未启用 → 回退
+          ├ if !handled:                            // 未启用，或显式 kernel_fallback_enabled 后内核失败
           │     frame = preparePromptFrame()
           │     ContextMgr.Compress()               // 上下文压缩（layered 三层）
           │     strategy.Execute()                   linear_loop.go:16  ← legacy ReAct
@@ -248,7 +249,7 @@ channel(telegram/tui) 收到消息
 
 **`runKernel`（`agent.go:187`）做了什么**：把这一轮组装成 `CognitiveRequest`（goal/persona/rules/memories/toolDefs + 一个 `Invoke` 闭包）→ 调 `kernel.Execute` → 把 `Outcome.Reply` 经 `ch.Send` 回给用户。
 
-- 内核失败或 `Status=="failed"` → 返回 `handled=false`，**回退 legacy loop**（聊天路径才回退；子代理路径是 terminal，已交账不回退，避免双跑+绕过治理）。
+- 内核失败或 `Status=="failed"` → 默认直接 surface 失败，**不回退 legacy loop**；只有 `agent.kernel_fallback_enabled: true` 时聊天路径才回退。子代理路径始终 terminal，已交账不回退，避免双跑+绕过治理。
 - `Invoke` 闭包指向 `agent.invokeTool`——这就是内核与"工具治理链"的接缝。
 
 ### 3.2 自治链（heart）详细 trace
@@ -263,7 +264,7 @@ heart 事件源 → eventDispatcher.handle              heart_dispatch.go:34
   └ v = attention.Route(ev)                                   attention.go:162
         switch v.Action:
           Ignore   → 丢
-          Reflex   → reflex stub（workflow-by-id loader 是死胡同，见第 6 章）
+          Reflex   → 配置的 deterministic tool-workflow（`heart.reflexes[reflex_id]`）
           WakeUser → gw.wakeUser → 通知 Telegram（primaryNotifier）
           Cognize  → gw.agent.RunInternalEpisode(ev.ID, goal, payload, ev.Kind)   agent.go:274
 ```
@@ -444,10 +445,10 @@ flowchart TB
 | **selfops** | `internal/selfops` | 确定性巡检：salvaged 率 / 路由漏报 / holds 积压 / 磁盘 / **错误日志聚类** → critical 唤醒用户 / warn 提案 | feature `selfops` + `health_interval_minutes` |
 | **world** | `internal/world` | journal / commitments / facts + Outcome 元数据 + FTS 检索 + `ClassifyOutcome` | 内核落账 |
 
-### 关于"死胡同"（诚实标注，避免你白找）
+### 关于剩余"诚实墙"（避免你白找）
 
 代码注释和记忆里反复出现几个**有意未实现**的点，别误以为是 bug：
-- **Reflex executor**：注意力可路由到 `Reflex`，但没有 workflow-by-id 加载器（`heart_dispatch.go:114` 是 stub）。技能是懒加载文档不是可执行单元，且没有自治 reflex 规则生产者——真死胡同。
+- **自动 reflex 规则生产**：`Reflex` 已有 workflow-by-id 执行器（配置在 `agent.heart.reflexes`），但 sleep/distill 仍不会自动把技能草稿晋升为自治反射规则。技能是懒加载文档，不是自治执行单元；自动转正仍需要 §706 行为 canary。
 - **mail/calendar 感官源**：需要 IMAP/CalDAV/SMTP 真凭证才能端到端（外部阻塞）。fs 感官源已实现（零凭证）。
 - **多步行为金丝雀**：distill 自治转正需要多步轨迹的行为级 replay 验证，但没有诚实的 dry-run 形态（§706 墙）。所以技能晋升保持"提案式人签"。
 
@@ -467,7 +468,7 @@ flowchart TB
 | **Attention（注意力）** | 路由：决定事件是 Ignore/Reflex/Cognize/WakeUser |
 | **Cognize** | "花一次完整认知 episode" |
 | **WakeUser** | 直接打断用户（通知 Telegram） |
-| **Reflex** | 跑预编译确定性处理器（目前 stub） |
+| **Reflex** | 跑显式配置的预编译确定性 tool-workflow |
 | **Value gate（价值门）** | 自治非可逆动作的许可检查：有 value 决策/trust 才放行 |
 | **Trust ledger（信任账本）** | 按"动作类×上下文"累积自治等级（ask_every→ask_first→hold_then_auto→full_auto） |
 | **可逆性三分类** | Reversible(可撤销,自由跑) / Compensable(可补偿,进 hold 队列) / Irreversible(不可逆,永人签) |

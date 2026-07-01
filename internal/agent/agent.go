@@ -181,9 +181,9 @@ func (a *Agent) HandleMessage(ctx context.Context, ch channel.Channel, msg chann
 }
 
 // runKernel routes one turn through the cognitive kernel, reusing the agent's
-// tool pipeline, memory retrieval, and session. It returns handled=false when
-// the kernel errors or reports a failed outcome, so HandleMessage falls back to
-// the legacy loop.
+// tool pipeline, memory retrieval, and session. Chat falls back to the legacy
+// loop only when agent.kernel_fallback_enabled is explicitly true; otherwise a
+// kernel failure is surfaced without re-running outside episode governance.
 func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session.Session, msg channel.InboundMessage, priorTranscript []mind.CompletionMessage) (bool, error) {
 	target := channel.MessageTarget{Channel: msg.Channel, ChannelID: msg.ChannelID}
 	transcript := append(priorTranscript, mind.CompletionMessage{Role: "user", Content: msg.Text})
@@ -223,6 +223,7 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 		oc := outcome
 		a.lastKernelOutcome = &oc
 	}
+	var strictErr error
 	if kerr != nil || outcome.Status == "failed" {
 		// Sub-agent episodes are terminal: the episode already 交账'd (failEpisode
 		// wrote the journal outcome). Falling back to the legacy loop would double-run
@@ -235,9 +236,21 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 			}
 			// fall through: a 交账'd failed outcome surfaces its summary as the result
 		} else {
-			slog.Warn("agent: cognitive kernel failed; falling back to legacy loop",
+			if a.deps.Core.Cfg.KernelFallbackEnabled {
+				slog.Warn("agent: cognitive kernel failed; falling back to legacy loop",
+					"session", sess.ID, "err", kerr, "status", outcome.Status)
+				return false, nil
+			}
+			slog.Warn("agent: cognitive kernel failed; legacy fallback disabled",
 				"session", sess.ID, "err", kerr, "status", outcome.Status)
-			return false, nil
+			if kerr != nil {
+				strictErr = kerr
+			} else {
+				strictErr = fmt.Errorf("cognitive kernel outcome failed")
+			}
+			if outcome.Reply == "" && outcome.Summary == "" {
+				outcome.Summary = "I couldn't complete this turn through the governed episode kernel."
+			}
 		}
 	}
 
@@ -256,7 +269,7 @@ func (a *Agent) runKernel(ctx context.Context, ch channel.Channel, sess *session
 			slog.Warn("agent: kernel reply send failed", "session", sess.ID, "err", sendErr)
 		}
 	}
-	return true, nil
+	return true, strictErr
 }
 
 // RunInternalEpisode fires a cognitive episode for an autonomous, non-chat

@@ -82,7 +82,7 @@ handle(ev):
   非 internal.*          → recordActivity()（更新 lastEventAt，idle 检测）
   route(ev) → Verdict（错误 → 兜底 Cognize）
   Ignore   → 跳过
-  Reflex   → reflex(stub，workflow 后续增量)
+  Reflex   → 配置的 deterministic tool-workflow（`agent.heart.reflexes[reflex_id]`）
   WakeUser → wakeUser(primary channel 通知)
   Cognize  → throttle 检查 → RunInternalEpisode(ev.ID, goalForEvent(ev), ev.Payload, ev.Kind)
 ```

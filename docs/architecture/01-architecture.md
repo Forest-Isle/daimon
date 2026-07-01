@@ -112,7 +112,7 @@ TUI/Telegram inbound ─▶ gateway.handleInbound（gateway.go:432）
        ├─ session.Get/Create + AddMessage(user)
        ├─ if kernelEnabled: runKernel（走 episode 内核）
        │     └─ 组装 CognitiveRequest → EpisodeRunner.Execute → 回复经 channel
-       └─ else: 回退 legacy LinearLoop（绞杀残留，flag 关时）
+       └─ else: 回退 legacy LinearLoop（episode 关，或显式 kernel_fallback_enabled）
 ```
 
 聊天事件默认应当被 `Cognize`（人在等回复），所以聊天走 `HandleMessage` 直连内核，不经 attention 路由（attention 是为非交互事件做成本过滤的）。
@@ -124,7 +124,7 @@ heart.Source（mail/fs/timer/followup）─emit─▶ heart.process
   ├─ Persist（先落库，INSERT OR IGNORE 去重）
   ├─ deliver ─▶ attention.Chain.Route        硬白名单 → rules → 小模型 → Cognize 兜底
   │     ├─ Ignore     丢弃
-  │     ├─ Reflex     调 skill/workflow（确定性，后续增量）
+  │     ├─ Reflex     调显式配置的 deterministic tool-workflow
   │     ├─ WakeUser   推 primary channel 通知用户
   │     └─ Cognize    agent.RunInternalEpisode(eventID, goal, trigger, kind)
   │           └─ EpisodeRunner.Execute（同内核，但 channel=nil → 需审批的工具被拒）

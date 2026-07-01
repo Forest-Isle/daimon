@@ -56,8 +56,9 @@ type CognitiveRequest struct {
 }
 
 // CognitiveOutcome is what the kernel returns. Reply is the user-facing text;
-// Summary is the durable journal record. Status "failed" tells HandleMessage to
-// fall back to the legacy path.
+// Summary is the durable journal record. Status "failed" marks the governed
+// turn failed; only an explicit legacy-fallback config may re-run chat outside
+// the kernel.
 type CognitiveOutcome struct {
 	Status  string
 	Reply   string
