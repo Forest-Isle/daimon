@@ -1,3 +1,5 @@
+
+
 # Daimon
 
 **A durable agent with a replaceable mind.** Daimon is a local-first, single-user runtime for sovereign personal agents, written in Go.
@@ -111,6 +113,7 @@ make build-bin
 make vet
 make test-short
 make test        # full CGO + fts5 + race suite
+make eval-gate
 ```
 
 ## CLI
